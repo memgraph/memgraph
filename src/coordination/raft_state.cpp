@@ -166,8 +166,6 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::IsHealthy() const -> bool { return state_machine_.IsHealthy(); }
-
 auto RaftState::AppendOpenLockRegister(CoordinatorToReplicaConfig const &config) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeOpenLockRegister(config);
   auto const res = raft_server_->append_entries({new_log});
@@ -324,8 +322,29 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
   return true;
 }
 
-auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateUUID(uuid);
+auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_name, const utils::UUID &current_uuid)
+    -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for demoting instance {}. Most likely the reason is that the instance is not "
+        "the leader.",
+        instance_name);
+    return false;
+  }
+  spdlog::info("Request for demoting instance {} accepted", instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to promote instance {} with error code {}", instance_name, res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error(
@@ -333,7 +352,7 @@ auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
         "the leader.");
     return false;
   }
-  spdlog::info("Request for updating UUID accepted");
+  spdlog::trace("Request for updating UUID accepted");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update UUID with error code {}", int(res->get_result_code()));
@@ -365,23 +384,53 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
   return true;
 }
 
+auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, const utils::UUID &uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForInstance(
+      {.instance_name = std::string{instance_name}, .uuid = uuid});
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request for updating UUID of instance.");
+    return false;
+  }
+  spdlog::trace("Request for updating UUID of instance accepted");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to update UUID of instance with error code {}", res->get_result_code());
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
 
-auto RaftState::IsMain(std::string_view instance_name) const -> bool { return state_machine_->IsMain(instance_name); }
+auto RaftState::HasMainState(std::string_view instance_name) const -> bool {
+  return state_machine_->HasMainState(instance_name);
+}
 
-auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
-  return state_machine_->IsReplica(instance_name);
+auto RaftState::HasReplicaState(std::string_view instance_name) const -> bool {
+  return state_machine_->HasReplicaState(instance_name);
 }
 
 auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
   return state_machine_->GetReplicationInstances();
 }
 
+auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
+
+auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
+  return state_machine_->IsCurrentMain(instance_name);
+}
+
+auto RaftState::IsHealthy() const -> bool { return state_machine_->IsHealthy(); }
+
+auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
+  return state_machine_->GetInstanceUUID(instance_name);
+}
+
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   return state_machine_->GetCoordinatorInstances();
 }
-
-auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }
 
 }  // namespace memgraph::coordination
 #endif

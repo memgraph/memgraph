@@ -42,11 +42,6 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override = default;
 
-  // TODO: (andi) Check API of this class.
-  auto MainExists() const -> bool;
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
-
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
   static auto SerializeOpenLockRegister(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeOpenLockUnregister(std::string_view instance_name) -> ptr<buffer>;
@@ -58,7 +53,6 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
   static auto SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change) -> ptr<buffer>;
-  static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
@@ -91,7 +85,13 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-  auto GetMainUUID() const -> utils::UUID;
+  // Getters
+  auto MainExists() const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
+
+  auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
   auto IsHealthy() const -> bool;
 

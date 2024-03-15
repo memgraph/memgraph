@@ -26,7 +26,8 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  UNHEALTHY_STATE
+  UNHEALTHY_STATE,
+  OPEN_LOCK
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
@@ -37,7 +38,8 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   SUCCESS,
-  UNHEALTHY_STATE
+  UNHEALTHY_STATE,
+  OPEN_LOCK
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
@@ -49,7 +51,8 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   COULD_NOT_PROMOTE_TO_MAIN,
   SWAP_UUID_FAILED,
   SUCCESS,
-  UNHEALTHY_STATE
+  UNHEALTHY_STATE,
+  OPEN_LOCK
 };
 
 }  // namespace memgraph::coordination

@@ -35,6 +35,12 @@ using replication_coordination_glue::ReplicationRole;
 struct ReplicationInstanceState {
   CoordinatorToReplicaConfig config;
   ReplicationRole status;
+  // for replica this is main uuid of current main
+  // for "main" main this same as in CoordinatorData
+
+  // when replica is down and comes back up we reset uuid of main replica is listening to
+  // so we need to send swap uuid again
+  // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
@@ -75,9 +81,11 @@ class CoordinatorClusterState {
 
   auto MainExists() const -> bool;
 
-  auto IsMain(std::string_view instance_name) const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
 
-  auto IsReplica(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto InsertInstance(std::string instance_name, ReplicationInstanceState instance_state) -> void;
 
@@ -89,7 +97,9 @@ class CoordinatorClusterState {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
-  auto GetMainUUID() const -> utils::UUID;
+  auto GetCurrentMainUUID() const -> utils::UUID;
+
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto IsHealthy() const -> bool;
 
@@ -99,7 +109,7 @@ class CoordinatorClusterState {
  private:
   std::vector<CoordinatorInstanceState> coordinators_{};
   std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
-  utils::UUID uuid_{};
+  utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
   bool unhealthy_state_{false};
 };

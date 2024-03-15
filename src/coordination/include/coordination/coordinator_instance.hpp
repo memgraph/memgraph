@@ -62,6 +62,10 @@ class CoordinatorInstance {
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
+  auto HasMainState(std::string_view instance_name) const -> bool;
+
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+
  private:
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
@@ -75,9 +79,6 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
-
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
@@ -85,7 +86,8 @@ class CoordinatorInstance {
   RaftState raft_state_;
 
   utils::ThreadPool thread_pool_{1};
-  bool unhealthy_state_{false};
+
+  // When instance is becoming follower, we need to stop frequent checks as soon as possible
   bool is_shutting_down_{false};
 };
 

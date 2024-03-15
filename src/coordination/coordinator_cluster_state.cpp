@@ -58,16 +58,23 @@ auto CoordinatorClusterState::MainExists() const -> bool {
                              [](auto const &entry) { return entry.second.status == ReplicationRole::MAIN; });
 }
 
-auto CoordinatorClusterState::IsMain(std::string_view instance_name) const -> bool {
+auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{log_lock_};
   auto const it = repl_instances_.find(instance_name);
   return it != repl_instances_.end() && it->second.status == ReplicationRole::MAIN;
 }
 
-auto CoordinatorClusterState::IsReplica(std::string_view instance_name) const -> bool {
+auto CoordinatorClusterState::HasReplicaState(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{log_lock_};
   auto const it = repl_instances_.find(instance_name);
   return it != repl_instances_.end() && it->second.status == ReplicationRole::REPLICA;
+}
+
+auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) const -> bool {
+  auto lock = std::shared_lock{log_lock_};
+  auto const it = repl_instances_.find(instance_name);
+  return it != repl_instances_.end() && it->second.status == ReplicationRole::MAIN &&
+         it->second.instance_uuid == current_main_uuid_;
 }
 
 auto CoordinatorClusterState::InsertInstance(std::string instance_name, ReplicationInstanceState instance_state)
@@ -79,19 +86,21 @@ auto CoordinatorClusterState::InsertInstance(std::string instance_name, Replicat
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {
+      // end of OPEN_LOCK_REGISTER_REPLICATION_INSTANCE
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
       auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
       repl_instances_[config.instance_name] = ReplicationInstanceState{config, ReplicationRole::REPLICA};
       unhealthy_state_ = false;
       break;
     }
+      // end of OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
       repl_instances_.erase(instance_name);
       unhealthy_state_ = false;
       break;
     }
-      // failover and promote to main
+      // end of OPEN_LOCK_SET_INSTANCE_AS_MAIN and OPEN_LOCK_FAILOVER
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
       auto const instance_name = std::get<std::string>(log_entry);
       auto it = repl_instances_.find(instance_name);
@@ -100,15 +109,17 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       unhealthy_state_ = false;
       break;
     }
+      // end of OPEN_LOCK_SET_INSTANCE_AS_REPLICA
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
       auto const instance_name = std::get<std::string>(log_entry);
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::REPLICA;
+      unhealthy_state_ = false;
       break;
     }
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN: {
-      uuid_ = std::get<utils::UUID>(log_entry);
+      current_main_uuid_ = std::get<utils::UUID>(log_entry);
       break;
     }
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE: {
@@ -139,6 +150,10 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       unhealthy_state_ = true;
       // TODO(antoniofilipovic) save what we are doing
     }
+    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
+      unhealthy_state_ = true;
+      // TODO(antoniofilipovic) save what we need to undo
+    }
   }
 }
 
@@ -165,9 +180,14 @@ auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<Rep
   return repl_instances_ | ranges::views::values | ranges::to<std::vector<ReplicationInstanceState>>;
 }
 
-auto CoordinatorClusterState::GetMainUUID() const -> utils::UUID { return uuid_; }
+auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }
 
-auto CoordinatorClusterState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID { return uuid_; }
+auto CoordinatorClusterState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
+  auto lock = std::shared_lock{log_lock_};
+  auto const it = repl_instances_.find(instance_name);
+  MG_ASSERT(it != repl_instances_.end(), "Instance with that name doesn't exist.");
+  return it->second.instance_uuid;
+}
 
 auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   auto lock = std::shared_lock{log_lock_};

@@ -22,12 +22,12 @@ namespace memgraph::coordination {
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
-auto CoordinatorStateMachine::IsMain(std::string_view instance_name) const -> bool {
-  return cluster_state_.IsMain(instance_name);
+auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const -> bool {
+  return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::IsReplica(std::string_view instance_name) const -> bool {
-  return cluster_state_.IsReplica(instance_name);
+auto CoordinatorStateMachine::HasReplicaState(std::string_view instance_name) const -> bool {
+  return cluster_state_.HasReplicaState(instance_name);
 }
 
 auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
@@ -250,15 +250,19 @@ auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<Rep
   return cluster_state_.GetReplicationInstances();
 }
 
+auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }
+
+auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) const -> bool {
+  return cluster_state_.IsCurrentMain(instance_name);
+}
 auto CoordinatorStateMachine::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   return cluster_state_.GetCoordinatorInstances();
 }
 
-auto CoordinatorStateMachine::GetMainUUID() const -> utils::UUID { return cluster_state_.GetMainUUID(); }
-
 auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  throw std::runtime_error("not implemented");
+  return cluster_state_.GetInstanceUUID(instance_name);
 }
+
 
 auto CoordinatorStateMachine::IsHealthy() const -> bool { return cluster_state_.IsHealthy(); }
 
