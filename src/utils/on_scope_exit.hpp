@@ -35,7 +35,7 @@ namespace memgraph::utils {
  *     // long block of code, might throw an exception
  * }
  */
-template <typename Callable>
+template <std::invocable Callable>
 class [[nodiscard]] OnScopeExit {
  public:
   template <typename U>
@@ -46,7 +46,7 @@ class [[nodiscard]] OnScopeExit {
   OnScopeExit &operator=(OnScopeExit const &) = delete;
   OnScopeExit &operator=(OnScopeExit &&) = delete;
   ~OnScopeExit() {
-    if (doCall_) function_();
+    if (doCall_) std::invoke(std::move(function_));
   }
 
   void Disable() { doCall_ = false; }
@@ -57,5 +57,4 @@ class [[nodiscard]] OnScopeExit {
 };
 template <typename Callable>
 OnScopeExit(Callable &&) -> OnScopeExit<Callable>;
-
 }  // namespace memgraph::utils
