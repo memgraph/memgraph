@@ -354,6 +354,33 @@ package_memgraph() {
   docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
+package_docker() {
+  if [[ "$toolchain_version" == "v4" ]]; then
+    if [[ "$os" != "debian-11" || "$os" != "debian-11-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
+      exit 1
+    fi
+  else
+    if [[ "$os" != "debian-12" || "$os" != "debian-12-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
+      exit 1
+    fi
+  fi
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  # shellcheck disable=SC2012
+  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local docker_build_folder="$PROJECT_ROOT/release/docker"
+  cd "$docker_build_folder"
+  ./package_docker --latest "$package_dir/$last_package_name" $toolchain_version
+  # shellcheck disable=SC2012
+  local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
+  local docker_host_folder="$PROJECT_ROOT/build/output/docker-${toolchain_version}"
+  local docker_host_image_path="$docker_host_folder/$docker_image_name"
+  mkdir -p "$docker_host_folder"
+  cp "$docker_build_folder/$docker_image_name" "$docker_host_image_path"
+  echo "Docker images saved to $docker_host_image_path."
+}
+
 copy_memgraph() {
   local build_container="mgbuild_${toolchain_version}_${os}"
   case "$1" in
@@ -659,6 +686,9 @@ case $command in
     ;;
     copy)
       copy_memgraph $@
+    ;;
+    docker)
+      package_docker
     ;;
     *)
         echo "Error: Unknown command '$command'"

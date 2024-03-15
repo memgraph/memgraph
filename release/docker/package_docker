@@ -13,17 +13,35 @@ working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 latest_image=""
 tag_latest=""
-if [[ $# -eq 2 && "$1" == "--latest" ]]; then
-  latest_image="memgraph:latest"
-  tag_latest="-t memgraph:latest"
-  shift
-elif [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
-  print_help
-  exit 1
-fi
+toolchain_version="v5"
+package_path=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --latest)
+        latest_image="memgraph:latest"
+        tag_latest="-t memgraph:latest"
+        shift
+    ;;
+    --package-path)
+        package_path=$2
+        shift 2
+    ;;
+    --toolchain)
+        toolchain_version=$2
+        shift 2
+    ;;
+    -h|--help)
+        print_help
+        exit 0
+    ;;
+    *)
+        echo -e "Error: Unknown option '$1'"
+        exit 1
+    ;;
+  esac
+done
 
-package_path="$1"
-if [[ ! -f "$package_path" ]]; then
+if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
 fi
