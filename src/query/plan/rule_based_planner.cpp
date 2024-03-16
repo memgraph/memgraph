@@ -19,6 +19,7 @@
 #include <unordered_set>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/algorithm.hpp"
@@ -43,8 +44,7 @@ namespace {
 class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table, const std::unordered_set<Symbol> &bound_symbols,
-                    AstStorage &storage, std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops,
-                    Where *where = nullptr)
+                    AstStorage &storage, PatternComprehensionDataMap &pc_ops, Where *where = nullptr)
       : body_(body), symbol_table_(symbol_table), bound_symbols_(bound_symbols), storage_(storage), where_(where) {
     // Collect symbols from named expressions.
     output_symbols_.reserve(body_.named_expressions.size());
@@ -57,9 +57,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       output_symbols_.emplace_back(symbol_table_.at(*named_expr));
       named_expr->Accept(*this);
       named_expressions_.emplace_back(named_expr);
-      if (pattern_comprehension_) {
+
+      // Pattern comprehension can be filled during named expression traversion
+      if (has_pattern_comprehension()) {
         if (auto it = pc_ops.find(named_expr->name_); it != pc_ops.end()) {
-          pattern_comprehension_op_ = std::move(it->second);
+          pattern_comprehension_data_.op = std::move(it->second.op);
           pc_ops.erase(it);
         } else {
           throw utils::NotYetImplemented("Operation on top of pattern comprehension");
@@ -399,18 +401,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(PatternComprehension & /*unused*/) override {
-    pattern_compression_aggregations_start_index_ = has_aggregation_.size();
+    aggregations_start_index_ = has_aggregation_.size();
     return true;
   }
 
   bool PostVisit(PatternComprehension &pattern_comprehension) override {
     bool has_aggr = false;
-    for (auto i = has_aggregation_.size(); i > pattern_compression_aggregations_start_index_; --i) {
+    for (auto i = has_aggregation_.size(); i > aggregations_start_index_; --i) {
       has_aggr |= has_aggregation_.back();
       has_aggregation_.pop_back();
     }
     has_aggregation_.emplace_back(has_aggr);
-    pattern_comprehension_ = &pattern_comprehension;
+    pattern_comprehension_data_.pattern_comprehension = &pattern_comprehension;
+    pattern_comprehension_data_.result_symbol = symbol_table_.at(pattern_comprehension);
     return true;
   }
 
@@ -468,9 +471,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  const auto *pattern_comprehension() const { return pattern_comprehension_; }
+  const bool has_pattern_comprehension() const { return pattern_comprehension_data_.pattern_comprehension != nullptr; }
 
-  std::shared_ptr<LogicalOperator> pattern_comprehension_op() const { return pattern_comprehension_op_; }
+  const PatternComprehensionData pattern_comprehension_data() const { return pattern_comprehension_data_; }
+
+  const SymbolTable &symbol_table() const { return symbol_table_; }
 
  private:
   const ReturnBody &body_;
@@ -493,9 +498,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   //                      group by it.
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
-  PatternComprehension *pattern_comprehension_ = nullptr;
-  std::shared_ptr<LogicalOperator> pattern_comprehension_op_;
-  size_t pattern_compression_aggregations_start_index_ = 0;
+  PatternComprehensionData pattern_comprehension_data_;
+  size_t aggregations_start_index_ = 0;
 };
 
 std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> input_op, bool advance_command,
@@ -514,8 +518,11 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     last_op = std::make_unique<Aggregate>(std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
 
-  if (body.pattern_comprehension()) {
-    last_op = std::make_unique<RollUpApply>(std::move(last_op), body.pattern_comprehension_op());
+  if (body.has_pattern_comprehension()) {
+    auto list_collection_data = body.pattern_comprehension_data();
+    auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+    last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
+                                            list_collection_symbols, list_collection_data.result_symbol);
   }
 
   last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
@@ -580,9 +587,9 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
   return filter_expr;
 }
 
-std::unordered_set<Symbol> GetSubqueryBoundSymbols(
-    const std::vector<SingleQueryPart> &single_query_parts, SymbolTable &symbol_table, AstStorage &storage,
-    std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops) {
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage,
+                                                   PatternComprehensionDataMap &pc_ops) {
   const auto &query = single_query_parts[0];
 
   if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
@@ -622,7 +629,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops) {
+                                           PatternComprehensionDataMap &pc_ops) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -638,7 +645,7 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops) {
+                                         PatternComprehensionDataMap &pc_ops) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to

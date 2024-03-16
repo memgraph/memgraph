@@ -702,6 +702,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
+  matching.result_symbol = symbol_table_.at(op);
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 }

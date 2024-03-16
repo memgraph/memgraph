@@ -138,6 +138,7 @@ extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
 extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
+extern const Event RollUpApplyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -5741,16 +5742,15 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
-RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
-                         std::shared_ptr<LogicalOperator> &&second_branch)
-    : input_(input), list_collection_branch_(second_branch) {}
+RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &&input,
+                         std::shared_ptr<LogicalOperator> &&list_collection_branch,
+                         const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
+    : input_(input),
+      list_collection_branch_(list_collection_branch),
+      list_collection_symbols_(list_collection_symbols),
+      result_symbol_(result_symbol) {}
 
-std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
-  std::vector<Symbol> symbols;
-  return symbols;
-}
-
-std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return {result_symbol_}; }
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -5760,6 +5760,70 @@ bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+namespace {
+
+class RollUpApplyCursor : public Cursor {
+ public:
+  RollUpApplyCursor(const RollUpApply &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem)) {
+    MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
+    MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
+    MG_ASSERT(self_.list_collection_symbols_.size() == 1U, "Expected a single list collection symbol.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    auto clear_frame_change_collector = [&context](const auto &symbols) {
+      for (const auto &symbol : symbols) {
+        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        }
+      }
+    };
+
+    TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+    if (input_cursor_->Pull(frame, context)) {
+      while (list_collection_cursor_->Pull(frame, context)) {
+        // collect values from the list collection branch
+        for (const auto &output_symbol : self_.list_collection_symbols_) {
+          result.ValueList().emplace_back(frame[output_symbol]);
+        }
+      }
+      clear_frame_change_collector(self_.list_collection_symbols_);
+      frame[self_.result_symbol_] = result;
+    } else {
+      return false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    list_collection_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    list_collection_cursor_->Reset();
+  }
+
+ private:
+  const RollUpApply &self_;
+  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr list_collection_cursor_;
+};
+}  // namespace
+
+UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
+  return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan

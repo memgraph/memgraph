@@ -503,6 +503,7 @@ inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<Filter
 struct PatternComprehensionMatching : Matching {
   /// Pattern comprehension result named expression
   NamedExpression *result_expr = nullptr;
+  Symbol result_symbol;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on

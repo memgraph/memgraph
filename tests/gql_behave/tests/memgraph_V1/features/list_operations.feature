@@ -287,10 +287,20 @@ Feature: List operators
             MATCH (keanu:Person {name: 'Keanu Reeves'})
             RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
             """
-        Then an error should be raised
-#        Then the result should be:
-#            | years                 |
-#            | [2021,2003,2003,1999] |
+        Then the result should be:
+            | years                    |
+            | [2003, 2003, 1999, 2021] |
+
+    Scenario: List pattern comprehension and property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years, keanu.name
+            """
+        Then the result should be:
+            | years                    | keanu.name     |
+            | [2003, 2003, 1999, 2021] | "Keanu Reeves" |
 
      Scenario: Multiple entries with list pattern comprehension
         Given graph "graph_keanu"
@@ -299,7 +309,11 @@ Feature: List operators
             MATCH (n:Person)
             RETURN n.name, [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
             """
-        Then an error should be raised
+        Then the result should be:
+            | n.name               | years                    |
+            | "Keanu Reeves"       | [2003, 2003, 1999, 2021] |
+            | "Carrie-Anne Moss"   | [2003,1999]              |
+            | "Laurence Fishburne" | [1999]                   |
 
      Scenario: Multiple list pattern comprehensions in Return
         Given graph "graph_keanu"
