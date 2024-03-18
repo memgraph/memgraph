@@ -147,7 +147,6 @@ TEST_F(RoutingTableTest, GetMixedRoutingTable) {
       .replication_client_info = ReplicationClientInfo{.instance_name = "instance2",
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}});
-  instance1.GetAllCoordinators();
   // auto routing_table = instance1.GetRoutingTable(routing);
 
   // ASSERT_EQ(routing_table.size(), 1);
@@ -158,7 +157,7 @@ TEST_F(RoutingTableTest, GetMixedRoutingTable) {
 // TEST_F(RoutingTableTest, GetMultipleRoutersRoutingTable) {
 //
 //   CoordinatorInstance instance1;
-//   instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{.coordinator_server_id = 1,
+//   instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{.coordinator_id = 1,
 //                                                                   .bolt_server = Endpoint{"127.0.0.1", 7689},
 //                                                                   .coordinator_server = Endpoint{"127.0.0.1",
 //                                                                   10111}});

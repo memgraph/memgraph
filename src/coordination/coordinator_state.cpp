@@ -24,14 +24,16 @@
 
 namespace memgraph::coordination {
 
-CoordinatorState::CoordinatorState(InstanceInitConfig const &config) {
-  if (std::holds_alternative<ReplicationInstanceInitConfig>(config.data_)) {
-    auto const mgmt_config = ManagementServerConfig{
-        .ip_address = kDefaultReplicationServerIp,
-        .port = static_cast<uint16_t>(std::get<ReplicationInstanceInitConfig>(config.data_).management_port),
-    };
-    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
-  }
+CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) {
+  data_.emplace<CoordinatorInstance>(config);
+}
+
+CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
+  auto const mgmt_config = ManagementServerConfig{
+      .ip_address = kDefaultReplicationServerIp,
+      .port = static_cast<uint16_t>(config.management_port),
+  };
+  data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)

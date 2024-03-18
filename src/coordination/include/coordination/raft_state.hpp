@@ -40,8 +40,8 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  private:
-  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t coordinator_id,
-                     uint32_t raft_port, std::string raft_address);
+  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb);
 
   auto InitRaftServer() -> void;
 
@@ -53,13 +53,13 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState;
+  static auto MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
+                            BecomeFollowerCb &&become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
-  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
@@ -68,6 +68,7 @@ class RaftState {
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
+
   auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendOpenLock() -> bool;
@@ -76,7 +77,6 @@ class RaftState {
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-  // TODO: (andi) Do we need then GetAllCoordinators?
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
   auto MainExists() const -> bool;

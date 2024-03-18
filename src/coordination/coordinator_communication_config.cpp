@@ -16,13 +16,13 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
-  j = nlohmann::json{{"coordinator_server_id", config.coordinator_server_id},
+  j = nlohmann::json{{"coordinator_id", config.coordinator_id},
                      {"coordinator_server", config.coordinator_server},
                      {"bolt_server", config.bolt_server}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config) {
-  config.coordinator_server_id = j.at("coordinator_server_id").get<uint32_t>();
+  config.coordinator_id = j.at("coordinator_id").get<uint32_t>();
   config.coordinator_server = j.at("coordinator_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
 }
