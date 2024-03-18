@@ -27,7 +27,10 @@ PDS::PDS(std::filesystem::path root)
     : kvstore_{root / "pds", std::invoke([]() {
                  rocksdb::Options options;
                  rocksdb::BlockBasedTableOptions table_options;
-                 table_options.block_cache = rocksdb::NewLRUCache(128 * 1024 * 1024);
+                 options.write_buffer_size = 1024U << 20U;
+                 options.writable_file_max_buffer_size = 64 * 1024 * 1024;
+
+                 table_options.block_cache = rocksdb::NewLRUCache(1024 * 1024 * 1024);
                  table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(sizeof(storage::Gid)));
                  table_options.optimize_filters_for_memory = false;
                  table_options.enable_index_compression = false;
