@@ -86,7 +86,7 @@ jobs:
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
-          package-memgraph
+          package-docker
 
       - name: "Copy package"
         run: |

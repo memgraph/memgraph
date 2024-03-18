@@ -67,6 +67,7 @@ print_help () {
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
   echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker                Create memgraph docker image and pack it as .tar.gz"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                 Run mgbuild container"
@@ -357,12 +358,12 @@ package_memgraph() {
 
 package_docker() {
   if [[ "$toolchain_version" == "v4" ]]; then
-    if [[ "$os" != "debian-11" || "$os" != "debian-11-arm" ]]; then
+    if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
       echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
       exit 1
     fi
   else
-    if [[ "$os" != "debian-12" || "$os" != "debian-12-arm" ]]; then
+    if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
       echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
       exit 1
     fi
@@ -689,7 +690,7 @@ case $command in
     copy)
       copy_memgraph $@
     ;;
-    docker)
+    package-docker)
       package_docker
     ;;
     *)
