@@ -94,7 +94,7 @@ else
     if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
       python3 -m pip uninstall -y virtualenv
     fi
-    python3 -m pip install virtualenv
+    python3 -m pip install --user virtualenv
   fi
 fi
 
