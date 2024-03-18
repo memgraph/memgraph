@@ -87,9 +87,9 @@ check() {
             continue
         fi
         if [ "$pkg" == dotnet-sdk-8.0  ]; then
-            if ! /root/.dotnet/dotnet --list-sdks | grep -q "8\.0."; then
-              missing="$pkg $missing"
-            fi
+            # if ! /root/.dotnet/dotnet --list-sdks | grep -q "8\.0."; then
+              # missing="$pkg $missing"
+            # fi
             continue
         fi
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
