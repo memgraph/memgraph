@@ -16,6 +16,7 @@
 #include <tuple>
 
 #include "storage/v2/delta.hpp"
+#include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -28,9 +29,11 @@
 namespace memgraph::storage {
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
-                                                 bool for_deleted) {
-  // TODO Take the view as well and determine if the
-  // constructs are visible or not. Checkout VertexAccessor.
+                                                 View view, bool for_deleted) {
+  if (!IsEdgeVisible(edge.ptr, transaction, view)) {
+    return std::nullopt;
+  }
+
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage, transaction, for_deleted);
 }
 

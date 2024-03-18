@@ -1475,7 +1475,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
 
     auto &edge_info = *maybe_edge_info;
     return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
-                                std::get<3>(edge_info), storage_, &transaction_);
+                                std::get<3>(edge_info), storage_, &transaction_, view);
   }
 
   // If metadata on edges is not enables we will have to do
@@ -1495,7 +1495,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto &edge_info = *maybe_edge_info;
 
   return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
-                              std::get<3>(edge_info), storage_, &transaction_);
+                              std::get<3>(edge_info), storage_, &transaction_, view);
 }
 
 Transaction InMemoryStorage::CreateTransaction(
