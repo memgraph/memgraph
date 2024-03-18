@@ -86,7 +86,7 @@ jobs:
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
-          package
+          package-memgraph
 
       - name: "Copy package"
         run: |
