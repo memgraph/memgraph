@@ -240,7 +240,7 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto const new_main_instance_name = new_main->InstanceName();
 
-  if (!raft_state_.AppendSetInstanceAsMainLog(new_main_instance_name)) {
+  if (!raft_state_.AppendSetInstanceAsMainLog(new_main_instance_name, new_main_uuid)) {
     return;
   }
 
@@ -311,12 +311,11 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
                                &CoordinatorInstance::MainFailCallback)) {
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
-
   if (!raft_state_.AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  if (!raft_state_.AppendSetInstanceAsMainLog(instance_name)) {
+  if (!raft_state_.AppendSetInstanceAsMainLog(instance_name, new_main_uuid)) {
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
 

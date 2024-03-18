@@ -89,7 +89,7 @@ struct ManagementServerConfig {
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
-struct InstanceUUIDChange {
+struct InstanceUUIDUpdate {
   std::string instance_name;
   memgraph::utils::UUID uuid;
 };
@@ -103,8 +103,8 @@ void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
 
-void to_json(nlohmann::json &j, InstanceUUIDChange const &config);
-void from_json(nlohmann::json const &j, InstanceUUIDChange &config);
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &config);
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &config);
 
 }  // namespace memgraph::coordination
 #endif

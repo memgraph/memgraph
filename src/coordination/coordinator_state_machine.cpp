@@ -63,8 +63,9 @@ auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view insta
   return CreateLog({{"action", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE}, {"info", instance_name}});
 }
 
-auto CoordinatorStateMachine::SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_name}});
+auto CoordinatorStateMachine::SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change)
+    -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_uuid_change}});
 }
 
 auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
@@ -75,7 +76,7 @@ auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &u
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
 }
 
-auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change)
+auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change)
     -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
@@ -100,15 +101,12 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
       return {info.get<CoordinatorToReplicaConfig>(), action};
     }
-    case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
+    case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE:
       [[fallthrough]];
-    }
-    case RaftLogAction::OPEN_LOCK_FAILOVER: {
+    case RaftLogAction::OPEN_LOCK_FAILOVER:
       [[fallthrough]];
-    }
-    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
-      return {info.get<std::string>(), action};
-    }
+    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN:
+      [[fallthrough]];
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
       return {info.get<std::string>(), action};
     }
@@ -117,9 +115,9 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
       return {info.get<utils::UUID>(), action};
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
-      return {info.get<InstanceUUIDChange>(), action};
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
+      return {info.get<InstanceUUIDUpdate>(), action};
+    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
       return {info.get<std::string>(), action};

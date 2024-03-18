@@ -49,10 +49,10 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeOpenLockFailover(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
-  static auto SerializeUpdateUUIDForInstance(InstanceUUIDChange const &instance_uuid_change) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
   static auto SerializeOpenLockSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
 

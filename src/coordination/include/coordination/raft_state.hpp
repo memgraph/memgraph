@@ -66,7 +66,7 @@ class RaftState {
 
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
-  auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
   auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;

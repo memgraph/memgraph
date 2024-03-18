@@ -282,8 +282,9 @@ auto RaftState::AppendUnregisterReplicationInstanceLog(std::string_view instance
   return true;
 }
 
-auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsMain(instance_name);
+auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsMain(
+      InstanceUUIDUpdate{.instance_name = std::string{instance_name}, .uuid = uuid});
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error(

@@ -62,7 +62,7 @@ void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
 using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig,
-                              InstanceUUIDChange>;
+                              InstanceUUIDUpdate>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;

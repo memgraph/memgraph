@@ -60,12 +60,12 @@ void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config) {
   config.replication_client_info = j.at("replication_client_info").get<ReplicationClientInfo>();
 }
 
-void from_json(nlohmann::json const &j, InstanceUUIDChange &instance_uuid_change) {
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_change) {
   instance_uuid_change.uuid = j.at("uuid").get<utils::UUID>();
   instance_uuid_change.instance_name = j.at("instance_name").get<std::string>();
 }
 
-void to_json(nlohmann::json &j, InstanceUUIDChange const &instance_uuid_change) {
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &instance_uuid_change) {
   j = nlohmann::json{{"instance_name", instance_uuid_change.instance_name}, {"uuid", instance_uuid_change.uuid}};
 }
 

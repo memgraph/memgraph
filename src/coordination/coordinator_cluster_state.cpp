@@ -103,10 +103,11 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
     }
       // end of OPEN_LOCK_SET_INSTANCE_AS_MAIN and OPEN_LOCK_FAILOVER
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
-      auto const instance_name = std::get<std::string>(log_entry);
-      auto it = repl_instances_.find(instance_name);
+      auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
+      auto it = repl_instances_.find(instance_uuid_change.instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::MAIN;
+      it->second.instance_uuid = instance_uuid_change.uuid;
       is_healthy_ = true;
       break;
     }
@@ -124,7 +125,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       break;
     }
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE: {
-      auto const instance_uuid_change = std::get<InstanceUUIDChange>(log_entry);
+      auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
       auto it = repl_instances_.find(instance_uuid_change.instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance doesn't exist as part of RAFT state");
       it->second.instance_uuid = instance_uuid_change.uuid;
