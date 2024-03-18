@@ -1457,6 +1457,7 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
+  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto edge_acc = mem_storage->edges_.access();
@@ -1468,8 +1469,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto *edge_ptr = &(*edge_it);
   auto vertices_acc = mem_storage->vertices_.access();
 
-  auto extract_edge_info =
-      [&](Vertex *from_vertex) -> std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> {
+  auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
     for (auto &out_edge : from_vertex->out_edges) {
       if (std::get<2>(out_edge).ptr == edge_ptr) {
         return std::make_tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
@@ -1478,13 +1478,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
     return std::nullopt;
   };
 
-  if (mem_storage->config_.salient.items.enable_edges_metadata) {
-    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
-    auto edge_metadata_it = edge_metadata_acc.find(gid);
-    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
-
-    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
-
+  auto edge_accessor_from_info = [this, view](EdgeInfo &maybe_edge_info) -> std::optional<EdgeAccessor> {
     if (!maybe_edge_info) {
       return std::nullopt;
     }
@@ -1492,26 +1486,30 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
     auto &edge_info = *maybe_edge_info;
     return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
                                 std::get<3>(edge_info), storage_, &transaction_, view);
+  };
+
+  if (mem_storage->config_.salient.items.enable_edges_metadata) {
+    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
+    auto edge_metadata_it = edge_metadata_acc.find(gid);
+    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
+
+    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
+    return edge_accessor_from_info(maybe_edge_info);
   }
 
-  // If metadata on edges is not enables we will have to do
+  // If metadata on edges is not enabled we will have to do
   // a full scan.
-  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> maybe_edge_info;
-  for (auto &from_vertex : vertices_acc) {
-    maybe_edge_info = extract_edge_info(&from_vertex);
-    if (maybe_edge_info) {
-      break;
+  auto maybe_edge_info = std::invoke([&]() -> EdgeInfo {
+    for (auto &from_vertex : vertices_acc) {
+      auto maybe_edge_info = extract_edge_info(&from_vertex);
+      if (maybe_edge_info) {
+        return maybe_edge_info;
+      }
     }
-  }
-
-  if (!maybe_edge_info) {
     return std::nullopt;
-  }
+  });
 
-  auto &edge_info = *maybe_edge_info;
-
-  return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
-                              std::get<3>(edge_info), storage_, &transaction_, view);
+  return edge_accessor_from_info(maybe_edge_info);
 }
 
 Transaction InMemoryStorage::CreateTransaction(
