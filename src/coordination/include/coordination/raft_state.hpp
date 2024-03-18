@@ -14,10 +14,16 @@
 #ifdef MG_ENTERPRISE
 
 #include <flags/replication.hpp>
+#include "io/network/endpoint.hpp"
+#include "nuraft/coordinator_state_machine.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
 
 #include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
+
+class CoordinatorInstance;
+struct CoordinatorClientConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
@@ -47,26 +53,38 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb) -> RaftState;
+  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void;
+  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result>;
+  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
+  auto MainExists() const -> bool;
+  auto IsMain(std::string_view instance_name) const -> bool;
+  auto IsReplica(std::string_view instance_name) const -> bool;
 
-  // TODO: (andi) I think variables below can be abstracted
+  auto AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool;
+  auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
+  auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
+
+  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetUUID() const -> utils::UUID;
+
+ private:
+  // TODO: (andi) I think variables below can be abstracted/clean them.
+  io::network::Endpoint raft_endpoint_;
   uint32_t raft_server_id_;
-  uint32_t raft_port_;
-  std::string raft_address_;
 
-  ptr<state_machine> state_machine_;
-  ptr<state_mgr> state_manager_;
+  ptr<CoordinatorStateMachine> state_machine_;
+  ptr<CoordinatorStateManager> state_manager_;
   ptr<raft_server> raft_server_;
   ptr<logger> logger_;
   raft_launcher launcher_;

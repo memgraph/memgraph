@@ -332,9 +332,11 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
-
+  spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
+               FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
                                [] { memgraph::memory::PurgeUnusedMemory(); });

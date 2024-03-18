@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -425,7 +425,7 @@ auto GetSet(AstStorage &storage, const std::string &name, Expression *expr, bool
 
 /// Create a set labels clause for given identifier name and labels.
 auto GetSet(AstStorage &storage, const std::string &name, std::vector<std::string> label_names) {
-  std::vector<LabelIx> labels;
+  std::vector<QueryLabelType> labels;
   labels.reserve(label_names.size());
   for (const auto &label : label_names) {
     labels.push_back(storage.GetLabelIx(label));
@@ -438,7 +438,7 @@ auto GetRemove(AstStorage &storage, PropertyLookup *prop_lookup) { return storag
 
 /// Create a remove labels clause for given identifier name and labels.
 auto GetRemove(AstStorage &storage, const std::string &name, std::vector<std::string> label_names) {
-  std::vector<LabelIx> labels;
+  std::vector<QueryLabelType> labels;
   labels.reserve(label_names.size());
   for (const auto &label : label_names) {
     labels.push_back(storage.GetLabelIx(label));
@@ -635,3 +635,5 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
+#define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
+  this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)

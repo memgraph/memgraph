@@ -21,6 +21,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -87,8 +88,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 
 // Returns the set of symbols for the subquery that are actually referenced from the outer scope and
 // used in the subquery.
-std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
-                                                   SymbolTable &symbol_table, AstStorage &storage);
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(
+    const std::vector<SingleQueryPart> &single_query_parts, SymbolTable &symbol_table, AstStorage &storage,
+    std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table);
 Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table);
@@ -142,11 +144,13 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
-                                           const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
+                                           const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
+                                           std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
-                                         std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
+                                         std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
+                                         std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -190,11 +194,24 @@ class RuleBasedPlanner {
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
 
+        std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pattern_comprehension_ops;
+
+        if (single_query_part.pattern_comprehension_matchings.size() > 1) {
+          throw utils::NotYetImplemented("Multiple pattern comprehensions.");
+        }
+        for (const auto &matching : single_query_part.pattern_comprehension_matchings) {
+          std::unique_ptr<LogicalOperator> new_input;
+          MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
+          new_input = PlanMatching(match_ctx, std::move(new_input));
+          new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.second.result_expr});
+          pattern_comprehension_ops.emplace(matching.first, std::move(new_input));
+        }
+
         for (const auto &clause : single_query_part.remaining_clauses) {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                       context.bound_symbols, *context.ast_storage);
+                                       context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
@@ -202,7 +219,7 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -241,7 +258,7 @@ class RuleBasedPlanner {
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
-                                      *context.symbol_table, *context_->ast_storage);
+                                      *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
@@ -275,6 +292,19 @@ class RuleBasedPlanner {
   storage::PropertyId GetProperty(const PropertyIx &prop) { return context_->db->NameToProperty(prop.name); }
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
+
+  std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
+    std::vector<StorageLabelType> label_ids;
+    label_ids.reserve(labels.size());
+    for (const auto &label : labels) {
+      if (const auto *label_atom = std::get_if<LabelIx>(&label)) {
+        label_ids.emplace_back(GetLabel(*label_atom));
+      } else {
+        label_ids.emplace_back(std::get<Expression *>(label));
+      }
+    }
+    return label_ids;
+  }
 
   std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> last_op,
                                                   const SingleQueryPart &single_query_part, SymbolTable &symbol_table,
@@ -311,11 +341,6 @@ class RuleBasedPlanner {
                                                        std::unordered_set<Symbol> &bound_symbols) {
     auto node_to_creation_info = [&](const NodeAtom &node) {
       const auto &node_symbol = symbol_table.at(*node.identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(node.labels_.size());
-      for (const auto &label : node.labels_) {
-        labels.push_back(GetLabel(label));
-      }
 
       auto properties = std::invoke([&]() -> std::variant<PropertiesMapList, ParameterLookup *> {
         if (const auto *node_properties =
@@ -329,7 +354,7 @@ class RuleBasedPlanner {
         }
         return std::get<ParameterLookup *>(node.properties_);
       });
-      return NodeCreationInfo{node_symbol, labels, properties};
+      return NodeCreationInfo{node_symbol, GetLabelIds(node.labels_), properties};
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
@@ -406,23 +431,13 @@ class RuleBasedPlanner {
       return std::make_unique<plan::SetProperties>(std::move(input_op), input_symbol, set->expression_, op);
     } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(set->labels_.size());
-      for (const auto &label : set->labels_) {
-        labels.push_back(GetLabel(label));
-      }
-      return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, labels);
+      return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, GetLabelIds(set->labels_));
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
       return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
                                                     rem->property_lookup_);
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
-      std::vector<storage::LabelId> labels;
-      labels.reserve(rem->labels_.size());
-      for (const auto &label : rem->labels_) {
-        labels.push_back(GetLabel(label));
-      }
-      return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, labels);
+      return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, GetLabelIds(rem->labels_));
     }
     return nullptr;
   }
@@ -860,15 +875,15 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
-  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
-                                                  std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-                                                  AstStorage &storage) {
+  std::unique_ptr<LogicalOperator> HandleSubquery(
+      std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
+      AstStorage &storage, std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
     context_->bound_symbols =
-        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage);
+        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage, pc_ops);
 
     auto subquery_op = Plan(*subquery);
 

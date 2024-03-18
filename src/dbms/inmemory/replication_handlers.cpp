@@ -19,7 +19,6 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
-#include "storage/v2/fmt.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -119,8 +118,13 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        spdlog::debug("Received SwapMainUUIDHandler");
+        spdlog::debug("Received SwapMainUUIDRpc");
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::ForceResetStorageRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received ForceResetStorageRpc");
+        InMemoryReplicationHandlers::ForceResetStorageHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
 }
 
@@ -135,7 +139,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
 
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
-  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
+  spdlog::info("Set replica data UUID  to main uuid {}", std::string(req.uuid));
   dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 
@@ -330,6 +334,78 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from snapshot finished!");
 }
 
+void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *dbms_handler,
+                                                           const std::optional<utils::UUID> &current_main_uuid,
+                                                           slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::ForceResetStorageReq req;
+  slk::Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
+  if (!db_acc) {
+    storage::replication::ForceResetStorageRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
+    storage::replication::ForceResetStorageRes res{false, 0};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  storage::replication::Decoder decoder(req_reader);
+
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  auto storage_guard = std::unique_lock{storage->main_lock_};
+
+  // Clear the database
+  storage->vertices_.clear();
+  storage->edges_.clear();
+  storage->commit_log_.reset();
+  storage->commit_log_.emplace();
+
+  storage->constraints_.existence_constraints_ = std::make_unique<storage::ExistenceConstraints>();
+  storage->constraints_.unique_constraints_ = std::make_unique<storage::InMemoryUniqueConstraints>();
+  storage->indices_.label_index_ = std::make_unique<storage::InMemoryLabelIndex>();
+  storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
+
+  // Fine since we will force push when reading from WAL just random epoch with 0 timestamp, as it should be if it
+  // acted as MAIN before
+  storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
+  storage->repl_storage_state_.last_commit_timestamp_ = 0;
+
+  storage->repl_storage_state_.history.clear();
+  storage->vertex_id_ = 0;
+  storage->edge_id_ = 0;
+  storage->timestamp_ = storage::kTimestampInitialId;
+
+  storage->CollectGarbage<true>(std::move(storage_guard), false);
+  storage->vertices_.run_gc();
+  storage->edges_.run_gc();
+
+  storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  slk::Save(res, res_builder);
+
+  spdlog::trace("Deleting old snapshot files.");
+  // Delete other durability files
+  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, storage->uuid_);
+  for (const auto &[path, uuid, _] : snapshot_files) {
+    spdlog::trace("Deleting snapshot file {}", path);
+    storage->file_retainer_.DeleteFile(path);
+  }
+
+  spdlog::trace("Deleting old WAL files.");
+  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, storage->uuid_);
+  if (wal_files) {
+    for (const auto &wal_file : *wal_files) {
+      spdlog::trace("Deleting WAL file {}", wal_file.path);
+      storage->file_retainer_.DeleteFile(wal_file.path);
+    }
+
+    storage->wal_file_.reset();
+  }
+}
+
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -513,7 +589,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
     if (timestamp < storage->timestamp_) {
       continue;
     }
-
     SPDLOG_INFO("  Delta {}", applied_deltas);
     switch (delta.type) {
       case WalDeltaData::Type::VERTEX_CREATE: {
@@ -558,9 +633,10 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
-        spdlog::trace("       Vertex {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
-                      delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
+        spdlog::trace("       Vertex {} set property", delta.vertex_edge_set_property.gid.AsUint());
+        // NOLINTNEXTLINE
         auto *transaction = get_transaction(timestamp);
+        // NOLINTNEXTLINE
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -608,8 +684,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
       case WalDeltaData::Type::EDGE_SET_PROPERTY: {
-        spdlog::trace("       Edge {} set property {} to {}", delta.vertex_edge_set_property.gid.AsUint(),
-                      delta.vertex_edge_set_property.property, delta.vertex_edge_set_property.value);
+        spdlog::trace(" Edge {} set property", delta.vertex_edge_set_property.gid.AsUint());
         if (!storage->config_.salient.items.properties_on_edges)
           throw utils::BasicException(
               "Can't set properties on edges because properties on edges "
@@ -764,6 +839,20 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         break;
       }
+      case WalDeltaData::Type::EDGE_INDEX_CREATE: {
+        spdlog::trace("       Create edge index on :{}", delta.operation_edge_type.edge_type);
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->CreateIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        break;
+      }
+      case WalDeltaData::Type::EDGE_INDEX_DROP: {
+        spdlog::trace("       Drop edge index on :{}", delta.operation_edge_type.edge_type);
+        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        if (transaction->DropIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        break;
+      }
       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {
         spdlog::trace("       Create existence constraint on :{} ({})", delta.operation_label_property.label,
                       delta.operation_label_property.property);
@@ -827,5 +916,4 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   spdlog::debug("Applied {} deltas", applied_deltas);
   return applied_deltas;
 }
-
 }  // namespace memgraph::dbms

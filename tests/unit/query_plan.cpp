@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -808,13 +808,68 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectExpand(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
+  FakeDbAccessor dba;
+  auto indexed_edge_type = dba.EdgeType("indexed_edgetype");
+  dba.SetIndexCount(indexed_edge_type, 1);
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->() RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeType(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->() RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->(b) RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("b"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->(b) RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(
+            PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:not_indexed_edgetype]->() RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"not_indexed_edgetype"}),
+                      NODE("anon2"))),
+        RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto prop = PROPERTY_PAIR(dba, "prop");
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, prop.second, 1);
-
   {
     // Test MATCH (n :label) -[r]- (m) WHERE n.prop IS NOT NULL RETURN n
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"), EDGE("r"), NODE("m"))),
