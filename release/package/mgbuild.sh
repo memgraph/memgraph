@@ -300,8 +300,8 @@ build_memgraph () {
   docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
-  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || /environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
+  docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
   # Fix issue with git marking directory as not safe
