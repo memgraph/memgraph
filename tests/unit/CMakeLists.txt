@@ -467,3 +467,10 @@ add_unit_test(coordinator_state_machine.cpp)
 target_link_libraries(${test_prefix}coordinator_state_machine gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}coordinator_state_machine PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test RAFT state
+if(MG_ENTERPRISE)
+add_unit_test(raft_state.cpp)
+target_link_libraries(${test_prefix}raft_state gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
