@@ -302,6 +302,17 @@ Feature: List operators
             | years                    | keanu.name     |
             | [2003, 2003, 1999, 2021] | "Keanu Reeves" |
 
+    Scenario: List pattern comprehension and property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(b.title)] AS movie_lens;
+            """
+        Then the result should be:
+            | movie_lens       |
+            | [22, 19, 10, 24] |
+
      Scenario: Multiple entries with list pattern comprehension
         Given graph "graph_keanu"
         When executing query:
