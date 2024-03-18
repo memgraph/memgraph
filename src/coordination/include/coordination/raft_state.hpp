@@ -90,7 +90,6 @@ class RaftState {
   auto IsLockOpened() const -> bool;
 
  private:
-  // TODO: (andi) I think variables below can be abstracted/clean them.
   io::network::Endpoint raft_endpoint_;
   uint32_t coordinator_id_;
 
