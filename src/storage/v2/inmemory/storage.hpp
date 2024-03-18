@@ -422,6 +422,8 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
+  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;

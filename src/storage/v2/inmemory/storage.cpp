@@ -472,6 +472,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
 
+void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex) {
+  auto edge_metadata_acc = edges_metadata_.access();
+  auto edge_to_modify = edge_metadata_acc.find(edge->gid);
+  if (edge_to_modify == edge_metadata_acc.end()) {
+    throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+  }
+  edge_to_modify->from_vertex = from_vertex;
+}
+
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
   MG_ASSERT(edge->transaction_ == new_from->transaction_,
             "EdgeAccessor must be from the same transaction as the new from vertex "
@@ -571,6 +580,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
         auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
         mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
                                                       edge_type, transaction_);
+
+        if (config_.enable_edges_metadata) {
+          in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
+        }
 
         transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
