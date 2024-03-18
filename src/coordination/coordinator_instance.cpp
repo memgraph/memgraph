@@ -128,7 +128,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto const stringify_inst_status = [raft_state_ptr = &raft_state_](
                                            utils::UUID const &main_uuid,
                                            ReplicationInstanceState const &instance) -> std::string {
-      if (instance.instance_uuid == main_uuid) {
+      if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
         return "main";
       }
       if (raft_state_ptr->HasMainState(instance.config.instance_name)) {
@@ -148,7 +148,6 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     std::ranges::transform(raft_state_.GetReplicationInstances(), std::back_inserter(instances_status),
                            process_repl_instance_as_follower);
   }
-
   return instances_status;
 }
 

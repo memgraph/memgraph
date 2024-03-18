@@ -19,12 +19,14 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state) {
-  j = nlohmann::json{{"config", instance_state.config}, {"status", instance_state.status}};
+  j = nlohmann::json{
+      {"config", instance_state.config}, {"status", instance_state.status}, {"uuid", instance_state.instance_uuid}};
 }
 
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state) {
   j.at("config").get_to(instance_state.config);
   j.at("status").get_to(instance_state.status);
+  j.at("uuid").get_to(instance_state.instance_uuid);
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances)
@@ -77,12 +79,6 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
          it->second.instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::InsertInstance(std::string instance_name, ReplicationInstanceState instance_state)
-    -> void {
-  auto lock = std::lock_guard{log_lock_};
-  repl_instances_.insert_or_assign(std::move(instance_name), std::move(instance_state));
-}
-
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {
@@ -90,7 +86,8 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
       auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
       // Setting instance uuid to random, if registration fails, we are still in random state
-      repl_instances_[config.instance_name] = ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}};
+      repl_instances_.emplace(config.instance_name,
+                              ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}});
       is_healthy_ = true;
       break;
     }
@@ -167,6 +164,7 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
   bs.put_str(log);
+  // TODO(antoniofilipovic) Do we need to serialize here anything else
 }
 
 auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {

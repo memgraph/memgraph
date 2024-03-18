@@ -78,7 +78,7 @@ auto RaftState::InitRaftServer() -> void {
       // But this can crash cluster as we will execute REPLICA callback on leader and this instance is MAIN now
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
-      spdlog::info("Node {} became follower", param->myId);
+      spdlog::trace("Node {} became follower", param->myId);
     }
     return CbReturnCode::Ok;
   };

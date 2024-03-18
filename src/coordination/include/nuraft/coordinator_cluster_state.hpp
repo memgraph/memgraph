@@ -43,8 +43,11 @@ struct ReplicationInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
+  // explicit ReplicationInstanceState(CoordinatorToReplicaConfig config, ReplicationRole status, utils::UUID const
+  // &uuid): config(std::move(config)), status(status), instance_uuid(uuid) {};
+
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
-    return lhs.config == rhs.config && lhs.status == rhs.status;
+    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid;
   }
 };
 
@@ -87,8 +90,6 @@ class CoordinatorClusterState {
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
-
-  auto InsertInstance(std::string instance_name, ReplicationInstanceState instance_state) -> void;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
