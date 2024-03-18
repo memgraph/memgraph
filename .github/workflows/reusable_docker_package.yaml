@@ -86,7 +86,7 @@ jobs:
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
-          package-docker
+          package
 
       - name: "Copy package"
         run: |
@@ -102,7 +102,7 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
-          docker
+          package-docker
 
       - name: "Upload docker package"
         uses: actions/upload-artifact@v4
