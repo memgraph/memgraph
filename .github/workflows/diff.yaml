@@ -475,8 +475,8 @@ jobs:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-10
-      TOOLCHAIN: v4
+      OS: debian-12
+      TOOLCHAIN: v5
       ARCH: amd
       BUILD_TYPE: RelWithDebInfo
 
