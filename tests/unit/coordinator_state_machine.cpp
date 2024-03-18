@@ -81,7 +81,7 @@ TEST_F(CoordinatorStateMachineTest, SerializeUnregisterReplicationInstance) {
 }
 
 TEST_F(CoordinatorStateMachineTest, SerializeAddCoordinatorInstance) {
-  CoordinatorToCoordinatorConfig config{.coordinator_server_id = 1,
+  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 

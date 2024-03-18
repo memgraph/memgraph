@@ -37,7 +37,7 @@ using InstanceNameDbHistories = std::pair<std::string, replication_coordination_
 
 class CoordinatorInstance {
  public:
-  CoordinatorInstance();
+  explicit CoordinatorInstance(CoordinatorInstanceInitConfig const &config);
   CoordinatorInstance(CoordinatorInstance const &) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
   CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;

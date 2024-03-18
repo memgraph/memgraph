@@ -500,7 +500,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
@@ -1227,7 +1227,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
                      bolt_server = bolt_server_it->second,

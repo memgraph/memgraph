@@ -22,22 +22,10 @@
 
 namespace memgraph::coordination {
 
-struct ReplicationInstanceInitConfig {
-  uint32_t management_port{0};
-};
-
-struct CoordinatorInstanceInitConfig {
-  uint32_t raft_server_id{0};
-  uint32_t coordinator_port{0};
-};
-
-struct InstanceInitConfig {
-  std::variant<ReplicationInstanceInitConfig, CoordinatorInstanceInitConfig> data_;
-};
-
 class CoordinatorState {
  public:
-  explicit CoordinatorState(InstanceInitConfig const &config);
+  explicit CoordinatorState(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorState(ReplicationInstanceInitConfig const &config);
   ~CoordinatorState() = default;
 
   CoordinatorState(CoordinatorState const &) = delete;
@@ -67,7 +55,7 @@ class CoordinatorState {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
   };
 
-  std::variant<CoordinatorInstance, CoordinatorMainReplicaData> data_;
+  std::variant<CoordinatorMainReplicaData, CoordinatorInstance> data_;
 };
 
 }  // namespace memgraph::coordination

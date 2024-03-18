@@ -30,11 +30,11 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 using raft_result = cmd_result<ptr<buffer>>;
 
-RaftState::RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t coordinator_id,
-                     uint32_t raft_port, std::string raft_address)
-    : raft_endpoint_(raft_address, raft_port),
-      coordinator_id_(coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
+RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb)
+    : raft_endpoint_("127.0.0.1", config.coordinator_port),
+      coordinator_id_(config.coordinator_id),
+      state_machine_(cs_new<CoordinatorStateMachine>(config)),
       state_manager_(cs_new<CoordinatorStateManager>(coordinator_id_, raft_endpoint_.SocketAddress())),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
@@ -97,12 +97,9 @@ auto RaftState::InitRaftServer() -> void {
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
 }
 
-auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState {
-  uint32_t coordinator_id = FLAGS_coordinator_id;
-  uint32_t raft_port = FLAGS_coordinator_port;
-
-  auto raft_state =
-      RaftState(std::move(become_leader_cb), std::move(become_follower_cb), coordinator_id, raft_port, "127.0.0.1");
+auto RaftState::MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
+                              BecomeFollowerCb &&become_follower_cb) -> RaftState {
+  auto raft_state = RaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
 
   raft_state.InitRaftServer();
   return raft_state;
@@ -110,15 +107,13 @@ auto RaftState::MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerC
 
 RaftState::~RaftState() { launcher_.shutdown(); }
 
-auto RaftState::InstanceName() const -> std::string {
-  return fmt::format("coordinator_{}", std::to_string(coordinator_id_));
-}
+auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
 auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
   auto const endpoint = config.coordinator_server.SocketAddress();
-  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_server_id), endpoint);
+  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), endpoint);
 
   auto cmd_result = raft_server_->add_srv(srv_config_to_add);
 
@@ -136,9 +131,9 @@ auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorCon
   bool added{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_server_id));
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
     if (server_config) {
-      spdlog::trace("Server with id {} added to cluster", config.coordinator_server_id);
+      spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
       added = true;
       break;
     }
@@ -148,12 +143,6 @@ auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorCon
     throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
                                  max_tries * waiting_period);
   }
-}
-
-auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
-  std::vector<ptr<srv_config>> all_srv_configs;
-  raft_server_->get_srv_config_all(all_srv_configs);
-  return all_srv_configs;
 }
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
@@ -308,14 +297,14 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
     spdlog::error(
         "Failed to accept request for adding coordinator instance {}. Most likely the reason is that the instance is "
         "not the leader.",
-        config.coordinator_server_id);
+        config.coordinator_id);
     return false;
   }
 
-  spdlog::trace("Request for adding coordinator instance {} accepted", config.coordinator_server_id);
+  spdlog::info("Request for adding coordinator instance {} accepted", config.coordinator_id);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,
+    spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_id,
                   static_cast<int>(res->get_result_code()));
     return false;
   }

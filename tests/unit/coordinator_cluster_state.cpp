@@ -187,7 +187,7 @@ TEST_F(CoordinatorClusterStateTest, UpdateUUID) {
 }
 
 TEST_F(CoordinatorClusterStateTest, AddCoordinatorInstance) {
-  CoordinatorToCoordinatorConfig config{.coordinator_server_id = 1,
+  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 
@@ -222,7 +222,7 @@ TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
 
 TEST_F(CoordinatorClusterStateTest, CoordinatorInstanceStateSerialization) {
   CoordinatorInstanceState instance_state{
-      CoordinatorToCoordinatorConfig{.coordinator_server_id = 1,
+      CoordinatorToCoordinatorConfig{.coordinator_id = 1,
                                      .bolt_server = Endpoint{"127.0.0.1", 7687},
                                      .coordinator_server = Endpoint{"127.0.0.1", 10111}}};
   nlohmann::json j = instance_state;
@@ -232,7 +232,7 @@ TEST_F(CoordinatorClusterStateTest, CoordinatorInstanceStateSerialization) {
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
   CoordinatorClusterState cluster_state;
-  CoordinatorToCoordinatorConfig config{.coordinator_server_id = 1,
+  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 

@@ -407,17 +407,20 @@ int main(int argc, char **argv) {
 
   // singleton coordinator state
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::InstanceInitConfig config;
-  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    config.data_ = memgraph::coordination::CoordinatorInstanceInitConfig {
-      .raft_server_id = FLAGS_coordinator_id, .coordinator_port = FLAGS_coordinator_port
+  using memgraph::coordination::CoordinatorInstanceInitConfig;
+  using memgraph::coordination::CoordinatorState;
+  using memgraph::coordination::ReplicationInstanceInitConfig;
+  auto coordinator_state = [&]() -> CoordinatorState {
+    if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
+      return CoordinatorState{CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
+                                                            .coordinator_port = FLAGS_coordinator_port,
+                                                            .bolt_port = FLAGS_bolt_port}};
     }
-  } else if (FLAGS_management_port) {
-    config.data_ = memgraph::coordination::ReplicationInstanceInitConfig { .management_port = FLAGS_management_port }
-  } else {
-    throw std::runtime_error("Coordinator or replica must be started with valid flags!");
-  }
-  memgraph::coordination::CoordinatorState coordinator_state{config};
+    if (FLAGS_management_port) {
+      return CoordinatorState{ReplicationInstanceInitConfig{.management_port = FLAGS_management_port}};
+    }
+    throw std::runtime_error("Coordination or replication instances must be started with valid flags!");
+  }();
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state

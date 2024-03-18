@@ -20,6 +20,9 @@ constexpr int MAX_SNAPSHOTS = 3;
 
 namespace memgraph::coordination {
 
+CoordinatorStateMachine::CoordinatorStateMachine(CoordinatorInstanceInitConfig const &config)
+    : cluster_state_(config) {}
+
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
 auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const -> bool {
