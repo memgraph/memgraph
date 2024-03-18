@@ -60,13 +60,19 @@ CoordinatorInstance::CoordinatorInstance()
             is_shutting_down_ = false;
           },
           [this]() {
+            // std::cout << "Adding task to thread pool to become follower" << std::endl;
+            if (repl_instances_.empty()) {
+              return;
+            }
             thread_pool_.AddTask([this]() {
               auto lock = std::lock_guard{coord_instance_lock_};
               spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
               is_shutting_down_ = true;
               repl_instances_.clear();
+              is_shutting_down_ = false;
               spdlog::info("Stopped all replication instance frequent checks.");
             });
+            spdlog::trace("Task to become follower added.");
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::lock_guard{self->coord_instance_lock_};

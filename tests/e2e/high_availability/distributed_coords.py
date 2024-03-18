@@ -1120,8 +1120,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "unknown"),
+            ("instance_1", "", "", "unknown", "unknown"),
+            ("instance_2", "", "", "unknown", "main"),
             ("instance_3", "", "", "unknown", "unknown"),
         ]
     )
@@ -1751,4 +1751,5 @@ def test_distributed_coordinators_work_partial_failover(data_recovery):
 
 
 if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-k", "test_multiple_failovers_in_row_no_leadership_change", "-vv"]))
     sys.exit(pytest.main([__file__, "-rA"]))

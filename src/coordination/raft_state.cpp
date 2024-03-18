@@ -91,13 +91,14 @@ auto RaftState::InitRaftServer() -> void {
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
   }
-
+  // std::cout << "!!!!!!!!!1initializing server" << std::endl;
   auto maybe_stop = utils::ResettableCounter<20>();
   do {
     if (raft_server_->is_initialized()) {
       return;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    // std::cout << "!!!! Waiting for server to initialize" << std::endl;
   } while (!maybe_stop());
 
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
