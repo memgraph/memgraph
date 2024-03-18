@@ -24,20 +24,13 @@
 
 namespace memgraph::coordination {
 
-CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_coordinator_id && FLAGS_management_port),
-            "Instance cannot be a coordinator and have registered coordinator server.");
-
-  spdlog::info("Executing coordinator constructor");
-  if (FLAGS_management_port) {
-    spdlog::info("Coordinator server port set");
-    auto const config = ManagementServerConfig{
+CoordinatorState::CoordinatorState(InstanceInitConfig const &config) {
+  if (std::holds_alternative<ReplicationInstanceInitConfig>(config.data_)) {
+    auto const mgmt_config = ManagementServerConfig{
         .ip_address = kDefaultReplicationServerIp,
-        .port = static_cast<uint16_t>(FLAGS_management_port),
+        .port = static_cast<uint16_t>(std::get<ReplicationInstanceInitConfig>(config.data_).management_port),
     };
-    spdlog::info("Executing coordinator constructor main replica");
-
-    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
+    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
   }
 }
 

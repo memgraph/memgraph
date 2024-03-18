@@ -407,7 +407,17 @@ int main(int argc, char **argv) {
 
   // singleton coordinator state
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::CoordinatorState coordinator_state;
+  memgraph::coordination::InstanceInitConfig config;
+  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
+    config.data_ = memgraph::coordination::CoordinatorInstanceInitConfig {
+      .raft_server_id = FLAGS_coordinator_id, .coordinator_port = FLAGS_coordinator_port
+    }
+  } else if (FLAGS_management_port) {
+    config.data_ = memgraph::coordination::ReplicationInstanceInitConfig { .management_port = FLAGS_management_port }
+  } else {
+    throw std::runtime_error("Coordinator or replica must be started with valid flags!");
+  }
+  memgraph::coordination::CoordinatorState coordinator_state{config};
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
