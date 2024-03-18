@@ -76,18 +76,13 @@ using UniqueCursorPtr = std::unique_ptr<Cursor, std::function<void(Cursor *)>>;
 template <class TCursor, class... TArgs>
 std::unique_ptr<Cursor, std::function<void(Cursor *)>> MakeUniqueCursorPtr(utils::Allocator<TCursor> allocator,
                                                                            TArgs &&...args) {
-  auto *ptr = allocator.allocate(1);
-  try {
-    auto *cursor = new (ptr) TCursor(std::forward<TArgs>(args)...);
-    return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, [allocator](Cursor *base_ptr) mutable {
-      auto *p = static_cast<TCursor *>(base_ptr);
-      p->~TCursor();
-      allocator.deallocate(p, 1);
-    });
-  } catch (...) {
-    allocator.deallocate(ptr, 1);
-    throw;
-  }
+  auto *cursor = allocator.template new_object<TCursor>(std::forward<TArgs>(args)...);
+  auto dtr = [allocator](Cursor *base_ptr) mutable {
+    auto *p = static_cast<TCursor *>(base_ptr);
+    allocator.delete_object(p);
+  };
+  // TODO: not std::function
+  return std::unique_ptr<Cursor, std::function<void(Cursor *)>>(cursor, std::move(dtr));
 }
 
 class Once;
@@ -285,6 +280,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
 };
 
 using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
+using StorageLabelType = std::variant<storage::LabelId, Expression *>;
 
 struct NodeCreationInfo {
   static const utils::TypeInfo kType;
@@ -292,18 +288,18 @@ struct NodeCreationInfo {
 
   NodeCreationInfo() = default;
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels,
+  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels,
                    std::variant<PropertiesMapList, ParameterLookup *> properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, PropertiesMapList properties)
+  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, PropertiesMapList properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{std::move(properties)} {};
 
-  NodeCreationInfo(Symbol symbol, std::vector<storage::LabelId> labels, ParameterLookup *properties)
+  NodeCreationInfo(Symbol symbol, std::vector<StorageLabelType> labels, ParameterLookup *properties)
       : symbol{std::move(symbol)}, labels{std::move(labels)}, properties{properties} {};
 
   Symbol symbol;
-  std::vector<storage::LabelId> labels;
+  std::vector<StorageLabelType> labels;
   std::variant<PropertiesMapList, ParameterLookup *> properties;
 
   NodeCreationInfo Clone(AstStorage *storage) const {
@@ -506,7 +502,8 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
     const UniqueCursorPtr input_cursor_;
 
     // Get the existing node (if existing_node_ == true), or create a new node
-    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context);
+    VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context,
+                                std::vector<memgraph::storage::LabelId> &labels, ExpressionEvaluator &evaluator);
   };
 };
 
@@ -1477,8 +1474,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
 
   SetLabels() = default;
 
-  SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-            const std::vector<storage::LabelId> &labels);
+  SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, std::vector<StorageLabelType> labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1489,7 +1485,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol input_symbol_;
-  std::vector<storage::LabelId> labels_;
+  std::vector<StorageLabelType> labels_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<SetLabels>();
@@ -1567,7 +1563,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   RemoveLabels() = default;
 
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-               const std::vector<storage::LabelId> &labels);
+               std::vector<StorageLabelType> labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1578,7 +1574,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Symbol input_symbol_;
-  std::vector<storage::LabelId> labels_;
+  std::vector<StorageLabelType> labels_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<RemoveLabels>();

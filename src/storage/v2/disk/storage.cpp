@@ -2052,7 +2052,8 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
   }
 
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, edge_import_mode_active};
+  return {transaction_id, start_timestamp,         isolation_level,
+          storage_mode,   edge_import_mode_active, !constraints_.empty()};
 }
 
 uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
