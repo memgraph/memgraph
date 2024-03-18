@@ -86,6 +86,14 @@ check() {
             fi
             continue
         fi
+        if [ "$pkg" == dotnet-sdk-8.0  ]; then
+            local DOTNET_ROOT=$HOME/.dotnet
+            export PATH=$PATH:$DOTNET_ROOT:$DOTNET_ROOT/tools
+            if ! dotnet --list-sdks | grep -q "8\.0."; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -117,13 +125,11 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
-        if [ "$pkg" == dotnet-sdk-7.0  ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-7.0
-            fi
+        if [ "$pkg" == dotnet-sdk-8.0  ]; then
+            wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+            chmod +x ./dotnet-install.sh
+            ./dotnet-install.sh --channel 8.0
+            rm dotnet-install.sh
             continue
         fi
         apt install -y "$pkg"
