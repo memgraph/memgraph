@@ -79,7 +79,7 @@ def test_main_and_replicas_cannot_register_coord_server(port):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             cursor,
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10001' WITH '127.0.0.1:10011';",
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
         )
     assert str(e.value) == "Only coordinator can register coordinator server!"
 

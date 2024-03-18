@@ -334,7 +334,8 @@ int main(int argc, char **argv) {
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
                         .enable_edges_metadata =
                             FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
   if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(

@@ -26,6 +26,11 @@
 
 namespace memgraph::query {
 
+constexpr std::string_view kBoltServer = "bolt_server";
+constexpr std::string_view kReplicationServer = "replication_server";
+constexpr std::string_view kCoordinatorServer = "coordinator_server";
+constexpr std::string_view kManagementServer = "management_server";
+
 struct LabelIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -1249,6 +1254,8 @@ class AllPropertiesLookup : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+using QueryLabelType = std::variant<LabelIx, Expression *>;
+
 class LabelsTest : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
@@ -1281,6 +1288,16 @@ class LabelsTest : public memgraph::query::Expression {
 
  protected:
   LabelsTest(Expression *expression, const std::vector<LabelIx> &labels) : expression_(expression), labels_(labels) {}
+  LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
+    labels_.reserve(labels.size());
+    for (const auto &label : labels) {
+      if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
+        labels_.push_back(*label_ix);
+      } else {
+        throw SemanticException("You can't use labels in filter expressions.");
+      }
+    }
+  }
 
  private:
   friend class AstStorage;
@@ -1771,7 +1788,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<QueryLabelType> labels_;
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
@@ -1781,7 +1798,11 @@ class NodeAtom : public memgraph::query::PatternAtom {
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+      }
     }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
@@ -2657,20 +2678,25 @@ class SetLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<QueryLabelType> labels_;
 
   SetLabels *Clone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+      }
     }
     return object;
   }
 
  protected:
-  SetLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier), labels_(labels) {}
+  SetLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
+      : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:
   friend class AstStorage;
@@ -2720,20 +2746,25 @@ class RemoveLabels : public memgraph::query::Clause {
   }
 
   memgraph::query::Identifier *identifier_{nullptr};
-  std::vector<memgraph::query::LabelIx> labels_;
+  std::vector<QueryLabelType> labels_;
 
   RemoveLabels *Clone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
+        object->labels_[i] = storage->GetLabelIx(label->name);
+      } else {
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+      }
     }
     return object;
   }
 
  protected:
-  RemoveLabels(Identifier *identifier, const std::vector<LabelIx> &labels) : identifier_(identifier), labels_(labels) {}
+  RemoveLabels(Identifier *identifier, std::vector<QueryLabelType> labels)
+      : identifier_(identifier), labels_(std::move(labels)) {}
 
  private:
   friend class AstStorage;
@@ -3114,24 +3145,21 @@ class CoordinatorQuery : public memgraph::query::Query {
   DEFVISITABLE(QueryVisitor<void>);
 
   memgraph::query::CoordinatorQuery::Action action_;
-  std::string instance_name_;
-  memgraph::query::Expression *replication_socket_address_{nullptr};
-  memgraph::query::Expression *coordinator_socket_address_{nullptr};
-  memgraph::query::Expression *raft_socket_address_{nullptr};
-  memgraph::query::Expression *raft_server_id_{nullptr};
+  std::string instance_name_{};
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+  memgraph::query::Expression *coordinator_server_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
+
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->replication_socket_address_ =
-        replication_socket_address_ ? replication_socket_address_->Clone(storage) : nullptr;
+    object->coordinator_server_id_ = coordinator_server_id_ ? coordinator_server_id_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
-    object->coordinator_socket_address_ =
-        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
-    object->raft_socket_address_ = raft_socket_address_ ? raft_socket_address_->Clone(storage) : nullptr;
-    object->raft_server_id_ = raft_server_id_ ? raft_server_id_->Clone(storage) : nullptr;
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
 
     return object;
   }

@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# import os
 import pulsar
 import pytest
 from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
@@ -20,6 +21,9 @@ import requests
 # To run these test locally a running Kafka sever is necessery. The test tries
 # to connect on localhost:9092.
 
+# KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
+# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "localhost")
+# PULSAR_PORT="6652" if PULSAR_HOSTNAME == "localhost" else "8080"
 
 @pytest.fixture(autouse=True)
 def connection():

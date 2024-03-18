@@ -358,11 +358,17 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
-    if (!node->labels_.empty()) {
-      // Create a LabelsTest and store it.
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, node->labels_);
+    std::vector<LabelIx> labels;
+    for (auto label : node->labels_) {
+      if (const auto *label_node = std::get_if<Expression *>(&label)) {
+        throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
+      }
+      labels.push_back(std::get<LabelIx>(label));
+    }
+    if (!labels.empty()) {
+      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
       auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = node->labels_;
+      label_filter.labels = labels;
       all_filters_.emplace_back(label_filter);
     }
     add_properties(node);
@@ -659,6 +665,10 @@ void PatternVisitor::Visit(Exists &op) {
 }
 
 std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
+
+std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
+  return pattern_comprehension_matchings_;
+}
 
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {

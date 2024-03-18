@@ -38,6 +38,7 @@ struct SalientConfig {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
     bool enable_schema_metadata{false};
+    bool delta_on_identical_property_update{true};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 

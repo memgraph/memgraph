@@ -802,9 +802,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
 
-    if (transaction_.constraint_verification_info.NeedsExistenceConstraintVerification()) {
+    if (transaction_.constraint_verification_info &&
+        transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
-          transaction_.constraint_verification_info.GetVerticesForExistenceConstraintChecking();
+          transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
       for (auto const *vertex : vertices_to_update) {
         // No need to take any locks here because we modified this vertex and no
         // one else can touch it until we commit.
@@ -831,12 +832,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
 
-      if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+      if (transaction_.constraint_verification_info &&
+          transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
         // to be validated/committed.
         const auto vertices_to_update =
-            transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+            transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
 
         for (auto const *vertex : vertices_to_update) {
           mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
@@ -1019,10 +1021,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
     // CONSTRAINTS
-    if (transaction_.constraint_verification_info.NeedsUniqueConstraintVerification()) {
+    if (transaction_.constraint_verification_info &&
+        transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
       // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
       // values
-      auto vertices_to_check = transaction_.constraint_verification_info.GetVerticesForUniqueConstraintChecking();
+      auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
       auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
       storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
     }
@@ -1534,7 +1537,7 @@ Transaction InMemoryStorage::CreateTransaction(
       start_timestamp = timestamp_;
     }
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, false};
+  return {transaction_id, start_timestamp, isolation_level, storage_mode, false, !constraints_.empty()};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

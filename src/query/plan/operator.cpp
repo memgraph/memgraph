@@ -47,6 +47,8 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "range/v3/all.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
@@ -67,6 +69,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
+#include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -179,6 +182,20 @@ inline void AbortCheck(ExecutionContext const &context) {
   if (auto const reason = MustAbort(context); reason != AbortReason::NO_ABORT) throw HintedAbortError(reason);
 }
 
+std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
+                                             ExpressionEvaluator &evaluator, DbAccessor *dba) {
+  std::vector<storage::LabelId> result;
+  result.reserve(labels.size());
+  for (const auto &label : labels) {
+    if (const auto *label_atom = std::get_if<storage::LabelId>(&label)) {
+      result.emplace_back(*label_atom);
+    } else {
+      result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+    }
+  }
+  return result;
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -214,12 +231,13 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreati
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
+                                  std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
-  for (auto label : node_info.labels) {
-    auto maybe_error = new_node.AddLabel(label);
+  for (const auto &label : labels) {
+    auto maybe_error = std::invoke([&] { return new_node.AddLabel(label); });
     if (maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case storage::Error::SERIALIZATION_ERROR:
@@ -234,10 +252,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     }
     context.execution_stats[ExecutionStats::Key::CREATED_LABELS] += 1;
   }
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -277,16 +291,21 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
-#ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.node_info_.labels,
-                                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Vertex not created due to not having enough permission!");
-  }
-#endif
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
 
   if (input_cursor_->Pull(frame, context)) {
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    // we have to resolve the labels before we can check for permissions
+    auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      throw QueryRuntimeException("Vertex not created due to not having enough permission!");
+    }
+#endif
+
+    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -311,7 +330,7 @@ CreateExpand::CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_inf
 ACCEPT_WITH_INPUT(CreateExpand)
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateExpandOperator);
 
   return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
 }
@@ -370,6 +389,9 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   if (!input_cursor_->Pull(frame, context)) return false;
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -381,7 +403,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(self_.edge_info_.edge_type,
                                     memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
-          context.auth_checker->Has(self_.node_info_.labels, fine_grained_permission))) {
+          context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
   }
@@ -391,14 +413,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.ValueVertex();
 
-  // Similarly to CreateNode, newly created edges and nodes should use the
-  // storage::View::NEW.
-  // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
-  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                storage::View::NEW);
-
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(frame, context);
+  auto &v2 = OtherVertex(frame, context, labels, evaluator);
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
@@ -429,13 +445,15 @@ void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
-VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context) {
+VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
+                                                              std::vector<storage::LabelId> &labels,
+                                                              ExpressionEvaluator &evaluator) {
   if (self_.existing_node_) {
     TypedValue &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context);
+    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -877,17 +895,15 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+  auto pull_node = [this, &frame]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                 utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
-    switch (direction) {
-      case EdgeAtom::Direction::IN:
-        frame[self_.common_.node_symbol] = new_edge.From();
-        break;
-      case EdgeAtom::Direction::OUT:
-        frame[self_.common_.node_symbol] = new_edge.To();
-        break;
-      case EdgeAtom::Direction::BOTH:
-        LOG_FATAL("Must indicate exact expansion direction here");
+    if constexpr (direction == EdgeAtom::Direction::IN) {
+      frame[self_.common_.node_symbol] = new_edge.From();
+    } else if constexpr (direction == EdgeAtom::Direction::OUT) {
+      frame[self_.common_.node_symbol] = new_edge.To();
+    } else {
+      LOG_FATAL("Must indicate exact expansion direction here");
     }
   };
 
@@ -906,7 +922,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::IN);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
 
@@ -926,7 +942,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::OUT);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }
 
@@ -1020,12 +1036,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
-          in_edges_.emplace(edges_result.edges);
+          in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
-        in_edges_.emplace(edges_result.edges);
+        in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
       if (in_edges_) {
@@ -1039,12 +1055,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
-          out_edges_.emplace(edges_result.edges);
+          out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
-        out_edges_.emplace(edges_result.edges);
+        out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
       if (out_edges_) {
@@ -1130,14 +1146,14 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
-    if (edges.begin() != edges.end()) {
+    if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
-    if (edges.begin() != edges.end()) {
+    if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
   }
@@ -1257,8 +1273,13 @@ class ExpandVariableCursor : public Cursor {
       }
 
       // reset the frame value to an empty edge list
-      auto *pull_memory = context.evaluation_context.memory;
-      frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
+      if (frame[self_.common_.edge_symbol].IsList()) {
+        // Preserve the list capacity if possible
+        frame[self_.common_.edge_symbol].ValueList().clear();
+      } else {
+        auto *pull_memory = context.evaluation_context.memory;
+        frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
+      }
 
       return true;
     }
@@ -3237,8 +3258,8 @@ void SetProperties::SetPropertiesCursor::Shutdown() { input_cursor_->Shutdown();
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                     const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+                     std::vector<StorageLabelType> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
 
@@ -3258,15 +3279,17 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't set label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip setting labels on Null (can occur in optional match).
@@ -3282,7 +3305,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.AddLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -3397,8 +3420,8 @@ void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-                           const std::vector<storage::LabelId> &labels)
-    : input_(input), input_symbol_(std::move(input_symbol)), labels_(labels) {}
+                           std::vector<StorageLabelType> labels)
+    : input_(input), input_symbol_(std::move(input_symbol)), labels_(std::move(labels)) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
 
@@ -3418,15 +3441,17 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  if (!input_cursor_->Pull(frame, context)) return false;
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(self_.labels_, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
     throw QueryRuntimeException("Couldn't remove label due to not having enough permission!");
   }
 #endif
-
-  if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
   // Skip removing labels on Null (can occur in optional match).
@@ -3442,7 +3467,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 #endif
 
-  for (auto label : self_.labels_) {
+  for (auto label : labels) {
     auto maybe_value = vertex.RemoveLabel(label);
     if (maybe_value.HasError()) {
       switch (maybe_value.GetError()) {
@@ -4177,14 +4202,14 @@ OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input, const std::vecto
                  const std::vector<Symbol> &output_symbols)
     : input_(input), output_symbols_(output_symbols) {
   // split the order_by vector into two vectors of orderings and expressions
-  std::vector<Ordering> ordering;
+  std::vector<OrderedTypedValueCompare> ordering;
   ordering.reserve(order_by.size());
   order_by_.reserve(order_by.size());
   for (const auto &ordering_expression_pair : order_by) {
     ordering.emplace_back(ordering_expression_pair.ordering);
     order_by_.emplace_back(ordering_expression_pair.expression);
   }
-  compare_ = TypedValueVectorCompare(ordering);
+  compare_ = TypedValueVectorCompare(std::move(ordering));
 }
 
 ACCEPT_WITH_INPUT(OrderBy)
@@ -4205,29 +4230,43 @@ class OrderByCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (!did_pull_all_) {
+    if (!did_pull_all_) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
-      auto *mem = cache_.get_allocator().GetMemoryResource();
+      auto *pull_mem = context.evaluation_context.memory;
+      auto *query_mem = cache_.get_allocator().GetMemoryResource();
+
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> order_by(pull_mem);  // Not cached, pull memory
+      utils::pmr::vector<utils::pmr::vector<TypedValue>> output(query_mem);   // Cached, query memory
+
       while (input_cursor_->Pull(frame, context)) {
         // collect the order_by elements
-        utils::pmr::vector<TypedValue> order_by(mem);
-        order_by.reserve(self_.order_by_.size());
-        for (auto expression_ptr : self_.order_by_) {
-          order_by.emplace_back(expression_ptr->Accept(evaluator));
+        utils::pmr::vector<TypedValue> order_by_elem(pull_mem);
+        order_by_elem.reserve(self_.order_by_.size());
+        for (auto const &expression_ptr : self_.order_by_) {
+          order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
         }
+        order_by.emplace_back(std::move(order_by_elem));
 
         // collect the output elements
-        utils::pmr::vector<TypedValue> output(mem);
-        output.reserve(self_.output_symbols_.size());
-        for (const Symbol &output_sym : self_.output_symbols_) output.emplace_back(frame[output_sym]);
-
-        cache_.push_back(Element{std::move(order_by), std::move(output)});
+        utils::pmr::vector<TypedValue> output_elem(query_mem);
+        output_elem.reserve(self_.output_symbols_.size());
+        for (const Symbol &output_sym : self_.output_symbols_) {
+          output_elem.emplace_back(frame[output_sym]);
+        }
+        output.emplace_back(std::move(output_elem));
       }
 
-      std::sort(cache_.begin(), cache_.end(), [this](const auto &pair1, const auto &pair2) {
-        return self_.compare_(pair1.order_by, pair2.order_by);
-      });
+      // sorting with range zip
+      // we compare on just the projection of the 1st range (order_by)
+      // this will also permute the 2nd range (output)
+      ranges::sort(
+          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
+
+      // no longer need the order_by terms
+      order_by.clear();
+      cache_ = std::move(output);
 
       did_pull_all_ = true;
       cache_it_ = cache_.begin();
@@ -4238,15 +4277,15 @@ class OrderByCursor : public Cursor {
     AbortCheck(context);
 
     // place the output values on the frame
-    DMG_ASSERT(self_.output_symbols_.size() == cache_it_->remember.size(),
+    DMG_ASSERT(self_.output_symbols_.size() == cache_it_->size(),
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
-    for (const TypedValue &output : cache_it_->remember) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_sym_it->name())) {
+    for (TypedValue &output : *cache_it_) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
       }
-      frame[*output_sym_it++] = output;
+      frame[*output_sym_it++] = std::move(output);
     }
     cache_it_++;
     return true;
@@ -4261,17 +4300,12 @@ class OrderByCursor : public Cursor {
   }
 
  private:
-  struct Element {
-    utils::pmr::vector<TypedValue> order_by;
-    utils::pmr::vector<TypedValue> remember;
-  };
-
   const OrderBy &self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_all_{false};
   // a cache of elements pulled from the input
-  // the cache is filled and sorted (only on first elem) on first Pull
-  utils::pmr::vector<Element> cache_;
+  // the cache is filled and sorted on first Pull
+  utils::pmr::vector<utils::pmr::vector<TypedValue>> cache_;
   // iterator over the cache_, maintains state between Pulls
   decltype(cache_.begin()) cache_it_ = cache_.begin();
 };
@@ -4474,15 +4508,15 @@ class UnwindCursor : public Cursor {
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
-        // Copy the evaluted input_value_list to our vector.
-        input_value_ = input_value.ValueList();
+        // Move the evaluted input_value_list to our vector.
+        input_value_ = std::move(input_value.ValueList());
         input_value_it_ = input_value_.begin();
       }
 
       // if we reached the end of our list of values goto back to top
       if (input_value_it_ == input_value_.end()) continue;
 
-      frame[self_.output_symbol_] = *input_value_it_++;
+      frame[self_.output_symbol_] = std::move(*input_value_it_++);
       if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name_)) {
         context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
       }
@@ -4523,7 +4557,11 @@ class DistinctCursor : public Cursor {
     SCOPED_PROFILE_OP("Distinct");
 
     while (true) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+      if (!input_cursor_->Pull(frame, context)) {
+        // Nothing left to pull, we can dispose of seen_rows now
+        seen_rows_.clear();
+        return false;
+      }
 
       utils::pmr::vector<TypedValue> row(seen_rows_.get_allocator().GetMemoryResource());
       row.reserve(self_.value_symbols_.size());
@@ -5331,6 +5369,7 @@ class LoadCsvCursor : public Cursor {
             "1");
       }
       did_pull_ = true;
+      reader_->Reset();
     }
 
     auto row = reader_->GetNextRow(context.evaluation_context.memory);
