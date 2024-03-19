@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
   --no-install-recommends \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN pip3 install networkx==2.4 numpy==1.21.4 scipy==1.7.3
+RUN pip3 install --break-system-packages  networkx==3.2.1 numpy==1.26.4 scipy==1.12.0
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
