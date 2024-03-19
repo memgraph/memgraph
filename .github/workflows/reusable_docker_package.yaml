@@ -63,7 +63,7 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
 
       - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
-        if: ${{ inputs.arch }} == "arm"
+        if: ${{ inputs.arch == 'arm' }}
         run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
 
       - name: "Spin up mgbuild container"
