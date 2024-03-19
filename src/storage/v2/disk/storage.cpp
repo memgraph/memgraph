@@ -25,7 +25,9 @@
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
 
+#include <rocksdb/cache.h>
 #include <rocksdb/options.h>
+#include <rocksdb/table.h>
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
@@ -234,6 +236,11 @@ DiskStorage::DiskStorage(Config config)
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
+  std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(4 * 1024 * 1024 * 1024);  // 4 GB
+  rocksdb::BlockBasedTableOptions table_options;
+  table_options.block_cache = cache;
+  kvstore_->options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
   kvstore_->options_.create_if_missing = true;
   kvstore_->options_.comparator = new ComparatorWithU64TsImpl();
   kvstore_->options_.compression = rocksdb::kNoCompression;
