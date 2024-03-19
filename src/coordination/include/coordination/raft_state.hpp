@@ -27,6 +27,7 @@ struct CoordinatorToReplicaConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 using nuraft::buffer;
 using nuraft::logger;
@@ -88,6 +89,7 @@ class RaftState {
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto IsLockOpened() const -> bool;
+  auto GetRoutingTable() const -> RoutingTable;
 
  private:
   io::network::Endpoint raft_endpoint_;

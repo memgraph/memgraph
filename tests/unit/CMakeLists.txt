@@ -453,14 +453,6 @@ target_link_libraries(${test_prefix}coordinator_cluster_state gflags mg-coordina
 target_include_directories(${test_prefix}coordinator_cluster_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
-# TODO: (andi) Move into appropriate test suite
-# Test Routing table
-if(MG_ENTERPRISE)
-add_unit_test(routing_table.cpp)
-target_link_libraries(${test_prefix}routing_table gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}routing_table PRIVATE ${CMAKE_SOURCE_DIR}/include)
-endif()
-
 # Test coordinator state machine
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_state_machine.cpp)
@@ -473,4 +465,11 @@ if(MG_ENTERPRISE)
 add_unit_test(raft_state.cpp)
 target_link_libraries(${test_prefix}raft_state gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator instance
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_instance.cpp)
+target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()

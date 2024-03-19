@@ -10,12 +10,16 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-#include <chrono>
+
+#include "coordination/raft_state.hpp"
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
+#include "utils/logging.hpp"
+
+#include <spdlog/spdlog.h>
+#include <chrono>
 
 namespace memgraph::coordination {
 
@@ -45,7 +49,7 @@ auto RaftState::InitRaftServer() -> void {
   asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
-  params.heart_beat_interval_ = 150;
+  params.heart_beat_interval_ = 100;
   params.election_timeout_lower_bound_ = 200;
   params.election_timeout_upper_bound_ = 400;
   params.reserved_log_items_ = 5;
@@ -377,6 +381,51 @@ auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::
 
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   return state_machine_->GetCoordinatorInstances();
+}
+
+auto RaftState::GetRoutingTable() const -> RoutingTable {
+  auto res = RoutingTable{};
+
+  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
+    return instance.config.BoltSocketAddress();
+  };
+
+  // TODO: (andi) This is wrong check, Fico will correct in #1819.
+  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::MAIN;
+  };
+
+  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::REPLICA;
+  };
+
+  auto const &raft_log_repl_instances = GetReplicationInstances();
+
+  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
+                    ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+
+  if (!std::ranges::empty(bolt_mains)) {
+    res.emplace_back(std::move(bolt_mains), "WRITE");
+  }
+
+  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
+                       ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+  if (!std::ranges::empty(bolt_replicas)) {
+    res.emplace_back(std::move(bolt_replicas), "READ");
+  }
+
+  auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
+    return instance.config.bolt_server.SocketAddress();
+  };
+
+  auto const &raft_log_coord_instances = GetCoordinatorInstances();
+  auto bolt_coords =
+      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
+
+  res.emplace_back(std::move(bolt_coords), "ROUTE");
+
+  return res;
 }
 
 }  // namespace memgraph::coordination
