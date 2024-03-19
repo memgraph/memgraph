@@ -34,6 +34,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
@@ -3376,9 +3377,18 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
-                    const std::vector<memgraph::storage::Gid> &vertex_ids = {}, const std::string &error_msg = "") {
+                    const std::vector<memgraph::storage::Gid> &vertex_ids = {},
+                    const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *error_value;
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
+    }
   }
 
   mgp_list *search_results{};
@@ -3402,34 +3412,74 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   mgp_value *search_results_value;
   if (const auto err = mgp_value_make_list(search_results, &search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving text search results failed during creation of a map mgp_value");
+    throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
   }
-  mgp_value *error_msg_value;
-  if (const auto err = mgp_value_make_string(error_msg.data(), memory, &error_msg_value);
-      err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving text search results failed during creation of a map mgp_value");
+
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text index search error failed during insertion into mgp_map");
+    }
+    return;
   }
 
   if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving text search results failed during insertion into mgp_map");
+    throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
   }
-  if (const auto err = mgp_map_insert(*result, "error_msg", error_msg_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-    throw std::logic_error("Retrieving text search results failed during insertion into mgp_map");
+}
+
+void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::string &aggregation_result,
+                              const std::optional<std::string> &error_msg = std::nullopt) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *aggregation_result_or_error_value;
+  if (const auto err = mgp_value_make_string(error_msg.value_or(aggregation_result).data(), memory,
+                                             &aggregation_result_or_error_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
+  }
+
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_map_insert(*result, "error_msg", aggregation_result_or_error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text index aggregation error failed during insertion into mgp_map");
+    }
+    return;
+  }
+
+  if (const auto err = mgp_map_insert(*result, "aggregation_results", aggregation_result_or_error_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text index aggregation results failed during insertion into mgp_map");
   }
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                      mgp_memory *memory, mgp_map **result) {
-  return WrapExceptions([graph, memory, index_name, search_query, result]() {
-    std::vector<memgraph::storage::Gid> search_results;
-    std::string error_msg;
+                                      text_search_mode search_mode, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
+    std::vector<memgraph::storage::Gid> found_vertices_ids;
+    std::optional<std::string> error_msg = std::nullopt;
     try {
-      search_results = graph->getImpl()->TextIndexSearch(index_name, search_query);
+      found_vertices_ids = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode);
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapTextSearch(graph, memory, result, search_results, error_msg);
+    WrapTextSearch(graph, memory, result, found_vertices_ids, error_msg);
+  });
+}
+
+mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                              const char *aggregation_query, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, aggregation_query, result]() {
+    std::string search_results;
+    std::optional<std::string> error_msg = std::nullopt;
+    try {
+      search_results = graph->getImpl()->TextIndexAggregate(index_name, search_query, aggregation_query);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapTextIndexAggregation(memory, result, search_results, error_msg);
   });
 }
 

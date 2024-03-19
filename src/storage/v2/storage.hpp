@@ -20,6 +20,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_server.hpp"
@@ -248,8 +249,14 @@ class Storage {
       storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
-    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query) const {
-      return storage_->indices_.text_index_.Search(index_name, search_query);
+    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                     text_search_mode search_mode) const {
+      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
+    }
+
+    std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                   const std::string &aggregation_query) const {
+      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;

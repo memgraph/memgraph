@@ -331,8 +331,14 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
 }
 
 inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                        mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, memory);
+                                        text_search_mode search_mode, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, memory);
+}
+
+inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                                const char *aggregation_query, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query,
+                             memory);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
