@@ -196,7 +196,7 @@ jobs:
       arch: "arm"
       runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
+      timeout_minutes: 120
       additional_build_args: "--for-docker"
       artifact_name: "docker-aarch64"
     secrets: inherit
@@ -210,7 +210,7 @@ jobs:
       arch: "arm"
       runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
+      timeout_minutes: 120
       additional_build_args: "--for-docker"
       artifact_name: "docker-aarch64"
     secrets: inherit
