@@ -236,7 +236,7 @@ DiskStorage::DiskStorage(Config config)
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
-  std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(4 * 1024 * 1024 * 1024);  // 4 GB
+  std::shared_ptr<rocksdb::Cache> cache = rocksdb::NewLRUCache(1024 * 1024 * 1024);  // 1 GB
   rocksdb::BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
   kvstore_->options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
