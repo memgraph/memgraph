@@ -93,7 +93,6 @@ auto CoordinatorStateMachine::SerializeOpenLockSetInstanceAsReplica(std::string_
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
-  std::cout << "!!!!OUR JSON:" << json << std::endl;
   auto const action = json["action"].get<RaftLogAction>();
   auto const &info = json["info"];
 

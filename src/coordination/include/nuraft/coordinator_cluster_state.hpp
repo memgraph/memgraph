@@ -35,16 +35,13 @@ using replication_coordination_glue::ReplicationRole;
 struct ReplicationInstanceState {
   CoordinatorToReplicaConfig config;
   ReplicationRole status;
-  // for replica this is main uuid of current main
-  // for "main" main this same as in CoordinatorData
 
+  // for replica this is main uuid of current main
+  // for "main" main this same as current_main_id_
   // when replica is down and comes back up we reset uuid of main replica is listening to
   // so we need to send swap uuid again
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
-
-  // explicit ReplicationInstanceState(CoordinatorToReplicaConfig config, ReplicationRole status, utils::UUID const
-  // &uuid): config(std::move(config)), status(status), instance_uuid(uuid) {};
 
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
     return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid;

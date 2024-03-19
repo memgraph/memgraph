@@ -188,8 +188,8 @@ auto RaftState::AppendOpenLockUnregister(std::string_view instance_name) -> bool
   }
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to enter state of distributed lock unregistering instance {} with error code {}",
-                  instance_name, int(res->get_result_code()));
+    spdlog::error("Failed to open lock for unregistering instance {} with error code {}", instance_name,
+                  int(res->get_result_code()));
     return false;
   }
 

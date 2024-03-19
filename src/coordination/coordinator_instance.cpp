@@ -71,6 +71,8 @@ CoordinatorInstance::CoordinatorInstance()
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
+    // when coordinator is becoming follower it will want to stop all threads doing frequent checks
+    // Thread can get stuck here waiting for lock so we need to frequently check if we are in shutdown state
     while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
       if (self->is_shutting_down_) {
         return;
@@ -82,6 +84,8 @@ CoordinatorInstance::CoordinatorInstance()
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
+    // when coordinator is becoming follower it will want to stop all threads doing frequent checks
+    // Thread can get stuck here waiting for lock so we need to frequently check if we are in shutdown state
     while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
       if (self->is_shutting_down_) {
         return;
