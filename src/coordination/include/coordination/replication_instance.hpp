@@ -26,21 +26,21 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-class ReplicationInstance;
 
 using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view);
 
-class ReplicationInstance {
+class ReplicationInstanceConnector {
  public:
-  ReplicationInstance(CoordinatorInstance *peer, CoordinatorToReplicaConfig config, HealthCheckClientCallback succ_cb,
-                      HealthCheckClientCallback fail_cb, HealthCheckInstanceCallback succ_instance_cb,
-                      HealthCheckInstanceCallback fail_instance_cb);
+  ReplicationInstanceConnector(CoordinatorInstance *peer, CoordinatorToReplicaConfig config,
+                               HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb,
+                               HealthCheckInstanceCallback succ_instance_cb,
+                               HealthCheckInstanceCallback fail_instance_cb);
 
-  ReplicationInstance(ReplicationInstance const &other) = delete;
-  ReplicationInstance &operator=(ReplicationInstance const &other) = delete;
-  ReplicationInstance(ReplicationInstance &&other) noexcept = delete;
-  ReplicationInstance &operator=(ReplicationInstance &&other) noexcept = delete;
-  ~ReplicationInstance() = default;
+  ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
+  ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;
+  ReplicationInstanceConnector(ReplicationInstanceConnector &&other) noexcept = delete;
+  ReplicationInstanceConnector &operator=(ReplicationInstanceConnector &&other) noexcept = delete;
+  ~ReplicationInstanceConnector() = default;
 
   auto OnSuccessPing() -> void;
   auto OnFailPing() -> bool;
@@ -77,7 +77,7 @@ class ReplicationInstance {
   auto SendUnregisterReplicaRpc(std::string_view instance_name) -> bool;
 
   auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
-  auto GetClient() -> CoordinatorClient &;
+  auto GetClient() -> ReplicationInstanceClient &;
 
   auto EnableWritingOnMain() -> bool;
 
@@ -87,7 +87,7 @@ class ReplicationInstance {
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
 
  private:
-  CoordinatorClient client_;
+  ReplicationInstanceClient client_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
   std::chrono::system_clock::time_point last_check_of_uuid_{};
@@ -95,7 +95,7 @@ class ReplicationInstance {
   HealthCheckInstanceCallback succ_cb_;
   HealthCheckInstanceCallback fail_cb_;
 
-  friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
+  friend bool operator==(ReplicationInstanceConnector const &first, ReplicationInstanceConnector const &second) {
     return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
            first.is_alive_ == second.is_alive_;
   }

@@ -28,18 +28,18 @@ class CoordinatorInstance;
 using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
 using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
-class CoordinatorClient {
+class ReplicationInstanceClient {
  public:
-  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
-                             HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
+  explicit ReplicationInstanceClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
+                                     HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
 
-  ~CoordinatorClient() = default;
+  ~ReplicationInstanceClient() = default;
 
-  CoordinatorClient(CoordinatorClient &) = delete;
-  CoordinatorClient &operator=(CoordinatorClient const &) = delete;
+  ReplicationInstanceClient(ReplicationInstanceClient &) = delete;
+  ReplicationInstanceClient &operator=(ReplicationInstanceClient const &) = delete;
 
-  CoordinatorClient(CoordinatorClient &&) noexcept = delete;
-  CoordinatorClient &operator=(CoordinatorClient &&) noexcept = delete;
+  ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
+  ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
   void StartFrequentCheck();
   void StopFrequentCheck();
@@ -76,7 +76,7 @@ class CoordinatorClient {
 
   auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
 
-  friend bool operator==(CoordinatorClient const &first, CoordinatorClient const &second) {
+  friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
     return first.config_ == second.config_;
   }
 

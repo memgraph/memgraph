@@ -22,6 +22,7 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorClusterState;
+using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorInstanceState;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
@@ -45,7 +46,9 @@ class CoordinatorClusterStateTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+  CoordinatorClusterState cluster_state{init_config1};
 
   auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -65,13 +68,15 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
-  ASSERT_EQ(cluster_state.GetCoordinatorInstances().size(), 0);
+  ASSERT_EQ(cluster_state.GetCoordinatorInstances().size(), 1);
 
   ASSERT_TRUE(cluster_state.IsReplica("instance3"));
 }
 
 TEST_F(CoordinatorClusterStateTest, UnregisterReplicationInstance) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+  CoordinatorClusterState cluster_state{init_config1};
 
   auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -92,7 +97,9 @@ TEST_F(CoordinatorClusterStateTest, UnregisterReplicationInstance) {
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+  CoordinatorClusterState cluster_state{init_config1};
   {
     auto config =
         CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -135,7 +142,10 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+
+  CoordinatorClusterState cluster_state{init_config1};
   {
     auto config =
         CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -180,23 +190,27 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
 }
 
 TEST_F(CoordinatorClusterStateTest, UpdateUUID) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+  CoordinatorClusterState cluster_state{init_config1};
   auto uuid = UUID();
   cluster_state.DoAction(uuid, RaftLogAction::UPDATE_UUID);
   ASSERT_EQ(cluster_state.GetUUID(), uuid);
 }
 
 TEST_F(CoordinatorClusterStateTest, AddCoordinatorInstance) {
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
   CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 
-  CoordinatorClusterState cluster_state;
+  CoordinatorClusterState cluster_state{init_config1};
   cluster_state.DoAction(config, RaftLogAction::ADD_COORDINATOR_INSTANCE);
 
   auto instances = cluster_state.GetCoordinatorInstances();
-  ASSERT_EQ(instances.size(), 1);
-  ASSERT_EQ(instances[0].config, config);
+  ASSERT_EQ(instances.size(), 2);
+  ASSERT_EQ(instances[1].config, config);
 }
 
 TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
@@ -231,7 +245,10 @@ TEST_F(CoordinatorClusterStateTest, CoordinatorInstanceStateSerialization) {
 }
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
-  CoordinatorClusterState cluster_state;
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
+
+  CoordinatorClusterState cluster_state{init_config1};
   CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};

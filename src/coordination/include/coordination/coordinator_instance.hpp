@@ -26,8 +26,6 @@
 
 namespace memgraph::coordination {
 
-using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
-
 struct NewMainRes {
   std::string most_up_to_date_instance;
   std::string latest_epoch;
@@ -56,9 +54,9 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
 
-  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
+  auto GetRoutingTable(std::map<std::string, std::string> const &routing) const -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
@@ -69,7 +67,7 @@ class CoordinatorInstance {
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    auto const get_ts = [](ReplicationInstance &replica) {
+    auto const get_ts = [](ReplicationInstanceConnector &replica) {
       spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
       return replica.GetClient().SendGetInstanceTimestampsRpc();
     };
@@ -105,7 +103,7 @@ class CoordinatorInstance {
     return most_up_to_date_instance;
   }
 
-  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
+  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
 
   void MainFailCallback(std::string_view);
 
@@ -124,7 +122,7 @@ class CoordinatorInstance {
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
-  std::list<ReplicationInstance> repl_instances_;
+  std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
