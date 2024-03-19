@@ -364,8 +364,8 @@ int main(int argc, char **argv) {
           "In order to use write-ahead-logging you must enable "
           "periodic snapshots by setting the snapshot interval to a "
           "value larger than 0!");
-      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
     }
+    db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
   } else {
     if (FLAGS_storage_wal_enabled) {
       db_config.durability.snapshot_wal_mode =
