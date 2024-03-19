@@ -130,9 +130,13 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
+  const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [&current_value, &property, &value, transaction = transaction_, edge = edge_]() {
+      [&current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
         current_value.emplace(edge.ptr->properties.GetProperty(property));
+        if (skip_duplicate_write && current_value == value) {
+          return;
+        }
         // We could skip setting the value if the previous one is the same to the new
         // one. This would save some memory as a delta would not be created as well as
         // avoid copying the value. The reason we are not doing that is because the
@@ -184,12 +188,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
+  const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change]() {
+      [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change, skip_duplicate_write]() {
         id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
         for (auto &[property, old_value, new_value] : *id_old_new_change) {
+          if (skip_duplicate_write && old_value == new_value) continue;
           CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
         }
       }};

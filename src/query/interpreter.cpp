@@ -246,27 +246,6 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  for (const auto &clause : clauses) {
-    if (clause->GetTypeInfo() != Match::kType) {
-      continue;
-    }
-    auto *match_clause = utils::Downcast<Match>(clause);
-    for (const auto &pattern : match_clause->patterns_) {
-      for (const auto &atom : pattern->atoms_) {
-        if (atom->GetTypeInfo() != EdgeAtom::kType) {
-          continue;
-        }
-        auto *edge_atom = utils::Downcast<EdgeAtom>(atom);
-        if (edge_atom->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
 inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
@@ -1146,6 +1125,27 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 }
 
 #ifdef MG_ENTERPRISE
+
+auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config_map,
+                    ExpressionVisitor<TypedValue> &evaluator)
+    -> std::optional<std::map<std::string, std::string, std::less<>>> {
+  if (std::ranges::any_of(config_map, [&evaluator](const auto &entry) {
+        auto key_expr = entry.first->Accept(evaluator);
+        auto value_expr = entry.second->Accept(evaluator);
+        return !key_expr.IsString() || !value_expr.IsString();
+      })) {
+    spdlog::error("Config map must contain only string keys and values!");
+    return std::nullopt;
+  }
+
+  return ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &entry) {
+           auto key_expr = entry.first->Accept(evaluator);
+           auto value_expr = entry.second->Accept(evaluator);
+           return std::pair{key_expr.ValueString(), value_expr.ValueString()};
+         }) |
+         ranges::to<std::map<std::string, std::string, std::less<>>>;
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
@@ -1173,17 +1173,37 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
-      auto raft_socket_address_tv = coordinator_query->raft_socket_address_->Accept(evaluator);
-      auto raft_server_id_tv = coordinator_query->raft_server_id_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, raft_socket_address_tv,
-                     raft_server_id_tv]() mutable {
-        handler.AddCoordinatorInstance(raft_server_id_tv.ValueInt(), std::string(raft_socket_address_tv.ValueString()));
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      if (config_map->size() != 2) {
+        throw QueryRuntimeException("Config map must contain exactly 2 entries: {} and !", kCoordinatorServer,
+                                    kBoltServer);
+      }
+
+      auto const &coordinator_server_it = config_map->find(kCoordinatorServer);
+      if (coordinator_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kCoordinatorServer);
+      }
+
+      auto const &bolt_server_it = config_map->find(kBoltServer);
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+      }
+
+      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
+                     coordinator_server = coordinator_server_it->second]() mutable {
+        handler.AddCoordinatorInstance(coord_server_id, coordinator_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::ADD_COORDINATOR_INSTANCE,
                                   fmt::format("Coordinator has added instance {} on coordinator server {}.",
-                                              coordinator_query->instance_name_, raft_socket_address_tv.ValueString()));
+                                              coordinator_query->instance_name_, coordinator_server_it->second));
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
@@ -1194,27 +1214,49 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       // the argument to Callback.
       EvaluationContext evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      auto config_map = ParseConfigMap(coordinator_query->configs_, evaluator);
 
-      auto coordinator_socket_address_tv = coordinator_query->coordinator_socket_address_->Accept(evaluator);
-      auto replication_socket_address_tv = coordinator_query->replication_socket_address_->Accept(evaluator);
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coordinator_socket_address_tv,
-                     replication_socket_address_tv,
+      if (!config_map) {
+        throw QueryRuntimeException("Failed to parse config map!");
+      }
+
+      if (config_map->size() != 3) {
+        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and {}!", kBoltServer,
+                                    kManagementServer, kReplicationServer);
+      }
+
+      auto const &replication_server_it = config_map->find(kReplicationServer);
+      if (replication_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kReplicationServer);
+      }
+
+      auto const &management_server_it = config_map->find(kManagementServer);
+      if (management_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kManagementServer);
+      }
+
+      auto const &bolt_server_it = config_map->find(kBoltServer);
+      if (bolt_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
+      }
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
+                     management_server = management_server_it->second,
+                     replication_server = replication_server_it->second, bolt_server = bolt_server_it->second,
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
                      instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(std::string(coordinator_socket_address_tv.ValueString()),
-                                            std::string(replication_socket_address_tv.ValueString()),
-                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
+        handler.RegisterReplicationInstance(management_server, replication_server, instance_health_check_frequency_sec,
+                                            instance_down_timeout_sec, instance_get_uuid_frequency_sec, instance_name,
+                                            sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
-      notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
-          fmt::format("Coordinator has registered coordinator server on {} for instance {}.",
-                      coordinator_socket_address_tv.ValueString(), coordinator_query->instance_name_));
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
+                                  fmt::format("Coordinator has registered replication instance on {} for instance {}.",
+                                              bolt_server_it->second, coordinator_query->instance_name_));
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
@@ -1670,8 +1712,7 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
-                    FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1696,26 +1737,17 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
-
-  // In the case of LOAD CSV, we want to use only PoolResource without MonotonicMemoryResource
-  // to reuse allocated memory. As LOAD CSV is processing row by row
-  // it is possible to reduce memory usage significantly if MemoryResource deals with memory allocation
-  // can reuse memory that was allocated on processing the first row on all subsequent rows.
-  // This flag signals to `PullPlan::Pull` which MemoryResource to use
-  bool use_monotonic_memory_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, bool use_monotonic_memory,
-                   FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit),
-      use_monotonic_memory_(use_monotonic_memory) {
+      memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -1741,6 +1773,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
+  ctx_.evaluation_context.memory = execution_memory;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -1764,43 +1797,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
         }
       }};
 
-  // Set up temporary memory for a single Pull. Initial memory comes from the
-  // stack. 256 KiB should fit on the stack and should be more than enough for a
-  // single `Pull`.
-  static constexpr size_t stack_size = 256UL * 1024UL;
-  char stack_data[stack_size];
-
-  utils::ResourceWithOutOfMemoryException resource_with_exception;
-  utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
-  std::optional<utils::PoolResource> pool_memory;
-  static constexpr auto kMaxBlockPerChunks = 128;
-
-  if (!use_monotonic_memory_) {
-    pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
-                        &resource_with_exception);
-  } else {
-    // We can throw on every query because a simple queries for deleting will use only
-    // the stack allocated buffer.
-    // Also, we want to throw only when the query engine requests more memory and not the storage
-    // so we add the exception to the allocator.
-    // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
-  }
-
-  ctx_.evaluation_context.memory = &*pool_memory;
-
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
 
-  const auto stream_values = [&]() {
-    // TODO: The streamed values should also probably use the above memory.
-    std::vector<TypedValue> values;
-    values.reserve(output_symbols.size());
-
-    for (const auto &symbol : output_symbols) {
-      values.emplace_back(frame_[symbol]);
+  auto values = std::vector<TypedValue>(output_symbols.size());
+  const auto stream_values = [&] {
+    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
+      values[i] = frame_[output_symbols[i]];
     }
-
     stream->Result(values);
   };
 
@@ -1910,7 +1914,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
-    ResetInterpreter();
     // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
     // becomes large.
     handler = [this, extras = extras] {
@@ -1988,30 +1991,6 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-bool IsLoadCsvQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  return std::any_of(clauses.begin(), clauses.end(),
-                     [](memgraph::query::Clause const *clause) { return clause->GetTypeInfo() == LoadCsv::kType; });
-}
-
-bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  EvaluationContext evaluation_context;
-
-  return std::ranges::any_of(clauses, [&evaluation_context](memgraph::query::Clause *clause) -> bool {
-    if (!(clause->GetTypeInfo() == CallProcedure::kType)) return false;
-    auto *call_procedure_clause = utils::Downcast<CallProcedure>(clause);
-
-    const auto &maybe_found = memgraph::query::procedure::FindProcedure(
-        procedure::gModuleRegistry, call_procedure_clause->procedure_name_, evaluation_context.memory);
-    if (!maybe_found) {
-      throw QueryRuntimeException("There is no procedure named '{}'.", call_procedure_clause->procedure_name_);
-    }
-    const auto &[module, proc] = *maybe_found;
-    if (!proc->info.is_batched) return false;
-    spdlog::trace("Using PoolResource for batched query procedure");
-    return true;
-  });
-}
-
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -2031,7 +2010,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
   auto clauses = cypher_query->single_query_->clauses_;
-  bool contains_csv = false;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
@@ -2039,12 +2017,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
-    contains_csv = true;
   }
-
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
@@ -2084,7 +2057,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
-      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit, use_monotonic_memory,
+      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -2198,18 +2171,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
-  bool contains_csv = false;
-  auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(clauses.begin(), clauses.end(),
-                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-    contains_csv = true;
-  }
-
-  // If this is LOAD CSV, BatchedProcedure or AllShortest query, use PoolResource without MonotonicMemoryResource as we
-  // want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
-
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
@@ -2243,14 +2204,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // We want to execute the query we are profiling lazily, so we delay
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
-       frame_change_collector, tx_timer = std::move(tx_timer)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
+       tx_timer = std::move(tx_timer)](AnyStream *stream,
+                                       std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-                       transaction_status, std::move(tx_timer), nullptr, memory_limit, use_monotonic_memory,
+                       transaction_status, std::move(tx_timer), nullptr, memory_limit,
                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
@@ -4213,6 +4174,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
+  ResetInterpreter();
   const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
   prepared_query.query_handler(nullptr, {});
 }
@@ -4247,12 +4209,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    auto resource = utils::MonotonicBufferResource(kExecutionMemoryBlockSize);
-    auto prepared_query = PrepareTransactionQuery(trimmed_query, extras);
-    auto &query_execution =
-        query_executions_.emplace_back(QueryExecution::Create(std::move(resource), std::move(prepared_query)));
-    std::optional<int> qid =
-        in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
+    if (trimmed_query == "BEGIN") {
+      ResetInterpreter();
+    }
+    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
+    query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
+    auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
@@ -4282,35 +4244,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
 
-    CypherQuery const *const cypher_query = [&]() -> CypherQuery * {
-      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
-        return cypher_query;
-      }
-      if (auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query)) {
-        return profile_query->cypher_query_;
-      }
-      return nullptr;
-    }();  // IILE
-
-    auto const [usePool, hasAllShortestPaths] = [&]() -> std::pair<bool, bool> {
-      if (!cypher_query) {
-        return {false, false};
-      }
-      auto const &clauses = cypher_query->single_query_->clauses_;
-      bool hasAllShortestPaths = IsAllShortestPathsQuery(clauses);
-      // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
-      bool usePool = hasAllShortestPaths || IsCallBatchedProcedureQuery(clauses) || IsLoadCsvQuery(clauses);
-      return {usePool, hasAllShortestPaths};
-    }();  // IILE
-
     // Setup QueryExecution
-    // its MemoryResource is mostly used for allocations done on Frame and storing `row`s
-    if (usePool) {
-      query_executions_.emplace_back(QueryExecution::Create(utils::PoolResource(128, kExecutionPoolMaxBlockSize)));
-    } else {
-      query_executions_.emplace_back(QueryExecution::Create(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
-    }
-
+    query_executions_.emplace_back(QueryExecution::Create());
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
 
@@ -4379,9 +4314,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource =
-        std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
-                   query_execution->execution_memory);
+    utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -4392,10 +4325,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, current_db_,
-                                           &query_execution->execution_memory_with_exception, user_or_role_,
-                                           &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                              &query_execution->notifications, interpreter_context_, current_db_, memory_resource,
+                              user_or_role_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
@@ -4597,7 +4530,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                             std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    QueryAllocator execution_memory{};
 
     // create a new transaction for each trigger
     auto tx_acc = db_acc->Access();
@@ -4608,7 +4541,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
+      trigger.Execute(&db_accessor, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
@@ -4762,11 +4695,12 @@ void Interpreter::Commit() {
   if (trigger_context) {
     // Run the triggers
     for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
-      utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+      QueryAllocator execution_memory{};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
-                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context);
+        trigger.Execute(&*current_db_.execution_db_accessor_, execution_memory.resource(),
+                        flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
+                        &transaction_status_, *trigger_context);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));

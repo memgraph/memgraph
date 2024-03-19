@@ -5,17 +5,20 @@ IFS=' '
 # NOTE: docker_image_name could be local image build based on release/package images.
 # NOTE: each line has to be under quotes, docker_container_type, script_name and docker_image_name separate with a space.
 # "docker_container_type script_name docker_image_name"
+#     docker_container_type OPTIONS:
+#         * mgrun -> running plain/empty operating system for the purposes of testing native memgraph package
+#         * mgbuild -> running the builder container to build memgraph inside it -> it's possible create builder images using release/package/run.sh
 OPERATING_SYSTEMS=(
-  "mgrun amzn-2 amazonlinux:2"
-  "mgrun centos-7 centos:7"
-  "mgrun centos-9 dokken/centos-stream-9"
-  "mgrun debian-10 debian:10"
-  "mgrun debian-11 debian:11"
-  "mgrun fedora-36 fedora:36"
-  "mgrun ubuntu-18.04 ubuntu:18.04"
-  "mgrun ubuntu-20.04 ubuntu:20.04"
-  "mgrun ubuntu-22.04 ubuntu:22.04"
-  # "mgbuild centos-7 package-mgbuild_centos-7"
+  # "mgrun amzn-2 amazonlinux:2"
+  # "mgrun centos-7 centos:7"
+  # "mgrun centos-9 dokken/centos-stream-9"
+  # "mgrun debian-10 debian:10"
+  # "mgrun debian-11 debian:11"
+  # "mgrun fedora-36 fedora:36"
+  # "mgrun ubuntu-18.04 ubuntu:18.04"
+  # "mgrun ubuntu-20.04 ubuntu:20.04"
+  # "mgrun ubuntu-22.04 ubuntu:22.04"
+  # "mgbuild debian-12 memgraph/memgraph-builder:v5_debian-12"
 )
 
 if [ ! "$(docker info)" ]; then
@@ -33,14 +36,24 @@ print_help () {
 # NOTE: This is an idempotent operation!
 # TODO(gitbuda): Consider making docker_run always delete + start a new container or add a new function.
 docker_run () {
-  cnt_name="$1"
-  cnt_image="$2"
+  cnt_type="$1"
+  if [[ "$cnt_type" != "mgbuild" && "$cnt_type" != "mgrun" ]]; then
+    echo "ERROR: Wrong docker_container_type -> valid options are mgbuild, mgrun"
+    exit 1
+  fi
+  cnt_name="$2"
+  cnt_image="$3"
   if [ ! "$(docker ps -q -f name=$cnt_name)" ]; then
       if [ "$(docker ps -aq -f status=exited -f name=$cnt_name)" ]; then
           echo "Cleanup of the old exited container..."
           docker rm $cnt_name
       fi
-      docker run -d --volume "$SCRIPT_DIR/../../:/memgraph" --network host --name "$cnt_name" "$cnt_image" sleep infinity
+      if [[ "$cnt_type" == "mgbuild" ]]; then
+        docker run -d --volume "$SCRIPT_DIR/../../:/memgraph" --network host --name "$cnt_name" "$cnt_image"
+      fi
+      if [[ "$cnt_type" == "mgrun" ]]; then
+        docker run -d --volume "$SCRIPT_DIR/../../:/memgraph" --network host --name "$cnt_name" "$cnt_image" sleep infinity
+      fi
   fi
   echo "The $cnt_image container is active under $cnt_name name!"
 }
@@ -55,9 +68,9 @@ docker_stop_and_rm () {
   cnt_name="$1"
   if [ "$(docker ps -q -f name=$cnt_name)" ]; then
       docker stop "$1"
-      if [ "$(docker ps -aq -f status=exited -f name=$cnt_name)" ]; then
-        docker rm "$1"
-      fi
+  fi
+  if [ "$(docker ps -aq -f status=exited -f name=$cnt_name)" ]; then
+    docker rm "$1"
   fi
 }
 
@@ -71,7 +84,7 @@ start_all () {
     docker_name="${docker_container_type}_$script_name"
     echo ""
     echo "~~~~ OPERATING ON $docker_image as $docker_name..."
-    docker_run "$docker_name" "$docker_image"
+    docker_run "$docker_container_type" "$docker_name" "$docker_image"
     docker_exec "$docker_name" "/memgraph/environment/os/$script_name.sh install NEW_DEPS"
     echo "---- DONE EVERYHING FOR $docker_image as $docker_name..."
     echo ""
