@@ -333,8 +333,18 @@ int main(int argc, char **argv) {
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .enable_label_index_auto_creation = FLAGS_storage_enable_automatic_label_index_creation,
+                        .enable_edge_type_index_auto_creation =
+                            FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_automatic_edge_type_index_creation
+                                                              : false,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+  if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
+    spdlog::warn(
+        "Automatic index creation on edge-types has been set but properties on edges are disabled. This will "
+        "implicitly disallow automatic edge-type index creation. If you wish to use automatic edge-type index "
+        "creation, enable properties on edges as well.");
+  }
   spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
                FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
