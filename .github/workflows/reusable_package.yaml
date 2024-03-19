@@ -135,24 +135,3 @@ jobs:
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: "build/output/release"
           DEST_DIR: ${{ inputs.s3_dest_dir }}
-
-  # MAKE DOCKER WORK
-  # docker:
-  #   if: ${{ inputs.target_os == 'docker' || inputs.target_os == 'all' }}
-  #   runs-on: [self-hosted, DockerMgBuild, X64]
-  #   timeout-minutes: 60
-  #   steps:
-  #     - name: "Set up repository"
-  #       uses: actions/checkout@v4
-  #       with:
-  #         fetch-depth: 0 # Required because of release/get_version.py
-  #     - name: "Build package"
-  #       run: |
-  #         cd release/package
-  #         ./run.sh package debian-11 ${{ inputs.build_type }} --for-docker
-  #         ./run.sh docker
-  #     - name: "Upload package"
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: docker
-  #         path: build/output/docker/memgraph*.tar.gz
