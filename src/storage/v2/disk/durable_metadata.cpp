@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ DurableMetadata::DurableMetadata(const Config &config)
 DurableMetadata::DurableMetadata(DurableMetadata &&other) noexcept
     : durability_kvstore_(std::move(other.durability_kvstore_)), config_(std::move(other.config_)) {}
 
-void DurableMetadata::SaveBeforeClosingDB(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count) {
+void DurableMetadata::UpdateMetaData(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count) {
   durability_kvstore_.Put(kLastTransactionStartTimeStamp, std::to_string(timestamp));
   durability_kvstore_.Put(kVertexCountDescr, std::to_string(vertex_count));
   durability_kvstore_.Put(kEdgeDountDescr, std::to_string(edge_count));

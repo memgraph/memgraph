@@ -272,8 +272,8 @@ DiskStorage::DiskStorage(Config config)
 }
 
 DiskStorage::~DiskStorage() {
-  durable_metadata_.SaveBeforeClosingDB(timestamp_, vertex_count_.load(std::memory_order_acquire),
-                                        edge_count_.load(std::memory_order_acquire));
+  durable_metadata_.UpdateMetaData(timestamp_, vertex_count_.load(std::memory_order_acquire),
+                                   edge_count_.load(std::memory_order_acquire));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->out_edges_chandle));
@@ -1768,8 +1768,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     return StorageManipulationError{SerializationError{}};
   }
   spdlog::trace("rocksdb: Commit successful");
-  disk_storage->durable_metadata_.SaveBeforeClosingDB(disk_storage->timestamp_, disk_storage->vertex_count_,
-                                                      disk_storage->edge_count_);  // maybe rename this function
+  disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
+                                                 disk_storage->edge_count_);
   is_transaction_active_ = false;
 
   return {};

@@ -179,3 +179,35 @@ TEST_F(ClearingOldDiskDataTest, TestNumOfEntriesWithEdgeValueUpdate) {
 
   ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 5);
 }
+
+TEST_F(ClearingOldDiskDataTest, TestTimestampAfterCommit) {
+  auto *tx_db = disk_storage->GetRocksDBStorage()->db_;
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 0);
+
+  auto acc1 = disk_storage->Access(ReplicationRole::MAIN);
+  auto vertex1 = acc1->CreateVertex();
+  auto label1 = acc1->NameToLabel("DiskLabel");
+  auto property1 = acc1->NameToProperty("DiskProperty");
+  ASSERT_TRUE(vertex1.AddLabel(label1).HasValue());
+  ASSERT_TRUE(vertex1.SetProperty(property1, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc1->Commit().HasError());
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
+
+  auto saved_timestamp = disk_storage->GetDurableMetadata()->LoadTimestampIfExists();
+  ASSERT_EQ(saved_timestamp.has_value(), true);
+  ASSERT_EQ(disk_storage->timestamp_, saved_timestamp);
+
+  auto acc2 = disk_storage->Access(ReplicationRole::MAIN);
+  auto vertex2 = acc2->CreateVertex();
+  auto label2 = acc2->NameToLabel("DiskLabel2");
+  auto property2 = acc2->NameToProperty("DiskProperty2");
+
+  ASSERT_TRUE(vertex2.AddLabel(label2).HasValue());
+  ASSERT_TRUE(vertex2.SetProperty(property2, memgraph::storage::PropertyValue(10)).HasValue());
+  ASSERT_FALSE(acc2->Commit().HasError());
+  ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 2);
+
+  saved_timestamp = disk_storage->GetDurableMetadata()->LoadTimestampIfExists();
+  ASSERT_EQ(saved_timestamp.has_value(), true);
+  ASSERT_EQ(disk_storage->timestamp_, saved_timestamp);
+}

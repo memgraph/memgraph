@@ -301,6 +301,8 @@ class DiskStorage final : public Storage {
 
   EdgeImportMode GetEdgeImportMode() const;
 
+  DurableMetadata *GetDurableMetadata() { return &durable_metadata_; }
+
  private:
   void LoadPersistingMetadataInfo();
 
