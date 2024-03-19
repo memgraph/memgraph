@@ -30,9 +30,9 @@ using nuraft::ptr;
 using nuraft::srv_config;
 
 CoordinatorInstance::CoordinatorInstance()
-    : raft_state_(RaftState::MakeRaftState(
+    : thread_pool_{1},
+      raft_state_(RaftState::MakeRaftState(
           [this]() {
-            // TODO(antoniofilipovic) Lock is missing here
             spdlog::info("Leader changed, starting all replication instances!");
             auto const instances = raft_state_.GetReplicationInstances();
             auto replicas = instances | ranges::views::filter([](auto const &instance) {
@@ -60,28 +60,33 @@ CoordinatorInstance::CoordinatorInstance()
             is_shutting_down_ = false;
           },
           [this]() {
-            // std::cout << "Adding task to thread pool to become follower" << std::endl;
-            if (repl_instances_.empty()) {
-              return;
-            }
             thread_pool_.AddTask([this]() {
-              auto lock = std::lock_guard{coord_instance_lock_};
               spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
               is_shutting_down_ = true;
+              auto lock = std::unique_lock{coord_instance_lock_};
               repl_instances_.clear();
               is_shutting_down_ = false;
               spdlog::info("Stopped all replication instance frequent checks.");
             });
-            spdlog::trace("Task to become follower added.");
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
+    auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
+    while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
+      if (self->is_shutting_down_) {
+        return;
+      }
+    }
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::lock_guard{self->coord_instance_lock_};
+    auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
+    while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
+      if (self->is_shutting_down_) {
+        return;
+      }
+    }
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };

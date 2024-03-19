@@ -12,7 +12,6 @@
 #ifdef MG_ENTERPRISE
 #include <chrono>
 
-#include <spdlog/spdlog.h>
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
@@ -69,13 +68,9 @@ auto RaftState::InitRaftServer() -> void {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
-      // TODO(antoniofilipovic) What if you should become follower and you are doing failover or something else
-      // important
+      // TODO(antoniofilipovic) Check what happens when becoming follower while doing failover
+      // There is no way to stop becoming a follower:
       // https://github.com/eBay/NuRaft/blob/188947bcc73ce38ab1c3cf9d01015ca8a29decd9/src/raft_server.cxx#L1334-L1335
-      // There is no way to stop becoming a follower
-      // We can just safe execute action we did now
-      // In case of FAILOVER -> we can promote replica to MAIN but that MAIN will never become MAIN 100%
-      // But this can crash cluster as we will execute REPLICA callback on leader and this instance is MAIN now
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
@@ -91,14 +86,12 @@ auto RaftState::InitRaftServer() -> void {
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
   }
-  // std::cout << "!!!!!!!!!1initializing server" << std::endl;
   auto maybe_stop = utils::ResettableCounter<20>();
   do {
     if (raft_server_->is_initialized()) {
       return;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
-    // std::cout << "!!!! Waiting for server to initialize" << std::endl;
   } while (!maybe_stop());
 
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());

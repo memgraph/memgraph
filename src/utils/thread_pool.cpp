@@ -15,23 +15,17 @@ namespace memgraph::utils {
 
 ThreadPool::ThreadPool(const size_t pool_size) {
   for (size_t i = 0; i < pool_size; ++i) {
-    // std::cout << "!!!!!!!!!!!!!!!!emplacing thread" << std::endl;
     thread_pool_.emplace_back(([this] { this->ThreadLoop(); }));
-    // std::cout << "!!!!!!!!!!!!!!!!!!thread emplaced thread" << std::endl;
   }
 }
 
 void ThreadPool::AddTask(std::function<void()> new_task) {
-  // std::cout << "!!!!!!!!!!!!!!!!!!Trying to add task...." << std::endl;
   task_queue_.WithLock([&](auto &queue) {
     queue.emplace(std::make_unique<TaskSignature>(std::move(new_task)));
     unfinished_tasks_num_.fetch_add(1);
   });
-  // std::cout << "!!!!!!!!!!!!!!!!!!task added...."<< std::endl;
   std::unique_lock pool_guard(pool_lock_);
-  // std::cout <<"!!!!!!!!!!!!!!!!!!took lock..."<< std::endl;
   queue_cv_.notify_one();
-  // std::cout <<"!!!!!!!!!!!!!!!!!!took lock and notifyied..."<< std::endl;
 }
 
 void ThreadPool::Shutdown() {
@@ -58,7 +52,6 @@ ThreadPool::~ThreadPool() {
 }
 
 std::unique_ptr<ThreadPool::TaskSignature> ThreadPool::PopTask() {
-  // std::cout <<"!!!!!!!!!!!!!!!!!!!pop task function called;"<< std::endl;
   return task_queue_.WithLock([](auto &queue) -> std::unique_ptr<TaskSignature> {
     if (queue.empty()) {
       return nullptr;
@@ -70,9 +63,7 @@ std::unique_ptr<ThreadPool::TaskSignature> ThreadPool::PopTask() {
 }
 
 void ThreadPool::ThreadLoop() {
-  // std::cout <<"!!!!!!!!!!!!thread loop called"<< std::endl;
   std::unique_ptr<TaskSignature> task = PopTask();
-  // std::cout <<"!!!!!!!!!!!popped task before loop"<< std::endl;
   while (true) {
     while (task) {
       if (terminate_pool_.load()) {
@@ -85,9 +76,7 @@ void ThreadPool::ThreadLoop() {
 
     std::unique_lock guard(pool_lock_);
     queue_cv_.wait(guard, [&] {
-      // std::cout <<"!!!!!!!!!!!queue"<< std::endl;
       task = PopTask();
-      // std::cout <<"!!!!!!!!!!!!!!!!popping task"<< std::endl;
       return task || terminate_pool_.load();
     });
     if (terminate_pool_.load()) {

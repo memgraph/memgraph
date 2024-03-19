@@ -1277,8 +1277,8 @@ def test_multiple_old_mains_single_failover():
     interactive_mg_runner.start_all(inner_instances_description)
 
     setup_queries = [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
@@ -1288,10 +1288,8 @@ def test_multiple_old_mains_single_failover():
     for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
 
-    coord_cursor = connect(host="localhost", port=7693).cursor()
-
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
 
     coordinators = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
@@ -1341,76 +1339,6 @@ def test_multiple_old_mains_single_failover():
     interactive_mg_runner.start(inner_instances_description, "instance_1")
 
     # 7
-    # TODO(antoniofilipovic) Wait for everything to set up
-
-    instance_1_cursor = connect(host="localhost", port=7687).cursor()
-
-    def show_replicas():
-        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
-
-    replicas = [
-        (
-            "instance_2",
-            "127.0.0.1:10002",
-            "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
-        ),
-        (
-            "instance_3",
-            "127.0.0.1:10003",
-            "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
-        ),
-    ]
-    mg_sleep_and_assert_collection(replicas, show_replicas)
-
-    def get_vertex_count_func(cursor):
-        def get_vertex_count():
-            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-        return get_vertex_count
-
-    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
-
-    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
-
-    failover_length = 6
-    vertex_count = 0
-    instance_3_cursor = connect(port=7689, host="localhost").cursor()
-
-    while failover_length:
-        failover_length -= 0.1
-        with pytest.raises(Exception) as e:
-            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
-
-        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
-        assert vertex_count == execute_and_fetch_all(instance_3_cursor, "MATCH (n) RETURN count(n);")[0][0]
-        time.sleep(0.1)
-
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    coord_cursor_2 = connect(host="localhost", port=7690).cursor()
-
-    leader_data = []
-    leader_data.extend(coordinators)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
-        ]
-    )
-
-    follower_data = []
-    follower_data.extend(coordinators)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "replica"),
-            ("instance_3", "", "", "unknown", "unknown"),
-        ]
-    )
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
@@ -1422,10 +1350,75 @@ def test_multiple_old_mains_single_failover():
     def show_instances_coord2():
         return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
 
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "unknown"),
+    ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
 
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"behind": None, "status": "invalid", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "invalid", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    time_slept = 0
+    failover_time = 5
+    while time_slept < failover_time:
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        vertex_count += 1
+
+        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        assert vertex_count == execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        time.sleep(0.1)
+        time_slept += 0.1
+
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_multiple_failovers_in_row_no_leadership_change", "-vv"]))
     sys.exit(pytest.main([__file__, "-rA"]))

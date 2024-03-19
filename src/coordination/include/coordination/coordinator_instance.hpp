@@ -67,8 +67,6 @@ class CoordinatorInstance {
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
  private:
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
   void MainFailCallback(std::string_view);
@@ -79,16 +77,18 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
-  RaftState raft_state_;
-
-  utils::ThreadPool thread_pool_{1};
+  // Thread pool needs to be constructed before raft state as raft state can call thread pool
+  utils::ThreadPool thread_pool_;
 
   // When instance is becoming follower, we need to stop frequent checks as soon as possible
-  bool is_shutting_down_{false};
+  std::atomic<bool> is_shutting_down_{false};
+
+  RaftState raft_state_;
 };
 
 }  // namespace memgraph::coordination
