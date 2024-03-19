@@ -33,6 +33,11 @@ CoordinatorInstance::CoordinatorInstance()
     : thread_pool_{1},
       raft_state_(RaftState::MakeRaftState(
           [this]() {
+            if (!raft_state_.IsHealthy()) {
+              spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
+              thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+              return;
+            }
             spdlog::info("Leader changed, starting all replication instances!");
             auto const instances = raft_state_.GetReplicationInstances();
             auto replicas = instances | ranges::views::filter([](auto const &instance) {
@@ -68,6 +73,7 @@ CoordinatorInstance::CoordinatorInstance()
                 repl_instance.StopFrequentCheck();
               }
               auto lock = std::unique_lock{coord_instance_lock_};
+              std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopFrequentCheck(); });
               repl_instances_.clear();
               spdlog::info("Stopped all replication instance frequent checks.");
             });
@@ -157,6 +163,116 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
                            process_repl_instance_as_follower);
   }
   return instances_status;
+}
+
+void CoordinatorInstance::ForceResetCluster() {
+  spdlog::info("Force resetting cluster!");
+  is_shutting_down_ = true;
+  auto lock = std::unique_lock{coord_instance_lock_};
+  std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopFrequentCheck(); });
+  repl_instances_.clear();
+  is_shutting_down_ = false;
+  spdlog::info("Stopped all replication instance frequent checks.");
+
+  if (!raft_state_.IsLeader()) {
+    spdlog::trace("Exiting force reset as coordinator is not any more leader!");
+    return;
+  }
+
+  // TODO change on scope exit to add task for force reset
+  if (!raft_state_.AppendOpenLockForceReset()) {
+    thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+    MG_ASSERT(!raft_state_.IsLeader(), "Coordinator is not follower");
+    spdlog::trace("Appending log force reset failed, aborting force reset");
+  }
+
+  // TODO(antoniofilipovic): Additional action needed only in case of unregister to register it again
+
+  auto const instances = raft_state_.GetReplicationInstances();
+
+  // Try contact each instance 5 times
+  // and set only alive
+  // to REPLICA with new MAIN UUID
+
+  std::ranges::for_each(instances, [this](auto &replica) {
+    repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
+                                 &CoordinatorInstance::ReplicaSuccessCallback,
+                                 &CoordinatorInstance::ReplicaFailCallback);
+  });
+
+  auto const new_uuid = utils::UUID{};
+  auto const append_log_update_uuid_failed = [this, &new_uuid](ReplicationInstance &repl_instance) {
+    if (!repl_instance.SendSwapAndUpdateUUID(new_uuid)) {
+      // We assume this cannot fail as we filtered out instances which are not alive...
+      return true;
+    }
+    if (!raft_state_.AppendUpdateUUIDForInstanceLog(repl_instance.InstanceName(), new_uuid)) {
+      // error is only if we swap uuid but append log doesn't succeed
+      return true;
+    }
+    return false;
+  };
+  if (std::ranges::any_of(repl_instances_, append_log_update_uuid_failed)) {
+    spdlog::error("Force reset failed since update log or swap uuid failed, assuming coordinator is now follower.");
+    MG_ASSERT(!raft_state_.IsLeader(), "Coordinator is not follower");
+    spdlog::trace("Adding task to try force reset cluster again.");
+    thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+    return;
+  }
+
+  if (!raft_state_.AppendUpdateUUIDForNewMainLog(new_uuid)) {
+    spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
+    MG_ASSERT(!raft_state_.IsLeader(), "Coordinator is not follower");
+    return;
+  }
+
+  auto const get_ts = [](ReplicationInstance &replica) { return replica.GetClient().SendGetInstanceTimestampsRpc(); };
+
+  auto maybe_instance_db_histories = repl_instances_ | ranges::views::transform(get_ts) | ranges::to<std::vector>();
+
+  auto const ts_has_value = [](auto const &zipped) -> bool {
+    auto &[replica, res] = zipped;
+    return res.HasValue();
+  };
+
+  auto transform_to_pairs = ranges::views::transform([](auto const &zipped) {
+    auto &[replica, res] = zipped;
+    return std::make_pair(replica.InstanceName(), res.GetValue());
+  });
+
+  auto instance_db_histories = ranges::views::zip(repl_instances_, maybe_instance_db_histories) |
+                               ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
+
+  auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
+      ChooseMostUpToDateInstance(instance_db_histories);
+
+  auto &new_main = FindReplicationInstance(most_up_to_date_instance);
+
+  auto const is_not_new_main = [&new_main](ReplicationInstance const &repl_instance) {
+    return repl_instance.InstanceName() != new_main.InstanceName();
+  };
+  auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
+                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::to<ReplicationClientsInfo>();
+
+  if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                              &CoordinatorInstance::MainFailCallback)) {
+    spdlog::warn("Force reset failed since promoting replica to main failed, trying again!");
+    thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+    spdlog::trace("Adding task to try force reset cluster again.");
+    return;
+  }
+
+  // TODO(antoniofilipovic) this will set it in healthy state -> check if we need something else
+  if (!raft_state_.AppendSetInstanceAsMainLog(most_up_to_date_instance, new_uuid)) {
+    spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
+    MG_ASSERT(!raft_state_.IsLeader(), "Coordinator is not follower");
+    thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+    spdlog::trace("Adding task to try force reset cluster again.");
+    return;
+  }
+
+  MG_ASSERT(raft_state_.IsHealthy(), "After force reset we need to be in healthy state.");
 }
 
 auto CoordinatorInstance::TryFailover() -> void {

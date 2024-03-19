@@ -76,6 +76,7 @@ class RaftState {
   auto AppendOpenLockSetInstanceToMain(std::string_view instance_name) -> bool;
   auto AppendOpenLockSetInstanceToReplica(std::string_view instance_name) -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
+  auto AppendOpenLockForceReset() -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   // TODO: (andi) Do we need then GetAllCoordinators?

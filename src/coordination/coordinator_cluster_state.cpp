@@ -136,6 +136,10 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       spdlog::trace("DoAction: update uuid of new main {}", std::string{current_main_uuid_});
       break;
     }
+    case RaftLogAction::OPEN_LOCK_FORCE_RESET: {
+      is_healthy_ = false;
+      break;
+    }
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE: {
       auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
       auto it = repl_instances_.find(instance_uuid_change.instance_name);

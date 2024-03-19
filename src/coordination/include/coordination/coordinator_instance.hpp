@@ -77,6 +77,8 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
+  void ForceResetCluster();
+
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstance> repl_instances_;

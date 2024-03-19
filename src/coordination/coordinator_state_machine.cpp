@@ -90,6 +90,10 @@ auto CoordinatorStateMachine::SerializeOpenLockSetInstanceAsReplica(std::string_
   return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
 }
 
+auto CoordinatorStateMachine::SerializeOpenLockForceReset() -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA}, {"info", std::string{}}});
+}
+
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
@@ -100,6 +104,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
       return {info.get<CoordinatorToReplicaConfig>(), action};
     }
+    case RaftLogAction::OPEN_LOCK_FORCE_RESET:
+      [[fallthrough]];
     case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE:
       [[fallthrough]];
     case RaftLogAction::OPEN_LOCK_FAILOVER:

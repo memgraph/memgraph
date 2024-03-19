@@ -35,6 +35,7 @@ enum class RaftLogAction : uint8_t {
   UPDATE_UUID_OF_NEW_MAIN,
   ADD_COORDINATOR_INSTANCE,
   UPDATE_UUID_FOR_INSTANCE,
+  OPEN_LOCK_FORCE_RESET,
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(RaftLogAction,
@@ -50,7 +51,8 @@ NLOHMANN_JSON_SERIALIZE_ENUM(RaftLogAction,
                                "open_lock_unregister_instance"},
                               {RaftLogAction::OPEN_LOCK_FAILOVER, "open_lock_failover"},
                               {RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN, "open_lock_set_instance_as_main"},
-                              {RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA, "open_lock_set_instance_as_replica"}})
+                              {RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA, "open_lock_set_instance_as_replica"},
+                              {RaftLogAction::OPEN_LOCK_FORCE_RESET, "force_reset"}})
 
 }  // namespace memgraph::coordination
 #endif

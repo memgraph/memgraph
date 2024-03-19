@@ -378,6 +378,26 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
   return true;
 }
 
+auto RaftState::AppendOpenLockForceReset() -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLockForceReset();
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for force reset. Most likely the reason is that the instance is "
+        "not the leader.");
+    return false;
+  }
+
+  spdlog::info("Request for force reset accepted");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to add log for force reset");
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, const utils::UUID &uuid) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForInstance(
       {.instance_name = std::string{instance_name}, .uuid = uuid});
