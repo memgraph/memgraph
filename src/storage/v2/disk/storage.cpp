@@ -914,7 +914,7 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
-  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented.");
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges.");
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>

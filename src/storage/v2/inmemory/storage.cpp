@@ -1472,7 +1472,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
     for (auto &out_edge : from_vertex->out_edges) {
       if (std::get<2>(out_edge).ptr == edge_ptr) {
-        return std::make_tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
+        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
       }
     }
     return std::nullopt;

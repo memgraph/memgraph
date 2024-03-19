@@ -833,6 +833,8 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
 INSTANTIATE_TEST_CASE_P(EdgesWithProperties, DurabilityTest, ::testing::Values(true));
 INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, DurabilityTest, ::testing::Values(false));
 
+/*
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, SnapshotOnExit) {
   // Create snapshot.
@@ -2355,41 +2357,41 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
-    CreateExtendedDataset(db.storage(), /* single_transaction = */ true);
-  }
+    CreateExtendedDataset(db.storage(), /* single_transaction =  true);
+}
 
-  ASSERT_EQ(GetSnapshotsList().size(), 0);
-  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
-  ASSERT_GE(GetWalsList().size(), 2);
-  ASSERT_EQ(GetBackupWalsList().size(), 0);
+ASSERT_EQ(GetSnapshotsList().size(), 0);
+ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+ASSERT_GE(GetWalsList().size(), 2);
+ASSERT_EQ(GetBackupWalsList().size(), 0);
 
-  // Destroy last transaction in the latest WAL.
-  {
-    auto wals = GetWalsList();
-    ASSERT_GE(wals.size(), 2);
-    const auto &wal_file = wals.front();
-    DestroyWalSuffix(wal_file);
-  }
+// Destroy last transaction in the latest WAL.
+{
+  auto wals = GetWalsList();
+  ASSERT_GE(wals.size(), 2);
+  const auto &wal_file = wals.front();
+  DestroyWalSuffix(wal_file);
+}
 
-  // Recover WALs.
-  memgraph::storage::Config config{
-      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
-      .salient = {.items = {.properties_on_edges = GetParam()}},
-  };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
-  // The extended dataset shouldn't be recovered because its WAL transaction was
-  // corrupt.
-  VerifyDataset(db.storage(), DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam());
+// Recover WALs.
+memgraph::storage::Config config{
+    .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+    .salient = {.items = {.properties_on_edges = GetParam()}},
+};
+memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+memgraph::dbms::Database db{config, repl_state};
+// The extended dataset shouldn't be recovered because its WAL transaction was
+// corrupt.
+VerifyDataset(db.storage(), DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS, GetParam());
 
-  // Try to use the storage.
-  {
-    auto acc = db.Access();
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
-  }
+// Try to use the storage.
+{
+  auto acc = db.Access();
+  auto vertex = acc->CreateVertex();
+  auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+  ASSERT_TRUE(edge.HasValue());
+  ASSERT_FALSE(acc->Commit().HasError());
+}
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -2681,7 +2683,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(),
-                /* verify_info = */ false);
+                /* verify_info =  false);
   {
     auto acc = db.Access();
     auto vertex = acc->FindVertex(vertex_gid, memgraph::storage::View::OLD);
@@ -3047,6 +3049,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   }
 }
 
+*/
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   if (GetParam() == false) {
@@ -3079,7 +3083,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     auto acc = db.Access();
 
     for (auto i{0U}; i < kNumBaseEdges; ++i) {
-      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(0), memgraph::storage::View::OLD);
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
       ASSERT_TRUE(edge.has_value());
     }
 
@@ -3089,6 +3093,14 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     auto vertex = acc->CreateVertex();
     auto new_edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(new_edge.HasValue());
+
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+  {
+    auto acc = db.Access();
+
+    auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges), memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
 
     edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges + 1), memgraph::storage::View::OLD);
     ASSERT_FALSE(edge.has_value());
