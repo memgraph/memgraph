@@ -13,6 +13,7 @@
 
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -247,11 +248,13 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
-      return replica_state_.WithLock([storage, &response, db_acc = std::move(db_acc), this](auto &state) mutable {
+      // NOLINTNEXTLINE
+      return replica_state_.WithLock([storage, response, db_acc = std::move(db_acc), this](auto &state) mutable {
         replica_stream_.reset();
         if (!response.success || state == replication::ReplicaState::RECOVERY) {
           state = replication::ReplicaState::RECOVERY;
-          client_.thread_pool_.AddTask([storage, &response, db_acc = std::move(db_acc), this] {
+          // NOLINTNEXTLINE
+          client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
             this->RecoverReplica(response.current_commit_timestamp, storage);
           });
           return false;
@@ -403,8 +406,9 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, label, properties, stats, property_stats,
-                  timestamp);
+  // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2) -> text index name not sent here
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, std::nullopt, label, properties, stats,
+                  property_stats, timestamp);
 }
 
 void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,

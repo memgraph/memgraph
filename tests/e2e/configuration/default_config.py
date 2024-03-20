@@ -141,6 +141,11 @@ startup_config_dict = {
         "1",
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
+    "storage_delta_on_identical_property_update": (
+        "true",
+        "true",
+        "Controls whether updating a property with the same value should create a delta object.",
+    ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
     "storage_items_per_batch": (
@@ -221,6 +226,6 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma seperated. Options [system-replication, high-availability]",
+        "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
     ),
 }
