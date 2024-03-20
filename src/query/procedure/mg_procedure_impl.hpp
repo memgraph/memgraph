@@ -16,6 +16,7 @@
 
 #include "mg_procedure.h"
 
+#include <memory>
 #include <optional>
 #include <ostream>
 
@@ -34,10 +35,6 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
-
-namespace memgraph::query {
-class Interpreter;
-}
 
 /// Wraps memory resource used in custom procedures.
 ///
@@ -1019,10 +1016,9 @@ struct mgp_execution_rows {
 };
 
 struct mgp_execution_result {
-  mgp_execution_result(memgraph::query::Interpreter *interpreter, mgp_execution_headers headers)
-      : interpreter(interpreter), headers(headers) {}
+  explicit mgp_execution_result();
   ~mgp_execution_result();
 
-  memgraph::query::Interpreter *interpreter;
-  mgp_execution_headers headers;
+  struct pImplMgpExecutionResult;
+  std::unique_ptr<pImplMgpExecutionResult> pImpl;
 };

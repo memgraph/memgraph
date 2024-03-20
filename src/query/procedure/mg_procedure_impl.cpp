@@ -4078,6 +4078,22 @@ std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_ma
   return query_params;
 }
 
+struct mgp_execution_result::pImplMgpExecutionResult {
+  std::unique_ptr<memgraph::query::Interpreter> interpreter;
+  std::unique_ptr<mgp_execution_headers> headers;
+};
+
+mgp_execution_result::mgp_execution_result() : pImpl(std::make_unique<pImplMgpExecutionResult>()) {
+  auto *instance = memgraph::query::InterpreterContext::getInstance();
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(instance, instance->dbms_handler->Get());
+}
+
+mgp_execution_result::~mgp_execution_result() {
+  auto *instance = memgraph::query::InterpreterContext::getInstance();
+  instance->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(pImpl->interpreter.get()); });
+  // interpreter will delete itself because it's a smart pointer
+}
+
 mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *query, mgp_map *params,
                             mgp_execution_result **result) {
   return WrapExceptions(
@@ -4085,46 +4101,41 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
-        auto *interpreter = new memgraph::query::Interpreter(instance, instance->dbms_handler->Get());
-        interpreter->SetUser(graph->ctx->user_or_role);
+        mgp_execution_result *result = NewRawMgpObject<mgp_execution_result>(memory->impl);
+        result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
 
-        instance->interpreters.WithLock([interpreter](auto &interpreters) { interpreters.insert(interpreter); });
+        instance->interpreters.WithLock(
+            [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
 
         const auto query_params = CreateQueryParams(params);
 
-        auto prepare_query_result = interpreter->Prepare(query_string, query_params, {});
+        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
         for (auto header : prepare_query_result.headers) {
           headers.emplace_back(header);
         }
+        result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
 
-        return NewRawMgpObject<mgp_execution_result>(memory->impl, std::move(interpreter),
-                                                     mgp_execution_headers{std::move(headers)});
+        return result;
       },
       result);
 }
 
-mgp_execution_result::~mgp_execution_result() {
-  auto *instance = memgraph::query::InterpreterContext::getInstance();
-  instance->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(interpreter); });
-  interpreter = nullptr;
-}
-
 mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_execution_headers **result) {
-  return WrapExceptions([exec_result]() { return &exec_result->headers; }, result);
+  return WrapExceptions([exec_result]() { return exec_result->pImpl->headers.get(); }, result);
 }
 
 mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions(
       [exec_result, graph, memory]() {
         MgProcedureResultStream stream(memory);
-        exec_result->interpreter->Pull(&stream, 1, {});
+        exec_result->pImpl->interpreter->Pull(&stream, 1, {});
 
-        const size_t headers_size = exec_result->headers.headers.size();
+        const size_t headers_size = exec_result->pImpl->headers->headers.size();
         memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
         for (size_t idx = 0; idx < headers_size; idx++) {
-          items.emplace(exec_result->headers.headers[idx],
+          items.emplace(exec_result->pImpl->headers->headers[idx],
                         mgp_value{std::move(stream.rows[0][idx]), graph, memory->impl});
         }
 
