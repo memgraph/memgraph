@@ -27,10 +27,9 @@ namespace memgraph::coordination {
 
 using nuraft::ptr;
 
-CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
+CoordinatorInstance::CoordinatorInstance()
     : thread_pool_{1},
       raft_state_(RaftState::MakeRaftState(
-          config,
           [this]() {
             if (raft_state_.IsLockOpened()) {
               spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
