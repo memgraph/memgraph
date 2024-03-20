@@ -39,6 +39,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "flags/experimental.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -2709,6 +2710,75 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  // TODO: we will need transaction for replication
+  MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  // Creating an index influences computed plan costs.
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel(text_index_query->label_.name);
+  auto &index_name = text_index_query->index_name_;
+
+  Notification index_notification(SeverityLevel::INFO);
+  switch (text_index_query->action_) {
+    case TextIndexQuery::Action::CREATE: {
+      index_notification.code = NotificationCode::CREATE_INDEX;
+      index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, index_name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+          throw TextSearchDisabledException();
+        }
+        dba->CreateTextIndex(index_name, label);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+      };
+      break;
+    }
+    case TextIndexQuery::Action::DROP: {
+      index_notification.code = NotificationCode::DROP_INDEX;
+      index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, index_name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+          throw TextSearchDisabledException();
+        }
+        dba->DropTextIndex(index_name);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+      },
+      RWType::W};
+}
+
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
@@ -3499,7 +3569,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   }
 
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database ifo query expects a current DB transaction");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
@@ -3514,10 +3584,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
+        const std::string_view text_index_mark{"text"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.label.size() + info.label_property.size());
+        results.reserve(info.label.size() + info.label_property.size() + info.text_indices.size());
         for (const auto &item : info.label) {
           results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
@@ -3531,6 +3602,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+        }
+        for (const auto &[index_name, label] : info.text_indices) {
+          results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+                             TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
@@ -4293,13 +4368,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
@@ -4336,6 +4413,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                          &query_execution->notifications, current_db_);
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                             &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
