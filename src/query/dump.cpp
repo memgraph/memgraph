@@ -252,6 +252,10 @@ void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::L
       << ");";
 }
 
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
+  *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
+}
+
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                              storage::PropertyId property) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
@@ -286,6 +290,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
                    CreateLabelPropertyIndicesPullChunk(),
+                   // Dump all text indices
+                   CreateTextIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -405,6 +411,34 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     }
 
     if (global_index == label_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
+  // Dump all text indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &text = indices_info_->text_indices;
+
+    size_t local_counter = 0;
+    while (global_index < text.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &text_index = text[global_index];
+      DumpTextIndex(&os, dba_, text_index.first, text_index.second);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == text.size()) {
       return local_counter;
     }
 
