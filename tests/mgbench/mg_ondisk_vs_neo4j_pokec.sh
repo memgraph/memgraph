@@ -1,12 +1,11 @@
 #!/bin/bash
 
+# Currently only pokec dataset is modified to be used with memgraph on-disk storage
+
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "$SCRIPT_DIR"
-
-# Check if pokec_results folder exists
-
 
 # Help function
 function show_help() {
@@ -15,7 +14,7 @@ function show_help() {
     echo "  -n, --neo4j-path     Path to Neo4j binary"
     echo "  -m, --memgraph-path  Path to Memgraph binary"
     echo "  -w, --num-workers    Number of workers for benchmark and import"
-    echo "  -d, --dataset        Dataset size (small, medium, large)"
+    echo "  -d, --dataset_size   dataset_size (small, medium, large)"
     echo "  -h, --help           Show this help message"
     exit 0
 }
@@ -24,10 +23,10 @@ function show_help() {
 neo4j_path="/usr/share/neo4j/bin/neo4j"
 memgraph_path="../../build/memgraph"
 num_workers=12
-dataset="small"
+dataset_size="small"
 
-if [! -d "pokec_${dataset}_results" ]; then
-    mkdir "pokec_${dataset}_results"
+if [! -d "pokec_${dataset_size}_results" ]; then
+    mkdir "pokec_${dataset_size}_results"
 fi
 
 # Parse command line arguments
@@ -49,8 +48,8 @@ while [[ $# -gt 0 ]]; do
             shift
             shift
             ;;
-        -d|--dataset)
-            dataset="$2"
+        -d|--dataset_size)
+            dataset_size="$2"
             shift
             shift
             ;;
@@ -72,8 +71,8 @@ python3  benchmark.py vendor-native \
     --num-workers-for-benchmark "$num_workers" \
     --num-workers-for-import "$num_workers" \
     --no-load-query-counts \
-    --export-results "pokec_${dataset}_results/neo4j_${dataset}_pokec.json" \
-    "pokec_disk/${dataset}/*/*" \
+    --export-results "pokec_${dataset_size}_results/neo4j_${dataset_size}_pokec.json" \
+    "pokec_disk/${dataset_size}/*/*" \
     --vendor-specific "config=$neo4j_path/conf/neo4j.conf" \
     --no-authorization
 
@@ -85,8 +84,8 @@ python3 benchmark.py vendor-native \
     --num-workers-for-benchmark "$num_workers" \
     --num-workers-for-import "$num_workers" \
     --no-load-query-counts \
-    --export-results-on-disk-txn "pokec_${dataset}_results/on_disk_${dataset}_pokec.json" \
-    --export-results "pokec_${dataset}_results/on_disk_export_${dataset}_pokec.json" \
-    "pokec_disk/${dataset}/*/*" \
+    --export-results-on-disk-txn "pokec_${dataset_size}_results/on_disk_${dataset_size}_pokec.json" \
+    --export-results "pokec_${dataset_size}_results/on_disk_export_${dataset_size}_pokec.json" \
+    "pokec_disk/${dataset_size}/*/*" \
     --no-authorization \
     --vendor-specific "data-directory=benchmark_datadir" "storage-mode=ON_DISK_TRANSACTIONAL"
