@@ -109,13 +109,26 @@ auto RaftState::MakeRaftState(CoordinatorInstanceInitConfig const &config, Becom
   return raft_state;
 }
 
-RaftState::~RaftState() { launcher_.shutdown(); }
+RaftState::~RaftState() {
+  spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
+  state_machine_.reset();
+  state_manager_.reset();
+  logger_.reset();
+
+  if (!raft_server_) {
+    return;
+  }
+  raft_server_->shutdown();
+  raft_server_.reset();
+}
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
 auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
+                coordinator_id_);
   auto const endpoint = config.coordinator_server.SocketAddress();
   srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), endpoint);
 
