@@ -7,6 +7,9 @@ services:
       context: debian-12-arm
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_debian-12-arm"
 
   mgbuild_v5_ubuntu-22.04-arm:
@@ -15,4 +18,7 @@ services:
       context: ubuntu-22.04-arm
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_ubuntu-22.04-arm"

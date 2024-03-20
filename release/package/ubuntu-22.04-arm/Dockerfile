@@ -23,11 +23,6 @@ RUN git clone https://github.com/memgraph/memgraph.git \
     && ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
 
-# Add mgdeps-cache and bench-graph-api hostnames
-RUN echo -e "10.42.16.10     mgdeps-cache\n10.42.16.10     bench-graph-api" >> /tmp/hosts \
-    && cp /tmp/hosts /etc/hosts \
-    && rm /tmp/hosts
-
 # Create mg user and set as default
 RUN useradd -m -s /bin/bash mg
 USER mg
