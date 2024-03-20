@@ -37,6 +37,8 @@ struct MetadataDelta {
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
+    TEXT_INDEX_CREATE,
+    TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
@@ -63,6 +65,10 @@ struct MetadataDelta {
   } edge_index_create;
   static constexpr struct EdgeIndexDrop {
   } edge_index_drop;
+  static constexpr struct TextIndexCreate {
+  } text_index_create;
+  static constexpr struct TextIndexDrop {
+  } text_index_drop;
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
   static constexpr struct ExistenceConstraintDrop {
@@ -98,6 +104,12 @@ struct MetadataDelta {
 
   MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
 
+  MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
+      : action(Action::TEXT_INDEX_CREATE), text_index{index_name, label} {}
+
+  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
+      : action(Action::TEXT_INDEX_DROP), text_index{index_name, label} {}
+
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
@@ -127,6 +139,8 @@ struct MetadataDelta {
       case Action::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case Action::EDGE_INDEX_CREATE:
       case Action::EDGE_INDEX_DROP:
+      case Action::TEXT_INDEX_CREATE:
+      case Action::TEXT_INDEX_DROP:
       case Action::EXISTENCE_CONSTRAINT_CREATE:
       case Action::EXISTENCE_CONSTRAINT_DROP:
         break;
@@ -164,6 +178,11 @@ struct MetadataDelta {
       PropertyId property;
       LabelPropertyIndexStats stats;
     } label_property_stats;
+
+    struct {
+      std::string index_name;
+      LabelId label;
+    } text_index;
   };
 };
 
