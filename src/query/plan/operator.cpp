@@ -5797,6 +5797,9 @@ class RollUpApplyCursor : public Cursor {
       }
       clear_frame_change_collector(self_.list_collection_symbols_);
       frame[self_.result_symbol_] = result;
+      // After a successful input from the list_collection_cursor_
+      // reset state of cursor because it has to a Once at the beginning
+      list_collection_cursor_->Reset();
     } else {
       return false;
     }

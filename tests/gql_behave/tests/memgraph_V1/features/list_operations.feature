@@ -300,9 +300,9 @@ Feature: List operators
             """
         Then the result should be:
             | years                    | keanu.name     |
-            | [2003, 2003, 1999, 2021] | "Keanu Reeves" |
+            | [2003, 2003, 1999, 2021] | 'Keanu Reeves' |
 
-    Scenario: List pattern comprehension and property
+    Scenario: List pattern comprehension with function on selected property
         Given graph "graph_keanu"
         When executing query:
             """
@@ -322,9 +322,9 @@ Feature: List operators
             """
         Then the result should be:
             | n.name               | years                    |
-            | "Keanu Reeves"       | [2003, 2003, 1999, 2021] |
-            | "Carrie-Anne Moss"   | [2003,1999]              |
-            | "Laurence Fishburne" | [1999]                   |
+            | 'Keanu Reeves'       | [2003, 2003, 1999, 2021] |
+            | 'Carrie-Anne Moss'   | [1999,2003]              |
+            | 'Laurence Fishburne' | [1999]                   |
 
      Scenario: Multiple list pattern comprehensions in Return
         Given graph "graph_keanu"
