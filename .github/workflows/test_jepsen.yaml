@@ -1,7 +1,4 @@
 name: Test Jepsen Refresh Cluster 
-concurrency:
-  group: ${{ github.head_ref || github.sha }}
-  cancel-in-progress: true
 
 on:
   workflow_dispatch:
