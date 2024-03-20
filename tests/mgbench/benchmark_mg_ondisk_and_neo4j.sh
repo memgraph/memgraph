@@ -5,6 +5,9 @@ popd () { command popd "$@" > /dev/null; }
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 pushd "$SCRIPT_DIR"
 
+# Check if pokec_results folder exists
+
+
 # Help function
 function show_help() {
     echo "Usage: $0 [OPTIONS]"
@@ -19,9 +22,13 @@ function show_help() {
 
 # Default values
 neo4j_path="/usr/share/neo4j/bin/neo4j"
-memgraph_path="/home/mg/david/memgraph/build/memgraph"
+memgraph_path="../../build/memgraph"
 num_workers=12
 dataset="small"
+
+if [! -d "pokec_${dataset}_results" ]; then
+    mkdir "pokec_${dataset}_results"
+fi
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -82,4 +89,4 @@ python3 benchmark.py vendor-native \
     --export-results "pokec_${dataset}_results/on_disk_export_${dataset}_pokec.json" \
     "pokec_disk/${dataset}/*/*" \
     --no-authorization \
-    --vendor-specific "data-directory=benchmark_datadir storage-mode=ON_DISK_TRANSACTIONAL"
+    --vendor-specific "data-directory=benchmark_datadir" "storage-mode=ON_DISK_TRANSACTIONAL"
