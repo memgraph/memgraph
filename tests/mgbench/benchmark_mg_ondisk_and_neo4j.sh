@@ -21,7 +21,7 @@ function show_help() {
 neo4j_path="/usr/share/neo4j/bin/neo4j"
 memgraph_path="/home/mg/david/memgraph/build/memgraph"
 num_workers=12
-dataset="medium"
+dataset="small"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -67,7 +67,7 @@ python3  benchmark.py vendor-native \
     --no-load-query-counts \
     --export-results "pokec_${dataset}_results/neo4j_${dataset}_pokec.json" \
     "pokec_disk/${dataset}/*/*" \
-    --vendor-specific "config=/usr/share/neo4j/conf/neo4j.conf" \
+    --vendor-specific "config=$neo4j_path/conf/neo4j.conf" \
     --no-authorization
 
 # Run Python: Mgbench - Memgraph - on-disk
