@@ -97,9 +97,9 @@ class RaftState {
 
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;
-  ptr<raft_server> raft_server_;
   ptr<logger> logger_;
   raft_launcher launcher_;
+  ptr<raft_server> raft_server_;
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;

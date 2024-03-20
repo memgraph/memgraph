@@ -46,28 +46,21 @@ class CoordinatorInstanceTest : public ::testing::Test {
                                             "MG_tests_unit_coordinator_instance"};
 };
 
-// TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
-//   auto const init_config =
-//       CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
-//
-//   auto const instance1 = CoordinatorInstance{init_config};
-//   auto const instances = instance1.ShowInstances();
-//   ASSERT_EQ(instances.size(), 1);
-//   ASSERT_EQ(instances[0].instance_name, "coordinator_4");
-//   ASSERT_EQ(instances[0].health, "unknown");
-//   ASSERT_EQ(instances[0].raft_socket_address, "127.0.0.1:10110");
-//   ASSERT_EQ(instances[0].coord_socket_address, "");
-//   ASSERT_EQ(instances[0].cluster_role, "coordinator");
-// }
+TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
+  auto const init_config =
+      CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
 
-int KillCode() {
-  int *arr = new int[100];
-  delete[] arr;
-  return arr[0];
+  auto const instance1 = CoordinatorInstance{init_config};
+  auto const instances = instance1.ShowInstances();
+  ASSERT_EQ(instances.size(), 1);
+  ASSERT_EQ(instances[0].instance_name, "coordinator_4");
+  ASSERT_EQ(instances[0].health, "unknown");
+  ASSERT_EQ(instances[0].raft_socket_address, "127.0.0.1:10110");
+  ASSERT_EQ(instances[0].coord_socket_address, "");
+  ASSERT_EQ(instances[0].cluster_role, "coordinator");
 }
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
-  int b = KillCode();
   auto const init_config1 =
       CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7687};
 

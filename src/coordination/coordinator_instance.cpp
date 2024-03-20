@@ -27,7 +27,7 @@ namespace memgraph::coordination {
 
 using nuraft::ptr;
 
-CoordinatorInstance::CoordinatorInstance()
+CoordinatorInstance::CoordinatorInstance(CoordinationInstanceInitConfig const &config)
     : thread_pool_{1},
       raft_state_(RaftState::MakeRaftState(
           [this]() {
@@ -107,6 +107,7 @@ CoordinatorInstance::CoordinatorInstance()
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 }
+
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
     -> ReplicationInstanceConnector & {
@@ -686,6 +687,8 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 }
 
 auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
+                raft_state_.InstanceName());
   raft_state_.AddCoordinatorInstance(config);
   // NOTE: We ignore error we added coordinator instance to networking stuff but not in raft log.
   if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
