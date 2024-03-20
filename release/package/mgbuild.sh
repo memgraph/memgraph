@@ -63,7 +63,7 @@ print_help () {
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build                         Build mgbuild image"
+  echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
   echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
@@ -86,6 +86,9 @@ print_help () {
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
+  echo -e "\nbuild options:"
+  echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
+
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
   echo -e "  --community                   Build community version"
@@ -103,8 +106,8 @@ print_help () {
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
 
   echo -e "\npush options:"
-  echo -e "  -p, --password string         Specify password for docker login"
-  echo -e "  -u, --username string         Specify username for docker login"
+  echo -e "  -p, --password string         Specify password for docker login (default empty)"
+  echo -e "  -u, --username string         Specify username for docker login (default empty)"
 
   echo -e "\nrun options:"
   echo -e "  --pull                        Pull the mgbuild image before running"
@@ -119,6 +122,7 @@ print_help () {
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
   
   echo -e "\nExample usage:"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
@@ -275,6 +279,7 @@ build_memgraph () {
       ;;
       *)
         echo "Error: Unknown flag '$1'"
+        print_help
         exit 1
       ;;
     esac
@@ -413,6 +418,7 @@ copy_memgraph() {
     ;;
     *)
       echo "Error: Unknown flag '$1'"
+      print_help
       exit 1
     ;;
   esac
@@ -515,6 +521,7 @@ test_memgraph() {
     ;;
     *)
       echo "Error: Unknown test '$1'"
+      print_help
       exit 1
     ;;
   esac
@@ -573,6 +580,7 @@ while [[ $# -gt 0 ]]; do
     *)
       if [[ "$1" =~ ^--.* ]]; then
         echo -e "Error: Unknown option '$1'"
+        print_help
         exit 1
       else
         command=$1
@@ -608,23 +616,42 @@ echo "Using $docker_compose_cmd"
 case $command in
     build)
       cd $SCRIPT_DIR
+      git_ref_flag=""
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --git-ref)
+              git_ref_flag="--build-arg GIT_REF=$2"
+              shift 2
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag mgbuild_${toolchain_version}_${os}
       fi
     ;;
     run)
       cd $SCRIPT_DIR
       pull=false
-      if [[ "$#" -gt 0 ]]; then
-        if [[ "$1" == "--pull" ]]; then
-          pull=true
-        else
-          echo "Error: Unknown flag '$1'"
-          exit 1
-        fi
-      fi
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --pull)
+              pull=true
+              shift 1
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
@@ -644,14 +671,19 @@ case $command in
     stop)
       cd $SCRIPT_DIR
       remove=false
-      if [[ "$#" -gt 0 ]]; then
-        if [[ "$1" == "--remove" ]]; then
-          remove=true
-        else
-          echo "Error: Unknown flag '$1'"
-          exit 1
-        fi
-      fi
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --remove)
+              remove=true
+              shift 1
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
       else
@@ -695,6 +727,7 @@ case $command in
     ;;
     *)
         echo "Error: Unknown command '$command'"
+        print_help
         exit 1
     ;;
 esac    

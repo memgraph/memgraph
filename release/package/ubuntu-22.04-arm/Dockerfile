@@ -16,8 +16,9 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
+ARG GIT_REF=master
 SHELL ["/bin/bash", "-c"]
-RUN git clone https://github.com/memgraph/memgraph.git \
+RUN git --branch ${GIT_REF} clone https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/ubuntu-22.04-arm.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS \

@@ -16,8 +16,9 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-debian-12-arm64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
+ARG GIT_REF=master
 SHELL ["/bin/bash", "-c"]
-RUN git clone https://github.com/memgraph/memgraph.git \
+RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/debian-12-arm.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/debian-12-arm.sh install MEMGRAPH_BUILD_DEPS \
