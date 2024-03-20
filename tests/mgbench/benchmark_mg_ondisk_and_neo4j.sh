@@ -1,5 +1,10 @@
 #!/bin/bash
 
+pushd () { command pushd "$@" > /dev/null; }
+popd () { command popd "$@" > /dev/null; }
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+pushd "$SCRIPT_DIR"
+
 # Help function
 function show_help() {
     echo "Usage: $0 [OPTIONS]"
@@ -54,8 +59,7 @@ done
 
 # Run Python: Mgbench - Neo4j
 echo "Running Python: Mgbench - Neo4j"
-python3 /home/mg/david/memgraph/tests/mgbench/benchmark.py \
-    vendor-native \
+python3  benchmark.py vendor-native \
     --vendor-binary "$neo4j_path" \
     --vendor-name neo4j \
     --num-workers-for-benchmark "$num_workers" \
@@ -68,8 +72,7 @@ python3 /home/mg/david/memgraph/tests/mgbench/benchmark.py \
 
 # Run Python: Mgbench - Memgraph - on-disk
 echo "Running Python: Mgbench - Memgraph - on-disk"
-python3 /home/mg/david/memgraph/tests/mgbench/benchmark.py \
-    vendor-native \
+python3 benchmark.py vendor-native \
     --vendor-binary "$memgraph_path" \
     --vendor-name memgraph \
     --num-workers-for-benchmark "$num_workers" \
@@ -79,4 +82,4 @@ python3 /home/mg/david/memgraph/tests/mgbench/benchmark.py \
     --export-results "pokec_${dataset}_results/on_disk_export_${dataset}_pokec.json" \
     "pokec_disk/${dataset}/*/*" \
     --no-authorization \
-    --vendor-specific "data-directory=/home/mg/david/memgraph/tests/mgbench/datadir1 storage-mode=ON_DISK_TRANSACTIONAL"
+    --vendor-specific "data-directory=benchmark_datadir storage-mode=ON_DISK_TRANSACTIONAL"
