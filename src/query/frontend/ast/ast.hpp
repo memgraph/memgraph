@@ -2273,6 +2273,37 @@ class EdgeIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class TextIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  TextIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::TextIndexQuery::Action action_;
+  memgraph::query::LabelIx label_;
+  std::string index_name_;
+
+  TextIndexQuery *Clone(AstStorage *storage) const override {
+    TextIndexQuery *object = storage->Create<TextIndexQuery>();
+    object->action_ = action_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->index_name_ = index_name_;
+    return object;
+  }
+
+ protected:
+  TextIndexQuery(Action action, LabelIx label, std::string index_name)
+      : action_(action), label_(std::move(label)), index_name_(index_name) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

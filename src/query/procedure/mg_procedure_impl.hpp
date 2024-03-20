@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -561,6 +561,13 @@ struct mgp_graph {
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
+
+  memgraph::query::DbAccessor *getImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); }},
+        this->impl);
+  }
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
