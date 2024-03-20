@@ -25,10 +25,6 @@ memgraph_path="../../build/memgraph"
 num_workers=12
 dataset_size="small"
 
-if [! -d "pokec_${dataset_size}_results" ]; then
-    mkdir "pokec_${dataset_size}_results"
-fi
-
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     key="$1"
@@ -62,6 +58,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [ ! -d "pokec_${dataset_size}_results" ]; then
+    mkdir "pokec_${dataset_size}_results"
+fi
 
 # Run Python: Mgbench - Neo4j
 echo "Running Python: Mgbench - Neo4j"
