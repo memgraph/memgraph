@@ -634,7 +634,7 @@ class Neo4j(BaseRunner):
             exit_proc = subprocess.run(args=[self._neo4j_binary, "stop"], capture_output=True, check=True)
             return exit_proc.returncode, usage
         else:
-            return 0
+            return 0, 0
 
     def start_db_init(self, workload):
         if self._performance_tracking:
