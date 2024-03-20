@@ -71,7 +71,8 @@ using nuraft::ptr;
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances);
+  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
+                                   utils::UUID const &current_main_uuid, bool is_healthy);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
