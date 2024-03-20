@@ -272,11 +272,13 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
@@ -434,6 +436,12 @@ class Storage {
   // TODO(gvolfing): check if this would be faster with flat_maps.
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
+
+  // Sets that hold onto labels and edge-types that have to be created.
+  // Used only if the label/edge-type autocreation flags are enabled,
+  // does not affect index creation otherwise.
+  utils::Synchronized<std::set<LabelId>, utils::SpinLock> labels_to_auto_index_;
+  utils::Synchronized<std::set<EdgeTypeId>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};

@@ -118,6 +118,13 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
 
+  // TODO short-circuit
+  if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+    if (!storage_->indices_.label_index_->IndexExists(label)) {
+      storage_->labels_to_auto_index_->emplace(label);
+    }
+  }
+
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);

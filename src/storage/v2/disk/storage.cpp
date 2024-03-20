@@ -1905,8 +1905,11 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    LabelId label, bool unique_access_needed) {
+  if (unique_access_needed) {
+    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
+  }
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
@@ -1934,7 +1937,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    EdgeTypeId /*edge_type*/, bool /*unique_access_needed*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
