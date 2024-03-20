@@ -1021,7 +1021,7 @@ struct mgp_execution_rows {
 struct mgp_execution_result {
   mgp_execution_result(memgraph::query::Interpreter *interpreter, mgp_execution_headers headers)
       : interpreter(interpreter), headers(headers) {}
-  ~mgp_execution_result() = default;
+  ~mgp_execution_result();
 
   memgraph::query::Interpreter *interpreter;
   mgp_execution_headers headers;

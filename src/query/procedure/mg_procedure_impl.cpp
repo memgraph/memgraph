@@ -4088,10 +4088,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto *interpreter = new memgraph::query::Interpreter(instance, instance->dbms_handler->Get());
         interpreter->SetUser(graph->ctx->user_or_role);
 
-        // instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.insert(&interpreter); });
-        // memgraph::utils::OnScopeExit erase_interpreter([&] {
-        //   instance->interpreters.WithLock([&interpreter](auto &interpreters) { interpreters.erase(&interpreter); });
-        // });
+        instance->interpreters.WithLock([interpreter](auto &interpreters) { interpreters.insert(interpreter); });
 
         const auto query_params = CreateQueryParams(params);
 
@@ -4106,6 +4103,12 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
                                                      mgp_execution_headers{std::move(headers)});
       },
       result);
+}
+
+mgp_execution_result::~mgp_execution_result() {
+  auto *instance = memgraph::query::InterpreterContext::getInstance();
+  instance->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(interpreter); });
+  interpreter = nullptr;
 }
 
 mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_execution_headers **result) {
