@@ -300,9 +300,9 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
     docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+    # Change ownership of copied files so the mg user inside container can access them
+    docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
   fi
-  # Change ownership of copied files so the mg user inside container can access them
-  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
