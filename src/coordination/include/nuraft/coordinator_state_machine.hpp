@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/raft_log_action.hpp"
 
@@ -42,17 +42,18 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
   ~CoordinatorStateMachine() override {}
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
+  // TODO: (andi) Check API of this class.
   auto MainExists() const -> bool;
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer>;
+  static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
+  static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
@@ -80,7 +81,10 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
+
   auto GetUUID() const -> utils::UUID;
 
  private:

@@ -41,6 +41,9 @@ struct FixedCapacityArray {
 using PropertyIdArray = FixedCapacityArray<PropertyId>;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
+ public:
+  bool empty() const override;
+
  private:
   struct Entry {
     std::vector<PropertyValue> values;

@@ -768,13 +768,19 @@ TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &c
   int64_t step = nargs == 3 ? args[2].ValueInt() : 1;
   TypedValue::TVector list(ctx.memory);
   if (lbound <= rbound && step > 0) {
+    int64_t n = ((rbound - lbound + 1) + (step - 1)) / step;
+    list.reserve(n);
     for (auto i = lbound; i <= rbound; i += step) {
       list.emplace_back(i);
     }
+    MG_ASSERT(list.size() == n);
   } else if (lbound >= rbound && step < 0) {
+    int64_t n = ((lbound - rbound + 1) + (-step - 1)) / -step;
+    list.reserve(n);
     for (auto i = lbound; i >= rbound; i += step) {
       list.emplace_back(i);
     }
+    MG_ASSERT(list.size() == n);
   }
   return TypedValue(std::move(list));
 }

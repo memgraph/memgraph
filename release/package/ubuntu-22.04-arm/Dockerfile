@@ -10,9 +10,30 @@ RUN apt update && apt install -y \
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz \
-    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz \
-    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz -C /opt \
-    && rm ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz
+RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz \
+    -O toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz \
+    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz -C /opt \
+    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-arm64.tar.gz
+
+# Install toolchain run deps and memgraph build deps
+SHELL ["/bin/bash", "-c"]
+RUN git clone https://github.com/memgraph/memgraph.git \
+    && cd memgraph \
+    && ./environment/os/ubuntu-22.04-arm.sh install TOOLCHAIN_RUN_DEPS \
+    && ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS \
+    && cd .. && rm -rf memgraph
+
+# Add mgdeps-cache and bench-graph-api hostnames
+RUN echo -e "10.42.16.10     mgdeps-cache\n10.42.16.10     bench-graph-api" >> /etc/hosts
+
+# Create mg user and set as default
+RUN useradd -m -s /bin/bash mg
+USER mg
+
+# Install rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Fix node
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
 
 ENTRYPOINT ["sleep", "infinity"]

@@ -19,11 +19,16 @@ on:
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: RelWithDebInfo
 
     steps:
       - name: Set up repository
@@ -33,35 +38,56 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build community binaries
+      - name: Spin up mgbuild container
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
 
-          # Initialize dependencies.
-          ./init
-
-          # Build community binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
-          make -j$THREADS
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --community
 
       - name: Run unit tests
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit
 
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
 
   code_analysis:
     name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Debug
 
     steps:
       - name: Set up repository
@@ -70,6 +96,14 @@ jobs:
           # Number of commits to fetch. `0` indicates all history for all
           # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
 
         # This is also needed if we want do to comparison against other branches
         # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -78,11 +112,13 @@ jobs:
 
       - name: Initialize deps
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --init-only
 
       - name: Set base branch
         if: ${{ github.event_name == 'pull_request' }}
@@ -96,45 +132,43 @@ jobs:
 
       - name: Python code analysis
         run: |
-          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only --diff-filter=d)
-          for file in ${CHANGED_FILES}; do
-            echo ${file}
-            if [[ ${file} == *.py ]]; then
-              python3 -m black --check --diff ${file}
-              python3 -m isort --profile black --check-only --diff ${file}
-            fi
-          done
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
 
       - name: Build combined ASAN, UBSAN and coverage binaries
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          cd build
-          cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
-          make -j$THREADS memgraph__unit
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph --coverage --asan --ubsan
 
       - name: Run unit tests
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
-          cd build
-          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit-coverage
 
       - name: Compute code coverage
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Compute code coverage.
-          cd tools/github
-          ./coverage_convert
-
-          # Package code coverage.
-          cd generated
-          tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-coverage
 
       - name: Save code coverage
         uses: actions/upload-artifact@v4
@@ -144,21 +178,36 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          source /opt/toolchain-v4/activate
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
 
-          # Restrict clang-tidy results only to the modified parts
-          git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
-
-          # Fail if any warning is reported
-          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 100
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Debug
 
     steps:
       - name: Set up repository
@@ -168,44 +217,78 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build debug binaries
+      - name: Spin up mgbuild container
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
 
-          # Initialize dependencies.
-          ./init
-
-          # Build debug binaries.
-          cd build
-          cmake ..
-          make -j$THREADS
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
 
       - name: Run leftover CTest tests
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run leftover CTest tests (all except unit and benchmark tests).
-          cd build
-          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph leftover-CTest
 
       - name: Run drivers tests
         run: |
-          ./tests/drivers/run.sh
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers
+
+      - name: Run HA driver tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers-high-availability
 
       - name: Run integration tests
         run: |
-          tests/integration/run.sh
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph integration
 
       - name: Run cppcheck and clang-format
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run cppcheck and clang-format.
-          cd tools/github
-          ./cppcheck_and_clang_format diff
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph cppcheck-and-clang-format
 
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
@@ -213,13 +296,27 @@ jobs:
           name: "Code coverage(Debug build)"
           path: tools/github/cppcheck_and_clang_format.txt
 
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 100
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Release
 
     steps:
       - name: Set up repository
@@ -229,26 +326,33 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
 
       - name: Build release binaries
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make -j$THREADS
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
 
       - name: Run GQL Behave tests
         run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          cd gql_behave
-          ./continuous_integration
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph gql-behave
 
       - name: Save quality assurance status
         uses: actions/upload-artifact@v4
@@ -260,14 +364,19 @@ jobs:
 
       - name: Run unit tests
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit
 
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-
+      # This step will be skipped because the e2e stream tests have been disabled
+      # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
+        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker-compose up -d
@@ -276,13 +385,17 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-          ./run.sh
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph e2e
 
+      # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
+        if: false
         run: |
           cd tests/e2e/streams/kafka
           docker-compose down
@@ -291,59 +404,92 @@ jobs:
 
       - name: Run stress test (plain)
         run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph stress-plain
 
       - name: Run stress test (SSL)
         run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration --use-ssl
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph stress-ssl
 
       - name: Run durability test
         run: |
-          cd tests/stress
-          source ve3/bin/activate
-          python3 durability --num-steps 5
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph durability
 
       - name: Create enterprise DEB package
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-          cd build
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          package-memgraph
 
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create enterprise DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --package
 
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
         with:
           name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
+          path: build/output/${{ env.OS }}/memgraph*.deb
+
+      - name: Copy build logs
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --build-logs
 
       - name: Save test data
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: "Test data(Release build)"
-          path: |
-            # multiple paths could be defined
-            build/logs
+          path: build/logs
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
 
   release_jepsen_test:
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    #continue-on-error: true
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 80
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-12
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: RelWithDebInfo
 
     steps:
       - name: Set up repository
@@ -353,16 +499,31 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
       - name: Build release binaries
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-          # Initialize dependencies.
-          ./init
-          # Build only memgraph release binarie.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-          make -j$THREADS memgraph
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Copy memgraph binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --binary
 
       - name: Refresh Jepsen Cluster
         run: |
@@ -381,13 +542,27 @@ jobs:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
 
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   release_benchmarks:
     name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    timeout-minutes: 60
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: Release
 
     steps:
       - name: Set up repository
@@ -397,25 +572,33 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
       - name: Build release binaries
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build only memgraph release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
 
       - name: Run macro benchmarks
         run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark
 
       - name: Get branch name (merge)
         if: github.event_name != 'pull_request'
@@ -429,30 +612,49 @@ jobs:
 
       - name: Upload macro benchmark results
         run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "macro_benchmark" \
+          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+          --github-run-id ${{ github.run_id }} \
+          --github-run-number ${{ github.run_number }} \
+          --head-branch-name ${{ env.BRANCH_NAME }}
 
-      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
       - name: Run mgbench
         run: |
-          cd tests/mgbench
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench
 
       - name: Upload mgbench results
         run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "mgbench" \
+          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
