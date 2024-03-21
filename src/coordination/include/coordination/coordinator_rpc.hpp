@@ -14,7 +14,7 @@
 #include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
@@ -28,14 +28,13 @@ struct PromoteReplicaToMainReq {
   static void Load(PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteReplicaToMainReq(const utils::UUID &uuid,
-                                   std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info)
+  explicit PromoteReplicaToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid_(uuid), replication_clients_info(std::move(replication_clients_info)) {}
   PromoteReplicaToMainReq() = default;
 
   // get uuid here
   utils::UUID main_uuid_;
-  std::vector<CoordinatorClientConfig::ReplicationClientInfo> replication_clients_info;
+  std::vector<ReplicationClientInfo> replication_clients_info;
 };
 
 struct PromoteReplicaToMainRes {
@@ -60,12 +59,12 @@ struct DemoteMainToReplicaReq {
   static void Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 
-  explicit DemoteMainToReplicaReq(CoordinatorClientConfig::ReplicationClientInfo replication_client_info)
+  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info)
       : replication_client_info(std::move(replication_client_info)) {}
 
   DemoteMainToReplicaReq() = default;
 
-  CoordinatorClientConfig::ReplicationClientInfo replication_client_info;
+  ReplicationClientInfo replication_client_info;
 };
 
 struct DemoteMainToReplicaRes {

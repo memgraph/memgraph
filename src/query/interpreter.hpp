@@ -143,8 +143,8 @@ class CoordinatorQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicationInstance(std::string_view coordinator_socket_address,
-                                           std::string_view replication_socket_address,
+  virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                           std::string_view replication_server,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
@@ -160,7 +160,8 @@ class CoordinatorQueryHandler {
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view coordinator_socket_address) -> void = 0;
+  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server) -> void = 0;
 };
 #endif
 
@@ -247,6 +248,14 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
+#ifdef MG_ENTERPRISE
+  struct RouteResult {
+    int ttl{300};
+    std::string db{};  // Currently not used since we don't have any specific replication groups etc.
+    coordination::RoutingTable servers{};
+  };
+#endif
+
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -271,6 +280,10 @@ class Interpreter final {
   Interpreter::PrepareResult Prepare(const std::string &query,
                                      const std::map<std::string, storage::PropertyValue> &params,
                                      QueryExtras const &extras);
+
+#ifdef MG_ENTERPRISE
+  auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
+#endif
 
   /**
    * Execute the last prepared query and stream *all* of the results into the

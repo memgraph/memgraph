@@ -53,6 +53,10 @@ class DurableMetadata {
   bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                const std::string &key);
 
+  bool PersistTextIndexCreation(const std::string &index_name, LabelId label);
+
+  bool PersistTextIndexDeletion(const std::string &index_name, LabelId label);
+
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);
 
   bool PersistUniqueConstraintDeletion(LabelId label, const std::set<PropertyId> &properties);

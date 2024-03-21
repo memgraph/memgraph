@@ -17,9 +17,9 @@
 #include <optional>
 #include <string>
 
-namespace memgraph::io::network {
+#include "json/json.hpp"
 
-using ParsedAddress = std::pair<std::string_view, uint16_t>;
+namespace memgraph::io::network {
 
 struct Endpoint {
   static const struct needs_resolving_t {
@@ -39,8 +39,8 @@ struct Endpoint {
 
   enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 
-  static std::optional<ParsedAddress> ParseSocketOrAddress(std::string_view address,
-                                                           std::optional<uint16_t> default_port = {});
+  static std::optional<Endpoint> ParseSocketOrAddress(std::string_view address,
+                                                      std::optional<uint16_t> default_port = {});
 
   std::string SocketAddress() const;
 
@@ -58,5 +58,8 @@ struct Endpoint {
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;
 };
+
+void to_json(nlohmann::json &j, Endpoint const &config);
+void from_json(nlohmann::json const &j, Endpoint &config);
 
 }  // namespace memgraph::io::network

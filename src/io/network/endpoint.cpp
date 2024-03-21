@@ -82,8 +82,7 @@ bool Endpoint::IsResolvableAddress(std::string_view address, uint16_t port) {
   return status == 0;
 }
 
-std::optional<ParsedAddress> Endpoint::ParseSocketOrAddress(std::string_view address,
-                                                            std::optional<uint16_t> default_port) {
+std::optional<Endpoint> Endpoint::ParseSocketOrAddress(std::string_view address, std::optional<uint16_t> default_port) {
   auto const parts = utils::SplitView(address, delimiter);
 
   if (parts.size() > 2) {
@@ -109,13 +108,13 @@ std::optional<ParsedAddress> Endpoint::ParseSocketOrAddress(std::string_view add
   }();
 
   if (GetIpFamily(addr) == IpFamily::NONE) {
-    if (IsResolvableAddress(addr, *port)) {  // NOLINT
-      return std::pair{addr, *port};         // NOLINT
+    if (IsResolvableAddress(addr, *port)) {       // NOLINT
+      return Endpoint{std::string(addr), *port};  // NOLINT
     }
     return std::nullopt;
   }
 
-  return std::pair{addr, *port};  // NOLINT
+  return Endpoint{std::string(addr), *port};  // NOLINT
 }
 
 auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
@@ -136,6 +135,16 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
   }
 
   return true;
+}
+
+void to_json(nlohmann::json &j, Endpoint const &config) {
+  j = nlohmann::json{{"address", config.address}, {"port", config.port}, {"family", config.family}};
+}
+
+void from_json(nlohmann::json const &j, Endpoint &config) {
+  config.address = j.at("address").get<std::string>();
+  config.port = j.at("port").get<uint16_t>();
+  config.family = j.at("family").get<Endpoint::IpFamily>();
 }
 
 }  // namespace memgraph::io::network

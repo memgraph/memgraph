@@ -29,6 +29,8 @@
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
@@ -856,6 +858,7 @@ StorageInfo DiskStorage::GetInfo(memgraph::replication_coordination_glue::Replic
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -1670,6 +1673,18 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
         } break;
+        case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+          const auto &info = md_delta.text_index;
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
+        case MetadataDelta::Action::TEXT_INDEX_DROP: {
+          const auto &info = md_delta.text_index;
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name, info.label)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
@@ -1768,6 +1783,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     return StorageManipulationError{SerializationError{}};
   }
   spdlog::trace("rocksdb: Commit successful");
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    disk_storage->indices_.text_index_.Commit();
+  }
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
   is_transaction_active_ = false;
@@ -1887,6 +1905,9 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    storage_->indices_.text_index_.Rollback();
+  }
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;
@@ -2093,7 +2114,11 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices()};
+  auto &text_index = storage_->indices_.text_index_;
+  return {disk_label_index->ListIndices(),
+          disk_label_property_index->ListIndices(),
+          {/* edge type indices */},
+          text_index.ListIndices()};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

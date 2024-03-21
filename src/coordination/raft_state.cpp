@@ -13,7 +13,7 @@
 #include <chrono>
 
 #include <spdlog/spdlog.h>
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
@@ -113,10 +113,9 @@ auto RaftState::InstanceName() const -> std::string {
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
-auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address)
-    -> void {
-  auto const endpoint = fmt::format("{}:{}", raft_address, raft_port);
-  srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
+auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  auto const endpoint = config.coordinator_server.SocketAddress();
+  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_server_id), endpoint);
 
   auto cmd_result = raft_server_->add_srv(srv_config_to_add);
 
@@ -134,9 +133,9 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
   bool added{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(raft_server_id));
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_server_id));
     if (server_config) {
-      spdlog::trace("Server with id {} added to cluster", raft_server_id);
+      spdlog::trace("Server with id {} added to cluster", config.coordinator_server_id);
       added = true;
       break;
     }
@@ -158,7 +157,7 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool {
+auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);
   auto const res = raft_server_->append_entries({new_log});
 
@@ -261,8 +260,26 @@ auto RaftState::AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool {
   return true;
 }
 
-auto RaftState::FindCurrentMainInstanceName() const -> std::optional<std::string> {
-  return state_machine_->FindCurrentMainInstanceName();
+auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeAddCoordinatorInstance(config);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error(
+        "Failed to accept request for adding coordinator instance {}. Most likely the reason is that the instance is "
+        "not the leader.",
+        config.coordinator_server_id);
+    return false;
+  }
+
+  spdlog::info("Request for adding coordinator instance {} accepted", config.coordinator_server_id);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,
+                  static_cast<int>(res->get_result_code()));
+    return false;
+  }
+
+  return true;
 }
 
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
@@ -273,7 +290,13 @@ auto RaftState::IsReplica(std::string_view instance_name) const -> bool {
   return state_machine_->IsReplica(instance_name);
 }
 
-auto RaftState::GetInstances() const -> std::vector<InstanceState> { return state_machine_->GetInstances(); }
+auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
+  return state_machine_->GetReplicationInstances();
+}
+
+auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
+  return state_machine_->GetCoordinatorInstances();
+}
 
 auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }
 
