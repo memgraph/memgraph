@@ -4302,8 +4302,10 @@ void Interpreter::RollbackTransaction() {
 
 #ifdef MG_ENTERPRISE
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
-  // TODO: (andi) Test
-  if (!FLAGS_coordinator_id) {
+  if (!interpreter_context_->coordinator_state_) {
+    throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
+  }
+  if (FLAGS_management_port) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4318,7 +4320,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
 }
 #endif
 

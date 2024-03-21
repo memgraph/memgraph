@@ -56,7 +56,7 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
 
-  auto GetRoutingTable(std::map<std::string, std::string> const &routing) const -> RoutingTable;
+  auto GetRoutingTable() const -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 

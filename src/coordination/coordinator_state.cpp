@@ -99,10 +99,10 @@ auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordin
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
-auto CoordinatorState::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
+auto CoordinatorState::GetRoutingTable() -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).GetRoutingTable(routing);
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable();
 }
 
 }  // namespace memgraph::coordination
