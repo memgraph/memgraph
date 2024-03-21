@@ -89,3 +89,11 @@ python3 benchmark.py vendor-native \
     "pokec_disk/${dataset_size}/*/*" \
     --no-authorization \
     --vendor-specific "data-directory=benchmark_datadir" "storage-mode=ON_DISK_TRANSACTIONAL"
+
+echo "Comparing results"
+python3 compare_results.py --compare \
+    "pokec_${dataset_size}_results/neo4j_${dataset_size}_pokec.json" \
+    "pokec_${dataset_size}_results/on_disk_${dataset_size}_pokec.json" \
+    --output \
+    "pokec_${dataset_size}_results/neo4j_vs_mg_ondisk_results.html" \
+    --different-vendors
