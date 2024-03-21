@@ -4132,6 +4132,10 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         MgProcedureResultStream stream(memory);
         exec_result->pImpl->interpreter->Pull(&stream, 1, {});
 
+        if (stream.rows.empty()) {
+          throw std::out_of_range("Out of range pull since query does not remove anything!");
+        }
+
         const size_t headers_size = exec_result->pImpl->headers->headers.size();
         memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
         for (size_t idx = 0; idx < headers_size; idx++) {
