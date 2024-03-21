@@ -36,7 +36,7 @@ on:
         description: "Timeout in minutes for the job. Default value is 60."
         default: 60
       push_to_s3:
-        type: boolean
+        type: string 
         description: "Should the final package be pushed to an S3 bucket. Default value is false"
         default: false
       s3_bucket:
