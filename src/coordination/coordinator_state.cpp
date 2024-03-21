@@ -13,7 +13,7 @@
 
 #include "coordination/coordinator_state.hpp"
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
@@ -25,15 +25,15 @@
 namespace memgraph::coordination {
 
 CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_raft_server_id && FLAGS_coordinator_server_port),
+  MG_ASSERT(!(FLAGS_coordinator_id && FLAGS_management_port),
             "Instance cannot be a coordinator and have registered coordinator server.");
 
   spdlog::info("Executing coordinator constructor");
-  if (FLAGS_coordinator_server_port) {
+  if (FLAGS_management_port) {
     spdlog::info("Coordinator server port set");
-    auto const config = CoordinatorServerConfig{
+    auto const config = ManagementServerConfig{
         .ip_address = kDefaultReplicationServerIp,
-        .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
+        .port = static_cast<uint16_t>(FLAGS_management_port),
     };
     spdlog::info("Executing coordinator constructor main replica");
 
@@ -41,7 +41,7 @@ CoordinatorState::CoordinatorState() {
   }
 }
 
-auto CoordinatorState::RegisterReplicationInstance(CoordinatorClientConfig const &config)
+auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -98,11 +98,16 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
-                                              std::string_view raft_address) -> void {
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
+}
+
+auto CoordinatorState::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get routing table since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable(routing);
 }
 
 }  // namespace memgraph::coordination

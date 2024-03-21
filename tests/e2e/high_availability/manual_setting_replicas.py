@@ -31,7 +31,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7687",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10013",
         ],
         "log_file": "main.log",

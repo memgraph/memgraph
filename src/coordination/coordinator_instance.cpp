@@ -14,7 +14,6 @@
 #include "coordination/coordinator_instance.hpp"
 
 #include "coordination/coordinator_exceptions.hpp"
-#include "coordination/fmt.hpp"
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
@@ -34,7 +33,7 @@ CoordinatorInstance::CoordinatorInstance()
     : raft_state_(RaftState::MakeRaftState(
           [this]() {
             spdlog::info("Leader changed, starting all replication instances!");
-            auto const instances = raft_state_.GetInstances();
+            auto const instances = raft_state_.GetReplicationInstances();
             auto replicas = instances | ranges::views::filter([](auto const &instance) {
                               return instance.status == ReplicationRole::REPLICA;
                             });
@@ -133,7 +132,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
               .health = "unknown"};
     };
 
-    std::ranges::transform(raft_state_.GetInstances(), std::back_inserter(instances_status),
+    std::ranges::transform(raft_state_.GetReplicationInstances(), std::back_inserter(instances_status),
                            process_repl_instance_as_follower);
   }
 
@@ -288,7 +287,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorClientConfig const &config)
+auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
@@ -382,9 +381,12 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
-                                                 std::string_view raft_address) -> void {
-  raft_state_.AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  raft_state_.AddCoordinatorInstance(config);
+  // NOTE: We ignore error we added coordinator instance to networkign stuff but not in raft log.
+  if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
+    spdlog::error("Failed to append add coordinator instance log");
+  }
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
@@ -555,6 +557,57 @@ auto CoordinatorInstance::IsMain(std::string_view instance_name) const -> bool {
 
 auto CoordinatorInstance::IsReplica(std::string_view instance_name) const -> bool {
   return raft_state_.IsReplica(instance_name);
+}
+
+auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
+  auto res = RoutingTable{};
+
+  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
+    return instance.config.BoltSocketAddress();
+  };
+
+  // TODO: (andi) This is wrong check, Fico will correct in #1819.
+  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::MAIN;
+  };
+
+  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
+    return instance.status == ReplicationRole::REPLICA;
+  };
+
+  auto const &raft_log_repl_instances = raft_state_.GetReplicationInstances();
+
+  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
+                    ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+
+  if (!std::ranges::empty(bolt_mains)) {
+    res.emplace_back(std::move(bolt_mains), "WRITE");
+  }
+
+  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
+                       ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+  if (!std::ranges::empty(bolt_replicas)) {
+    res.emplace_back(std::move(bolt_replicas), "READ");
+  }
+
+  auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
+    return instance.config.bolt_server.SocketAddress();
+  };
+
+  auto const &raft_log_coord_instances = raft_state_.GetCoordinatorInstances();
+  auto bolt_coords =
+      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
+
+  auto const &local_bolt_coord = routing.find("address");
+  if (local_bolt_coord == routing.end()) {
+    throw InvalidRoutingTableException("No bolt address found in routing table for the current coordinator!");
+  }
+
+  bolt_coords.push_back(local_bolt_coord->second);
+  res.emplace_back(std::move(bolt_coords), "ROUTE");
+
+  return res;
 }
 
 }  // namespace memgraph::coordination
