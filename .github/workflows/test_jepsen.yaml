@@ -34,4 +34,4 @@ jobs:
         - name: Refresh Jepsen Cluster
           run: |
             cd tests/jepsen
-            ./run.sh cluster-up
+            ./run.sh cluster-refresh
