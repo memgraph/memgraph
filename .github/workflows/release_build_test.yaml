@@ -50,7 +50,7 @@ jobs:
 
   PackageDebian11:
     if: github.ref_type == 'tag'
-    needs: [Debian10]
+    needs: [Debian11]
     runs-on: [self-hosted, DockerMgBuild, X64]
     timeout-minutes: 60
     steps:
@@ -78,7 +78,7 @@ jobs:
 
   PackageDebian11_ARM:
     if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
+    needs: [Debian11, Ubuntu20_04]
     runs-on: [self-hosted, DockerMgBuild, ARM64]
     # M1 Mac mini is sometimes slower
     timeout-minutes: 150
