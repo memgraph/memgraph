@@ -415,7 +415,6 @@ jobs:
 
   release_benchmark_tests:
     name: "Release Benchmark Tests"
-    runs-on: [self-hosted, Linux, X64, Debian10]
     runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
 
