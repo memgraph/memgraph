@@ -236,8 +236,8 @@ case $1 in
     ;;
 
     cluster-refresh)
+        CLUSTER_DEALLOC
         CLUSTER_UP
-        CLUSTER_NODES_CLEANUP
     ;;
 
     cluster-dealloc)
