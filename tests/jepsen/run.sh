@@ -181,7 +181,7 @@ CLUSTER_UP() {
   local cnt=0
   while [[ "$cnt" < 5 ]]; do
     if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
-      cnt=$cnt+1
+      cnt=$((cnt + 1))
       continue
     else
       sleep 10
