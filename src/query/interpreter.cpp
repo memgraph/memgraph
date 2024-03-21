@@ -474,7 +474,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view bolt_server,
+  auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
                               std::string_view coordinator_server) -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
@@ -487,7 +487,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = raft_server_id,
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
@@ -942,10 +942,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator can't set roles!");
       }
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't set role manually on instance with coordinator server port.");
       }
 #endif
@@ -972,7 +972,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator doesn't have a replication role!");
       }
 #endif
@@ -993,7 +993,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't register replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1014,7 +1014,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't drop replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1029,7 +1029,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW INSTANCES instead.");
       }
 #endif
@@ -1176,7 +1176,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
       }
 
@@ -1220,7 +1220,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1273,7 +1273,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
@@ -1288,7 +1288,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
 
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1305,7 +1305,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::SHOW_INSTANCES: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
@@ -4281,7 +4281,7 @@ void Interpreter::RollbackTransaction() {
 #ifdef MG_ENTERPRISE
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
   // TODO: (andi) Test
-  if (!FLAGS_raft_server_id) {
+  if (!FLAGS_coordinator_id) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4417,7 +4417,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_raft_server_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
+    if (FLAGS_coordinator_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
         !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
@@ -4548,7 +4548,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw QueryException("Write query forbidden on the replica!");
       }
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port && !interpreter_context_->repl_state->IsMainWriteable()) {
+      if (FLAGS_management_port && !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
         throw QueryException(
             "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");

@@ -40,7 +40,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  private:
-  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t raft_server_id,
+  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t coordinator_id,
                      uint32_t raft_port, std::string raft_address);
 
   auto InitRaftServer() -> void;
@@ -84,7 +84,7 @@ class RaftState {
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.
   io::network::Endpoint raft_endpoint_;
-  uint32_t raft_server_id_;
+  uint32_t coordinator_id_;
 
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;

@@ -35,7 +35,7 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance1.log \
     --also-log-to-stderr \
-    --coordinator-server-port=10011 \
+    --management-port=10011 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_instance_1=$!
@@ -51,7 +51,7 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance2.log \
     --also-log-to-stderr \
-    --coordinator-server-port=10012 \
+    --management-port=10012 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_instance_2=$!
@@ -67,7 +67,7 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance3.log \
     --also-log-to-stderr \
-    --coordinator-server-port=10013 \
+    --management-port=10013 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_instance_3=$!
@@ -84,8 +84,8 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator1.log \
     --also-log-to-stderr \
-    --raft-server-id=1 \
-    --raft-server-port=10111 \
+    --coordinator-id=1 \
+    --coordinator-port=10111 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_coordinator_1=$!
@@ -101,8 +101,8 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator2.log \
     --also-log-to-stderr \
-    --raft-server-id=2 \
-    --raft-server-port=10112 \
+    --coordinator-id=2 \
+    --coordinator-port=10112 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_coordinator_2=$!
@@ -118,8 +118,8 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator3.log \
     --also-log-to-stderr \
-    --raft-server-id=3 \
-    --raft-server-port=10113 \
+    --coordinator-id=3 \
+    --coordinator-port=10113 \
     --experimental-enabled=high-availability \
     --log-level ERROR &
 pid_coordinator_3=$!
