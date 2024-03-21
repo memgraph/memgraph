@@ -92,7 +92,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
           client_name, client_name, client_name);
     };
 #ifdef MG_ENTERPRISE
-    if (!FLAGS_coordinator_server_port) {
+    if (!FLAGS_management_port) {
       log_error();
       return;
     }

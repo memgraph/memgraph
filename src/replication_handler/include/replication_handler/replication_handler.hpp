@@ -213,7 +213,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
               // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
 #ifdef MG_ENTERPRISE
-                return FLAGS_coordinator_server_port != 0;
+                return FLAGS_management_port != 0;
 #else
                 return false;
 #endif
