@@ -5,8 +5,8 @@ on:
     inputs:
       os:
         type: string
-        description: "Target os. Default value is debian-11."
-        default: 'debian-11'
+        description: "Target os. Default value is debian-12."
+        default: 'debian-12'
       arch:
         type: string
         description: "Target architecture. Default value is amd."

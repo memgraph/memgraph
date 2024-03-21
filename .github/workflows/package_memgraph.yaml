@@ -15,8 +15,8 @@ on:
           - RelWithDebInfo
       target_os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Debian 11"
-        default: 'debian-11'
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Debian 12"
+        default: 'debian-12'
         options:
           - all
           - amzn-2
