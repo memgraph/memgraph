@@ -178,8 +178,16 @@ PROCESS_RESULTS() {
 
 CLUSTER_UP() {
   PRINT_CONTEXT
-  "$script_dir/jepsen/docker/bin/up" --daemon
-  sleep 10
+  local cnt=0
+  while [[ "$cnt" < 5 ]]; do
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
+      cnt=$((cnt + 1))
+      continue
+    else
+      sleep 10
+      break
+    fi
+  done
   # Ensure all SSH connections between Jepsen containers work
   for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
       if [ "$node" == "jepsen-control" ]; then
