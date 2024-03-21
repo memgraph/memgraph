@@ -642,7 +642,7 @@ jobs:
           stop --remove
 
   release_jepsen_test:
-    if: ${{ inputs.os == "debian-12" }}
+    if: ${{ inputs.os == 'debian-12' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
