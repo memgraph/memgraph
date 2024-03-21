@@ -48,9 +48,9 @@ SUPPORTED_ARCHS=(
 )
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
-    code-coverage drivers durability e2e gql-behave
+    code-coverage drivers drivers-high-availability durability e2e gql-behave
     integration leftover-CTest macro-benchmark
-    mgbench stress-plain stress-ssl 
+    mgbench stress-plain stress-ssl
     unit unit-coverage upload-to-bench-graph
 
 )
@@ -116,7 +116,7 @@ print_help () {
 
   echo -e "\nToolchain v5 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
-  
+
   echo -e "\nExample usage:"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
@@ -296,7 +296,7 @@ build_memgraph () {
     docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
   fi
   # Change ownership of copied files so the mg user inside container can access them
-  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
@@ -318,10 +318,9 @@ build_memgraph () {
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
-  
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
-  # Default value for $threads is 0 instead of $(nproc) because macos 
+  # Default value for $threads is 0 instead of $(nproc) because macos
   # doesn't support the nproc command.
   # 0 is set for default value and checked here because mgbuild containers
   # support nproc
@@ -363,7 +362,7 @@ copy_memgraph() {
       local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
       local host_output_path="$PROJECT_ROOT/build/memgraph"
       mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
+      docker cp -L $build_container:$container_output_path $host_output_path
       echo "Binary saved to $host_output_path"
     ;;
     --build-logs)
@@ -371,7 +370,7 @@ copy_memgraph() {
       local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
       local host_output_path="$PROJECT_ROOT/build/logs"
       mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
+      docker cp -L $build_container:$container_output_path $host_output_path
       echo "Build logs saved to $host_output_path"
     ;;
     --package)
@@ -417,6 +416,9 @@ test_memgraph() {
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
+    ;;
+    drivers-high-availability)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& tests/integration/run.sh'
@@ -667,4 +669,4 @@ case $command in
         echo "Error: Unknown command '$command'"
         exit 1
     ;;
-esac    
+esac

@@ -15,6 +15,8 @@
 #include <functional>
 #include <optional>
 #include "dbms/constants.hpp"
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -890,6 +892,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       commit_timestamp_.reset();  // We have aborted, hence we have not committed
       return StorageManipulationError{*unique_constraint_violation};
     }
+
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      mem_storage->indices_.text_index_.Commit();
+    }
   }
 
   is_transaction_active_ = false;
@@ -1212,6 +1218,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       for (auto const &[property, prop_vertices] : property_cleanup) {
         storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
+      }
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        storage_->indices_.text_index_.Rollback();
       }
 
       // VERTICES
@@ -1846,6 +1855,7 @@ StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::Re
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -2107,6 +2117,16 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
                                   final_commit_timestamp);
       } break;
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+        const auto &info = md_delta.text_index;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        const auto &info = md_delta.text_index;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
@@ -2137,11 +2157,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(db_acc));
 }
 
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                                const std::optional<std::string> text_index_name, LabelId label,
                                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
-  wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
+                             final_commit_timestamp);
   repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
 }
 
@@ -2155,12 +2177,13 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 const std::set<PropertyId> &properties,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, properties, {}, property_stats, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
+                                   final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 LabelIndexStats stats, uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, {}, stats, {}, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -2172,6 +2195,12 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 uint64_t final_commit_timestamp) {
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                                const std::optional<std::string> text_index_name, LabelId label,
+                                                uint64_t final_commit_timestamp) {
+  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -2301,7 +2330,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices()};
+  auto &text_index = storage_->indices_.text_index_;
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices(),
+          text_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
