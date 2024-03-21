@@ -4401,7 +4401,7 @@ inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_exe
 inline std::optional<ExecutionRow> ExecutionResult::PullOne() const {
   try {
     return ExecutionRow(mgp::MemHandlerCallback(pull_one, result_, graph_));
-  } catch (std::exception &e) {
+  } catch (const std::exception &e) {
     return std::nullopt;
   }
 }
