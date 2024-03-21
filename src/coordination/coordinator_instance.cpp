@@ -938,11 +938,7 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
   return raft_state_.HasReplicaState(instance_name);
 }
 
-// TODO: (andi) Remove accepting param
-auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> const & /*routing*/) const
-    -> RoutingTable {
-  return raft_state_.GetRoutingTable();
-}
+auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_.GetRoutingTable(); }
 
 }  // namespace memgraph::coordination
 #endif
