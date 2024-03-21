@@ -143,4 +143,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: ${{ inputs.s3_dest_dir }}
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
