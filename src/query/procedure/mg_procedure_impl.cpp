@@ -4128,12 +4128,17 @@ mgp_error mgp_fetch_execution_headers(mgp_execution_result *exec_result, mgp_exe
 
 mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions(
-      [exec_result, graph, memory]() {
+      [exec_result, graph, memory]() -> mgp_map * {
         MgProcedureResultStream stream(memory);
-        exec_result->pImpl->interpreter->Pull(&stream, 1, {});
+
+        try {
+          exec_result->pImpl->interpreter->Pull(&stream, 1, {});
+        } catch (const std::exception &e) {
+          return nullptr;
+        }
 
         if (stream.rows.empty()) {
-          throw std::out_of_range("Out of range pull since query does not remove anything!");
+          return nullptr;
         }
 
         const size_t headers_size = exec_result->pImpl->headers->headers.size();

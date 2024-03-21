@@ -4401,11 +4401,12 @@ inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph 
 inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
 
 inline std::optional<ExecutionRow> ExecutionResult::PullOne() const {
-  try {
-    return ExecutionRow(mgp::MemHandlerCallback(pull_one, result_, graph_));
-  } catch (const std::exception &e) {
+  auto value = mgp::MemHandlerCallback(pull_one, result_, graph_);
+  if (!value) {
     return std::nullopt;
   }
+
+  return ExecutionRow(value);
 }
 
 inline bool ExecutionHeaders::Iterator::operator==(const Iterator &other) const {
