@@ -42,12 +42,15 @@ on:
       s3_bucket:
         type: string
         description: "Name of the target S3 bucket."
+        default: ''
       s3_region:
         type: string
         description: "Region for the target S3 bucket."
+        default: ''
       s3_dest_dir:
         type: string
         description: "Target dir path in S3 bucket."
+        default: ''
 
 env:
   ARTIFACT_NAME: ${{ inputs.artifact_name || inputs.os }}

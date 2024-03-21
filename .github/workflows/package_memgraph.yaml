@@ -3,19 +3,16 @@ name: Package memgraph
 on:
   workflow_dispatch:
     inputs:
-      memgraph_version:
-        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'"
-        required: false
       build_type:
         type: choice
-        description: "Memgraph Build type. Default value is Release"
+        description: "Memgraph Build type."
         default: 'Release'
         options:
           - Release
           - RelWithDebInfo
       target_os:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Debian 12"
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
         default: 'debian-12'
         options:
           - all
@@ -40,11 +37,31 @@ on:
           - ubuntu-22.04-arm
       toolchain:
         type: choice
-        description: "Toolchain version with which memgraph will be packaged. Default is v5"
+        description: "Toolchain version with which memgraph will be packaged."
         default: 'v5'
         options:
           - v4
           - v5
+      push_to_s3:
+        type: boolean
+        description: "Push final packages to an S3 bucket?"
+        default: false
+      s3_bucket:
+        type: choice
+        description: "Name of the target S3 bucket. Select 'download.memgraph.io' for official and 'deps.memgraph.io' for unofficial packages."
+        default: 'download.memgraph.io'
+        options:
+          - download.memgraph.com
+          - deps.memgraph.io
+      s3_region:
+        type: choice
+        description: "Region for the target S3 bucket."
+        options:
+          - eu-west-1
+      s3_dest_dir:
+        type: string
+        description: "Target dir path in S3 bucket. For official packages use format 'memgraph/X.Y.Z'. For unofficial packages start with 'memgraph-unofficial/'."
+        default: ''
 
 jobs:
   AmazonLinux2:
@@ -57,6 +74,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   CentOS7:
@@ -69,6 +90,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   CentOS9:
@@ -81,6 +106,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian10:
@@ -93,6 +122,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian11:
@@ -105,6 +138,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian11-platform:
@@ -119,6 +156,10 @@ jobs:
       timeout_minutes: 60
       additional_build_args: "--for-platform"
       artifact_name: "debian-11-platform"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian11-arm:
@@ -132,6 +173,10 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
       artifact_name: "debian-11-aarch64"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian12:
@@ -144,6 +189,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Debian12-arm:
@@ -157,6 +206,10 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
       artifact_name: "debian-12-aarch64"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Docker-v4:
@@ -171,6 +224,10 @@ jobs:
       timeout_minutes: 60
       additional_build_args: "--for-docker"
       artifact_name: "docker"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Docker-v5:
@@ -185,6 +242,10 @@ jobs:
       timeout_minutes: 60
       additional_build_args: "--for-docker"
       artifact_name: "docker"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Docker-v4-arm:
@@ -199,6 +260,10 @@ jobs:
       timeout_minutes: 120
       additional_build_args: "--for-docker"
       artifact_name: "docker-aarch64"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Docker-v5-arm:
@@ -213,6 +278,10 @@ jobs:
       timeout_minutes: 120
       additional_build_args: "--for-docker"
       artifact_name: "docker-aarch64"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Fedora36:
@@ -225,6 +294,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Fedora38:
@@ -237,6 +310,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Fedora39:
@@ -249,6 +326,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   RockyLinux9_3:
@@ -261,6 +342,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Ubuntu18_04:
@@ -273,6 +358,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Ubuntu20_04:
@@ -285,6 +374,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Ubuntu22_04:
@@ -297,6 +390,10 @@ jobs:
       runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 60
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
 
   Ubuntu22_04-arm:
@@ -310,4 +407,8 @@ jobs:
       build_type: ${{ github.event.inputs.build_type }}
       timeout_minutes: 120
       artifact_name: "ubuntu-22.04-aarch64"
+      push_to_s3: ${{ github.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.inputs.s3_bucket }}
+      s3_region: ${{ github.inputs.s3_region }}
+      s3_dest_dir: ${{ github.inputs.s3_dest_dir }}
     secrets: inherit
