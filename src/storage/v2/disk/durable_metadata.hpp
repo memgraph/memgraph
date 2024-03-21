@@ -41,7 +41,7 @@ class DurableMetadata {
   std::optional<std::vector<std::string>> LoadExistenceConstraintInfoIfExists() const;
   std::optional<std::vector<std::string>> LoadUniqueConstraintInfoIfExists() const;
 
-  void SaveBeforeClosingDB(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count);
+  void UpdateMetaData(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count);
 
   bool PersistLabelIndexCreation(LabelId label);
 
