@@ -436,6 +436,9 @@ test_memgraph() {
     durability)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
     ;;
+    durability-large)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
+    ;;
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"

@@ -31,19 +31,24 @@ env:
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
 
 jobs:
-  Debian10:
-    uses: ./.github/workflows/release_debian10.yaml
+  Debian11:
+    uses: ./.github/workflows/reusable_release_tests.yaml
     with:
+      os: "debian-11"
+      toolchain: "v5"
+      arch: "amd"
+      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
   Ubuntu20_04:
+    if: false
     uses: ./.github/workflows/release_ubuntu2004.yaml
     with:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  PackageDebian10:
+  PackageDebian11:
     if: github.ref_type == 'tag'
     needs: [Debian10]
     runs-on: [self-hosted, DockerMgBuild, X64]
@@ -70,102 +75,6 @@ jobs:
         with:
           name: debian-10
           path: build/output/debian-10/memgraph*.deb
-
-  PackageUbuntu20_04:
-    if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04 $BUILD_TYPE
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04
-          path: build/output/ubuntu-22.04/memgraph*.deb
-
-  PackageUbuntu20_04_ARM:
-    if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, ARM64]
-    # M1 Mac mini is sometimes slower
-    timeout-minutes: 150
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04-arm $BUILD_TYPE
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/ubuntu-22.04-arm/memgraph*.deb
-
-  PushToS3Ubuntu20_04_ARM:
-    if: github.ref_type == 'tag'
-    needs: [PackageUbuntu20_04_ARM]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download package
-        uses: actions/download-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/release
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-
-  PackageDebian11:
-    if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 $BUILD_TYPE
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11
-          path: build/output/debian-11/memgraph*.deb
 
   PackageDebian11_ARM:
     if: github.ref_type == 'tag'

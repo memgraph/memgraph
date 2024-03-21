@@ -1,42 +1,59 @@
-name: Diff
-concurrency:
-  group: ${{ github.head_ref || github.sha }}
-  cancel-in-progress: true
+name: Reusable release tests
 
 on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
-  # pull_request:
-  #   paths-ignore:
-  #     - "docs/**"
-  #     - "**/*.md"
-  #     - ".clang-format"
-  #     - "CODEOWNERS"
-  #     - "licenses/*"
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        description: "Target os. Default value is debian-11."
+        default: 'debian-12'
+      arch:
+        type: string
+        description: "Target architecture. Default value is amd."
+        default: 'amd'
+      runner_arch_label:
+        type: string
+        description: "Runner architecture label. Amd is built on X64, arm on ARM64. Default value is X64."
+        default: 'X64'
+      toolchain:
+        type: string
+        description: "Toolchain version. Default value is v5."
+        default: 'v5'
+      build_type:
+        type: string
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+      threads:
+        type: number
+        description: "Number of threads to use for Memgraph build. Default value is 24."
+        default: 24
+
+env:
+  OS: ${{ inputs.os }}
+  TOOLCHAIN: ${{ inputs.toolchain }}
+  ARCH: ${{ inputs.arch }}
+  THREADS: ${{ inputs.threads }}
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  BUILD_TYPE: ${{ inputs.build_type }}
 
 jobs:
   community_build:
     name: "Community build"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
-      BUILD_TYPE: RelWithDebInfo
 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -46,7 +63,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -76,26 +93,24 @@ jobs:
           --arch $ARCH \
           stop --remove
 
-  code_analysis:
-    name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+  coverage_build:
+    name: "Coverage build"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
     env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
       BUILD_TYPE: Debug
 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -105,12 +120,7 @@ jobs:
           --arch $ARCH \
           run
 
-        # This is also needed if we want do to comparison against other branches
-        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
-      - name: Fetch all history for all tags and branches
-        run: git fetch
-
-      - name: Initialize deps
+      - name: Build coverage binaries
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -118,37 +128,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph --init-only
-
-      - name: Set base branch
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
-
-      - name: Set base branch # if we manually dispatch or push to master
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
-
-      - name: Python code analysis
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
-
-      - name: Build combined ASAN, UBSAN and coverage binaries
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph --coverage --asan --ubsan
+          build-memgraph --coverage
 
       - name: Run unit tests
         run: |
@@ -173,19 +153,8 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)"
+          name: "Code coverage(Coverage build)-${{ env.OS }}"
           path: tools/github/generated/code_coverage.tar.gz
-
-      - name: Run clang-tidy
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --threads $THREADS \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
 
       - name: Stop mgbuild container
         if: always()
@@ -198,24 +167,22 @@ jobs:
 
   debug_build:
     name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 100
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
     env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
       BUILD_TYPE: Debug
 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -225,7 +192,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build debug binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -257,7 +224,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph drivers
 
-      - name: Run integration tests
+      - name: Run HA driver tests
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -266,7 +233,7 @@ jobs:
           --threads $THREADS \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph integration
+          test-memgraph drivers-high-availability
 
       - name: Run cppcheck and clang-format
         run: |
@@ -278,12 +245,69 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph cppcheck-and-clang-format
-      
+
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)"
+          name: "Code coverage(Debug build)-${{ env.OS }}"
           path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  debug_integration_test:
+    name: "Debug integration tests"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
+    env:
+      BUILD_TYPE: Debug
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build debug binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Run integration tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph integration
 
       - name: Stop mgbuild container
         if: always()
@@ -296,24 +320,20 @@ jobs:
 
   release_build:
     name: "Release build"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 100
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
-      BUILD_TYPE: Release
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -346,7 +366,7 @@ jobs:
       - name: Save quality assurance status
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status"
+          name: "GQL Behave Status-${{ env.OS }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
@@ -361,6 +381,144 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
+
+      - name: Create enterprise DEB package
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          package-memgraph
+
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --package
+
+      - name: Save enterprise DEB package
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Enterprise DEB package-${{ env.OS}}"
+          path: build/output/${{ env.OS }}/memgraph*.deb
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  release_benchmark_tests:
+    name: "Release Benchmark Tests"
+    runs-on: [self-hosted, Linux, X64, Debian10]
+    runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      # ADAPT THIS
+      # - name: Run micro benchmark tests
+      #   run: |
+      #     # Activate toolchain.
+      #     source /opt/toolchain-v4/activate
+      #
+      #     # Run micro benchmark tests.
+      #     cd build
+      #     # The `eval` benchmark needs a large stack limit.
+      #     ulimit -s 262144
+      #     ctest -R memgraph__benchmark -V
+      #
+      # - name: Run macro benchmark tests
+      #   run: |
+      #     cd tests/macro_benchmark
+      #     ./harness QuerySuite MemgraphRunner \
+      #       --groups aggregation 1000_create unwind_create dense_expand match \
+      #       --no-strict
+      #
+      # - name: Run parallel macro benchmark tests
+      #   run: |
+      #     cd tests/macro_benchmark
+      #     ./harness QueryParallelSuite MemgraphRunner \
+      #       --groups aggregation_parallel create_parallel bfs_parallel \
+      #       --num-database-workers 9 --num-clients-workers 30 \
+      #       --no-strict
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  release_e2e_test:
+    name: "Release End-to-end Test"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
 
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
@@ -391,6 +549,50 @@ jobs:
           cd ../pulsar
           docker-compose down
 
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  release_durability_stress_tests:
+    name: "Release durability and stress tests"
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
       - name: Run stress test (plain)
         run: |
           ./release/package/mgbuild.sh \
@@ -411,7 +613,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-ssl
 
-      - name: Run durability test
+      - name: Run durability test (plain)
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -421,7 +623,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability
 
-      - name: Create enterprise DEB package
+      - name: Run durability test (large)
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -429,34 +631,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          package-memgraph
-
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --package
-
-      - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v4
-        with:
-          name: "Enterprise DEB package"
-          path: build/output/${{ env.OS }}/memgraph*.deb
-
-      - name: Copy build logs
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --build-logs
-
-      - name: Save test data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Test data(Release build)"
-          path: build/logs
+          test-memgraph durability-large
 
       - name: Stop mgbuild container
         if: always()
@@ -468,25 +643,22 @@ jobs:
           stop --remove
 
   release_jepsen_test:
+    if: ${{ inputs.os == "debian-12" }}
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 80
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-12
-      TOOLCHAIN: v5
-      ARCH: amd
-      BUILD_TYPE: RelWithDebInfo
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    timeout-minutes: 60
 
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -526,118 +698,10 @@ jobs:
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4
-        if: ${{ always() }}
-        with:
-          name: "Jepsen Report"
-          path: tests/jepsen/Jepsen.tar.gz
-
-      - name: Stop mgbuild container
         if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          stop --remove
-
-  release_benchmarks:
-    name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
-    timeout-minutes: 60
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-      OS: debian-11
-      TOOLCHAIN: v5
-      ARCH: amd
-      BUILD_TYPE: Release
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Spin up mgbuild container
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          run
-
-      - name: Build release binaries
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          --threads $THREADS \
-          build-memgraph
-
-      - name: Run macro benchmarks
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph macro-benchmark
-
-      - name: Get branch name (merge)
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-
-      - name: Get branch name (pull request)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-
-      - name: Upload macro benchmark results
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "macro_benchmark" \
-          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-          --github-run-id ${{ github.run_id }} \
-          --github-run-number ${{ github.run_number }} \
-          --head-branch-name ${{ env.BRANCH_NAME }}
-
-      - name: Run mgbench
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench
-
-      - name: Upload mgbench results
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph upload-to-bench-graph \
-          --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-          --github-run-id "${{ github.run_id }}" \
-          --github-run-number "${{ github.run_number }}" \
-          --head-branch-name "${{ env.BRANCH_NAME }}"
+          name: "Jepsen Report-${{ env.OS }}"
+          path: tests/jepsen/Jepsen.tar.gz
 
       - name: Stop mgbuild container
         if: always()
