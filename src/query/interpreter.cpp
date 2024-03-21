@@ -328,15 +328,14 @@ class ReplQueryHandler {
 
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
-    const auto maybe_ip_and_port =
+    auto maybe_endpoint =
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      const auto [ip, port] = *maybe_ip_and_port;
+    if (maybe_endpoint) {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = std::string(ip),
-                                               .port = port,
+                                               .ip_address = std::move(maybe_endpoint->address),
+                                               .port = maybe_endpoint->port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
@@ -413,39 +412,41 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RegisterReplicationInstance(std::string_view coordinator_socket_address,
-                                   std::string_view replication_socket_address,
+  void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                   std::string_view replication_server,
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
                                    std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    const auto maybe_replication_ip_port = io::network::Endpoint::ParseSocketOrAddress(replication_socket_address);
-    if (!maybe_replication_ip_port) {
+    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    if (!maybe_bolt_server) {
+      throw QueryRuntimeException("Invalid bolt socket address!");
+    }
+
+    auto const maybe_management_server = io::network::Endpoint::ParseSocketOrAddress(management_server);
+    if (!maybe_management_server) {
+      throw QueryRuntimeException("Invalid management socket address!");
+    }
+
+    auto const maybe_replication_server = io::network::Endpoint::ParseSocketOrAddress(replication_server);
+    if (!maybe_replication_server) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
 
-    const auto maybe_coordinator_ip_port = io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address);
-    if (!maybe_replication_ip_port) {
-      throw QueryRuntimeException("Invalid replication socket address!");
-    }
-
-    const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
-    const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
-    const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
-        .instance_name = std::string(instance_name),
-        .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
-        .replication_ip_address = std::string(replication_ip),
-        .replication_port = replication_port};
+    auto const repl_config =
+        coordination::ReplicationClientInfo{.instance_name = std::string(instance_name),
+                                            .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
+                                            .replication_server = *maybe_replication_server};
 
     auto coordinator_client_config =
-        coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
-                                              .ip_address = std::string(coordinator_server_ip),
-                                              .port = coordinator_server_port,
-                                              .instance_health_check_frequency_sec = instance_check_frequency,
-                                              .instance_down_timeout_sec = instance_down_timeout,
-                                              .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                              .replication_client_info = repl_config,
-                                              .ssl = std::nullopt};
+        coordination::CoordinatorToReplicaConfig{.instance_name = std::string(instance_name),
+                                                 .mgt_server = *maybe_management_server,
+                                                 .bolt_server = *maybe_bolt_server,
+                                                 .replication_client_info = repl_config,
+                                                 .instance_health_check_frequency_sec = instance_check_frequency,
+                                                 .instance_down_timeout_sec = instance_down_timeout,
+                                                 .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
+                                                 .ssl = std::nullopt};
 
     auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
@@ -473,15 +474,25 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view raft_socket_address) -> void override {
-    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
-    if (maybe_ip_and_port) {
-      auto const [ip, port] = *maybe_ip_and_port;
-      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, ip, port);
-      coordinator_handler_.AddCoordinatorInstance(raft_server_id, port, ip);
-    } else {
-      spdlog::error("Invalid raft socket address {}.", raft_socket_address);
+  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view bolt_server,
+                              std::string_view coordinator_server) -> void override {
+    auto const maybe_coordinator_server = io::network::Endpoint::ParseSocketOrAddress(coordinator_server);
+    if (!maybe_coordinator_server) {
+      throw QueryRuntimeException("Invalid coordinator socket address!");
     }
+
+    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    if (!maybe_bolt_server) {
+      throw QueryRuntimeException("Invalid bolt socket address!");
+    }
+
+    auto const coord_coord_config =
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = raft_server_id,
+                                                     .bolt_server = *maybe_bolt_server,
+                                                     .coordinator_server = *maybe_coordinator_server};
+
+    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 
   void SetReplicationInstanceToMain(std::string_view instance_name) override {
@@ -1197,8 +1208,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
+                     bolt_server = bolt_server_it->second,
                      coordinator_server = coordinator_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, coordinator_server);
+        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1243,15 +1255,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
-                     management_server = management_server_it->second,
-                     replication_server = replication_server_it->second, bolt_server = bolt_server_it->second,
+                     bolt_server = bolt_server_it->second, management_server = management_server_it->second,
+                     replication_server = replication_server_it->second,
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
                      instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(management_server, replication_server, instance_health_check_frequency_sec,
-                                            instance_down_timeout_sec, instance_get_uuid_frequency_sec, instance_name,
-                                            sync_mode);
+        handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
+                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
+                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -4265,6 +4277,28 @@ void Interpreter::RollbackTransaction() {
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
+
+#ifdef MG_ENTERPRISE
+auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
+  // TODO: (andi) Test
+  if (!FLAGS_raft_server_id) {
+    auto const &address = routing.find("address");
+    if (address == routing.end()) {
+      throw QueryException("Routing table must contain address field.");
+    }
+
+    auto result = RouteResult{};
+    if (interpreter_context_->repl_state->IsMain()) {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
+    } else {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
+    }
+    return result;
+  }
+
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+}
+#endif
 
 #if MG_ENTERPRISE
 // Before Prepare or during Prepare, but single-threaded.

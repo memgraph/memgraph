@@ -33,6 +33,5 @@ source ../../../../environment/util.sh
 
 mvn clean package
 
-java -jar target/DocsHowToQuery.jar
-java -jar target/MaxQueryLength.jar
-java -jar target/Transactions.jar
+java -jar target/WriteRouting.jar
+java -jar target/ReadRouting.jar

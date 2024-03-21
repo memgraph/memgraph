@@ -257,6 +257,17 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph drivers
 
+      - name: Run HA driver tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --threads $THREADS \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers-high-availability
+
       - name: Run integration tests
         run: |
           ./release/package/mgbuild.sh \
@@ -278,7 +289,7 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph cppcheck-and-clang-format
-      
+
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
