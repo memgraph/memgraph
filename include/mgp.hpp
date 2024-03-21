@@ -1630,6 +1630,8 @@ class ExecutionRow {
 
   /// @brief Returns true if the given `key` exists.
   bool KeyExists(std::string_view key) const;
+
+  mgp::Map Values() const;
 };
 
 class ExecutionResult {
@@ -4445,6 +4447,8 @@ inline Value ExecutionRow::operator[](std::string_view key) const { return row_[
 inline Value ExecutionRow::At(std::string_view key) const { return row_.At(key); }
 
 inline bool ExecutionRow::KeyExists(std::string_view key) const { return row_.KeyExists(key); }
+
+inline mgp::Map ExecutionRow::Values() const {return mgp::Map(row_)};
 
 // do not enter
 namespace detail {
