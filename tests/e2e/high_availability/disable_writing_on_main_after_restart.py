@@ -16,7 +16,7 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import add_coordinator, connect, execute_and_fetch_all, safe_execute
+from common import connect, execute_and_fetch_all, safe_execute
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -137,11 +137,11 @@ def test_writing_disabled_on_main_restart():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-    assert add_coordinator(
+    execute_and_fetch_all(
         coordinator3_cursor,
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
     )
-    assert add_coordinator(
+    execute_and_fetch_all(
         coordinator3_cursor,
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
     )

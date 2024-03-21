@@ -13,5 +13,5 @@ if [ ! -d node_modules ]; then
     npm install --no-package-lock --no-save neo4j-driver@5.8.0
 fi
 
-node docs_how_to_query.js
-node max_query_length.js
+node write_routing.js
+node read_routing.js
