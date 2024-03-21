@@ -188,7 +188,6 @@ CLUSTER_UP() {
       break
     fi
   done
-  echo -e "\n+++++cnt=$cnt+++++\n"
   # Ensure all SSH connections between Jepsen containers work
   for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
       if [ "$node" == "jepsen-control" ]; then
