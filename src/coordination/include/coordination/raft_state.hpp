@@ -89,7 +89,7 @@ class RaftState {
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
-  auto IsHealthy() const -> bool;
+  auto IsLockOpened() const -> bool;
 
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.

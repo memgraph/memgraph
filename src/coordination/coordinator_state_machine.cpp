@@ -267,7 +267,7 @@ auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) co
   return cluster_state_.GetInstanceUUID(instance_name);
 }
 
-auto CoordinatorStateMachine::IsHealthy() const -> bool { return cluster_state_.IsHealthy(); }
+auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.IsLockOpened(); }
 
 }  // namespace memgraph::coordination
 #endif

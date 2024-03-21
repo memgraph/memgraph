@@ -94,7 +94,7 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
-  auto IsHealthy() const -> bool;
+  auto IsLockOpened() const -> bool;
 
  private:
   struct SnapshotCtx {

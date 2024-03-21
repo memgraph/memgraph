@@ -72,7 +72,7 @@ class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
   explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                   utils::UUID const &current_main_uuid, bool is_healthy);
+                                   utils::UUID const &current_main_uuid, bool is_lock_opened);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -101,7 +101,7 @@ class CoordinatorClusterState {
 
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
-  auto IsHealthy() const -> bool;
+  auto IsLockOpened() const -> bool;
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
@@ -110,7 +110,7 @@ class CoordinatorClusterState {
   std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
   utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
-  bool is_healthy_{true};
+  bool is_lock_opened_{false};
 };
 
 }  // namespace memgraph::coordination

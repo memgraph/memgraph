@@ -416,7 +416,7 @@ auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
   return state_machine_->IsCurrentMain(instance_name);
 }
 
-auto RaftState::IsHealthy() const -> bool { return state_machine_->IsHealthy(); }
+auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpened(); }
 
 auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
   return state_machine_->GetInstanceUUID(instance_name);

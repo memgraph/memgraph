@@ -30,13 +30,13 @@ void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                                 utils::UUID const &current_main_uuid, bool is_healthy)
-    : repl_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid), is_healthy_(is_healthy) {}
+                                                 utils::UUID const &current_main_uuid, bool is_lock_opened)
+    : repl_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid), is_lock_opened_(is_lock_opened) {}
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : repl_instances_{other.repl_instances_},
       current_main_uuid_(other.current_main_uuid_),
-      is_healthy_(other.is_healthy_) {}
+      is_lock_opened_(other.is_lock_opened_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
@@ -44,14 +44,14 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   }
   repl_instances_ = other.repl_instances_;
   current_main_uuid_ = other.current_main_uuid_;
-  is_healthy_ = other.is_healthy_;
+  is_lock_opened_ = other.is_lock_opened_;
   return *this;
 }
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
     : repl_instances_{std::move(other.repl_instances_)},
       current_main_uuid_(other.current_main_uuid_),
-      is_healthy_(other.is_healthy_) {}
+      is_lock_opened_(other.is_lock_opened_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -59,7 +59,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   }
   repl_instances_ = std::move(other.repl_instances_);
   current_main_uuid_ = other.current_main_uuid_;
-  is_healthy_ = other.is_healthy_;
+  is_lock_opened_ = other.is_lock_opened_;
   return *this;
 }
 
@@ -98,7 +98,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       // Setting instance uuid to random, if registration fails, we are still in random state
       repl_instances_.emplace(config.instance_name,
                               ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}});
-      is_healthy_ = true;
+      is_lock_opened_ = false;
       break;
     }
       // end of OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE
@@ -106,7 +106,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto const instance_name = std::get<std::string>(log_entry);
       spdlog::trace("DoAction: unregister replication instance {}", instance_name);
       repl_instances_.erase(instance_name);
-      is_healthy_ = true;
+      is_lock_opened_ = false;
       break;
     }
       // end of OPEN_LOCK_SET_INSTANCE_AS_MAIN and OPEN_LOCK_FAILOVER
@@ -116,7 +116,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::MAIN;
       it->second.instance_uuid = instance_uuid_change.uuid;
-      is_healthy_ = true;
+      is_lock_opened_ = false;
       spdlog::trace("DoAction: set replication instance {} as main with uuid {}", instance_uuid_change.instance_name,
                     std::string{instance_uuid_change.uuid});
       break;
@@ -127,7 +127,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::REPLICA;
-      is_healthy_ = true;
+      is_lock_opened_ = false;
       spdlog::trace("DoAction: set replication instance {} as replica", instance_name);
       break;
     }
@@ -152,31 +152,31 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       break;
     }
     case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
-      is_healthy_ = false;
+      is_lock_opened_ = true;
       spdlog::trace("DoAction: open lock register");
       break;
       // TODO(antoniofilipovic) save what we are doing to be able to undo....
     }
     case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
-      is_healthy_ = false;
+      is_lock_opened_ = true;
       spdlog::trace("DoAction: open lock unregister");
       break;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
-      is_healthy_ = false;
+      is_lock_opened_ = true;
       spdlog::trace("DoAction: open lock set instance as main");
       break;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_FAILOVER: {
-      is_healthy_ = false;
+      is_lock_opened_ = true;
       spdlog::trace("DoAction: open lock failover");
       break;
       // TODO(antoniofilipovic) save what we are doing
     }
     case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
-      is_healthy_ = false;
+      is_lock_opened_ = true;
       spdlog::trace("DoAction: open lock set instance as replica");
       break;
       // TODO(antoniofilipovic) save what we need to undo
@@ -186,8 +186,9 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   auto lock = std::shared_lock{log_lock_};
-  nlohmann::json j = {
-      {"repl_instances", repl_instances_}, {"is_healthy", is_healthy_}, {"current_main_uuid", current_main_uuid_}};
+  nlohmann::json j = {{"repl_instances", repl_instances_},
+                      {"is_lock_opened", is_lock_opened_},
+                      {"current_main_uuid", current_main_uuid_}};
   auto const log = j.dump();
   data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
@@ -199,8 +200,8 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
   auto const j = nlohmann::json::parse(bs.get_str());
   auto instances = j["repl_instances"].get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
   auto current_main_uuid = j["current_main_uuid"].get<utils::UUID>();
-  bool is_healthy = j["is_healthy"].get<int>();
-  return CoordinatorClusterState{std::move(instances), current_main_uuid, is_healthy};
+  bool is_lock_opened = j["is_lock_opened"].get<int>();
+  return CoordinatorClusterState{std::move(instances), current_main_uuid, is_lock_opened};
 }
 
 auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
@@ -222,9 +223,9 @@ auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<Coo
   return coordinators_;
 }
 
-auto CoordinatorClusterState::IsHealthy() const -> bool {
+auto CoordinatorClusterState::IsLockOpened() const -> bool {
   auto lock = std::shared_lock{log_lock_};
-  return is_healthy_;
+  return is_lock_opened_;
 }
 
 }  // namespace memgraph::coordination

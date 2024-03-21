@@ -26,7 +26,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  UNHEALTHY_STATE,
+  LOCK_OPENED,
   OPEN_LOCK
 };
 
@@ -38,7 +38,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   SUCCESS,
-  UNHEALTHY_STATE,
+  LOCK_OPENED,
   OPEN_LOCK
 };
 
@@ -51,7 +51,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   COULD_NOT_PROMOTE_TO_MAIN,
   SWAP_UUID_FAILED,
   SUCCESS,
-  UNHEALTHY_STATE,
+  LOCK_OPENED,
   OPEN_LOCK,
   ENABLE_WRITING_FAILED
 };

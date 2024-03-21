@@ -57,40 +57,33 @@ CoordinatorInstance::CoordinatorInstance()
             });
 
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
-            is_shutting_down_ = false;
           },
           [this]() {
             thread_pool_.AddTask([this]() {
               spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
-              is_shutting_down_ = true;
+              // We need to stop checks before taking a lock because deadlock can happen if instances waits
+              // to take a lock in frequent check, and this thread already has a lock and waits for instance to
+              // be done with frequent check
+              for (auto &repl_instance : repl_instances_) {
+                repl_instance.StopFrequentCheck();
+              }
               auto lock = std::unique_lock{coord_instance_lock_};
               repl_instances_.clear();
-              is_shutting_down_ = false;
               spdlog::info("Stopped all replication instance frequent checks.");
             });
           })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
+    auto lock = std::unique_lock{self->coord_instance_lock_};
     // when coordinator is becoming follower it will want to stop all threads doing frequent checks
     // Thread can get stuck here waiting for lock so we need to frequently check if we are in shutdown state
-    while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
-      if (self->is_shutting_down_) {
-        return;
-      }
-    }
+
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
-    auto lock = std::unique_lock{self->coord_instance_lock_, std::defer_lock};
-    // when coordinator is becoming follower it will want to stop all threads doing frequent checks
-    // Thread can get stuck here waiting for lock so we need to frequently check if we are in shutdown state
-    while (!lock.try_lock_for(std::chrono::milliseconds(100))) {
-      if (self->is_shutting_down_) {
-        return;
-      }
-    }
+    auto lock = std::unique_lock{self->coord_instance_lock_};
+
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
@@ -179,13 +172,6 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
-  // We can have slight race condition, that we are trying to stop this thread, but we can't as it is executing here
-  MG_ASSERT(raft_state_.IsLeader() || is_shutting_down_, "Coordinator in wrong state.");
-
-  if (is_shutting_down_) {
-    return;
-  }
-
   auto const get_ts = [](ReplicationInstance &replica) { return replica.GetClient().SendGetInstanceTimestampsRpc(); };
 
   auto maybe_instance_db_histories = alive_replicas | ranges::views::transform(get_ts) | ranges::to<std::vector>();
@@ -268,8 +254,8 @@ auto CoordinatorInstance::TryFailover() -> void {
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
-  if (!raft_state_.IsHealthy()) {
-    return SetInstanceToMainCoordinatorStatus::UNHEALTHY_STATE;
+  if (raft_state_.IsLockOpened()) {
+    return SetInstanceToMainCoordinatorStatus::LOCK_OPENED;
   }
 
   if (raft_state_.MainExists()) {
@@ -344,8 +330,8 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
-  if (!raft_state_.IsHealthy()) {
-    return RegisterInstanceCoordinatorStatus::UNHEALTHY_STATE;
+  if (raft_state_.IsLockOpened()) {
+    return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
   if (std::ranges::any_of(repl_instances_, [instance_name = config.instance_name](ReplicationInstance const &instance) {
@@ -366,8 +352,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
-  DMG_ASSERT(raft_state_.IsLeader(), "Coordinator server is not leader");
-
   // TODO(antoniofilipovic) Check if this is an issue
   if (!raft_state_.RequestLeadership()) {
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
@@ -377,16 +361,12 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::OPEN_LOCK;
   }
 
-  auto const undo_action_ = [this]() { repl_instances_.pop_back(); };
-
   auto *new_instance = &repl_instances_.emplace_back(this, config, client_succ_cb_, client_fail_cb_,
                                                      &CoordinatorInstance::ReplicaSuccessCallback,
                                                      &CoordinatorInstance::ReplicaFailCallback);
 
   if (!new_instance->SendDemoteToReplicaRpc()) {
     spdlog::error("Failed to send demote to replica rpc for instance {}", config.instance_name);
-    // TODO(antoniofilipovic) Do we need this here
-    undo_action_();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
@@ -403,8 +383,8 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (!raft_state_.IsHealthy()) {
-    return UnregisterInstanceCoordinatorStatus::UNHEALTHY_STATE;
+  if (raft_state_.IsLockOpened()) {
+    return UnregisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
   // TODO(antoniofilipovic) Check if this is an issue
@@ -455,7 +435,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
   raft_state_.AddCoordinatorInstance(config);
-  // NOTE: We ignore error we added coordinator instance to networkign stuff but not in raft log.
+  // NOTE: We ignore error we added coordinator instance to networking stuff but not in raft log.
   if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
     spdlog::error("Failed to append add coordinator instance log");
   }
@@ -463,14 +443,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoor
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
   spdlog::trace("Instance {} performing main fail callback", repl_instance_name);
-  MG_ASSERT(raft_state_.IsLeader() || is_shutting_down_, "Coordinator instance in wrong state.");
-  if (!raft_state_.IsHealthy()) {
-    spdlog::error("Returning from main fail callback as cluster is not in healthy state.");
-  }
-
-  if (is_shutting_down_) {
-    spdlog::trace("Coordinator is shutting down frequent checks.");
-    return;
+  if (raft_state_.IsLockOpened()) {
+    spdlog::error("Returning from main fail callback as the last action didn't successfully finish");
   }
 
   auto &repl_instance = FindReplicationInstance(repl_instance_name);
@@ -485,15 +459,9 @@ void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) 
 
 void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_name) {
   spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
-  MG_ASSERT(raft_state_.IsLeader() || is_shutting_down_, "Coordinator instance in wrong state.");
 
-  if (!raft_state_.IsHealthy()) {
-    spdlog::error("Stopping main successful callback as cluster is not in healthy state");
-    return;
-  }
-
-  if (is_shutting_down_) {
-    spdlog::trace("Coordinator is shutting down frequent checks.");
+  if (raft_state_.IsLockOpened()) {
+    spdlog::error("Stopping main successful callback as the last action didn't successfully finish");
     return;
   }
 
@@ -549,15 +517,8 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
 void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_name) {
   spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
 
-  MG_ASSERT(raft_state_.IsLeader() || is_shutting_down_, "Coordinator instance in wrong state.");
-
-  if (!raft_state_.IsHealthy()) {
-    spdlog::error("Stopping main successful callback as cluster is not in healthy state");
-    return;
-  }
-
-  if (is_shutting_down_) {
-    spdlog::trace("Coordinator is shutting down frequent checks.");
+  if (raft_state_.IsLockOpened()) {
+    spdlog::error("Stopping main successful callback as the last action didn't successfully finish");
     return;
   }
 
@@ -578,15 +539,8 @@ void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_
 void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_name) {
   spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
 
-  MG_ASSERT(raft_state_.IsLeader() || is_shutting_down_, "Coordinator instance in wrong state.");
-
-  if (!raft_state_.IsHealthy()) {
-    spdlog::error("Stopping main successful callback as cluster is not in healthy state");
-    return;
-  }
-
-  if (is_shutting_down_) {
-    spdlog::trace("Coordinator is shutting down frequent checks.");
+  if (raft_state_.IsLockOpened()) {
+    spdlog::error("Stopping main successful callback as the last action didn't successfully finish.");
     return;
   }
 

@@ -407,8 +407,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
-      case UNHEALTHY_STATE:
-        throw QueryRuntimeException("Couldn't unregister replica because cluster is currently in unhealthy state!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
       case OPEN_LOCK:
         throw QueryRuntimeException(
             "Couldn't register instance as cluster didn't accept entering unregistration state!");
@@ -474,9 +474,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
-      case UNHEALTHY_STATE:
+      case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't register replica instance because cluster is currently in unhealthy state!");
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
       case OPEN_LOCK:
         throw QueryRuntimeException(
             "Couldn't register replica instance because cluster didn't accept registration query!");
@@ -528,9 +528,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case OPEN_LOCK:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main as cluster didn't accept setting instance state.");
-      case UNHEALTHY_STATE:
+      case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't set replica instance to main as cluster is currently in unhealthy state.");
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case SUCCESS:
@@ -548,7 +548,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 /// returns false if the replication role can't be set
-/// @throw QueryRuntimeException if an error ocurred.
+/// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          Interpreter &interpreter) {

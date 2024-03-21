@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "utils/thread_pool.hpp"
-#include <iostream>
 namespace memgraph::utils {
 
 ThreadPool::ThreadPool(const size_t pool_size) {

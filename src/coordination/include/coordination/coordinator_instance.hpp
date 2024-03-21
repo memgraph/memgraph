@@ -85,9 +85,6 @@ class CoordinatorInstance {
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
   utils::ThreadPool thread_pool_;
 
-  // When instance is becoming follower, we need to stop frequent checks as soon as possible
-  std::atomic<bool> is_shutting_down_{false};
-
   RaftState raft_state_;
 };
 
