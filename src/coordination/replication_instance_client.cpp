@@ -10,7 +10,8 @@
 // licenses/APL.txt.
 
 #ifdef MG_ENTERPRISE
-#include "coordination/coordinator_client.hpp"
+
+#include "coordination/replication_instance_client.hpp"
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_rpc.hpp"

@@ -550,6 +550,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
+  // TODO: (andi) Change that this is being asked from raft state
   if (std::ranges::any_of(repl_instances_,
                           [instance_name = config.instance_name](ReplicationInstanceConnector const &instance) {
                             return instance.InstanceName() == instance_name;
@@ -587,8 +588,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
   }};
 
-  auto *new_instance = &repl_instances_.emplace_back(this, config, client_succ_cb_, client_fail_cb_,
-                                                     &CoordinatorInstance::ReplicaSuccessCallback,
+  auto client = std::make_unique<ReplicationInstanceClient>(this, config, client_succ_cb_, client_fail_cb_);
+  auto *new_instance = &repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                                      &CoordinatorInstance::ReplicaFailCallback);
 
   if (!new_instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,

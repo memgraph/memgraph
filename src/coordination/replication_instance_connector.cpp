@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/replication_instance.hpp"
+#include "coordination/replication_instance_connector.hpp"
 
 #include <utility>
 
@@ -20,44 +20,40 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstanceConnector::ReplicationInstanceConnector(CoordinatorInstance *peer, CoordinatorToReplicaConfig config,
-                                                           HealthCheckClientCallback succ_cb,
-                                                           HealthCheckClientCallback fail_cb,
+ReplicationInstanceConnector::ReplicationInstanceConnector(std::unique_ptr<ReplicationInstanceClient> client,
                                                            HealthCheckInstanceCallback succ_instance_cb,
                                                            HealthCheckInstanceCallback fail_instance_cb)
-    : client_(peer, std::move(config), std::move(succ_cb), std::move(fail_cb)),
-      succ_cb_(succ_instance_cb),
-      fail_cb_(fail_instance_cb) {}
+    : client_(std::move(client)), succ_cb_(succ_instance_cb), fail_cb_(fail_instance_cb) {}
 
-auto ReplicationInstanceConnector::OnSuccessPing() -> void {
+void ReplicationInstanceConnector::OnSuccessPing() {
   last_response_time_ = std::chrono::system_clock::now();
   is_alive_ = true;
 }
 
 auto ReplicationInstanceConnector::OnFailPing() -> bool {
   auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
-  is_alive_ = elapsed_time < client_.InstanceDownTimeoutSec();
+  is_alive_ = elapsed_time < client_->InstanceDownTimeoutSec();
   return is_alive_;
 }
 
 auto ReplicationInstanceConnector::IsReadyForUUIDPing() -> bool {
   return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_) >
-         client_.InstanceGetUUIDFrequencySec();
+         client_->InstanceGetUUIDFrequencySec();
 }
 
-auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_.InstanceName(); }
+auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_->InstanceName(); }
 auto ReplicationInstanceConnector::CoordinatorSocketAddress() const -> std::string {
-  return client_.CoordinatorSocketAddress();
+  return client_->CoordinatorSocketAddress();
 }
 auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
-  return client_.ReplicationSocketAddress();
+  return client_->ReplicationSocketAddress();
 }
 auto ReplicationInstanceConnector::IsAlive() const -> bool { return is_alive_; }
 
 auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, ReplicationClientsInfo repl_clients_info,
                                                  HealthCheckInstanceCallback main_succ_cb,
                                                  HealthCheckInstanceCallback main_fail_cb) -> bool {
-  if (!client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
+  if (!client_->SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
     return false;
   }
 
@@ -67,13 +63,13 @@ auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, Re
   return true;
 }
 
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
+auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->DemoteToReplica(); }
 
 auto ReplicationInstanceConnector::SendFrequentHeartbeat() const -> bool { return client_.SendFrequentHeartbeat(); }
 
 auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                                    HealthCheckInstanceCallback replica_fail_cb) -> bool {
-  if (!client_.DemoteToReplica()) {
+  if (!client_->DemoteToReplica()) {
     return false;
   }
 
@@ -83,19 +79,19 @@ auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback r
   return true;
 }
 
-auto ReplicationInstanceConnector::StartFrequentCheck() -> void { client_.StartFrequentCheck(); }
-auto ReplicationInstanceConnector::StopFrequentCheck() -> void { client_.StopFrequentCheck(); }
-auto ReplicationInstanceConnector::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
-auto ReplicationInstanceConnector::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
+auto ReplicationInstanceConnector::StartFrequentCheck() -> void { client_->StartFrequentCheck(); }
+auto ReplicationInstanceConnector::StopFrequentCheck() -> void { client_->StopFrequentCheck(); }
+auto ReplicationInstanceConnector::PauseFrequentCheck() -> void { client_->PauseFrequentCheck(); }
+auto ReplicationInstanceConnector::ResumeFrequentCheck() -> void { client_->ResumeFrequentCheck(); }
 
 auto ReplicationInstanceConnector::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
-  return client_.ReplicationClientInfo();
+  return client_->ReplicationClientInfo();
 }
 
 auto ReplicationInstanceConnector::GetSuccessCallback() -> HealthCheckInstanceCallback { return succ_cb_; }
 auto ReplicationInstanceConnector::GetFailCallback() -> HealthCheckInstanceCallback { return fail_cb_; }
 
-auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return client_; }
+auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return *client_; }
 
 auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
   if (!IsReadyForUUIDPing()) {
@@ -116,18 +112,22 @@ auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID c
 }
 
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
-  return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
+  if (!replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid)) {
+    return false;
+  }
+  SetNewMainUUID(new_main_uuid);
+  return true;
 }
 
 auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
-  return client_.SendUnregisterReplicaRpc(instance_name);
+  return client_->SendUnregisterReplicaRpc(instance_name);
 }
 
-auto ReplicationInstanceConnector::EnableWritingOnMain() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+auto ReplicationInstanceConnector::EnableWritingOnMain() -> bool { return client_->SendEnableWritingOnMainRpc(); }
 
 auto ReplicationInstanceConnector::SendGetInstanceUUID()
     -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>> {
-  return client_.SendGetInstanceUUIDRpc();
+  return client_->SendGetInstanceUUIDRpc();
 }
 
 void ReplicationInstanceConnector::UpdateReplicaLastResponseUUID() {

@@ -13,8 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/replication_instance_client.hpp"
 #include "replication_coordination_glue/role.hpp"
 
 #include "utils/resource_lock.hpp"
@@ -25,16 +25,13 @@
 
 namespace memgraph::coordination {
 
-class CoordinatorInstance;
-
 using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view);
 
 class ReplicationInstanceConnector {
  public:
-  ReplicationInstanceConnector(CoordinatorInstance *peer, CoordinatorToReplicaConfig config,
-                               HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb,
-                               HealthCheckInstanceCallback succ_instance_cb,
-                               HealthCheckInstanceCallback fail_instance_cb);
+  explicit ReplicationInstanceConnector(std::unique_ptr<ReplicationInstanceClient> client,
+                                        HealthCheckInstanceCallback succ_instance_cb = nullptr,
+                                        HealthCheckInstanceCallback fail_instance_cb = nullptr);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;
@@ -46,10 +43,9 @@ class ReplicationInstanceConnector {
   auto OnFailPing() -> bool;
   auto IsReadyForUUIDPing() -> bool;
 
-  void UpdateReplicaLastResponseUUID();
-
   auto IsAlive() const -> bool;
 
+  // TODO: (andi) Fetch from ClusterState
   auto InstanceName() const -> std::string;
   auto CoordinatorSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
@@ -86,8 +82,9 @@ class ReplicationInstanceConnector {
 
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
 
- private:
-  ReplicationInstanceClient client_;
+ protected:
+  auto UpdateReplicaLastResponseUUID() -> void;
+  std::unique_ptr<ReplicationInstanceClient> client_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
   std::chrono::system_clock::time_point last_check_of_uuid_{};

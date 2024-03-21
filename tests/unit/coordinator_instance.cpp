@@ -22,6 +22,7 @@
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
@@ -29,12 +30,28 @@ using memgraph::coordination::CoordinatorInstance;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
+using memgraph::coordination::HealthCheckClientCallback;
+using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::coordination::RaftState;
+using memgraph::coordination::RegisterInstanceCoordinatorStatus;
 using memgraph::coordination::ReplicationClientInfo;
+using memgraph::coordination::ReplicationInstanceClient;
+using memgraph::coordination::ReplicationInstanceConnector;
 using memgraph::io::network::Endpoint;
 using memgraph::replication::ReplicationHandler;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::storage::Config;
+
+using testing::_;
+
+class ReplicationInstanceClientMock : public ReplicationInstanceClient {
+ public:
+  ReplicationInstanceClientMock(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config)
+      : ReplicationInstanceClient(coord_instance, config, nullptr, nullptr) {
+    ON_CALL(*this, DemoteToReplica()).WillByDefault(testing::Return(true));
+  }
+  MOCK_METHOD0(DemoteToReplica, bool());
+};
 
 class CoordinatorInstanceTest : public ::testing::Test {
  protected:
@@ -45,6 +62,27 @@ class CoordinatorInstanceTest : public ::testing::Test {
   std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
                                             "MG_tests_unit_coordinator_instance"};
 };
+
+TEST_F(CoordinatorInstanceTest, RegisterReplicationInstance) {
+  auto const init_config =
+      CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
+  auto instance1 = CoordinatorInstance{init_config};
+
+  auto const coord_to_replica_config =
+      CoordinatorToReplicaConfig{.instance_name = "instance3",
+                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                 .replication_client_info = {.instance_name = "instance_name",
+                                                             .replication_mode = ReplicationMode::ASYNC,
+                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                 .instance_down_timeout_sec = std::chrono::seconds{5},
+                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                 .ssl = std::nullopt};
+
+  auto status = instance1.RegisterReplicationInstance(coord_to_replica_config);
+  EXPECT_EQ(status, RegisterInstanceCoordinatorStatus::SUCCESS);
+}
 
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
   auto const init_config =

@@ -31,9 +31,10 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 class ReplicationInstanceClient {
  public:
   explicit ReplicationInstanceClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
-                                     HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
+                                     HealthCheckClientCallback succ_cb = nullptr,
+                                     HealthCheckClientCallback fail_cb = nullptr);
 
-  ~ReplicationInstanceClient() = default;
+  virtual ~ReplicationInstanceClient() = default;
 
   ReplicationInstanceClient(ReplicationInstanceClient &) = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient const &) = delete;
@@ -50,7 +51,7 @@ class ReplicationInstanceClient {
   auto CoordinatorSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
-  [[nodiscard]] auto DemoteToReplica() const -> bool;
+  virtual auto DemoteToReplica() const -> bool;
 
   auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
       -> bool;
