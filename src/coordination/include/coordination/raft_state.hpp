@@ -23,7 +23,7 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-struct CoordinatorClientConfig;
+struct CoordinatorToReplicaConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
@@ -58,24 +58,27 @@ class RaftState {
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
   auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
   auto MainExists() const -> bool;
   auto IsMain(std::string_view instance_name) const -> bool;
   auto IsReplica(std::string_view instance_name) const -> bool;
 
-  auto AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool;
+  auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
   auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
+  auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+  // TODO: (andi) Do we need then GetAllCoordinators?
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
+
   auto GetUUID() const -> utils::UUID;
 
  private:
