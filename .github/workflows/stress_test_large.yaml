@@ -41,7 +41,7 @@ on:
       - "v*.*-rc*"
   schedule:
     - cron: "0 22 * * *"
-# ${{ (github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+
 jobs:
   StressTestLargeIndividual:
     if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
