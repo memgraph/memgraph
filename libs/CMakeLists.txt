@@ -309,10 +309,12 @@ set(MGCXX_ROOT "${PROJECT_BINARY_DIR}/mgcxx")
 add_library(tantivy_text_search STATIC IMPORTED GLOBAL)
 add_dependencies(tantivy_text_search mgcxx-proj)
 set_property(TARGET tantivy_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libtantivy_text_search.a)
+set_target_properties(tantivy_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 add_library(mgcxx_text_search STATIC IMPORTED GLOBAL)
 add_dependencies(mgcxx_text_search mgcxx-proj)
 set_property(TARGET mgcxx_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libmgcxx_text_search.a)
+set_target_properties(mgcxx_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
 # We need to create the include directory first in order to be able to add it
 # as an include directory. The header files in the include directory will be
 # generated later during the build process.
