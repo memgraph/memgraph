@@ -181,36 +181,81 @@ class PatternVisitor : public ExpressionVisitor<void> {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(XorOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(AndOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(NotEqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(EqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(InListOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
-  void Visit(SubscriptOperator &op) override{};
+  }
+
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubscriptOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
   // Other
   void Visit(ListSlicingOperator &op) override{};
@@ -220,7 +265,13 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(MapProjectionLiteral &op) override{};
   void Visit(LabelsTest &op) override{};
   void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
+
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) {
+      argument->Accept(*this);
+    }
+  }
+
   void Visit(Reduce &op) override{};
   void Visit(Coalesce &op) override{};
   void Visit(Extract &op) override{};

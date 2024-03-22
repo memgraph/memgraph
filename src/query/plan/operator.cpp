@@ -5779,7 +5779,11 @@ RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &&input,
       list_collection_symbols_(list_collection_symbols),
       result_symbol_(result_symbol) {}
 
-std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return {result_symbol_}; }
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.push_back(result_symbol_);
+  return symbols;
+}
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
