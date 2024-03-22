@@ -401,7 +401,7 @@ jobs:
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-${{ env.OS}}"
+          name: "${{ env.OS}}-enterprise"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container
@@ -448,32 +448,35 @@ jobs:
           --threads $THREADS \
           build-memgraph
 
-      # ADAPT THIS
-      # - name: Run micro benchmark tests
-      #   run: |
-      #     # Activate toolchain.
-      #     source /opt/toolchain-v4/activate
-      #
-      #     # Run micro benchmark tests.
-      #     cd build
-      #     # The `eval` benchmark needs a large stack limit.
-      #     ulimit -s 262144
-      #     ctest -R memgraph__benchmark -V
-      #
-      # - name: Run macro benchmark tests
-      #   run: |
-      #     cd tests/macro_benchmark
-      #     ./harness QuerySuite MemgraphRunner \
-      #       --groups aggregation 1000_create unwind_create dense_expand match \
-      #       --no-strict
-      #
-      # - name: Run parallel macro benchmark tests
-      #   run: |
-      #     cd tests/macro_benchmark
-      #     ./harness QueryParallelSuite MemgraphRunner \
-      #       --groups aggregation_parallel create_parallel bfs_parallel \
-      #       --num-database-workers 9 --num-clients-workers 30 \
-      #       --no-strict
+      - name: Run micro benchmarks
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph micro-benchmark
+
+      - name: Run macro benchmarks
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark
+
+      - name: Run macro benchmarks
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark-parallel
 
       - name: Stop mgbuild container
         if: always()
