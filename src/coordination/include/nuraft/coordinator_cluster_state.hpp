@@ -61,8 +61,8 @@ struct CoordinatorInstanceState {
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
-using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig,
-                              InstanceUUIDUpdate>;
+using TRaftLog = std::variant<std::monostate, CoordinatorToReplicaConfig, std::string, utils::UUID,
+                              CoordinatorToCoordinatorConfig, InstanceUUIDUpdate>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;

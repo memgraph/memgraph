@@ -160,72 +160,17 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-auto RaftState::AppendOpenLockRegister(CoordinatorToReplicaConfig const &config) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockRegister(config);
+auto RaftState::AppendOpenLock() -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeOpenLock();
   auto const res = raft_server_->append_entries({new_log});
 
   if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock to register instance {}", config.instance_name);
+    spdlog::error("Failed to accept request to open lock");
     return false;
   }
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock for registering instance {} with error code {}", config.instance_name,
-                  int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendOpenLockUnregister(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockUnregister(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock to unregister instance {}.", instance_name);
-    return false;
-  }
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock for unregistering instance {} with error code {}", instance_name,
-                  int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendOpenLockFailover(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockFailover(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock for failover {}", instance_name);
-    return false;
-  }
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock for failover to instance {} with error code {}", instance_name,
-                  int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendOpenLockSetInstanceToMain(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockSetInstanceAsMain(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock and set instance {} to MAIN", instance_name);
-    return false;
-  }
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock to set instance {} to MAIN with error code {}", instance_name,
-                  int(res->get_result_code()));
+    spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
     return false;
   }
 
@@ -317,26 +262,6 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
   return true;
 }
 
-auto RaftState::AppendOpenLockSetInstanceToReplica(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockSetInstanceAsReplica(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for demoting instance {}. Most likely the reason is that the instance is not "
-        "the leader.",
-        instance_name);
-    return false;
-  }
-  spdlog::info("Request for demoting instance {} accepted", instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
 auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
   auto const res = raft_server_->append_entries({new_log});
@@ -372,26 +297,6 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,
                   static_cast<int>(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendOpenLockForceReset() -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLockForceReset();
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for force reset. Most likely the reason is that the instance is "
-        "not the leader.");
-    return false;
-  }
-
-  spdlog::info("Request for force reset accepted");
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to add log for force reset");
     return false;
   }
 

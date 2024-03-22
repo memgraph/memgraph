@@ -136,10 +136,6 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       spdlog::trace("DoAction: update uuid of new main {}", std::string{current_main_uuid_});
       break;
     }
-    case RaftLogAction::OPEN_LOCK_FORCE_RESET: {
-      is_healthy_ = false;
-      break;
-    }
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE: {
       auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
       auto it = repl_instances_.find(instance_uuid_change.instance_name);
@@ -155,35 +151,10 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_server_id);
       break;
     }
-    case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
+    case RaftLogAction::OPEN_LOCK: {
       is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock register");
+      spdlog::trace("DoAction: Opened lock");
       break;
-      // TODO(antoniofilipovic) save what we are doing to be able to undo....
-    }
-    case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock unregister");
-      break;
-      // TODO(antoniofilipovic) save what we are doing
-    }
-    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock set instance as main");
-      break;
-      // TODO(antoniofilipovic) save what we are doing
-    }
-    case RaftLogAction::OPEN_LOCK_FAILOVER: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock failover");
-      break;
-      // TODO(antoniofilipovic) save what we are doing
-    }
-    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock set instance as replica");
-      break;
-      // TODO(antoniofilipovic) save what we need to undo
     }
   }
 }

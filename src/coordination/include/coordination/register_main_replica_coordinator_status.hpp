@@ -27,7 +27,7 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RAFT_LOG_ERROR,
   SUCCESS,
   LOCK_OPENED,
-  OPEN_LOCK
+  FAILED_TO_OPEN_LOCK
 };
 
 enum class UnregisterInstanceCoordinatorStatus : uint8_t {
@@ -39,7 +39,7 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   RAFT_LOG_ERROR,
   SUCCESS,
   LOCK_OPENED,
-  OPEN_LOCK
+  FAILED_TO_OPEN_LOCK
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
@@ -52,7 +52,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   SWAP_UUID_FAILED,
   SUCCESS,
   LOCK_OPENED,
-  OPEN_LOCK,
+  FAILED_TO_OPEN_LOCK,
   ENABLE_WRITING_FAILED
 };
 
