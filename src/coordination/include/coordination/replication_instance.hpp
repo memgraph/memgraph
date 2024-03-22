@@ -82,6 +82,8 @@ class ReplicationInstance {
   auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
   auto GetFailCallback() -> HealthCheckInstanceCallback &;
 
+  void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
+
  private:
   CoordinatorClient client_;
   std::chrono::system_clock::time_point last_response_time_{};
