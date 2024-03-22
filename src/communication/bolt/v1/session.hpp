@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,6 +87,12 @@ class Session {
       const std::map<std::string, memgraph::communication::bolt::Value> &extra) = 0;
 
   virtual void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) = 0;
+
+#ifdef MG_ENTERPRISE
+  virtual auto Route(std::map<std::string, Value> const &routing,
+                     std::vector<memgraph::communication::bolt::Value> const &bookmarks,
+                     std::map<std::string, Value> const &extra) -> std::map<std::string, Value> = 0;
+#endif
 
   /**
    * Put results of the processed query in the `encoder`.

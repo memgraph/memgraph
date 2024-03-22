@@ -632,10 +632,12 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
+    if benchmark_context.vendor_name == "memgraph":
+        # Neo4j will get started just before import -> without this if statement it would try to start it twice
+        vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
     start_time = time.time()
-
+    import_results = None
     if generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")

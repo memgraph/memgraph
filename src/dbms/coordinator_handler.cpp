@@ -20,7 +20,7 @@ namespace memgraph::dbms {
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterReplicationInstance(coordination::CoordinatorClientConfig const &config)
+auto CoordinatorHandler::RegisterReplicationInstance(coordination::CoordinatorToReplicaConfig const &config)
     -> coordination::RegisterInstanceCoordinatorStatus {
   return coordinator_state_.RegisterReplicationInstance(config);
 }
@@ -39,9 +39,8 @@ auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::Inst
   return coordinator_state_.ShowInstances();
 }
 
-auto CoordinatorHandler::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port,
-                                                std::string_view raft_address) -> void {
-  coordinator_state_.AddCoordinatorInstance(raft_server_id, raft_port, raft_address);
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  coordinator_state_.AddCoordinatorInstance(config);
 }
 
 }  // namespace memgraph::dbms
