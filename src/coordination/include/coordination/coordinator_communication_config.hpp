@@ -24,6 +24,7 @@
 
 #include <fmt/format.h>
 #include "json/json.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
@@ -88,6 +89,11 @@ struct ManagementServerConfig {
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
+struct InstanceUUIDUpdate {
+  std::string instance_name;
+  memgraph::utils::UUID uuid;
+};
+
 void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config);
 void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config);
 
@@ -96,6 +102,9 @@ void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
+
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &config);
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &config);
 
 }  // namespace memgraph::coordination
 #endif

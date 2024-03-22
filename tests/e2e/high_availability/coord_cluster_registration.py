@@ -241,7 +241,10 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 
 
 def test_coordinators_communication_with_restarts():
+    # 1 Start all instances
     safe_execute(shutil.rmtree, TEMP_DIR)
+
+    # 1
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
