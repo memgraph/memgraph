@@ -3321,15 +3321,14 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
-Callback DropGraph(memgraph::dbms::DatabaseAccess &db) {
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
   Callback callback;
-  callback.fn = [&db]() mutable {
-    auto storage = db->UniqueAccess();
+  callback.fn = [&db, dba]() mutable {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
       throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
     }
-    storage->DropGraph();
+    dba->DropGraph();
 
     auto *trigger_store = db->trigger_store();
     trigger_store->DropAll();
@@ -3399,10 +3398,13 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
   MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
   auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
   MG_ASSERT(drop_graph_query);
 
-  std::function<void()> callback = DropGraph(db_acc).fn;
+  std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4470,6 +4472,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }

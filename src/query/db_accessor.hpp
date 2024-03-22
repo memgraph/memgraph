@@ -736,6 +736,8 @@ class DbAccessor final {
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
   }
+
+  void DropGraph() { return accessor_->DropGraph(); }
 };
 
 class SubgraphDbAccessor final {
