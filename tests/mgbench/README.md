@@ -96,7 +96,7 @@ Benchmarking different systems is challenging because the setup, environment, qu
 Listed below are the main scripts used to run the benchmarks:
 
 - `benchmark.py` - The main entry point used for starting and managing the execution of the benchmark. This script initializes all the necessary files, classes, and objects. It starts the database and the benchmark and gathers the results.
-- `base.py` - This is the base workload class. All other workloads are subclasses located in the workloads directory. For example, ldbc_interactive.py defines ldbc interactive dataset and queries (but this is NOT an official LDBC interactive workload). Each workload class can generate the dataset, use custom import ofthe dataset or provide a CYPHERL file for the import process..
+- `base.py` - This is the base workload class. All other workloads are subclasses located in the workloads directory. For example, ldbc_interactive.py defines ldbc interactive dataset and queries (but this is NOT an official LDBC interactive workload). Each workload class can generate the dataset, use custom import of the dataset or provide a CYPHERL file for the import process..
 - `runners.py` - The script that configures, starts, and stops the database.
 - `client.cpp` - Client for querying the database.
 - `graph_bench.py` - Script that starts all tests from Benchgraph.
