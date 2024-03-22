@@ -300,13 +300,11 @@ ExternalProject_Add(mgcxx-proj
   GIT_REPOSITORY https://github.com/memgraph/mgcxx
   GIT_TAG        "v0.0.4"
   CMAKE_ARGS
-    "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
+    "-DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR}/mgcxx"
     "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
     "-DENABLE_TESTS=OFF"
-  INSTALL_DIR    "${PROJECT_BINARY_DIR}/mgcxx"
 )
-ExternalProject_Get_Property(mgcxx-proj install_dir)
-set(MGCXX_ROOT ${install_dir})
+set(MGCXX_ROOT "${PROJECT_BINARY_DIR}/mgcxx")
 
 add_library(tantivy_text_search STATIC IMPORTED GLOBAL)
 add_dependencies(tantivy_text_search mgcxx-proj)
