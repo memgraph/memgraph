@@ -124,6 +124,16 @@ startup_config_dict = {
         "false",
         "Controls whether metadata should be collected about the resident labels and edge types.",
     ),
+    "storage_enable_automatic_label_index_creation": (
+        "false",
+        "false",
+        "Controls whether label indexes on vertices should be created automatically.",
+    ),
+    "storage_enable_automatic_edge_type_index_creation": (
+        "false",
+        "false",
+        "Controls whether edge-type indexes on relationships should be created automatically.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
