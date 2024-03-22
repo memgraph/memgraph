@@ -85,6 +85,9 @@ class CoordinatorClient {
 
   CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
+  // The reason why we have HealthCheckClientCallback is because we need to acquire lock
+  // before we do correct function call (main or replica), as otherwise we can enter REPLICA callback
+  // but right before instance was promoted to MAIN
   HealthCheckClientCallback succ_cb_;
   HealthCheckClientCallback fail_cb_;
 };

@@ -70,10 +70,6 @@ void CoordinatorClient::StartFrequentCheck() {
             auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
-          // Subtle race condition:
-          // acquiring of lock needs to happen before function call, as function callback can be changed
-          // for instance after lock is already acquired
-          // (failover case when instance is promoted to MAIN)
           succ_cb_(coord_instance_, instance_name);
         } catch (rpc::RpcFailedException const &) {
           fail_cb_(coord_instance_, instance_name);

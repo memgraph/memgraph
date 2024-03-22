@@ -81,6 +81,7 @@ class CoordinatorInstance {
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
+  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
