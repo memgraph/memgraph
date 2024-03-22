@@ -434,15 +434,8 @@ void TriggerStore::DropTrigger(const std::string &name) {
 
 void TriggerStore::DropAll() {
   std::unique_lock store_guard{store_lock_};
-  std::vector<std::string> trigger_names{};
-  for (auto const &[name, trigger_data] : storage_) {
-    trigger_names.push_back(name);
-  }
 
-  for (auto const &trigger_name : trigger_names) {
-    storage_.Delete(trigger_name);
-  }
-
+  storage_.DeletePrefix("");
   before_commit_triggers_.clear();
   after_commit_triggers_.clear();
 }
