@@ -525,9 +525,6 @@ void InMemoryUniqueConstraints::Clear() {
 bool InMemoryUniqueConstraints::empty() const { return constraints_.empty() && constraints_by_label_.empty(); }
 
 void InMemoryUniqueConstraints::DropGraphClearConstraints() {
-  for (auto &[label_props, storage] : constraints_) {
-    storage.clear();
-  };
   constraints_.clear();
   constraints_by_label_.clear();
 }

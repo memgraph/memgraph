@@ -237,9 +237,6 @@ std::vector<LabelId> InMemoryLabelIndex::Analysis() const {
 }
 
 void InMemoryLabelIndex::DropGraphClearIndices() {
-  for (auto &[label, storage] : index_) {
-    storage.clear();
-  }
   index_.clear();
   stats_->clear();
 }

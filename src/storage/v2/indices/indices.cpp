@@ -45,6 +45,7 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std:
 void Indices::DropGraphClearIndices() const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->DropGraphClearIndices();
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

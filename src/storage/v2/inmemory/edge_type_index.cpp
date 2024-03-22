@@ -215,6 +215,8 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
   acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
+void InMemoryEdgeTypeIndex::DropGraphClearIndices() { index_.clear(); }
+
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
                                           View view, Storage *storage, Transaction *transaction)
     : index_accessor_(std::move(index_accessor)),

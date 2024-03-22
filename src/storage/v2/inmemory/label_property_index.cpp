@@ -500,9 +500,6 @@ void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
 }
 
 void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
-  for (auto &[label_prop, storage] : index_) {
-    storage.clear();
-  }
   index_.clear();
   indices_by_property_.clear();
   stats_->clear();
