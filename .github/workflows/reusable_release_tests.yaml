@@ -468,7 +468,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph macro-benchmark
 
-      - name: Run macro benchmarks
+      - name: Run parallel macro benchmarks
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
