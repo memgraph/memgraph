@@ -478,9 +478,6 @@ State HandleGoodbye() {
 
 template <typename TSession>
 State HandleRoute(TSession &session, const Marker marker) {
-  // Route message is not implemented since it is Neo4j specific, therefore we will receive it and inform user that
-  // there is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean
-  // state.
   if (marker != Marker::TinyStruct3) {
     spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -496,11 +493,27 @@ State HandleRoute(TSession &session, const Marker marker) {
     spdlog::trace("Couldn't read bookmarks field!");
     return State::Close;
   }
+
+  // TODO: (andi) Fix Bolt versions
   Value db;
   if (!session.decoder_.ReadValue(&db)) {
     spdlog::trace("Couldn't read db field!");
     return State::Close;
   }
+
+#ifdef MG_ENTERPRISE
+  try {
+    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+    if (!session.encoder_.MessageSuccess(std::move(res))) {
+      spdlog::trace("Couldn't send result of routing!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+#else
   session.encoder_buffer_.Clear();
   bool fail_sent =
       session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
@@ -509,6 +522,7 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+#endif
 }
 
 template <typename TSession>
