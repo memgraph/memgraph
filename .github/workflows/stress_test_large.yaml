@@ -13,56 +13,63 @@ on:
         options:
           - Release
           - RelWithDebInfo
+      os:
+        type: choice
+        description: "Target OS on which the release tests will be run. Select 'all' if you want to package for every listed OS."
+        default: 'debian-11'
+        options:
+          - all
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-11
+          - debian-12
+          - fedora-38
+          - fedora-39
+          - rocky-9.3
+          - ubuntu-20.04
+          - ubuntu-22.04
+      toolchain:
+        type: choice
+        description: "Toolchain version with which memgraph will be packaged."
+        default: 'v5'
+        options:
+          - v5
   push:
     tags:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
   schedule:
     - cron: "0 22 * * *"
-
-env:
-  THREADS: 24
-  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
-
+# ${{ (github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
 jobs:
-  stress_test_large:
-    name: "Stress test large"
-    timeout-minutes: 720
+  StressTestLargeIndividual:
+    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ github.event.inputs.os || 'debian-11' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      threads: 24
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit
+
+  StressTestLargeAll:
+    if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [Debian10, Ubuntu20.04]
-        extra: [BigMemory, Gen8]
-        exclude:
-          - os: Debian10
-            extra: Gen8
-          - os: Ubuntu20.04
-            extra: BigMemory
-    runs-on: [self-hosted, Linux, X64, "${{ matrix.os }}", "${{ matrix.extra }}"]
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v4
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE ..
-          make -j$THREADS
-
-      - name: Run stress test (large)
-        run: |
-          cd tests/stress
-          ./continuous_integration --large-dataset
+        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04]
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ matrix.os }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      runner_arch_label: "X64"
+      threads: 24
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit

@@ -27,6 +27,14 @@ on:
         type: number
         description: "Number of threads to use for Memgraph build. Default value is 24."
         default: 24
+      run_release_tests:
+        type: string
+        description: "Run all release tests. Default value is true."
+        default: 'true'
+      run_stress_large:
+        type: string
+        description: "Run large stress test. Default value is false."
+        default: 'false'
 
 env:
   OS: ${{ inputs.os }}
@@ -39,6 +47,7 @@ env:
 
 jobs:
   community_build:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Community build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -94,6 +103,7 @@ jobs:
           stop --remove
 
   coverage_build:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Coverage build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -166,6 +176,7 @@ jobs:
           stop --remove
 
   debug_build:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -262,6 +273,7 @@ jobs:
           stop --remove
 
   debug_integration_test:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -319,6 +331,7 @@ jobs:
           stop --remove
 
   release_build:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -414,6 +427,7 @@ jobs:
           stop --remove
 
   release_benchmark_tests:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
     runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -488,6 +502,7 @@ jobs:
           stop --remove
 
   release_e2e_test:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -561,6 +576,7 @@ jobs:
           stop --remove
 
   release_durability_stress_tests:
+    if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release durability and stress tests"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -645,7 +661,7 @@ jobs:
           stop --remove
 
   release_jepsen_test:
-    if: ${{ inputs.os == 'debian-12' }}
+    if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
     timeout-minutes: 60
@@ -704,6 +720,61 @@ jobs:
         with:
           name: "Jepsen Report-${{ env.OS }}"
           path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  stress_test_large:
+    if: ${{ inputs.run_stress_large == 'true' }}
+    name: "Stress test large"
+    runs-on: [self-hosted, DockerMgBuild, X64, BigMemory]
+    timeout-minutes: 720
+
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binaries
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Run stress test (large)
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph stress-large
 
       - name: Stop mgbuild container
         if: always()
