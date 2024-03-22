@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,11 +73,11 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<double> execution_timeout_sec_;  // Local cache-like thing
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-std::atomic<bool> cartesian_product_enabled_{true};  // Local cache-like thing
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+// Local cache-like thing
+std::atomic<double> execution_timeout_sec_;
+std::atomic<bool> cartesian_product_enabled_{true};
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
   const auto ll_enum = memgraph::flags::LogLevelToEnum(val);

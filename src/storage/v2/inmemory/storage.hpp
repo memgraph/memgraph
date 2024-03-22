@@ -400,7 +400,7 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -414,9 +414,13 @@ class InMemoryStorage final : public Storage {
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
                                  const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 

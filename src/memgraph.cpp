@@ -439,7 +439,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
-  if (FLAGS_coordinator_server_port) {
+  if (FLAGS_management_port) {
     memgraph::dbms::CoordinatorHandlers::Register(coordinator_state.GetCoordinatorServer(), replication_handler);
     MG_ASSERT(coordinator_state.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }
