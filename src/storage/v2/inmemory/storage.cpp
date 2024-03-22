@@ -1872,7 +1872,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
-      MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
+      if (config_.salient.items.enable_edges_metadata) {
+        MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
+      }
     }
   }
 
