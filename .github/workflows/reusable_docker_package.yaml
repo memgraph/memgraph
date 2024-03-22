@@ -36,7 +36,7 @@ on:
         description: "Timeout in minutes for the job. Default value is 60."
         default: 60
       push_to_s3:
-        type: boolean
+        type: string 
         description: "Should the final package be pushed to an S3 bucket. Default value is false"
         default: false
       s3_bucket:
@@ -151,4 +151,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: "build/output/release"
-          DEST_DIR: ${{ inputs.s3_dest_dir }}
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
