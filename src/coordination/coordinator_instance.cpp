@@ -50,16 +50,28 @@ CoordinatorInstance::CoordinatorInstance()
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
-            auto main = instances | ranges::views::filter(
-                                        [](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
+            auto main_instances = instances | ranges::views::filter([](auto const &instance) {
+                                    return instance.status == ReplicationRole::MAIN;
+                                  });
 
-            std::ranges::for_each(main, [this](auto &main_instance) {
+            std::ranges::for_each(main_instances, [this](auto &main_instance) {
               spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
               repl_instances_.emplace_back(this, main_instance.config, client_succ_cb_, client_fail_cb_,
                                            &CoordinatorInstance::MainSuccessCallback,
                                            &CoordinatorInstance::MainFailCallback);
             });
 
+            // In case we got out of force reset but instances weren't still demoted
+            // we need to apply functions to these instances to demote them
+            std::ranges::for_each(instances, [this](ReplicationInstanceState const &replication_instance_state) {
+              if (replication_instance_state.needs_demote) {
+                spdlog::trace("Changing callback for instance {} to demote callback",
+                              replication_instance_state.config.instance_name);
+                auto &instance = FindReplicationInstance(replication_instance_state.config.instance_name);
+                instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback,
+                                      &CoordinatorInstance::DemoteFailCallback);
+              }
+            });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
           },
           [this]() {
@@ -265,8 +277,9 @@ void CoordinatorInstance::ForceResetCluster() {
 
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_instances);
 
-  if (maybe_most_up_to_date_instance->empty()) {
+  if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
+    return;
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
@@ -294,12 +307,9 @@ void CoordinatorInstance::ForceResetCluster() {
   // we need to recreate state from raft log
   // If instance in raft log is MAIN, it can be REPLICA but raft append failed when we demoted it
   // If instance in raft log is REPLICA, it can be MAIN but raft log failed when we promoted it
-  // CRUX of problem: We need universal callback which will get correct state of instance and swap callback then
+  // CRUX of problem: We need universal callback which will demote instance to replica and only then change to
+  // REPLICA callbacks
 
-  // TODO(antoniofilipovic): Summary of problem:
-  // above
-
-  // TODO(antoniofilipovic) Update this part here
   auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstance &repl_instance) {
     if (instances_mapped_to_resp[repl_instance.InstanceName()]) {
       return false;
@@ -307,8 +317,7 @@ void CoordinatorInstance::ForceResetCluster() {
     if (!raft_state_.AppendInstanceNeedsDemote(repl_instance.InstanceName())) {
       return true;
     }
-    repl_instance.SetCallbacks(&CoordinatorInstance::UniversalSuccessCallback,
-                               &CoordinatorInstance::UniversalFailCallback);
+    repl_instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
     return false;
   };
 
@@ -349,8 +358,9 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_replicas);
 
-  if (maybe_most_up_to_date_instance->empty()) {
+  if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
+    return;
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
@@ -733,8 +743,8 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
   repl_instance.OnFailPing();
 }
 
-void CoordinatorInstance::UniversalSuccessCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
+void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_name) {
+  spdlog::trace("Instance {} performing demote to replica successful callback", repl_instance_name);
 
   auto &repl_instance = FindReplicationInstance(repl_instance_name);
 
@@ -746,12 +756,11 @@ void CoordinatorInstance::UniversalSuccessCallback(std::string_view repl_instanc
     return;
   }
 
-  // TODO(antoniofilipovic) Double check that switching works
   repl_instance.SetCallbacks(&CoordinatorInstance::ReplicaSuccessCallback, &CoordinatorInstance::ReplicaFailCallback);
 }
 
-void CoordinatorInstance::UniversalFailCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
+void CoordinatorInstance::DemoteFailCallback(std::string_view repl_instance_name) {
+  spdlog::trace("Instance {} performing demote to replica failure callback", repl_instance_name);
 }
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)

@@ -69,7 +69,10 @@ class CoordinatorInstance {
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    auto const get_ts = [](ReplicationInstance &replica) { return replica.GetClient().SendGetInstanceTimestampsRpc(); };
+    auto const get_ts = [](ReplicationInstance &replica) {
+      spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
+      return replica.GetClient().SendGetInstanceTimestampsRpc();
+    };
 
     auto maybe_instance_db_histories = alive_instances | ranges::views::transform(get_ts) | ranges::to<std::vector>();
 
@@ -112,9 +115,9 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
-  void UniversalSuccessCallback(std::string_view);
+  void DemoteSuccessCallback(std::string_view repl_instance_name);
 
-  void UniversalFailCallback(std::string_view);
+  void DemoteFailCallback(std::string_view repl_instance_name);
 
   void ForceResetCluster();
 

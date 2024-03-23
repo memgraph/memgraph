@@ -1532,7 +1532,7 @@ def test_force_reset_works_after_failed_registration():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
@@ -1541,7 +1541,7 @@ def test_force_reset_works_after_failed_registration():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "unknown"),
+        ("instance_3", "", "", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -1550,5 +1550,4 @@ def test_force_reset_works_after_failed_registration():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_force_reset_works_after_failed_registration", "-vv"]))
     sys.exit(pytest.main([__file__, "-rA"]))
