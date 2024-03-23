@@ -23,6 +23,7 @@
 
 #include <libnuraft/nuraft.hxx>
 
+#include <functional>
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
@@ -59,6 +60,8 @@ class ReplicationInstance {
 
   auto SendDemoteToReplicaRpc() -> bool;
 
+  auto SendFrequentHeartbeat() const -> bool;
+
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
 
@@ -79,8 +82,8 @@ class ReplicationInstance {
 
   auto EnableWritingOnMain() -> bool;
 
-  auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
-  auto GetFailCallback() -> HealthCheckInstanceCallback &;
+  auto GetSuccessCallback() -> HealthCheckInstanceCallback;
+  auto GetFailCallback() -> HealthCheckInstanceCallback;
 
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
 

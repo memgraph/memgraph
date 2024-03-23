@@ -112,6 +112,10 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
+  void UniversalSuccessCallback(std::string_view);
+
+  void UniversalFailCallback(std::string_view);
+
   void ForceResetCluster();
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;

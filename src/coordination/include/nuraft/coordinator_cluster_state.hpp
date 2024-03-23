@@ -43,8 +43,11 @@ struct ReplicationInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
+  bool needs_demote{false};
+
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
-    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid;
+    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid &&
+           lhs.needs_demote == rhs.needs_demote;
   }
 };
 

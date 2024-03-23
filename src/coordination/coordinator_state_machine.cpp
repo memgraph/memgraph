@@ -59,6 +59,10 @@ auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view ins
   return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
 }
 
+auto CoordinatorStateMachine::SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::INSTANCE_NEEDS_DEMOTE}, {"info", std::string{instance_name}}});
+}
+
 auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
 }
@@ -91,6 +95,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
       return {info.get<InstanceUUIDUpdate>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+      [[fallthrough]];
+    case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
       return {info.get<std::string>(), action};

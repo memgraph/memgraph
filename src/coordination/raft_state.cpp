@@ -303,6 +303,25 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
   return true;
 }
 
+auto RaftState::AppendInstanceNeedsDemote(std::string_view instance_name) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeInstanceNeedsDemote(instance_name);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request that instance {} needs demote", instance_name);
+    return false;
+  }
+
+  spdlog::trace("Request that instance {} needs demote accepted", instance_name);
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to add instance {} needs demote with error code {}", instance_name,
+                  static_cast<int>(res->get_result_code()));
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, const utils::UUID &uuid) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForInstance(
       {.instance_name = std::string{instance_name}, .uuid = uuid});

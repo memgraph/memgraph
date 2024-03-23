@@ -19,14 +19,17 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state) {
-  j = nlohmann::json{
-      {"config", instance_state.config}, {"status", instance_state.status}, {"uuid", instance_state.instance_uuid}};
+  j = nlohmann::json{{"config", instance_state.config},
+                     {"status", instance_state.status},
+                     {"uuid", instance_state.instance_uuid},
+                     {"needs_demote", instance_state.needs_demote}};
 }
 
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state) {
   j.at("config").get_to(instance_state.config);
   j.at("status").get_to(instance_state.status);
   j.at("uuid").get_to(instance_state.instance_uuid);
+  j.at("needs_demote").get_to(instance_state.needs_demote);
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
@@ -150,6 +153,13 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       coordinators_.emplace_back(CoordinatorInstanceState{config});
       spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_server_id);
       break;
+    }
+    case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
+      auto const instance_name = std::get<std::string>(log_entry);
+      auto it = repl_instances_.find(instance_name);
+      MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
+      it->second.needs_demote = true;
+      spdlog::trace("Added action that instance {} needs demote", instance_name);
     }
     case RaftLogAction::OPEN_LOCK: {
       is_lock_opened_ = true;

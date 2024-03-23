@@ -72,6 +72,7 @@ class RaftState {
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendOpenLock() -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
+  auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   // TODO: (andi) Do we need then GetAllCoordinators?

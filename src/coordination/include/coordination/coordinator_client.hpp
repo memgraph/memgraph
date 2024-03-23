@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "rpc/client.hpp"
 #include "rpc_errors.hpp"
 #include "utils/result.hpp"
@@ -63,6 +64,8 @@ class CoordinatorClient {
   auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   auto ReplicationClientInfo() const -> ReplicationClientInfo;
+
+  auto SendFrequentHeartbeat() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
