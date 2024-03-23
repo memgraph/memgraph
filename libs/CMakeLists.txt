@@ -35,17 +35,16 @@ endfunction(import_header_library)
 
 function(import_library name type location include_dir)
   add_library(${name} ${type} IMPORTED GLOBAL)
-
   if(${ARGN})
     # Optional argument is the name of the external project that we need to
     # depend on.
     add_dependencies(${name} ${ARGN0})
+    message(STATUS "ADDED DEPENDENCY TO ${ARGN0}")
   else()
     add_dependencies(${name} ${name}-proj)
+    message(STATUS "ADDED DEPENDENCY TO ${name}-proj")
   endif()
-
   set_property(TARGET ${name} PROPERTY IMPORTED_LOCATION ${location})
-
   # We need to create the include directory first in order to be able to add it
   # as an include directory. The header files in the include directory will be
   # generated later during the build process.
@@ -60,12 +59,12 @@ endfunction(import_library)
 # done in SOURCE_DIR, which defaults to ${CMAKE_CURRENT_SOURCE_DIR}/${name}.
 # You can pass additional arguments via CMAKE_ARGS. Dependencies and
 # installation can be set as in regular ExternalProject_Add, via DEPENDS and
-# INSTALL_COMMAND arguments.
+# INSTALL_COMMAND arguments. It's also possible to pass BUILD_BYPRODUCTS.
 function(add_external_project name)
   set(options NO_C_COMPILER)
   set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE)
   set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
-    CONFIGURE_COMMAND)
+    CONFIGURE_COMMAND BUILD_BYPRODUCTS)
   cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
   set(source_dir ${CMAKE_CURRENT_SOURCE_DIR}/${name})
 
@@ -92,7 +91,8 @@ function(add_external_project name)
     -DCMAKE_INSTALL_PREFIX=${source_dir}
     ${KW_CMAKE_ARGS}
     INSTALL_COMMAND ${KW_INSTALL_COMMAND}
-    BUILD_COMMAND ${KW_BUILD_COMMAND})
+    BUILD_COMMAND ${KW_BUILD_COMMAND}
+    BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS})
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
@@ -136,7 +136,6 @@ import_external_library(antlr4 STATIC
 import_external_library(benchmark STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-
   # Skip testing. The tests don't compile with Clang 8.
   CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
@@ -295,38 +294,29 @@ set_path_external_library(jemalloc STATIC
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
-ExternalProject_Add(mgcxx-proj
-  PREFIX         mgcxx-proj
-  GIT_REPOSITORY https://github.com/memgraph/mgcxx
-  GIT_TAG        "v0.0.4"
-  CMAKE_ARGS
-    "-DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR}/mgcxx"
-    "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-    "-DENABLE_TESTS=OFF"
-    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-    "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-  INSTALL_DIR    "${PROJECT_BINARY_DIR}/mgcxx"
-)
-set(MGCXX_ROOT "${PROJECT_BINARY_DIR}/mgcxx")
-
-add_library(tantivy_text_search STATIC IMPORTED GLOBAL)
-add_dependencies(tantivy_text_search mgcxx-proj)
-set_property(TARGET tantivy_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libtantivy_text_search.a)
-set_target_properties(tantivy_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
-
-add_library(mgcxx_text_search STATIC IMPORTED GLOBAL)
-add_dependencies(mgcxx_text_search mgcxx-proj)
-set_property(TARGET mgcxx_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libmgcxx_text_search.a)
-set_target_properties(mgcxx_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
-# We need to create the include directory first in order to be able to add it
-# as an include directory. The header files in the include directory will be
-# generated later during the build process.
-file(MAKE_DIRECTORY ${MGCXX_ROOT}/include)
-set_property(TARGET mgcxx_text_search PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${MGCXX_ROOT}/include)
-
 # Setup NuRaft
 import_external_library(nuraft STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
+
+# Setup mgcxx (provides: text search)
+set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+  CACHE PATH "Path to mgcxx include directory" FORCE)
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+add_external_project(mgcxx
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  CMAKE_ARGS -DENABLE_TESTS=OFF)
+mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+# TODO(gitbuda): import_library is wrong -> fix it and remove the below two lines.
+add_dependencies(tantivy_text_search mgcxx-proj)
+add_dependencies(mgcxx_text_search mgcxx-proj)
+# TODO(gitbuda): Consider adding below two lines to the import_library -> that might break other libraries.
+# set_target_properties(tantivy_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
+# set_target_properties(mgcxx_text_search PROPERTIES EXCLUDE_FROM_ALL TRUE)
