@@ -80,15 +80,12 @@ CoordinatorInstance::CoordinatorInstance()
               // We need to stop checks before taking a lock because deadlock can happen if instances waits
               // to take a lock in frequent check, and this thread already has a lock and waits for instance to
               // be done with frequent check
-              for (auto &repl_instance : repl_instances_) {
-                repl_instance.StopFrequentCheck();
-              }
-              auto lock = std::unique_lock{coord_instance_lock_};
               std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
                 spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
                 repl_instance.StopFrequentCheck();
                 spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
               });
+              auto lock = std::unique_lock{coord_instance_lock_};
               repl_instances_.clear();
               spdlog::info("Stopped all replication instance frequent checks.");
             });

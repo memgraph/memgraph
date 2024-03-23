@@ -39,7 +39,7 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
 }
 
 auto CoordinatorStateMachine::SerializeOpenLock() -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}, {"info", nullptr}});
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}});
 }
 
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
