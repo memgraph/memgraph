@@ -15,7 +15,6 @@
 #include <thread>
 
 #include <fmt/format.h>
-#include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
