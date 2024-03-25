@@ -22,7 +22,6 @@
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
@@ -32,26 +31,9 @@ using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
-using memgraph::coordination::RaftState;
 using memgraph::coordination::RegisterInstanceCoordinatorStatus;
-using memgraph::coordination::ReplicationClientInfo;
-using memgraph::coordination::ReplicationInstanceClient;
-using memgraph::coordination::ReplicationInstanceConnector;
 using memgraph::io::network::Endpoint;
-using memgraph::replication::ReplicationHandler;
 using memgraph::replication_coordination_glue::ReplicationMode;
-using memgraph::storage::Config;
-
-using testing::_;
-
-class ReplicationInstanceClientMock : public ReplicationInstanceClient {
- public:
-  ReplicationInstanceClientMock(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config)
-      : ReplicationInstanceClient(coord_instance, config, nullptr, nullptr) {
-    ON_CALL(*this, DemoteToReplica()).WillByDefault(testing::Return(true));
-  }
-  MOCK_METHOD0(DemoteToReplica, bool());
-};
 
 class CoordinatorInstanceTest : public ::testing::Test {
  protected:
@@ -81,7 +63,7 @@ TEST_F(CoordinatorInstanceTest, RegisterReplicationInstance) {
                                  .ssl = std::nullopt};
 
   auto status = instance1.RegisterReplicationInstance(coord_to_replica_config);
-  EXPECT_EQ(status, RegisterInstanceCoordinatorStatus::SUCCESS);
+  EXPECT_EQ(status, RegisterInstanceCoordinatorStatus::RPC_FAILED);
 }
 
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {

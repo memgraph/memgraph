@@ -81,7 +81,6 @@ void ReplicationInstanceClient::StartFrequentCheck() {
 void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
-
 auto ReplicationInstanceClient::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
 }
@@ -126,20 +125,6 @@ auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
   } catch (rpc::RpcFailedException const &) {
     return false;
   }
-}
-
-auto ReplicationInstanceClient::SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool {
-  try {
-    auto stream{rpc_client_.Stream<replication_coordination_glue::SwapMainUUIDRpc>(uuid)};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC swapping of uuid response!");
-      return false;
-    }
-    return true;
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("RPC error occurred while sending swapping uuid RPC!");
-  }
-  return false;
 }
 
 auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {

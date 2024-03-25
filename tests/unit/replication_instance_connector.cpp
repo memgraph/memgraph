@@ -27,21 +27,42 @@
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
-using memgraph::coordination::CoordinatorInstance;
-using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
-using memgraph::coordination::ReplicationClientInfo;
+using memgraph::coordination::ReplicationClientsInfo;
 using memgraph::coordination::ReplicationInstanceClient;
 using memgraph::coordination::ReplicationInstanceConnector;
-using memgraph::io::network::Endpoint;
-using memgraph::replication::ReplicationHandler;
-using memgraph::replication_coordination_glue::ReplicationMode;
-using memgraph::storage::Config;
+using memgraph::utils::UUID;
+
+using SendGetInstanceUUIDRpcRes =
+    memgraph::utils::BasicResult<memgraph::coordination::GetInstanceUUIDError, std::optional<memgraph::utils::UUID>>;
 
 using testing::_;
 
-class ReplicationInstanceClientMock {};
+class ReplicationInstanceClientMock : public ReplicationInstanceClient {
+ public:
+  ReplicationInstanceClientMock() : ReplicationInstanceClient(nullptr, {}, nullptr, nullptr) {
+    ON_CALL(*this, SendGetInstanceUUIDRpc)
+        .WillByDefault(testing::Return(SendGetInstanceUUIDRpcRes{
+            memgraph::coordination::GetInstanceUUIDError::NO_RESPONSE}));  // return error so that we don't even send
+                                                                           // swap rpc
+  }
+  MOCK_METHOD(std::chrono::seconds, InstanceDownTimeoutSec, (), (override, const));
+  MOCK_METHOD(std::chrono::seconds, InstanceGetUUIDFrequencySec, (), (override, const));
+  MOCK_METHOD(std::string, InstanceName, (), (override, const));
+  MOCK_METHOD(std::string, CoordinatorSocketAddress, (), (override, const));
+  MOCK_METHOD(std::string, ReplicationSocketAddress, (), (override, const));
+  MOCK_METHOD(bool, SendPromoteReplicaToMainRpc, (UUID const &uuid, ReplicationClientsInfo replication_clients_info),
+              (override, const));
+  MOCK_METHOD(bool, DemoteToReplica, (), (override, const));
+  MOCK_METHOD(void, StartFrequentCheck, (), (override));
+  MOCK_METHOD(void, StopFrequentCheck, (), (override));
+  MOCK_METHOD(void, PauseFrequentCheck, (), (override));
+  MOCK_METHOD(void, ResumeFrequentCheck, (), (override));
+  MOCK_METHOD(bool, SendUnregisterReplicaRpc, (std::string_view instance_name), (override, const));
+  MOCK_METHOD(bool, SendEnableWritingOnMainRpc, (), (override, const));
+  MOCK_METHOD(SendGetInstanceUUIDRpcRes, SendGetInstanceUUIDRpc, (), (override, const));
+};
 
 class ReplicationInstanceConnectorTest : public ::testing::Test {
  public:
@@ -49,3 +70,106 @@ class ReplicationInstanceConnectorTest : public ::testing::Test {
 
   void TearDown() override {}
 };
+
+TEST_F(ReplicationInstanceConnectorTest, OnFailPing) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, InstanceDownTimeoutSec()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.OnFailPing();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, IsReadyForUUIDPing) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, InstanceGetUUIDFrequencySec()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.IsReadyForUUIDPing();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, InstanceName) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, InstanceName()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.InstanceName();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, CoordinatorSocketAddress) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, CoordinatorSocketAddress()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.CoordinatorSocketAddress();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, ReplicationSocketAddress) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, ReplicationSocketAddress()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.ReplicationSocketAddress();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, PromoteToMain) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, SendPromoteReplicaToMainRpc(_, _)).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.PromoteToMain({}, {}, nullptr, nullptr);
+}
+
+TEST_F(ReplicationInstanceConnectorTest, DemoteToReplica) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, DemoteToReplica()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.DemoteToReplica(nullptr, nullptr);
+}
+
+TEST_F(ReplicationInstanceConnectorTest, SendDemoteToReplicaRpc) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, DemoteToReplica()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.SendDemoteToReplicaRpc();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, ManipulatingChecks) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, StartFrequentCheck()).Times(1);
+  EXPECT_CALL(*client, StopFrequentCheck()).Times(1);
+  EXPECT_CALL(*client, PauseFrequentCheck()).Times(1);
+  EXPECT_CALL(*client, ResumeFrequentCheck()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.StartFrequentCheck();
+  connector.StopFrequentCheck();
+  connector.PauseFrequentCheck();
+  connector.ResumeFrequentCheck();
+}
+
+TEST_F(ReplicationInstanceConnectorTest, EnsureReplicaHasCorrectMainUUID) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, InstanceGetUUIDFrequencySec()).Times(1);
+  EXPECT_CALL(*client, SendGetInstanceUUIDRpc()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.EnsureReplicaHasCorrectMainUUID({});
+}
+
+TEST_F(ReplicationInstanceConnectorTest, SendUnregisterReplicaRpc) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, SendUnregisterReplicaRpc(_)).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.SendUnregisterReplicaRpc("");
+}
+
+TEST_F(ReplicationInstanceConnectorTest, SendEnableWritingOnMainRpc) {
+  auto client = std::make_unique<ReplicationInstanceClientMock>();
+  EXPECT_CALL(*client, SendEnableWritingOnMainRpc()).Times(1);
+
+  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  connector.EnableWritingOnMain();
+}

@@ -21,6 +21,7 @@
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
+using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::coordination::RaftLogAction;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -107,9 +108,10 @@ TEST_F(CoordinatorStateMachineTest, SerializeSetInstanceToMain) {
   CoordinatorStateMachine::SerializeRegisterInstance(config);
 
   {
-    ptr<buffer> data = CoordinatorStateMachine::SerializeSetInstanceAsMain("instance3");
+    auto const uuid_update_obj = InstanceUUIDUpdate{.instance_name = "instance3", .uuid = UUID{}};
+    ptr<buffer> data = CoordinatorStateMachine::SerializeSetInstanceAsMain(uuid_update_obj);
     buffer_serializer bs(*data);
-    auto const expected = nlohmann::json{{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", "instance3"}};
+    auto const expected = nlohmann::json{{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", uuid_update_obj}};
     ASSERT_EQ(bs.get_str(), expected.dump());
   }
 
@@ -124,8 +126,8 @@ TEST_F(CoordinatorStateMachineTest, SerializeSetInstanceToMain) {
 TEST_F(CoordinatorStateMachineTest, SerializeUpdateUUID) {
   auto uuid = UUID{};
 
-  ptr<buffer> data = CoordinatorStateMachine::SerializeUpdateUUID(uuid);
+  ptr<buffer> data = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
   buffer_serializer bs(*data);
-  auto const expected = nlohmann::json{{"action", RaftLogAction::UPDATE_UUID}, {"info", uuid}};
+  auto const expected = nlohmann::json{{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}};
   ASSERT_EQ(bs.get_str(), expected.dump());
 }
