@@ -71,6 +71,7 @@ class RaftState {
   auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendOpenLock() -> bool;
+  auto AppendCloseLock() -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 

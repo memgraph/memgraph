@@ -42,6 +42,10 @@ auto CoordinatorStateMachine::SerializeOpenLock() -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::OPEN_LOCK}});
 }
 
+auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}});
+}
+
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
@@ -84,7 +88,9 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
   auto const &info = json["info"];
 
   switch (action) {
-    case RaftLogAction::OPEN_LOCK: {
+    case RaftLogAction::OPEN_LOCK:
+      [[fallthrough]];
+    case RaftLogAction::CLOSE_LOCK: {
       return {std::monostate{}, action};
     }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:

@@ -304,7 +304,7 @@ void CoordinatorInstance::ForceResetCluster() {
   // we need to recreate state from raft log
   // If instance in raft log is MAIN, it can be REPLICA but raft append failed when we demoted it
   // If instance in raft log is REPLICA, it can be MAIN but raft log failed when we promoted it
-  // CRUX of problem: We need universal callback which will demote instance to replica and only then change to
+  // CRUX of problem: We need demote callbacks which will demote instance to replica and only then change to
   // REPLICA callbacks
 
   auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstance &repl_instance) {
@@ -334,6 +334,11 @@ void CoordinatorInstance::ForceResetCluster() {
     }
   };
   std::ranges::for_each(alive_instances, check_correct_callbacks_set);
+
+  if (!raft_state_.AppendCloseLock()) {
+    spdlog::error("Aborting force reset as we failed to close lock on action.");
+    return;
+  }
 
   std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
 
@@ -412,6 +417,11 @@ auto CoordinatorInstance::TryFailover() -> void {
   auto const new_main_instance_name = new_main.InstanceName();
 
   if (!raft_state_.AppendSetInstanceAsMainLog(new_main_instance_name, new_main_uuid)) {
+    return;
+  }
+
+  if (!raft_state_.AppendCloseLock()) {
+    spdlog::error("Aborting failover as we failed to close lock on action.");
     return;
   }
 
@@ -496,7 +506,12 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  spdlog::info("Instance {} promoted to main on leader", instance_name);
+  spdlog::trace("Instance {} promoted to main on leader", instance_name);
+
+  if (!raft_state_.AppendCloseLock()) {
+    spdlog::error("Aborting failover as we failed to close lock on action.");
+    return SetInstanceToMainCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
+  }
 
   if (!new_main->EnableWritingOnMain()) {
     return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
@@ -558,6 +573,12 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   if (!raft_state_.AppendRegisterReplicationInstanceLog(config)) {
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
+
+  if (!raft_state_.AppendCloseLock()) {
+    spdlog::error("Aborting register instance as we failed to close lock on action.");
+    return RegisterInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
+  }
+
   new_instance->StartFrequentCheck();
 
   spdlog::info("Instance {} registered", config.instance_name);
@@ -619,6 +640,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
   if (!raft_state_.AppendUnregisterReplicationInstanceLog(instance_name)) {
     return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
+  if (!raft_state_.AppendCloseLock()) {
+    spdlog::error("Aborting register instance as we failed to close lock on action.");
+    return UnregisterInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
   }
 
   return UnregisterInstanceCoordinatorStatus::SUCCESS;

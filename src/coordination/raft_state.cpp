@@ -168,9 +168,29 @@ auto RaftState::AppendOpenLock() -> bool {
     spdlog::error("Failed to accept request to open lock");
     return false;
   }
+  spdlog::trace("Request for opening lock accepted");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendCloseLock() -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeCloseLock();
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request to close lock");
+    return false;
+  }
+
+  spdlog::trace("Request for closing lock accepted");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to close lock with error code {}", int(res->get_result_code()));
     return false;
   }
 
@@ -190,7 +210,7 @@ auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig 
     return false;
   }
 
-  spdlog::info("Request for registering instance {} accepted", config.instance_name);
+  spdlog::trace("Request for registering instance {} accepted", config.instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to register instance {} with error code {}", config.instance_name,
@@ -212,7 +232,7 @@ auto RaftState::AppendUnregisterReplicationInstanceLog(std::string_view instance
     return false;
   }
 
-  spdlog::info("Request for unregistering instance {} accepted", instance_name);
+  spdlog::trace("Request for unregistering instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to unregister instance {} with error code {}", instance_name, int(res->get_result_code()));
@@ -233,7 +253,7 @@ auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name, utils
     return false;
   }
 
-  spdlog::info("Request for promoting instance {} accepted", instance_name);
+  spdlog::trace("Request for promoting instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
@@ -252,7 +272,7 @@ auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) ->
         instance_name);
     return false;
   }
-  spdlog::info("Request for demoting instance {} accepted", instance_name);
+  spdlog::trace("Request for demoting instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
@@ -292,7 +312,7 @@ auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig c
     return false;
   }
 
-  spdlog::info("Request for adding coordinator instance {} accepted", config.coordinator_server_id);
+  spdlog::trace("Request for adding coordinator instance {} accepted", config.coordinator_server_id);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_server_id,

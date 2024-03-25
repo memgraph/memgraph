@@ -44,6 +44,7 @@ class CoordinatorStateMachine : public state_machine {
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
   static auto SerializeOpenLock() -> ptr<buffer>;
+  static auto SerializeCloseLock() -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
