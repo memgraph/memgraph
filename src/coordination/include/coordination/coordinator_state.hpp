@@ -33,7 +33,7 @@ class CoordinatorState {
   CoordinatorState(CoordinatorState &&) noexcept = delete;
   CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig const &config)
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
@@ -42,10 +42,12 @@ class CoordinatorState {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
+
+  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
 
  private:
   struct CoordinatorMainReplicaData {

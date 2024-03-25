@@ -53,6 +53,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
@@ -252,7 +256,7 @@ class DeltaGenerator final {
         ASSERT_TRUE(false) << "Unexpected statistics operation!";
       }
     }
-    wal_file_.AppendOperation(operation, label_id, property_ids, l_stats, lp_stats, timestamp_);
+    wal_file_.AppendOperation(operation, std::nullopt, label_id, property_ids, l_stats, lp_stats, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -271,6 +275,8 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
@@ -313,6 +319,8 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:

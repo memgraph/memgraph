@@ -189,6 +189,9 @@ constexpr utils::TypeInfo query::IndexQuery::kType{utils::TypeId::AST_INDEX_QUER
 constexpr utils::TypeInfo query::EdgeIndexQuery::kType{utils::TypeId::AST_EDGE_INDEX_QUERY, "EdgeIndexQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
+                                                       &query::Query::kType};
+
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
 constexpr utils::TypeInfo query::CallProcedure::kType{utils::TypeId::AST_CALL_PROCEDURE, "CallProcedure",
