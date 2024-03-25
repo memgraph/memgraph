@@ -137,7 +137,7 @@ jobs:
         if: ${{ env.FOR_DOCKER == 'true' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.artifact_name }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: "build/output/docker/${{ inputs.arch }}/${{ inputs.toolchain }}/memgraph*"
 
       - name: "Stop mgbuild container"
