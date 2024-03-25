@@ -79,48 +79,48 @@ struct Vertex {
 
   Delta *delta;
 
-  PropertyValue GetProperty(PropertyId property) const {
+  PropertyValue GetProperty(PropertyId property, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
-    const auto prop = PDS::get()->Get(gid, property);
+    const auto prop = PDS::get()->Get(gid, property, itr);
     if (prop) return *prop;
     return {};
   }
 
-  bool SetProperty(PropertyId property, const PropertyValue &value) {
+  bool SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) {
     // if (deleted) return {};
     has_prop = true;
-    return PDS::get()->Set(gid, property, value);
+    return PDS::get()->Set(gid, property, value, itr);
   }
 
-  bool HasProperty(PropertyId property) const {
+  bool HasProperty(PropertyId property, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
-    return PDS::get()->Has(gid, property);
+    return PDS::get()->Has(gid, property, itr);
   }
 
-  bool HasAllProperties(const std::set<PropertyId> &properties) const {
+  bool HasAllProperties(const std::set<PropertyId> &properties, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
     return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
   }
 
-  bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
+  bool IsPropertyEqual(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return value.IsNull();
-    const auto val = GetProperty(property);
+    const auto val = GetProperty(property, itr);
     return val == value;
   }
 
   template <typename TContainer>
-  bool InitProperties(const TContainer &properties) {
+  bool InitProperties(const TContainer &properties, PdsItr *itr = nullptr) {
     // if (deleted) return {};
     auto *pds = PDS::get();
     for (const auto &[property, value] : properties) {
       if (value.IsNull()) {
         continue;
       }
-      if (!pds->Set(gid, property, value)) {
+      if (!pds->Set(gid, property, value, itr)) {
         return false;
       }
       has_prop = true;
@@ -128,17 +128,17 @@ struct Vertex {
     return true;
   }
 
-  void ClearProperties() {
+  void ClearProperties(PdsItr *itr = nullptr) {
     if (!has_prop) return;
     has_prop = false;
     auto *pds = PDS::get();
-    pds->Clear(gid);
+    pds->Clear(gid, itr);
   }
 
-  std::map<PropertyId, PropertyValue> Properties() {
+  std::map<PropertyId, PropertyValue> Properties(PdsItr *itr = nullptr) {
     // if (deleted) return {};
     if (!has_prop) return {};
-    return PDS::get()->Get(gid);
+    return PDS::get()->Get(gid, itr);
   }
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
@@ -167,19 +167,20 @@ struct Vertex {
     return id_old_new_change;
   }
 
-  uint64_t PropertySize(PropertyId property) const {
+  uint64_t PropertySize(PropertyId property, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
-    return PDS::get()->GetSize(gid, property);
+    return PDS::get()->GetSize(gid, property, itr);
   }
 
-  std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const {
+  std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties,
+                                                                  PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
     std::vector<PropertyValue> value_array;
     value_array.reserve(properties.size());
     for (const auto &prop : properties) {
-      auto value = GetProperty(prop);
+      auto value = GetProperty(prop, itr);
       if (value.IsNull()) {
         return std::nullopt;
       }

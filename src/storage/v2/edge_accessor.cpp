@@ -129,7 +129,7 @@ VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
   return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted};
 }
 
-Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -138,12 +138,12 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
 
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
-  using ReturnType = decltype(edge_.ptr->GetProperty(property));
+  using ReturnType = decltype(edge_.ptr->GetProperty(property, itr));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [&current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
-        current_value.emplace(edge.ptr->GetProperty(property));
+      [&current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write, itr]() {
+        current_value.emplace(edge.ptr->GetProperty(property, itr));
         if (skip_duplicate_write && current_value == value) {
           return;
         }
@@ -154,7 +154,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         // "modify in-place". Additionally, the created delta will make other
         // transactions get a SERIALIZATION_ERROR.
         CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
-        edge.ptr->SetProperty(property, value);
+        edge.ptr->SetProperty(property, value, itr);
       }};
   std::invoke(atomic_memory_block);
 
@@ -238,7 +238,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
 
-Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view, PdsItr *itr) const {
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -247,7 +247,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
   {
     auto guard = std::shared_lock{edge_.ptr->lock};
     deleted = edge_.ptr->deleted;
-    value.emplace(edge_.ptr->GetProperty(property));
+    value.emplace(edge_.ptr->GetProperty(property, itr));
     delta = edge_.ptr->delta;
   }
   ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &value, property](const Delta &delta) {

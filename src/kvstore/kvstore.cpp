@@ -11,9 +11,12 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice.h>
 
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
+
+#include <iostream>
 
 namespace memgraph::kvstore {
 
@@ -67,6 +70,7 @@ KVStore &KVStore::operator=(KVStore &&other) {
 
 bool KVStore::Put(std::string_view key, std::string_view value, rocksdb::WriteOptions options) {
   auto s = pimpl_->db->Put(options, key, value);
+  if (!s.ok()) std::cout << s.ToString() << std::endl;
   return s.ok();
 }
 
@@ -84,6 +88,27 @@ std::optional<std::string> KVStore::Get(std::string_view key, rocksdb::ReadOptio
   auto s = pimpl_->db->Get(options, key, &value);
   if (!s.ok()) return std::nullopt;
   return value;
+}
+
+std::map<std::string, std::string> KVStore::GetMultiple(std::vector<rocksdb::Slice> keys,
+                                                        rocksdb::ReadOptions options) const noexcept {
+  std::vector<std::string> values;
+  pimpl_->db->MultiGet(options, keys, &values);
+  std::map<std::string, std::string> map;
+  auto old_itr = map.begin();
+  for (int i = 0; i < keys.size(); ++i) {
+    old_itr = map.insert_or_assign(old_itr, keys[i].ToString(), std::move(values[i]));
+  }
+  return map;
+}
+
+rocksdb::Iterator *KVStore::GetItr(std::string_view prefix, rocksdb::ReadOptions options) {
+  auto *iter = pimpl_->db->NewIterator(options);
+  iter->Seek(prefix);
+  if (iter->Valid() && iter->key().starts_with(prefix)) {
+    return iter;
+  }
+  return nullptr;
 }
 
 bool KVStore::Delete(std::string_view key, rocksdb::WriteOptions options) {

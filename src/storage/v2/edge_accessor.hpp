@@ -69,7 +69,7 @@ class EdgeAccessor final {
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr);
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
@@ -84,7 +84,7 @@ class EdgeAccessor final {
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
   /// @throw std::bad_alloc
-  Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+  Result<PropertyValue> GetProperty(PropertyId property, View view, PdsItr *itr = nullptr) const;
 
   /// Returns the size of the encoded edge property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;

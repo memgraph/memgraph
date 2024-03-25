@@ -414,12 +414,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString(), ctx_->pds_itr), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString(), ctx_->pds_itr), ctx_->memory};
     };
 
     // lhs is Null
@@ -574,7 +574,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
           return TypedValue(ctx_->memory);
         } else {
-          return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
+          return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_, ctx_->pds_itr),
+                            ctx_->memory);
         }
       case TypedValue::Type::Edge:
         if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -589,7 +590,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           }
           return TypedValue(ctx_->memory);
         } else {
-          return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+          return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_, ctx_->pds_itr),
+                            ctx_->memory);
         }
       case TypedValue::Type::Map: {
         auto &map = expression_result_ptr->ValueMap();
@@ -1145,8 +1147,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop,
+                                     storage::PdsItr &pds_itr) {
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix], &pds_itr);
     if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1154,7 +1157,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix], &pds_itr);
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {
@@ -1172,8 +1175,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   template <class TRecordAccessor>
-  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
-    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+  storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name,
+                                     storage::PdsItr &pds_itr) {
+    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name), &pds_itr);
     if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1181,7 +1185,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name), &pds_itr);
     }
     if (maybe_prop.HasError()) {
       switch (maybe_prop.GetError()) {

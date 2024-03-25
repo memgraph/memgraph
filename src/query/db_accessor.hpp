@@ -50,8 +50,9 @@ class EdgeAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key,
+                                                      storage::PdsItr *itr = nullptr) const {
+    return impl_.GetProperty(key, view, itr);
   }
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
@@ -129,16 +130,18 @@ class VertexAccessor final {
 
   auto Properties(storage::View view) const { return impl_.Properties(view); }
 
-  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key) const {
-    return impl_.GetProperty(key, view);
+  storage::Result<storage::PropertyValue> GetProperty(storage::View view, storage::PropertyId key,
+                                                      storage::PdsItr *itr = nullptr) const {
+    return impl_.GetProperty(key, view, itr);
   }
 
   storage::Result<uint64_t> GetPropertySize(storage::PropertyId key, storage::View view) const {
     return impl_.GetPropertySize(key, view);
   }
 
-  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value) {
-    return impl_.SetProperty(key, value);
+  storage::Result<storage::PropertyValue> SetProperty(storage::PropertyId key, const storage::PropertyValue &value,
+                                                      storage::PdsItr *itr = nullptr) {
+    return impl_.SetProperty(key, value, itr);
   }
 
   storage::Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -150,8 +153,8 @@ class VertexAccessor final {
     return impl_.UpdateProperties(properties);
   }
 
-  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key) {
-    return SetProperty(key, storage::PropertyValue());
+  storage::Result<storage::PropertyValue> RemoveProperty(storage::PropertyId key, storage::PdsItr *itr = nullptr) {
+    return SetProperty(key, storage::PropertyValue(), itr);
   }
 
   storage::Result<std::map<storage::PropertyId, storage::PropertyValue>> ClearProperties() {
