@@ -53,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless custom-maven3.9.3 # for driver tests
-    dotnet-sdk-7.0 golang custom-golang1.18.9 nodejs npm
+    dotnet-sdk-8.0 golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -119,12 +119,12 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
-        if [ "$pkg" == dotnet-sdk-7.0  ]; then
+        if [ "$pkg" == dotnet-sdk-8.0  ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-7.0
+                apt-get update -y
+                apt-get install -y apt-transport-https dotnet-sdk-8.0
             fi
             continue
         fi
