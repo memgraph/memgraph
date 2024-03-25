@@ -39,11 +39,11 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
 }
 
 auto CoordinatorStateMachine::SerializeOpenLock() -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}});
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}, {"info", nullptr}});
 }
 
 auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}});
+  return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
 }
 
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
@@ -85,7 +85,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
   auto const action = json["action"].get<RaftLogAction>();
-  auto const &info = json["info"];
+  auto const &info = json.at("info");
 
   switch (action) {
     case RaftLogAction::OPEN_LOCK:
