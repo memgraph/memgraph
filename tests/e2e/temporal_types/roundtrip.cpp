@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -127,7 +127,7 @@ void TestLocalTime(mg::Client &client) {
   };
 
   const auto parse = [](const std::string_view query) {
-    return memgraph::utils::LocalTime(memgraph::utils::ParseLocalTimeParameters(fmt::format("{}", query)).first);
+    return memgraph::utils::LocalTime(memgraph::utils::ParseLocalTimeParameters(fmt::format("{}", query)).parameters);
   };
 
   const auto str1 = lt(1, 3, 3, 33);
@@ -154,7 +154,7 @@ void TestLocalDateTime(mg::Client &client) {
     return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}", y, mo, d, h, m, s);
   };
   auto parse = [](const std::string_view str) {
-    const auto [dt, lt] = memgraph::utils::ParseLocalDateTimeParameters(str);
+    const auto [dt, lt, _] = memgraph::utils::ParseLocalDateTimeParameters(str);
     return memgraph::utils::LocalDateTime(dt, lt);
   };
   auto ldt_query = [](const std::string_view str) { return fmt::format("\"{}\"", str); };
