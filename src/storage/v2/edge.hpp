@@ -79,16 +79,16 @@ struct Edge {
 
   Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (1 << 31)); }
 
-  PropertyValue GetProperty(PropertyId property) const {
+  PropertyValue GetProperty(PropertyId property, PdsItr *itr = nullptr) const {
     if (!has_prop) return {};
-    const auto prop = PDS::get()->Get(HotFixForGID(), property);
+    const auto prop = PDS::get()->Get(HotFixForGID(), property, itr);
     if (prop) return *prop;
     return {};
   }
 
-  bool SetProperty(PropertyId property, const PropertyValue &value) {
+  bool SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) {
     if (!has_prop) return {};
-    return PDS::get()->Set(HotFixForGID(), property, value);
+    return PDS::get()->Set(HotFixForGID(), property, value, itr);
   }
 
   template <typename TContainer>

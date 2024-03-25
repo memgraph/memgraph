@@ -21,6 +21,8 @@
 
 #include "utils/exceptions.hpp"
 
+#include <rocksdb/iterator.h>
+
 namespace memgraph::kvstore {
 
 class KVStoreError : public utils::BasicException {
@@ -84,6 +86,11 @@ class KVStore final {
    *         OR the value doesn't exist.
    */
   std::optional<std::string> Get(std::string_view key, rocksdb::ReadOptions options = {}) const noexcept;
+
+  rocksdb::Iterator *GetItr(std::string_view prefix = "", rocksdb::ReadOptions options = {});
+
+  std::map<std::string, std::string> GetMultiple(std::vector<rocksdb::Slice> keys,
+                                                 rocksdb::ReadOptions options) const noexcept;
 
   /**
    * Deletes the key and corresponding value from storage.

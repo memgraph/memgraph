@@ -21,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_disk_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -249,7 +250,7 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -264,8 +265,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   PropertyValue current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock atomic_memory_block{
-      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value, skip_duplicate_write]() {
-        current_value = vertex->GetProperty(property);
+      [transaction = transaction_, vertex = vertex_, &value, &property, &current_value, skip_duplicate_write, itr]() {
+        current_value = vertex->GetProperty(property, itr);
         // We could skip setting the value if the previous one is the same to the new
         // one. This would save some memory as a delta would not be created as well as
         // avoid copying the value. The reason we are not doing that is because the
@@ -277,7 +278,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
         }
 
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-        vertex->SetProperty(property, value);
+        vertex->SetProperty(property, value, itr);
 
         return false;
       }};
@@ -411,7 +412,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
 
-Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view, PdsItr *itr) const {
   bool exists = true;
   bool deleted = false;
   PropertyValue value;
@@ -419,7 +420,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    value = vertex_->GetProperty(property);
+    value = vertex_->GetProperty(property, itr);
     delta = vertex_->delta;
   }
 

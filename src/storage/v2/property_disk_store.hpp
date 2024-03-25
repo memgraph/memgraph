@@ -11,13 +11,10 @@
 
 #pragma once
 
-#include <rocksdb/options.h>
 #include <cstdint>
 #include <cstring>
 #include <json/json.hpp>
 #include <map>
-#include <set>
-#include <sstream>
 
 #include "kvstore/kvstore.hpp"
 #include "slk/streams.hpp"
@@ -28,6 +25,45 @@
 #include "storage/v2/replication/slk.hpp"
 
 namespace memgraph::storage {
+
+struct PdsItr {
+  rocksdb::Iterator *itr_{};
+  PropertyId pid_;
+  Gid gid_;
+  PropertyValue pv_{};
+
+  PdsItr() {
+    pid_ = PropertyId::FromUint(0);
+    gid_ = Gid::FromUint(0);
+  }
+};
+
+inline PropertyValue ToPV(std::string_view sv) {
+  PropertyValue pv;
+  slk::Reader reader((const uint8_t *)sv.data(), sv.size());
+  slk::Load(&pv, &reader);
+  return pv;
+}
+
+// class PDSWrapper {
+//  public:
+//   PDSWrapper() : itr_{nullptr}, pv_{nullptr} {}
+//   PDSWrapper(std::unique_ptr<rocksdb::Iterator> itr) : itr_{std::move(itr)}, pv_{nullptr} {}
+//   PDSWrapper(PropertyValue pv) : itr_{nullptr}, pv_{std::make_unique<PropertyValue>(std::move(pv))} {}
+
+//   void reset() { itr_.reset(); }
+
+//   operator bool() const { return (itr_ != nullptr && itr_->Valid()) || pv_ != nullptr; }
+//   PropertyValue operator*() const {
+//     if (itr_ != nullptr && itr_->Valid()) return ToPV(itr_->value().ToStringView());
+//     if (pv_) return *pv_;
+//     return {};
+//   }
+
+//  private:
+//   std::unique_ptr<rocksdb::Iterator> itr_;
+//   std::unique_ptr<PropertyValue> pv_;
+// };
 
 class PDS {
  public:
@@ -44,87 +80,37 @@ class PDS {
     return ptr_;
   }
 
-  static std::string ToKey(Gid gid, PropertyId pid) {
-    std::string key(sizeof(gid) + sizeof(pid), '\0');
-    memcpy(key.data(), &gid, sizeof(gid));
-    memcpy(&key[sizeof(gid)], &pid, sizeof(pid));
-    return key;
-  }
+  static std::string ToKey(Gid gid, PropertyId pid);
 
-  static std::string ToPrefix(Gid gid) {
-    std::string key(sizeof(gid), '\0');
-    memcpy(key.data(), &gid, sizeof(gid));
-    return key;
-  }
+  static std::string ToKey2(Gid gid, PropertyId pid);
 
-  static Gid ToGid(std::string_view sv) {
-    uint64_t gid;
-    gid = *((uint64_t *)sv.data());
-    return Gid::FromUint(gid);
-  }
+  static std::string Key2Key2(std::string_view key);
 
-  static PropertyId ToPid(std::string_view sv) {
-    uint32_t pid;
-    pid = *((uint32_t *)&sv[sizeof(Gid)]);
-    return PropertyId::FromUint(pid);
-  }
+  static std::string ToPrefix(Gid gid);
 
-  static PropertyValue ToPV(std::string_view sv) {
-    PropertyValue pv;
-    slk::Reader reader((const uint8_t *)sv.data(), sv.size());
-    slk::Load(&pv, &reader);
-    return pv;
-  }
+  static std::string ToPrefix2(PropertyId pid);
 
-  static std::string ToStr(const PropertyValue &pv) {
-    std::string val{};
-    slk::Builder builder([&val](const uint8_t *data, size_t size, bool /*have_more*/) {
-      const auto old_size = val.size();
-      val.resize(old_size + size);
-      memcpy(&val[old_size], data, size);
-    });
-    slk::Save(pv, &builder);
-    builder.Finalize();
-    return val;
-  }
+  static Gid ToGid(std::string_view sv);
 
-  std::optional<PropertyValue> Get(Gid gid, PropertyId pid) {
-    const auto element = kvstore_.Get(ToKey(gid, pid), r_options);
-    if (element) {
-      return ToPV(*element);
-    }
-    return std::nullopt;
-  }
+  static Gid ToGid2(std::string_view sv);
 
-  size_t GetSize(Gid gid, PropertyId pid) {
-    const auto element = kvstore_.Get(ToKey(gid, pid), r_options);
-    if (element) {
-      return element->size();
-    }
-    return 0;
-  }
+  static PropertyId ToPid(std::string_view sv);
 
-  std::map<PropertyId, PropertyValue> Get(Gid gid) {
-    std::map<PropertyId, PropertyValue> res;
-    auto itr = kvstore_.begin(ToPrefix(gid), r_options);
-    auto end = kvstore_.end(ToPrefix(gid), r_options);
-    for (; itr != end; ++itr) {
-      if (!itr.IsValid()) continue;
-      res[ToPid(itr->first)] = ToPV(itr->second);
-    }
-    return res;
-  }
+  static std::string ToStr(const PropertyValue &pv);
 
-  auto Set(Gid gid, PropertyId pid, const PropertyValue &pv) {
-    if (pv.IsNull()) {
-      return kvstore_.Delete(ToKey(gid, pid), w_options);
-    }
-    return kvstore_.Put(ToKey(gid, pid), ToStr(pv), w_options);
-  }
+  // PDSWrapper GetItr(Gid gid, PropertyId pid);
 
-  void Clear(Gid gid) { kvstore_.DeletePrefix(ToPrefix(gid), w_options, r_options); }
+  std::optional<PropertyValue> Get(Gid gid, PropertyId pid, PdsItr *itr = nullptr);
 
-  bool Has(Gid gid, PropertyId pid) { return kvstore_.Size(ToKey(gid, pid), r_options) != 0; }
+  size_t GetSize(Gid gid, PropertyId pid, PdsItr *itr = nullptr);
+
+  std::map<PropertyId, PropertyValue> Get(Gid gid, PdsItr *itr = nullptr);
+
+  bool Set(Gid gid, PropertyId pid, const PropertyValue &pv, PdsItr *itr = nullptr);
+
+  void Clear(Gid gid, PdsItr *itr = nullptr);
+
+  bool Has(Gid gid, PropertyId pid, PdsItr *itr = nullptr);
 
   // kvstore::KVStore::iterator Itr() {}
 
