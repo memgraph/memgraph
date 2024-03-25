@@ -99,7 +99,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       spdlog::trace("DoAction: register replication instance {}", config.instance_name);
       // Setting instance uuid to random, if registration fails, we are still in random state
       repl_instances_.emplace(config.instance_name,
-                              ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}});
+                              ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}, false});
       break;
     }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
@@ -123,6 +123,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::REPLICA;
+      it->second.needs_demote = false;
       spdlog::trace("DoAction: set replication instance {} as replica", instance_name);
       break;
     }
@@ -151,7 +152,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.needs_demote = true;
-      spdlog::trace("Added action that instance {} needs demote", instance_name);
+      spdlog::trace("Added action that instance {} needs demote to replica", instance_name);
       break;
     }
     case RaftLogAction::OPEN_LOCK: {
