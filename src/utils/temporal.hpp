@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,8 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
+
+class Timezone;
 
 template <typename T>
 concept Chrono = requires(T) {
@@ -192,8 +194,13 @@ struct LocalTimeParameters {
   bool operator==(const LocalTimeParameters &) const = default;
 };
 
-// boolean indicates whether the parsed string was in extended format
-std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
+struct LocalTimeParsing {
+  LocalTimeParameters parameters;
+  bool extended_format;
+  uint64_t remainder_length;
+};
+
+LocalTimeParsing ParseLocalTimeParameters(std::string_view string, bool in_zoned_dt = false);
 
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
@@ -251,7 +258,13 @@ struct LocalTimeHash {
   size_t operator()(const LocalTime &local_time) const;
 };
 
-std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
+struct LocalDateTimeParsing {
+  DateParameters date_parameters;
+  LocalTimeParameters local_time_parameters;
+  uint64_t remainder_length;
+};
+
+LocalDateTimeParsing ParseLocalDateTimeParameters(std::string_view string, bool in_zoned_dt = false);
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);
@@ -292,6 +305,132 @@ struct LocalDateTime {
 
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
+};
+
+class Timezone {
+ private:
+  std::variant<std::chrono::minutes, const std::chrono::time_zone *> offset_;
+
+ public:
+  explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
+  explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
+  explicit Timezone(const std::string &timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
+
+  const Timezone *operator->() const { return this; }
+
+  bool operator==(const Timezone &) const = default;
+
+  template <class DurationT>
+  std::chrono::minutes OffsetInMinutes(std::chrono::sys_time<DurationT> time_point) const {
+    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+      return std::get<std::chrono::minutes>(offset_);
+    }
+
+    return std::chrono::duration_cast<std::chrono::minutes>(
+        std::get<const std::chrono::time_zone *>(offset_)->get_info(time_point).offset);
+  }
+
+  template <class DurationT>
+  std::chrono::sys_info get_info(std::chrono::sys_time<DurationT> time_point) const {
+    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+      const auto offset = std::get<std::chrono::minutes>(offset_);
+      return std::chrono::sys_info{
+          .begin = std::chrono::sys_seconds::min(),
+          .end = std::chrono::sys_seconds::max(),
+          .offset = std::chrono::duration_cast<std::chrono::seconds>(offset),
+          .save = std::chrono::minutes{0},
+          .abbrev = "",
+          // offset >= std::chrono::minutes{0} ? "+" + std::format("{0:%H}:{0:%M}", offset)
+          //                                             : "-" + std::format("{0:%H}:{0:%M}", -offset)
+      };
+    }
+    return std::get<const std::chrono::time_zone *>(offset_)->get_info(time_point);
+  }
+
+  template <class DurationT>
+  auto to_local(std::chrono::sys_time<DurationT> time_point) const {
+    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+      using local_time = std::chrono::local_time<std::common_type_t<DurationT, std::chrono::minutes>>;
+      return local_time{(time_point + OffsetInMinutes(time_point)).time_since_epoch()};
+    }
+    return std::get<const std::chrono::time_zone *>(offset_)->to_local(time_point);
+  }
+
+  template <class DurationT>
+  auto to_sys(std::chrono::local_time<DurationT> time_point) const {
+    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+      using sys_time = std::chrono::sys_time<std::common_type_t<DurationT, std::chrono::minutes>>;
+      return sys_time{(time_point - std::get<std::chrono::minutes>(offset_)).time_since_epoch()};
+    }
+    return std::get<const std::chrono::time_zone *>(offset_)->to_sys(time_point);
+  }
+
+  std::string_view TimezoneName() const {
+    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+      return "";
+    }
+    return std::get<const std::chrono::time_zone *>(offset_)->name();
+  }
+};
+}  // namespace memgraph::utils
+
+namespace std::chrono {
+
+template <>
+struct zoned_traits<memgraph::utils::Timezone> {
+  static memgraph::utils::Timezone default_zone() { return memgraph::utils::Timezone{minutes{0}}; }
+};
+
+}  // namespace std::chrono
+
+namespace memgraph::utils {
+
+struct ZonedDateTimeParameters {
+  DateParameters date;
+  LocalTimeParameters local_time;
+  Timezone timezone;
+
+  bool operator==(const ZonedDateTimeParameters &) const = default;
+};
+
+ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
+
+struct ZonedDateTime {
+  explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
+  explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
+  explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
+
+  int64_t MicrosecondsSinceEpoch() const;
+  int64_t SecondsSinceEpoch() const;
+  int64_t SubSecondsAsNanoseconds() const;
+  std::string ToString() const;
+
+  bool operator==(const ZonedDateTime &other) const;
+
+  std::strong_ordering operator<=>(const ZonedDateTime &other) const;
+
+  std::chrono::minutes OffsetInMinutes() const {
+    return zoned_time.get_time_zone().OffsetInMinutes(zoned_time.get_sys_time());
+  }
+
+  std::string_view TimezoneName() const { return zoned_time.get_time_zone().TimezoneName(); }
+
+  friend std::ostream &operator<<(std::ostream &os, const ZonedDateTime &zdt) { return os << zdt.ToString(); }
+
+  friend ZonedDateTime operator+(const ZonedDateTime &zdt, const Duration &dur) {
+    return ZonedDateTime(std::chrono::zoned_time(
+        zdt.zoned_time.get_time_zone(), zdt.zoned_time.get_sys_time() + std::chrono::microseconds(dur.microseconds)));
+  }
+
+  friend ZonedDateTime operator+(const Duration &dur, const ZonedDateTime &zdt) { return zdt + dur; }
+
+  friend ZonedDateTime operator-(const ZonedDateTime &zdt, const Duration &dur) { return zdt + (-dur); }
+
+  friend Duration operator-(const ZonedDateTime &lhs, const ZonedDateTime &rhs) {
+    return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
+  }
+
+  std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };
 
 Date CurrentDate();
