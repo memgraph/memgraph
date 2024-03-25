@@ -14,10 +14,10 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/rpc_errors.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "rpc/client.hpp"
-#include "rpc_errors.hpp"
 #include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
@@ -42,40 +42,39 @@ class ReplicationInstanceClient {
   ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
-  void StartFrequentCheck();
-  void StopFrequentCheck();
-  void PauseFrequentCheck();
-  void ResumeFrequentCheck();
+  virtual void StartFrequentCheck();
+  virtual void StopFrequentCheck();
+  virtual void PauseFrequentCheck();
+  virtual void ResumeFrequentCheck();
 
-  auto InstanceName() const -> std::string;
-  auto CoordinatorSocketAddress() const -> std::string;
-  auto ReplicationSocketAddress() const -> std::string;
+  virtual auto InstanceName() const -> std::string;
+  virtual auto CoordinatorSocketAddress() const -> std::string;
+  virtual auto ReplicationSocketAddress() const -> std::string;
 
   virtual auto DemoteToReplica() const -> bool;
 
-  auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
-      -> bool;
+  virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
+                                           ReplicationClientsInfo replication_clients_info) const -> bool;
 
-  auto SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool;
+  virtual auto SendGetInstanceUUIDRpc() const
+      -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
-  auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
+  virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
-  auto SendEnableWritingOnMainRpc() const -> bool;
-
-  auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
-
-  auto ReplicationClientInfo() const -> ReplicationClientInfo;
+  virtual auto SendEnableWritingOnMainRpc() const -> bool;
 
   auto SendFrequentHeartbeat() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
 
+  virtual auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
+
+  virtual auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
+
+  auto ReplicationClientInfo() const -> ReplicationClientInfo;
+
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
-
-  auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
-
-  auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
     return first.config_ == second.config_;

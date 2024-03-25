@@ -36,7 +36,7 @@ using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
-    : raft_endpoint_("127.0.0.1", config.coordinator_port),
+    : raft_endpoint_("0.0.0.0", config.coordinator_port),
       coordinator_id_(config.coordinator_id),
       state_machine_(cs_new<CoordinatorStateMachine>(config)),
       state_manager_(cs_new<CoordinatorStateManager>(coordinator_id_, raft_endpoint_.SocketAddress())),

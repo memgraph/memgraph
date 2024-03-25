@@ -51,8 +51,8 @@ CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, Replicati
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig const &config) {
   auto c2c_config = CoordinatorToCoordinatorConfig{
       .coordinator_id = config.coordinator_id,
-      .bolt_server = io::network::Endpoint{"127.0.0.1", static_cast<uint16_t>(config.bolt_port)},
-      .coordinator_server = io::network::Endpoint{"127.0.0.1", static_cast<uint16_t>(config.coordinator_port)}};
+      .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.bolt_port)},
+      .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
   coordinators_.emplace_back(CoordinatorInstanceState{.config = std::move(c2c_config)});
 }
 
@@ -109,12 +109,6 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   auto const it = repl_instances_.find(instance_name);
   return it != repl_instances_.end() && it->second.status == ReplicationRole::MAIN &&
          it->second.instance_uuid == current_main_uuid_;
-}
-
-auto CoordinatorClusterState::InsertInstance(std::string instance_name, ReplicationInstanceState instance_state)
-    -> void {
-  auto lock = std::lock_guard{log_lock_};
-  repl_instances_.insert_or_assign(std::move(instance_name), std::move(instance_state));
 }
 
 auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void {

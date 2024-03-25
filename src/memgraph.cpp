@@ -421,8 +421,7 @@ int main(int argc, char **argv) {
     coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
                                                             .coordinator_port = FLAGS_coordinator_port,
                                                             .bolt_port = FLAGS_bolt_port});
-  }
-  if (FLAGS_management_port) {
+  } else {
     coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
   }
 #endif

@@ -39,8 +39,8 @@ class ReplicationInstanceConnector {
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector &&other) noexcept = delete;
   ~ReplicationInstanceConnector() = default;
 
-  auto OnSuccessPing() -> void;
   auto OnFailPing() -> bool;
+  auto OnSuccessPing() -> void;
   auto IsReadyForUUIDPing() -> bool;
 
   auto IsAlive() const -> bool;

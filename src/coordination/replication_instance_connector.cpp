@@ -13,10 +13,10 @@
 
 #include "coordination/replication_instance_connector.hpp"
 
-#include <utility>
-
 #include "replication_coordination_glue/handler.hpp"
 #include "utils/result.hpp"
+
+#include <utility>
 
 namespace memgraph::coordination {
 
@@ -50,6 +50,7 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
 }
 auto ReplicationInstanceConnector::IsAlive() const -> bool { return is_alive_; }
 
+// TODO: (andi) Ideally instance already knows its callbacks
 auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, ReplicationClientsInfo repl_clients_info,
                                                  HealthCheckInstanceCallback main_succ_cb,
                                                  HealthCheckInstanceCallback main_fail_cb) -> bool {
@@ -63,9 +64,10 @@ auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, Re
   return true;
 }
 
+// TODO: (andi) Duplication. We have to refactor this
 auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->DemoteToReplica(); }
 
-auto ReplicationInstanceConnector::SendFrequentHeartbeat() const -> bool { return client_.SendFrequentHeartbeat(); }
+auto ReplicationInstanceConnector::SendFrequentHeartbeat() const -> bool { return client_->SendFrequentHeartbeat(); }
 
 auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                                    HealthCheckInstanceCallback replica_fail_cb) -> bool {
@@ -119,6 +121,7 @@ auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view ins
   return client_->SendUnregisterReplicaRpc(instance_name);
 }
 
+// TODO: (andi) Or remove access to client or remove all methods that just wrap call to client
 auto ReplicationInstanceConnector::EnableWritingOnMain() -> bool { return client_->SendEnableWritingOnMainRpc(); }
 
 auto ReplicationInstanceConnector::SendGetInstanceUUID()
@@ -130,7 +133,8 @@ void ReplicationInstanceConnector::UpdateReplicaLastResponseUUID() {
   last_check_of_uuid_ = std::chrono::system_clock::now();
 }
 
-void ReplicationInstanceConnector::SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb) {
+void ReplicationInstanceConnector::SetCallbacks(HealthCheckInstanceCallback succ_cb,
+                                                HealthCheckInstanceCallback fail_cb) {
   succ_cb_ = succ_cb;
   fail_cb_ = fail_cb;
 }

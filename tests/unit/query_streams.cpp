@@ -125,7 +125,7 @@ class StreamsTestFixture : public ::testing::Test {
                                                            &repl_state,
                                                            system_state,
 #ifdef MG_ENTERPRISE
-                                                           nullptr,
+                                                           std::nullopt,
 #endif
                                                            nullptr,
                                                            &auth_checker};

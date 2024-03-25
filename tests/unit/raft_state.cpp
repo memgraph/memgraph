@@ -21,10 +21,12 @@
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
+using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::coordination::RaftState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::utils::UUID;
 using nuraft::ptr;
 
 class RaftStateTest : public ::testing::Test {
@@ -116,7 +118,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                      .bolt_server = Endpoint{"127.0.0.1", 7692},
                                      .coordinator_server = Endpoint{"127.0.0.1", 10115}});
 
-  leader.AppendSetInstanceAsMainLog("instance1");
+  leader.AppendSetInstanceAsMainLog("instance1", UUID{});
 
   auto const routing_table = leader.GetRoutingTable();
 

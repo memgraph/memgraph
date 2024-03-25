@@ -238,8 +238,9 @@ void CoordinatorInstance::ForceResetCluster() {
   // If at any point later RPC fails for alive instance, we consider this failure
 
   std::ranges::for_each(instances, [this](auto &replica) {
-    repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
-                                 &CoordinatorInstance::ReplicaSuccessCallback,
+    auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+
+    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                  &CoordinatorInstance::ReplicaFailCallback);
   });
 
@@ -291,11 +292,11 @@ void CoordinatorInstance::ForceResetCluster() {
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
 
-  auto const is_not_new_main = [&new_main](ReplicationInstance const &repl_instance) {
+  auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
     return repl_instance.InstanceName() != new_main.InstanceName();
   };
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -317,7 +318,7 @@ void CoordinatorInstance::ForceResetCluster() {
   // CRUX of problem: We need demote callbacks which will demote instance to replica and only then change to
   // REPLICA callbacks
 
-  auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstance &repl_instance) {
+  auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstanceConnector &repl_instance) {
     if (instances_mapped_to_resp[repl_instance.InstanceName()]) {
       return false;
     }
@@ -370,15 +371,6 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_replicas);
 
-  if (!raft_state_.RequestLeadership()) {
-    spdlog::error("Failover failed since the instance is not the leader!");
-    return;
-  }
-
-  auto const get_ts = [](ReplicationInstanceConnector &replica) {
-    return replica.GetClient().SendGetInstanceTimestampsRpc();
-  };
-
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
     return;
@@ -404,7 +396,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   // we need to call
 
   auto const is_not_new_main = [&new_main](ReplicationInstanceConnector &instance) {
-    return instance.InstanceName() != new_main->InstanceName();
+    return instance.InstanceName() != new_main.InstanceName();
   };
 
   auto const new_main_uuid = utils::UUID{};
