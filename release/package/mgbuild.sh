@@ -15,25 +15,25 @@ SUPPORTED_OS=(
     all
     amzn-2
     centos-7 centos-9
-    debian-10 debian-11 debian-12
+    debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
     rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V4=(
     amzn-2
     centos-7 centos-9
-    debian-10 debian-11
+    debian-10 debian-11 debian-11-arm
     fedora-36
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V5=(
     amzn-2
     centos-7 centos-9
-    debian-11 debian-12
+    debian-11 debian-12 debian-12-arm
     fedora-38 fedora-39
     rocky-9.3
-    ubuntu-20.04 ubuntu-22.04
+    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
@@ -590,12 +590,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 if [[ "$os" != "all" ]]; then
-  check_support os_toolchain_combo $os $toolchain_version
-  build_container="mgbuild_${toolchain_version}_${os}"
-  if [[ "$arch" == 'arm' ]]; then
-    build_container="${build_container}-arm"
+  if [[ "$arch" == 'arm' ]] && [[ "$os" != *"-arm" ]]; then
+    os="${os}-arm"
   fi
+  check_support os $os
+  check_support os_toolchain_combo $os $toolchain_version
 fi
+
+build_container="mgbuild_${toolchain_version}_${os}"
 
 if [[ "$command" == "" ]]; then
   echo -e "Error: Command not provided, please provide command"
