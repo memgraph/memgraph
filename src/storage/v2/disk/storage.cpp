@@ -2034,6 +2034,8 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+void DiskStorage::DiskAccessor::DropGraph() {}
+
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
                                            memgraph::replication_coordination_glue::ReplicationRole /*is_main*/) {
   /// We acquire the transaction engine lock here because we access (and

@@ -901,11 +901,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
-void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
-                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
+                                                            std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
@@ -961,6 +959,16 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
 
   // STEP 2) this transactions deltas also mininal unlinking + remove + clear
   unlink_remove_clear(transaction_.deltas);
+}
+
+void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
+                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // STEP 1 + STEP 2
+  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
@@ -2214,66 +2222,6 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   edges_.run_gc();
 }
 
-void InMemoryStorage::DropGraph() {
-  auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
-    for (auto &delta : deltas) {
-      auto prev = delta.prev.Get();
-      switch (prev.type) {
-        case PreviousPtr::Type::NULLPTR:
-        case PreviousPtr::Type::DELTA:
-          break;
-        case PreviousPtr::Type::VERTEX: {
-          // safe because no other txn can be reading this while we have engine lock
-          auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          }
-          break;
-        }
-        case PreviousPtr::Type::EDGE: {
-          // safe because no other txn can be reading this while we have engine lock
-          auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-          }
-          break;
-        }
-      }
-    }
-    // delete deltas
-    deltas.clear();
-  };
-
-  // STEP 1) ensure everything in GC is gone
-
-  // 1.a) old garbage_undo_buffers are safe to remove
-  //      we are the only transaction, no one is reading those unlinked deltas
-  garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
-
-  // 1.b.0) old committed_transactions_ need mininal unlinking + remove + clear
-  //      must be done before this transactions delta unlinking
-  auto linked_undo_buffers = std::list<GCDeltas>{};
-  committed_transactions_.WithLock(
-      [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
-
-  // 1.b.1) unlink, gathering the removals
-  for (auto &gc_deltas : linked_undo_buffers) {
-    unlink_remove_clear(gc_deltas.deltas_);
-  }
-  // 1.b.2) clear the list of deltas deques
-  linked_undo_buffers.clear();
-
-  indices_.DropGraphClearIndices();
-  constraints_.DropGraphClearConstraints();
-
-  vertices_.clear();
-  edges_.clear();
-
-  memory::PurgeUnusedMemory();
-}
-
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
   if (!desired_commit_timestamp) {
     return timestamp_++;
@@ -2398,8 +2346,20 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
 }
 
 void InMemoryStorage::InMemoryAccessor::DropGraph() {
+  // STEP 1 of GC Cleanup
+  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
+
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  mem_storage->DropGraph();
+
+  mem_storage->indices_.DropGraphClearIndices();
+  mem_storage->constraints_.DropGraphClearConstraints();
+
+  mem_storage->vertices_.clear();
+  mem_storage->edges_.clear();
+
+  memory::PurgeUnusedMemory();
 }
 
 }  // namespace memgraph::storage
