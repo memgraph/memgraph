@@ -27,9 +27,10 @@ namespace memgraph::coordination {
 
 using nuraft::ptr;
 
-CoordinatorInstance::CoordinatorInstance(CoordinationInstanceInitConfig const &config)
+CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : thread_pool_{1},
       raft_state_(RaftState::MakeRaftState(
+          config,
           [this]() {
             if (raft_state_.IsLockOpened()) {
               spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
@@ -44,8 +45,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinationInstanceInitConfig const &c
 
             std::ranges::for_each(replicas, [this](auto &replica) {
               spdlog::info("Started pinging replication instance {}", replica.config.instance_name);
-              repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
-                                           &CoordinatorInstance::ReplicaSuccessCallback,
+              auto client =
+                  std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+              repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
@@ -55,8 +57,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinationInstanceInitConfig const &c
 
             std::ranges::for_each(main_instances, [this](auto &main_instance) {
               spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
-              repl_instances_.emplace_back(this, main_instance.config, client_succ_cb_, client_fail_cb_,
-                                           &CoordinatorInstance::MainSuccessCallback,
+              auto client = std::make_unique<ReplicationInstanceClient>(this, main_instance.config, client_succ_cb_,
+                                                                        client_fail_cb_);
+              repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::MainSuccessCallback,
                                            &CoordinatorInstance::MainFailCallback);
             });
 
@@ -107,7 +110,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinationInstanceInitConfig const &c
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 }
-
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
     -> ReplicationInstanceConnector & {

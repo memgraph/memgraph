@@ -32,14 +32,6 @@ void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state
   j.at("needs_demote").get_to(instance_state.needs_demote);
 }
 
-CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                                 std::vector<CoordinatorInstanceState> coordinators,
-                                                 utils::UUID const &current_main_uuid, bool is_lock_opened)
-    : repl_instances_{std::move(instances)},
-      coordinators_{std::move(coordinators)},
-      current_main_uuid_(current_main_uuid),
-      is_lock_opened_(is_lock_opened) {}
-
 void to_json(nlohmann::json &j, CoordinatorInstanceState const &instance_state) {
   j = nlohmann::json{{"config", instance_state.config}};
 }
@@ -48,6 +40,14 @@ void from_json(nlohmann::json const &j, CoordinatorInstanceState &instance_state
   j.at("config").get_to(instance_state.config);
 }
 
+CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
+                                                 std::vector<CoordinatorInstanceState> coordinators,
+                                                 utils::UUID const &current_main_uuid, bool is_lock_opened)
+    : repl_instances_{std::move(instances)},
+      coordinators_{std::move(coordinators)},
+      current_main_uuid_(current_main_uuid),
+      is_lock_opened_(is_lock_opened) {}
+
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig const &config) {
   auto c2c_config = CoordinatorToCoordinatorConfig{
       .coordinator_id = config.coordinator_id,
@@ -55,10 +55,6 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig c
       .coordinator_server = io::network::Endpoint{"127.0.0.1", static_cast<uint16_t>(config.coordinator_port)}};
   coordinators_.emplace_back(CoordinatorInstanceState{.config = std::move(c2c_config)});
 }
-
-CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                                 utils::UUID const &current_main_uuid, bool is_lock_opened)
-    : repl_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid), is_lock_opened_(is_lock_opened) {}
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : repl_instances_{other.repl_instances_},
@@ -174,7 +170,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction 
     case RaftLogAction::ADD_COORDINATOR_INSTANCE: {
       auto const &config = std::get<CoordinatorToCoordinatorConfig>(log_entry);
       coordinators_.emplace_back(CoordinatorInstanceState{config});
-      spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_server_id);
+      spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_id);
       break;
     }
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
