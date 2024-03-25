@@ -2,7 +2,7 @@ version: "3"
 
 services:
   mgbuild_v5_debian-12-arm:
-    image: "memgraph/mgbuild:v5_debian-12-arm"
+    image: "memgraph/mgbuild:v5_debian-12"
     build:
       context: debian-12-arm
       args:
@@ -13,7 +13,7 @@ services:
     container_name: "mgbuild_v5_debian-12-arm"
 
   mgbuild_v5_ubuntu-22.04-arm:
-    image: "memgraph/mgbuild:v5_ubuntu-22.04-arm"
+    image: "memgraph/mgbuild:v5_ubuntu-22.04"
     build:
       context: ubuntu-22.04-arm
       args:

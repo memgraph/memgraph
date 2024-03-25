@@ -541,6 +541,7 @@ os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
 command=""
+build_container=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -590,11 +591,10 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$os" != "all" ]]; then
   check_support os_toolchain_combo $os $toolchain_version
-fi
-
-build_container="mgbuild_${toolchain_version}_${os}"
-if [[ "$arch" == 'arm' ]]; then
-  build_container="${build_container}-arm"
+  build_container="mgbuild_${toolchain_version}_${os}"
+  if [[ "$arch" == 'arm' ]]; then
+    build_container="${build_container}-arm"
+  fi
 fi
 
 if [[ "$command" == "" ]]; then
@@ -636,7 +636,7 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $build_container
       fi
     ;;
     run)
@@ -664,11 +664,11 @@ case $command in
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
       else
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
         elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures mgbuild_${toolchain_version}_${os}
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures $build_container
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
       fi
     ;;
     stop)
@@ -690,9 +690,9 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
       else
-        docker stop mgbuild_${toolchain_version}_${os}
+        docker stop $build_container
         if [[ "$remove" == "true" ]]; then
-          docker rm mgbuild_${toolchain_version}_${os}
+          docker rm $build_container
         fi
       fi
     ;;
@@ -701,7 +701,7 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
       fi
     ;;
     push)
@@ -710,7 +710,7 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push --ignore-push-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push $build_container
       fi
     ;;
     build-memgraph)
