@@ -194,7 +194,7 @@ jobs:
 
   Docker-v4:
     if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
-    uses: ./.github/workflows/reusable_docker_package.yaml
+    uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
@@ -209,7 +209,7 @@ jobs:
 
   Docker-v5:
     if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
-    uses: ./.github/workflows/reusable_docker_package.yaml
+    uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
@@ -224,7 +224,7 @@ jobs:
 
   Docker-v4-arm:
     if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
-    uses: ./.github/workflows/reusable_docker_package.yaml
+    uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
@@ -239,7 +239,7 @@ jobs:
 
   Docker-v5-arm:
     if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
-    uses: ./.github/workflows/reusable_docker_package.yaml
+    uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
