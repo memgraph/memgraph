@@ -180,7 +180,7 @@ void TextIndex::AddNode(
     return;
   }
 
-  auto vertex_properties = vertex_after_update->properties.Properties();
+  auto vertex_properties = vertex_after_update->Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                         StringifyProperties(vertex_properties), applicable_text_indices);
 }
@@ -230,13 +230,13 @@ void TextIndex::CreateIndex(const std::filesystem::path &storage_dir, const std:
 
   CreateEmptyIndex(storage_dir, index_name, label);
 
-  for (const auto &v : db->Vertices(View::NEW)) {
-    if (!v.HasLabel(View::NEW, label).GetValue()) {
+  for (const auto &vertex : db->Vertices(View::NEW)) {
+    if (!vertex.HasLabel(View::NEW, label).GetValue()) {
       continue;
     }
 
-    auto vertex_properties = v.Properties(View::NEW).GetValue();
-    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, db),
+    auto vertex_properties = vertex.Properties(View::NEW).GetValue();
+    LoadNodeToTextIndices(vertex.Gid().AsInt(), SerializeProperties(vertex_properties, db),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 
@@ -254,13 +254,13 @@ void TextIndex::RecoverIndex(const std::filesystem::path &storage_dir, const std
 
   CreateEmptyIndex(storage_dir, index_name, label);
 
-  for (const auto &v : vertices) {
-    if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
+  for (auto &vertex : vertices) {
+    if (std::find(vertex.labels.begin(), vertex.labels.end(), label) == vertex.labels.end()) {
       continue;
     }
 
-    auto vertex_properties = v.properties.Properties();
-    LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+    auto vertex_properties = vertex.Properties();
+    LoadNodeToTextIndices(vertex.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 
