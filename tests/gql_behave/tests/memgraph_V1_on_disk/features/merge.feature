@@ -460,7 +460,7 @@ Feature: Merge feature
             """
         Then an error should be raised
 
-    Scenario: Merge node with null in on match passes
+    Scenario: Merge node with null in properties on match passes
         Given an empty graph
         And having executed:
             """
@@ -474,7 +474,7 @@ Feature: Merge feature
             """
         Then the result should be empty
 
-    Scenario: Merge edge with null in on match passes
+    Scenario: Merge edge with null in properties on match passes
         Given an empty graph
         And having executed:
             """
@@ -488,7 +488,7 @@ Feature: Merge feature
             """
         Then the result should be empty
 
-    Scenario: Merge node with null in on create passes
+    Scenario: Merge node with null in properties on create passes
         Given an empty graph
         When executing query:
             """
@@ -498,7 +498,7 @@ Feature: Merge feature
             """
         Then the result should be empty
 
-    Scenario: Merge edge with null in on create passes
+    Scenario: Merge edge with null in properties on create passes
         Given an empty graph
         When executing query:
             """
