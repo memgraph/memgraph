@@ -160,6 +160,7 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.needs_demote = true;
       spdlog::trace("Added action that instance {} needs demote", instance_name);
+      break;
     }
     case RaftLogAction::OPEN_LOCK: {
       is_lock_opened_ = true;
