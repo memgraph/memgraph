@@ -565,6 +565,13 @@ struct mgp_graph {
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
 
+  memgraph::query::DbAccessor *getImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); }},
+        this->impl);
+  }
+
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
     return mgp_graph{&acc, view, &ctx, acc.GetStorageMode()};

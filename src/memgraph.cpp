@@ -332,7 +332,8 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
   spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
                FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
@@ -428,7 +429,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
-  if (FLAGS_coordinator_server_port) {
+  if (FLAGS_management_port) {
     memgraph::dbms::CoordinatorHandlers::Register(coordinator_state.GetCoordinatorServer(), replication_handler);
     MG_ASSERT(coordinator_state.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }

@@ -18,8 +18,7 @@ namespace memgraph::coordination {
 
 namespace {
 
-auto CreateServerContext(const memgraph::coordination::CoordinatorServerConfig &config)
-    -> communication::ServerContext {
+auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &config) -> communication::ServerContext {
   return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
                                                      config.ssl->verify_peer}
                       : communication::ServerContext{};
@@ -32,7 +31,7 @@ constexpr auto kCoordinatorServerThreads = 1;
 
 }  // namespace
 
-CoordinatorServer::CoordinatorServer(const CoordinatorServerConfig &config)
+CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
                   kCoordinatorServerThreads} {

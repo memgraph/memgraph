@@ -33,6 +33,15 @@
 
 namespace mgp {
 
+class TextSearchException : public std::exception {
+ public:
+  explicit TextSearchException(std::string message) : message_(std::move(message)) {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
+
 class IndexException : public std::exception {
  public:
   explicit IndexException(std::string message) : message_(std::move(message)) {}
@@ -4471,12 +4480,12 @@ inline void AddParamsReturnsToProc(mgp_proc *proc, std::vector<Parameter> &param
 }
 }  // namespace detail
 
-inline bool CreateLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
-  return create_label_index(memgaph_graph, label.data());
+inline bool CreateLabelIndex(mgp_graph *memgraph_graph, const std::string_view label) {
+  return create_label_index(memgraph_graph, label.data());
 }
 
-inline bool DropLabelIndex(mgp_graph *memgaph_graph, const std::string_view label) {
-  return drop_label_index(memgaph_graph, label.data());
+inline bool DropLabelIndex(mgp_graph *memgraph_graph, const std::string_view label) {
+  return drop_label_index(memgraph_graph, label.data());
 }
 
 inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
@@ -4487,14 +4496,14 @@ inline List ListAllLabelIndices(mgp_graph *memgraph_graph) {
   return List(label_indices);
 }
 
-inline bool CreateLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+inline bool CreateLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
                                      const std::string_view property) {
-  return create_label_property_index(memgaph_graph, label.data(), property.data());
+  return create_label_property_index(memgraph_graph, label.data(), property.data());
 }
 
-inline bool DropLabelPropertyIndex(mgp_graph *memgaph_graph, const std::string_view label,
+inline bool DropLabelPropertyIndex(mgp_graph *memgraph_graph, const std::string_view label,
                                    const std::string_view property) {
-  return drop_label_property_index(memgaph_graph, label.data(), property.data());
+  return drop_label_property_index(memgraph_graph, label.data(), property.data());
 }
 
 inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
@@ -4503,6 +4512,58 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
     throw ValueException("Couldn't list all label+property indices");
   }
   return List(label_property_indices);
+}
+
+namespace {
+constexpr std::string_view kErrorMsgKey = "error_msg";
+constexpr std::string_view kSearchResultsKey = "search_results";
+constexpr std::string_view kAggregationResultsKey = "aggregation_results";
+}  // namespace
+
+inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
+                            text_search_mode search_mode) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
+                                                      search_query.data(), search_mode));
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    throw TextSearchException{"Incomplete text index search results!"};
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw TextSearchException{"Text index search results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                               std::string_view search_query, std::string_view aggregation_query) {
+  auto results_or_error =
+      Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph, index_name.data(),
+                                  search_query.data(), aggregation_query.data()));
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kAggregationResultsKey)) {
+    throw TextSearchException{"Incomplete text index aggregation results!"};
+  }
+
+  if (!results_or_error.At(kAggregationResultsKey).IsString()) {
+    throw TextSearchException{"Text index aggregation results have wrong type!"};
+  }
+
+  return results_or_error.At(kAggregationResultsKey).ValueString();
 }
 
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
