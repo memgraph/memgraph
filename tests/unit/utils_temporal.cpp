@@ -364,6 +364,10 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
       "+01:00[nonexistent/timezone]"sv,
       "+01.44"sv,
       "01:00"sv,
+      "+"sv,
+      "+[America/Los_Angeles]"sv,
+      "[]"sv,
+      "+01:00[]"sv,
   };
 
   const auto join_strings = [](const auto &date_time, const auto &timezone) {
