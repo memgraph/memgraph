@@ -127,7 +127,7 @@ void TestLocalTime(mg::Client &client) {
   };
 
   const auto parse = [](const std::string_view query) {
-    return memgraph::utils::LocalTime(memgraph::utils::ParseLocalTimeParameters(fmt::format("{}", query)).parameters);
+    return memgraph::utils::LocalTime(memgraph::utils::ParseLocalTimeParameters(fmt::format("{}", query)).first);
   };
 
   const auto str1 = lt(1, 3, 3, 33);
