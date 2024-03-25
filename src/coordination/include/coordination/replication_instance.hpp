@@ -23,7 +23,6 @@
 
 #include <libnuraft/nuraft.hxx>
 
-#include <functional>
 namespace memgraph::coordination {
 
 class CoordinatorInstance;

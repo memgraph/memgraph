@@ -16,7 +16,6 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
-#include "replication_coordination_glue/role.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 
