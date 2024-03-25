@@ -317,11 +317,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  // TODO short-circuit
-  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
-    if (!storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
-      storage_->edge_types_to_auto_index_->emplace(edge_type);
-    }
+  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
+      !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
+    storage_->edge_types_to_auto_index_->emplace(edge_type);
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;

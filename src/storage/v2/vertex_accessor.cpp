@@ -118,11 +118,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
 
-  // TODO short-circuit
-  if (storage_->config_.salient.items.enable_label_index_auto_creation) {
-    if (!storage_->indices_.label_index_->IndexExists(label)) {
-      storage_->labels_to_auto_index_->emplace(label);
-    }
+  if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+      !storage_->indices_.label_index_->IndexExists(label)) {
+    storage_->labels_to_auto_index_->emplace(label);
   }
 
   /// TODO: some by pointers, some by reference => not good, make it better
