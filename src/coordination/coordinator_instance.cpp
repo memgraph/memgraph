@@ -63,15 +63,19 @@ CoordinatorInstance::CoordinatorInstance()
 
             // In case we got out of force reset but instances weren't still demoted
             // we need to apply functions to these instances to demote them
-            std::ranges::for_each(instances, [this](ReplicationInstanceState const &replication_instance_state) {
-              if (replication_instance_state.needs_demote) {
-                spdlog::trace("Changing callback for instance {} to demote callback",
-                              replication_instance_state.config.instance_name);
-                auto &instance = FindReplicationInstance(replication_instance_state.config.instance_name);
-                instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback,
-                                      &CoordinatorInstance::DemoteFailCallback);
-              }
-            });
+            auto instances_to_demote =
+                instances | ranges::views::filter([](ReplicationInstanceState const &replication_instance_state) {
+                  return replication_instance_state.needs_demote;
+                });
+
+            std::ranges::for_each(
+                instances_to_demote, [this](ReplicationInstanceState const &replication_instance_state) {
+                  spdlog::trace("Changing callback for instance {} to demote callback",
+                                replication_instance_state.config.instance_name);
+                  auto &instance = FindReplicationInstance(replication_instance_state.config.instance_name);
+                  instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback,
+                                        &CoordinatorInstance::DemoteFailCallback);
+                });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
           },
           [this]() {
