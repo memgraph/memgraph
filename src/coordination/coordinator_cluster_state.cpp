@@ -53,6 +53,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig c
       .coordinator_id = config.coordinator_id,
       .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.bolt_port)},
       .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
+
+  spdlog::trace("CoordinatorClusterState: add coordinator instance {}", c2c_config.coordinator_id);
   coordinators_.emplace_back(CoordinatorInstanceState{.config = std::move(c2c_config)});
 }
 

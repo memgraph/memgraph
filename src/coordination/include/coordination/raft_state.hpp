@@ -79,6 +79,7 @@ class RaftState {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
+  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;

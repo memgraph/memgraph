@@ -124,13 +124,13 @@ auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_i
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  auto const coord_instance_to_status = [](CoordinatorInstanceState const &instance) -> InstanceStatus {
-    return {.instance_name = fmt::format("coordinator_{}", instance.config.coordinator_id),
-            .raft_socket_address = instance.config.coordinator_server.SocketAddress(),
+  auto const coord_instance_to_status = [](ptr<srv_config> const &instance) -> InstanceStatus {
+    return {.instance_name = "coordinator_" + std::to_string(instance->get_id()),
+            .raft_socket_address = instance->get_endpoint(),
             .cluster_role = "coordinator",
-            .health = "unknown"};
+            .health = "unknown"};  // TODO: (andi) Get this info from RAFT and test it or when we will move
   };
-  auto instances_status = utils::fmap(raft_state_.GetCoordinatorInstances(), coord_instance_to_status);
+  auto instances_status = utils::fmap(raft_state_.GetAllCoordinators(), coord_instance_to_status);
 
   if (raft_state_.IsLeader()) {
     auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {

@@ -392,6 +392,12 @@ auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::
   return state_machine_->GetInstanceUUID(instance_name);
 }
 
+auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
+  std::vector<ptr<srv_config>> all_srv_configs;
+  raft_server_->get_srv_config_all(all_srv_configs);
+  return all_srv_configs;
+}
+
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   return state_machine_->GetCoordinatorInstances();
 }
