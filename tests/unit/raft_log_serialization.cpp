@@ -101,8 +101,8 @@ TEST_F(RaftLogSerialization, RaftLogActionDemote) {
   ASSERT_EQ(action, action2);
 }
 
-TEST_F(RaftLogSerialization, RaftLogActionUpdateUUID) {
-  auto action = RaftLogAction::UPDATE_UUID;
+TEST_F(RaftLogSerialization, RaftLogActionUpdateUUIDForInstance) {
+  auto action = RaftLogAction::UPDATE_UUID_FOR_INSTANCE;
 
   nlohmann::json j = action;
   RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
@@ -135,10 +135,14 @@ TEST_F(RaftLogSerialization, UnregisterInstance) {
 }
 
 TEST_F(RaftLogSerialization, SetInstanceAsMain) {
-  auto buffer = CoordinatorStateMachine::SerializeSetInstanceAsMain("instance3");
+  auto instance_uuid_update =
+      memgraph::coordination::InstanceUUIDUpdate{.instance_name = "instance3", .uuid = memgraph::utils::UUID{}};
+  auto buffer = CoordinatorStateMachine::SerializeSetInstanceAsMain(instance_uuid_update);
   auto [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
   ASSERT_EQ(action, RaftLogAction::SET_INSTANCE_AS_MAIN);
-  ASSERT_EQ("instance3", std::get<std::string>(payload));
+  ASSERT_EQ(instance_uuid_update.instance_name,
+            std::get<memgraph::coordination::InstanceUUIDUpdate>(payload).instance_name);
+  ASSERT_EQ(instance_uuid_update.uuid, std::get<memgraph::coordination::InstanceUUIDUpdate>(payload).uuid);
 }
 
 TEST_F(RaftLogSerialization, SetInstanceAsReplica) {
@@ -148,10 +152,10 @@ TEST_F(RaftLogSerialization, SetInstanceAsReplica) {
   ASSERT_EQ("instance3", std::get<std::string>(payload));
 }
 
-TEST_F(RaftLogSerialization, UpdateUUID) {
+TEST_F(RaftLogSerialization, UpdateUUIDForNewMain) {
   UUID uuid;
-  auto buffer = CoordinatorStateMachine::SerializeUpdateUUID(uuid);
+  auto buffer = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
   auto [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::UPDATE_UUID);
+  ASSERT_EQ(action, RaftLogAction::UPDATE_UUID_OF_NEW_MAIN);
   ASSERT_EQ(uuid, std::get<UUID>(payload));
 }
