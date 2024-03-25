@@ -167,30 +167,62 @@ class Pokec(Workload):
 
     def benchmark__arango__shortest_path(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
+        memgraph = (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
             "MATCH p=(n)-[*bfs..15]->(m) "
             "RETURN extract(n in nodes(p) | n.id) AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+        neo4j = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=shortestPath((n)-[*..15]->(m)) "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     def benchmark__arango__shortest_path_with_filter(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
+        memgraph = (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
             "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
             "RETURN extract(n in nodes(p) | n.id) AS path",
             {"from": vertex_from, "to": vertex_to},
         )
 
+        neo4j = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p=shortestPath((n)-[*..15]->(m)) "
+            "WHERE all(node in nodes(p) WHERE node.age >= 18) "
+            "RETURN [n in nodes(p) | n.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
+
     def benchmark__arango__allshortest_paths(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
+        memgraph = (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
             "MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m) "
             "RETURN extract(n in nodes(p) | n.id) AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+        neo4j = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p = allShortestPaths((n)-[*..2]->(m)) "
+            "RETURN [node in nodes(p) | node.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+        if self._vendor == "memgraph":
+            return memgraph
+        else:
+            return neo4j
 
     # Our benchmark queries
 

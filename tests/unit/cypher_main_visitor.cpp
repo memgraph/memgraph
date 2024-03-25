@@ -28,7 +28,6 @@
 #include <json/json.hpp>
 //////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
-#include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -2633,15 +2632,99 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
 }
 
 #ifdef MG_ENTERPRISE
+
+TEST_P(CypherMainVisitorTest, TestRegisterSyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const sync_instance = R"(REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001", "management_server": "127.0.0.1:10011"
+    })";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(sync_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::SYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::unordered_map<std::string, std::string> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::unordered_map<std::string, std::string>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.at("bolt_server"), "127.0.0.1:7688");
+  EXPECT_EQ(config_map.at("management_server"), "127.0.0.1:10011");
+  EXPECT_EQ(config_map.at("replication_server"), "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const async_instance =
+      R"(REGISTER INSTANCE instance_1 AS ASYNC WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001",
+    "management_server": "127.0.0.1:10011"})";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(async_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.find(memgraph::query::kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(memgraph::query::kManagementServer)->second, "127.0.0.1:10011");
+  EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 
-  std::string const correct_query = R"(ADD COORDINATOR 1 ON "127.0.0.1:10111")";
+  std::string const correct_query =
+      R"(ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "coordinator_server": "127.0.0.1:10111"})";
   auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
-  ast_generator.CheckLiteral(parsed_query->raft_socket_address_, TypedValue("127.0.0.1:10111"));
-  ast_generator.CheckLiteral(parsed_query->raft_server_id_, TypedValue(1));
+  ast_generator.CheckLiteral(parsed_query->coordinator_server_id_, TypedValue(1));
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 2);
+  EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
 #endif
 

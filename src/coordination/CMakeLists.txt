@@ -6,7 +6,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_state.hpp
         include/coordination/coordinator_rpc.hpp
         include/coordination/coordinator_server.hpp
-        include/coordination/coordinator_config.hpp
+        include/coordination/coordinator_communication_config.hpp
         include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_instance.hpp
@@ -23,7 +23,7 @@ target_sources(mg-coordination
         include/nuraft/coordinator_state_manager.hpp
 
         PRIVATE
-        coordinator_config.cpp
+        coordinator_communication_config.cpp
         coordinator_client.cpp
         coordinator_state.cpp
         coordinator_rpc.cpp

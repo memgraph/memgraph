@@ -37,6 +37,7 @@ struct SalientConfig {
   struct Items {
     bool properties_on_edges{true};
     bool enable_schema_metadata{false};
+    bool delta_on_identical_property_update{true};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
@@ -131,7 +132,7 @@ struct Config {
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !FLAGS_coordinator_server_port
+      && !FLAGS_management_port
 #endif
   ) {
     spdlog::warn(

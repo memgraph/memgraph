@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 import interactive_mg_runner
 import pytest
@@ -40,7 +41,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7687",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10011",
         ],
         "log_file": "instance_1.log",
@@ -54,7 +55,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7688",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10012",
         ],
         "log_file": "instance_2.log",
@@ -68,7 +69,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7689",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10013",
         ],
         "log_file": "instance_3.log",
@@ -81,8 +82,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7690",
             "--log-level=TRACE",
-            "--raft-server-id=1",
-            "--raft-server-port=10111",
+            "--coordinator-id=1",
+            "--coordinator-port=10111",
         ],
         "log_file": "coordinator1.log",
         "setup_queries": [],
@@ -93,8 +94,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7691",
             "--log-level=TRACE",
-            "--raft-server-id=2",
-            "--raft-server-port=10112",
+            "--coordinator-id=2",
+            "--coordinator-port=10112",
         ],
         "log_file": "coordinator2.log",
         "setup_queries": [],
@@ -105,16 +106,16 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7692",
             "--log-level=TRACE",
-            "--raft-server-id=3",
-            "--raft-server-port=10113",
+            "--coordinator-id=3",
+            "--coordinator-port=10113",
         ],
         "log_file": "coordinator3.log",
         "setup_queries": [
-            "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-            "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-            "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-            "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+            "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+            "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
             "SET INSTANCE instance_3 TO MAIN",
         ],
     },
@@ -130,7 +131,7 @@ def get_instances_description_no_setup():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -144,7 +145,7 @@ def get_instances_description_no_setup():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -158,7 +159,7 @@ def get_instances_description_no_setup():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -171,8 +172,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "data_directory": f"{TEMP_DIR}/coordinator_1",
@@ -184,8 +185,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "data_directory": f"{TEMP_DIR}/coordinator_2",
@@ -197,8 +198,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "data_directory": f"{TEMP_DIR}/coordinator_3",
@@ -221,11 +222,11 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     interactive_mg_runner.start_all(inner_instances_description)
 
     setup_queries = [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -261,7 +262,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -416,11 +417,11 @@ def test_distributed_automatic_failover_with_leadership_change():
     interactive_mg_runner.start_all(inner_instances_description)
 
     setup_queries = [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -456,7 +457,7 @@ def test_distributed_automatic_failover_with_leadership_change():
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -522,7 +523,10 @@ def test_no_leader_after_leader_and_follower_die():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor_1, "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.10001'")
+        execute_and_fetch_all(
+            coord_cursor_1,
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        )
         assert str(e) == "Couldn't register replica instance since coordinator is not a leader!"
 
 
@@ -541,11 +545,11 @@ def test_old_main_comes_back_on_new_leader_as_main():
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
     setup_queries = [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
 
@@ -637,7 +641,7 @@ def test_registering_4_coords():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -651,7 +655,7 @@ def test_registering_4_coords():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -665,7 +669,7 @@ def test_registering_4_coords():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -678,8 +682,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "setup_queries": [],
@@ -690,8 +694,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "setup_queries": [],
@@ -702,8 +706,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "setup_queries": [],
@@ -714,17 +718,17 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
-                "--raft-server-id=4",
-                "--raft-server-port=10114",
+                "--coordinator-id=4",
+                "--coordinator-port=10114",
             ],
             "log_file": "coordinator4.log",
             "setup_queries": [
-                "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
-                "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
-                "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': '127.0.0.1:7692', 'coordinator_server': '127.0.0.1:10113'}",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
                 "SET INSTANCE instance_3 TO MAIN",
             ],
         },
@@ -772,7 +776,7 @@ def test_registering_coord_log_store():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -786,7 +790,7 @@ def test_registering_coord_log_store():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -800,7 +804,7 @@ def test_registering_coord_log_store():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -813,8 +817,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "setup_queries": [],
@@ -825,8 +829,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "setup_queries": [],
@@ -837,8 +841,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "setup_queries": [],
@@ -849,17 +853,17 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
-                "--raft-server-id=4",
-                "--raft-server-port=10114",
+                "--coordinator-id=4",
+                "--coordinator-port=10114",
             ],
             "log_file": "coordinator4.log",
             "setup_queries": [
-                "ADD COORDINATOR 1 ON '127.0.0.1:10111';",
-                "ADD COORDINATOR 2 ON '127.0.0.1:10112';",
-                "ADD COORDINATOR 3 ON '127.0.0.1:10113';",
-                "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-                "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': '127.0.0.1:7692', 'coordinator_server': '127.0.0.1:10113'}",
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
             ],
         },
     }
@@ -896,7 +900,7 @@ def test_registering_coord_log_store():
     # 3
     instances_ports_added = [10011, 10012, 10013]
     bolt_port_id = 7700
-    coord_port_id = 10014
+    manag_port_id = 10014
 
     additional_instances = []
     for i in range(4, 7):
@@ -908,10 +912,10 @@ def test_registering_coord_log_store():
 
         bolt_port = f"--bolt-port={bolt_port_id}"
 
-        coord_server_port = f"--coordinator-server-port={coord_port_id}"
+        manag_server_port = f"--management-port={manag_port_id}"
 
         args_desc.append(bolt_port)
-        args_desc.append(coord_server_port)
+        args_desc.append(manag_server_port)
 
         instance_description = {
             "args": args_desc,
@@ -922,17 +926,23 @@ def test_registering_coord_log_store():
 
         full_instance_desc = {instance_name: instance_description}
         interactive_mg_runner.start(full_instance_desc, instance_name)
-        repl_port_id = coord_port_id - 10
+        repl_port_id = manag_port_id - 10
         assert repl_port_id < 10011, "Wrong test setup, repl port must be smaller than smallest coord port id"
+
+        bolt_server = f"127.0.0.1:{bolt_port_id}"
+        management_server = f"127.0.0.1:{manag_port_id}"
+        repl_server = f"127.0.0.1:{repl_port_id}"
+
+        config_str = f"{{'bolt_server': '{bolt_server}', 'management_server': '{management_server}', 'replication_server': '{repl_server}'}}"
 
         execute_and_fetch_all(
             coord_cursor,
-            f"REGISTER INSTANCE {instance_name} ON '127.0.0.1:{coord_port_id}' WITH '127.0.0.1:{repl_port_id}'",
+            f"REGISTER INSTANCE {instance_name} WITH CONFIG {config_str}",
         )
 
-        additional_instances.append((f"{instance_name}", "", f"127.0.0.1:{coord_port_id}", "up", "replica"))
-        instances_ports_added.append(coord_port_id)
-        coord_port_id += 1
+        additional_instances.append((f"{instance_name}", "", management_server, "up", "replica"))
+        instances_ports_added.append(manag_port_id)
+        manag_port_id += 1
         bolt_port_id += 1
 
     # 4
@@ -1004,11 +1014,11 @@ def test_multiple_failovers_in_row_no_leadership_change():
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
     setup_queries = [
-        "ADD COORDINATOR 1 ON '127.0.0.1:10111'",
-        "ADD COORDINATOR 2 ON '127.0.0.1:10112'",
-        "REGISTER INSTANCE instance_1 ON '127.0.0.1:10011' WITH '127.0.0.1:10001'",
-        "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002'",
-        "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
 
@@ -1083,8 +1093,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
                 "",
                 "",
                 "unknown",
-                "main",
-            ),  # TODO(antoniofilipovic) change to unknown after PR with transitions
+                "unknown",
+            ),
         ]
     )
 
@@ -1110,9 +1120,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_3", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_1", "", "", "unknown", "unknown"),
+            ("instance_2", "", "", "unknown", "main"),
+            ("instance_3", "", "", "unknown", "unknown"),
         ]
     )
 
@@ -1140,7 +1150,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_1", "", "", "unknown", "unknown"),
             ("instance_2", "", "", "unknown", "main"),
             ("instance_3", "", "", "unknown", "replica"),
         ]
@@ -1168,8 +1178,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
+            ("instance_1", "", "", "unknown", "unknown"),
+            ("instance_2", "", "", "unknown", "unknown"),
             ("instance_3", "", "", "unknown", "main"),
         ]
     )
@@ -1247,6 +1257,167 @@ def test_multiple_failovers_in_row_no_leadership_change():
     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
 
     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
+
+
+def test_multiple_old_mains_single_failover():
+    # Goal of this test is to check when leadership changes
+    # and we have old MAIN down, that we don't start failover
+    # 1. Start all instances.
+    # 2. Kill the main instance
+    # 3. Do failover
+    # 4. Kill other main
+    # 5. Kill leader
+    # 6. Leave first main down, and start second main
+    # 7. Second main should write data to new instance all the time
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+
+    coordinators = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+    ]
+
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 2
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+
+    # 3
+
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
+
+    # 4
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+
+    # 5
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
+
+    # 6
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+
+    # 7
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"behind": None, "status": "invalid", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "invalid", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    time_slept = 0
+    failover_time = 5
+    while time_slept < failover_time:
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        vertex_count += 1
+
+        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        assert vertex_count == execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        time.sleep(0.1)
+        time_slept += 0.1
 
 
 if __name__ == "__main__":

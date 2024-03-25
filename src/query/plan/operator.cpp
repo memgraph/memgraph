@@ -32,6 +32,7 @@
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
+#include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -69,6 +70,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/string.hpp"
+#include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "utils/typeinfo.hpp"
 
@@ -274,6 +276,10 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   MultiPropsInitChecked(&new_node, properties);
 
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexAddVertex(new_node);
+  }
+
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
@@ -337,7 +343,7 @@ CreateExpand::CreateExpand(NodeCreationInfo node_info, EdgeCreationInfo edge_inf
 ACCEPT_WITH_INPUT(CreateExpand)
 
 UniqueCursorPtr CreateExpand::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateNodeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::CreateExpandOperator);
 
   return MakeUniqueCursorPtr<CreateExpandCursor>(mem, *this, mem);
 }
@@ -881,17 +887,15 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto pull_node = [this, &frame](const EdgeAccessor &new_edge, EdgeAtom::Direction direction) {
+  auto pull_node = [this, &frame]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                 utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
-    switch (direction) {
-      case EdgeAtom::Direction::IN:
-        frame[self_.common_.node_symbol] = new_edge.From();
-        break;
-      case EdgeAtom::Direction::OUT:
-        frame[self_.common_.node_symbol] = new_edge.To();
-        break;
-      case EdgeAtom::Direction::BOTH:
-        LOG_FATAL("Must indicate exact expansion direction here");
+    if constexpr (direction == EdgeAtom::Direction::IN) {
+      frame[self_.common_.node_symbol] = new_edge.From();
+    } else if constexpr (direction == EdgeAtom::Direction::OUT) {
+      frame[self_.common_.node_symbol] = new_edge.To();
+    } else {
+      LOG_FATAL("Must indicate exact expansion direction here");
     }
   };
 
@@ -910,7 +914,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
 #endif
 
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::IN);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
 
@@ -930,7 +934,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
       frame[self_.common_.edge_symbol] = edge;
-      pull_node(edge, EdgeAtom::Direction::OUT);
+      pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }
 
@@ -1024,12 +1028,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
-          in_edges_.emplace(edges_result.edges);
+          in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
-        in_edges_.emplace(edges_result.edges);
+        in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
       if (in_edges_) {
@@ -1043,12 +1047,12 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
-          out_edges_.emplace(edges_result.edges);
+          out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
-        out_edges_.emplace(edges_result.edges);
+        out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
       if (out_edges_) {
@@ -1134,14 +1138,14 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
-    if (edges.begin() != edges.end()) {
+    if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
   }
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
-    if (edges.begin() != edges.end()) {
+    if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
   }
@@ -1261,8 +1265,13 @@ class ExpandVariableCursor : public Cursor {
       }
 
       // reset the frame value to an empty edge list
-      auto *pull_memory = context.evaluation_context.memory;
-      frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
+      if (frame[self_.common_.edge_symbol].IsList()) {
+        // Preserve the list capacity if possible
+        frame[self_.common_.edge_symbol].ValueList().clear();
+      } else {
+        auto *pull_memory = context.evaluation_context.memory;
+        frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
+      }
 
       return true;
     }
@@ -3004,6 +3013,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     }
     case TypedValue::Type::Edge: {
@@ -3160,6 +3172,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context->db_accessor->TextIndexUpdateVertex(rhs.ValueVertex());
+      }
       break;
     }
     case TypedValue::Type::Map: {
@@ -3217,6 +3232,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -3308,6 +3326,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexUpdateVertex(vertex);
+  }
+
   return true;
 }
 
@@ -3379,6 +3401,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
 #endif
       remove_prop(&lhs.ValueVertex());
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -3469,6 +3494,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
+  }
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexUpdateVertex(vertex, EvaluateLabels(self_.labels_, evaluator, context.db_accessor));
   }
 
   return true;
@@ -4495,9 +4524,8 @@ class UnwindCursor : public Cursor {
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
-        // Copy the evaluted input_value_list to our vector.
-        // eval memory != query memory
-        input_value_ = input_value.ValueList();
+        // Move the evaluted input_value_list to our vector.
+        input_value_ = std::move(input_value.ValueList());
         input_value_it_ = input_value_.begin();
       }
 
@@ -5357,6 +5385,7 @@ class LoadCsvCursor : public Cursor {
             "1");
       }
       did_pull_ = true;
+      reader_->Reset();
     }
 
     auto row = reader_->GetNextRow(context.evaluation_context.memory);
