@@ -112,11 +112,7 @@ auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID c
 }
 
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
-  if (!replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid)) {
-    return false;
-  }
-  SetNewMainUUID(new_main_uuid);
-  return true;
+  return replication_coordination_glue::SendSwapMainUUIDRpc(client_->RpcClient(), new_main_uuid);
 }
 
 auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
