@@ -480,3 +480,10 @@ add_unit_test(replication_instance_connector.cpp)
 target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test HA cluster setup
+if(MG_ENTERPRISE)
+add_unit_test(high_availability_cluster_setup.cpp)
+target_link_libraries(${test_prefix}high_availability_cluster_setup gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}high_availability_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
