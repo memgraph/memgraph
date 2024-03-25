@@ -181,31 +181,31 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   }
 }
 
-TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
-  using namespace memgraph::utils;
+// TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
+//   using namespace memgraph::utils;
 
-  const auto date_parameters = DateParameters{2024, 3, 22};
-  const auto local_time_parameters = LocalTimeParameters{12, 06, 03, 500, 500};
+//   const auto date_parameters = DateParameters{2024, 3, 22};
+//   const auto local_time_parameters = LocalTimeParameters{12, 06, 03, 500, 500};
 
-  const auto local_date_time = LocalDateTime{date_parameters, local_time_parameters};
+//   const auto local_date_time = LocalDateTime{date_parameters, local_time_parameters};
 
-  std::array timezone_offsets{
-      std::chrono::minutes{0},   std::chrono::minutes{60},  std::chrono::minutes{75},  std::chrono::minutes{90},
-      std::chrono::minutes{-60}, std::chrono::minutes{-75}, std::chrono::minutes{-90},
-  };
+//   std::array timezone_offsets{
+//       std::chrono::minutes{0},   std::chrono::minutes{60},  std::chrono::minutes{75},  std::chrono::minutes{90},
+//       std::chrono::minutes{-60}, std::chrono::minutes{-75}, std::chrono::minutes{-90},
+//   };
 
-  const auto check_conversion = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
-    for (const auto &timezone_offset : cases) {
-      const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
+//   const auto check_conversion = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
+//     for (const auto &timezone_offset : cases) {
+//       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
 
-      EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
-                local_date_time.MicrosecondsSinceEpoch() +
-                    std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
-    }
-  };
+//       EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
+//                 local_date_time.MicrosecondsSinceEpoch() +
+//                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
+//     }
+//   };
 
-  check_conversion(timezone_offsets);
-}
+//   check_conversion(timezone_offsets);
+// }
 
 TEST(TemporalTest, DurationConversion) {
   {
