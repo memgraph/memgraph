@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <optional>
@@ -61,6 +62,11 @@ inline constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24
                                              TestLocalTimeParameters{{.microsecond = 1000}, true},
                                              TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
                                              TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
+
+// const std::chrono::sys_time LocalDateTimeToSysTime(const memgraph::utils::DateParameters &date_parameters,
+//                                                    const memgraph::utils::LocalTimeParameters &local_time_parameters)
+//                                                    {}
+
 }  // namespace
 
 TEST(TemporalTest, DateConstruction) {
@@ -180,6 +186,30 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
   }
 }
 
+TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
+  using namespace memgraph::utils;
+
+  const auto date_parameters = DateParameters{2024, 3, 22};
+  const auto local_time_parameters = LocalTimeParameters{12, 06, 03, 500, 500};
+
+  const auto local_date_time = LocalDateTime{date_parameters, local_time_parameters};
+
+  std::array timezone_offsets{
+      std::chrono::minutes{0},   std::chrono::minutes{60},  std::chrono::minutes{75},  std::chrono::minutes{90},
+      std::chrono::minutes{-60}, std::chrono::minutes{-75}, std::chrono::minutes{-90},
+  };
+
+  const auto check_faulty_timezones = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
+    for (const auto &timezone_offset : cases) {
+      const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
+
+      EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
+                local_date_time.MicrosecondsSinceEpoch() +
+                    std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
+    }
+  };
+}
+
 TEST(TemporalTest, DurationConversion) {
   {
     memgraph::utils::Duration duration{{.minute = 123.25}};
@@ -260,17 +290,17 @@ TEST(TemporalTest, DateParsing) {
 
 TEST(TemporalTest, LocalTimeParsing) {
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).first, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).parameters, local_time_parameters)
         << ToString(local_time_parameters);
     const auto time_string = fmt::format("T{}", string);
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(time_string).first, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(time_string).parameters, local_time_parameters)
         << ToString(local_time_parameters);
   }
 
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_basic) {
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).first, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).parameters, local_time_parameters)
         << ToString(local_time_parameters);
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(fmt::format("T{}", string)).first, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(fmt::format("T{}", string)).parameters, local_time_parameters)
         << ToString(local_time_parameters);
   }
 
@@ -284,8 +314,9 @@ TEST(TemporalTest, LocalDateTimeParsing) {
       for (const auto &[local_time_string, local_time_parameters] : local_times) {
         const auto local_date_time_string = fmt::format("{}T{}", date_string, local_time_string);
         if (is_valid) {
-          EXPECT_EQ(memgraph::utils::ParseLocalDateTimeParameters(local_date_time_string),
-                    (std::pair{date_parameters, local_time_parameters}));
+          const auto parsed = memgraph::utils::ParseLocalDateTimeParameters(local_date_time_string);
+          EXPECT_EQ(parsed.date_parameters, date_parameters);
+          EXPECT_EQ(parsed.local_time_parameters, local_time_parameters);
         }
       }
     }
@@ -295,6 +326,71 @@ TEST(TemporalTest, LocalDateTimeParsing) {
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_extended, true);
   check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_extended, false);
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_basic, false);
+}
+
+TEST(TemporalTest, ZonedDateTimeParsing) {
+  // The ZonedDateTime format is the LocalDateTime format & the timezone designation. As the first part is parsed with
+  // the existing LocalDateTime parser, the LocalDateTime data is shared and the test cases focus on timezone parsing.
+
+  using namespace memgraph::utils;
+
+  const auto shared_date_time = "2020-11-22T19:23:21.123456"sv;
+  const auto shared_expected_date_params = DateParameters{2020, 11, 22};
+  const auto shared_expected_local_time_params = LocalTimeParameters{19, 23, 21, 123, 456};
+
+  std::array timezone_parsing_cases{
+      std::make_pair("Z"sv, Timezone("Etc/UTC")),
+      std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
+      std::make_pair("+01:00[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
+      std::make_pair("-08:00"sv, Timezone(std::chrono::minutes{-480})),
+      std::make_pair("-08:00[America/Los_Angeles]"sv, Timezone("America/Los_Angeles")),
+      std::make_pair("+0100"sv, Timezone(std::chrono::minutes{60})),
+      std::make_pair("+0100[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
+      std::make_pair("-0800"sv, Timezone(std::chrono::minutes{-480})),
+      std::make_pair("-0800[America/Los_Angeles]"sv, Timezone("America/Los_Angeles")),
+      std::make_pair("+01"sv, Timezone(std::chrono::minutes{60})),
+      std::make_pair("+01[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
+      std::make_pair("-08"sv, Timezone(std::chrono::minutes{-480})),
+      std::make_pair("-08[America/Los_Angeles]"sv, Timezone("America/Los_Angeles")),
+      std::make_pair("[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
+      std::make_pair("[US/Pacific]"sv, Timezone("America/Los_Angeles")),  // US/Pacific links to America/Los_Angeles
+      std::make_pair("[GMT]"sv, Timezone("GMT")),
+  };
+
+  std::array faulty_timezone_cases{
+      "Z_extra_text"sv,
+      "+01:00_extra_text"sv,
+      "+01:00[Europe/Zagreb]_extra_text"sv,
+      "+01:00[America/Los_Angeles]"sv,
+      "+01:00[America/Los_Angeles"sv,
+      "+01:00[nonexistent/timezone]"sv,
+      "+01.44"sv,
+      "01:00"sv,
+  };
+
+  const auto join_strings = [](const auto &date_time, const auto &timezone) {
+    return std::format("{0}{1}", date_time, timezone);
+  };
+
+  const auto check_timezone_parsing_cases = [&shared_date_time, &shared_expected_date_params,
+                                             &shared_expected_local_time_params, &join_strings](const auto &cases) {
+    for (const auto &[timezone_string, timezone_parameter] : cases) {
+      auto zdt_string = join_strings(shared_date_time, timezone_string);
+      auto zdt_parameters =
+          ZonedDateTimeParameters{shared_expected_date_params, shared_expected_local_time_params, timezone_parameter};
+      EXPECT_EQ(ParseZonedDateTimeParameters(zdt_string), zdt_parameters);
+    }
+  };
+
+  const auto check_faulty_timezones = [&shared_date_time, &join_strings](const auto &cases) {
+    for (const auto &timezone_string : cases) {
+      auto zdt_string = join_strings(shared_date_time, timezone_string);
+      EXPECT_ANY_THROW(ParseZonedDateTimeParameters(zdt_string));
+    }
+  };
+
+  check_timezone_parsing_cases(timezone_parsing_cases);
+  check_faulty_timezones(faulty_timezone_cases);
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
@@ -410,6 +506,16 @@ TEST(TemporalTest, PrintLocalDateTime) {
   stream << ldt;
   ASSERT_TRUE(stream);
   ASSERT_EQ(stream.view(), "1970-01-01T13:02:40.100050");
+}
+
+TEST(TemporalTest, PrintZonedDateTime) {
+  using namespace memgraph::utils;
+
+  const auto zdt = ZonedDateTime({{1970, 1, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")});
+  std::ostringstream stream;
+  stream << zdt;
+  ASSERT_TRUE(stream);
+  ASSERT_EQ(stream.view(), "1970-01-01T14:02:40.100050+01:00[Europe/Zagreb]");
 }
 
 TEST(TemporalTest, DurationAddition) {
@@ -620,6 +726,18 @@ TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
                memgraph::utils::BasicException);
 }
 
+TEST(TemporalTest, ZonedDateTimeAdditionSubtraction) {
+  using namespace memgraph::utils;
+
+  const auto zdt = ZonedDateTime({{2024, 3, 22}, {12, 00, 00}, Timezone("Europe/Zagreb")});
+  const auto one_day = Duration({.day = 1});
+
+  EXPECT_EQ(zdt + one_day, ZonedDateTime({{2024, 3, 23}, {12, 00, 00}, Timezone("Europe/Zagreb")}));
+  EXPECT_EQ(one_day + zdt, ZonedDateTime({{2024, 3, 23}, {12, 00, 00}, Timezone("Europe/Zagreb")}));
+
+  EXPECT_EQ(zdt - one_day, ZonedDateTime({{2024, 3, 21}, {12, 00, 00}, Timezone("Europe/Zagreb")}));
+}
+
 TEST(TemporalTest, LocalDateTimeDelta) {
   const auto unix_epoch = memgraph::utils::LocalDateTime({1970, 1, 1}, {1, 1, 1});
   const auto one_year_after_unix_epoch = memgraph::utils::LocalDateTime({1971, 2, 1}, {12, 1, 1});
@@ -628,6 +746,16 @@ TEST(TemporalTest, LocalDateTimeDelta) {
   ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, memgraph::utils::Duration({.day = -396, .hour = -11}));
   ASSERT_EQ(two_years_after_unix_epoch - unix_epoch,
             memgraph::utils::Duration({.day = 761, .millisecond = 20, .microsecond = 34}));
+}
+
+TEST(TemporalTest, ZonedDateTimeDelta) {
+  using namespace memgraph::utils;
+
+  const auto zdt = ZonedDateTime({{2024, 3, 22}, {12, 00, 00}, Timezone("Europe/Zagreb")});
+  const auto zdt_plus_time = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone("Europe/Zagreb")});
+
+  EXPECT_EQ(zdt_plus_time - zdt,
+            Duration({.day = 3, .hour = 2, .minute = 18, .second = 13, .millisecond = 206, .microsecond = 22}));
 }
 
 TEST(TemporalTest, DateConvertsToString) {
@@ -670,6 +798,26 @@ TEST(TemporalTest, LocalDateTimeConvertsToString) {
   ASSERT_EQ(ldt1_expected_str, ldt1.ToString());
   ASSERT_EQ(ldt2_expected_str, ldt2.ToString());
   ASSERT_EQ(ldt3_expected_str, ldt3.ToString());
+}
+
+TEST(TemporalTest, ZonedDateTimeConvertsToString) {
+  using namespace memgraph::utils;
+
+  const auto zdt1 = ZonedDateTime({{1970, 1, 2}, {23, 02, 59}, Timezone("Europe/Zagreb")});
+  const std::string zdt1_expected_str = "1970-01-03T00:02:59.000000+01:00[Europe/Zagreb]";
+  const auto zdt2 = ZonedDateTime({{1970, 1, 2}, {23, 02, 59, 456, 123}, Timezone("Europe/Zagreb")});
+  const std::string zdt2_expected_str = "1970-01-03T00:02:59.456123+01:00[Europe/Zagreb]";
+  const auto zdt3 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone("US/Pacific")});
+  const std::string zdt3_expected_str = "1997-08-24T09:32:09.000000-07:00[America/Los_Angeles]";
+  // expected (US/Pacific links to America/Los_Angeles, see
+  // https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)
+  const auto zdt4 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone(std::chrono::minutes(90))});
+  const std::string zdt4_expected_str = "1997-08-24T18:02:09.000000+01:30";
+
+  ASSERT_EQ(zdt1_expected_str, zdt1.ToString());
+  ASSERT_EQ(zdt2_expected_str, zdt2.ToString());
+  ASSERT_EQ(zdt3_expected_str, zdt3.ToString());
+  ASSERT_EQ(zdt4_expected_str, zdt4.ToString());
 }
 
 TEST(TemporalTest, DurationConvertsToString) {
