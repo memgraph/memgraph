@@ -622,7 +622,7 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
 
   const auto maybe_hours = ParseNumber<int64_t>(timezone_offset_string, 2);
   if (!maybe_hours) {
-    throw temporal::InvalidArgumentException("Invalid hours in the string. {}",
+    throw temporal::InvalidArgumentException("Invalid hour value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
   }
   timezone_offset_string.remove_prefix(2);
@@ -639,7 +639,7 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
 
   const auto maybe_minutes = ParseNumber<int64_t>(timezone_offset_string, 2);
   if (!maybe_minutes) {
-    throw temporal::InvalidArgumentException("Invalid minutes in the string. {}",
+    throw temporal::InvalidArgumentException("Invalid minute value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
   }
   timezone_offset_string.remove_prefix(2);
@@ -670,9 +670,15 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   };
 
   const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
+
+  if (timezone_designator_start_position == std::string::npos) {
+    throw temporal::InvalidArgumentException("Timezone is not designated.");
+  }
+
   std::string ldt_substring = {string.data(), timezone_designator_start_position};
-  auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
   string.remove_prefix(timezone_designator_start_position);
+
+  auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
 
   if (string.empty()) {
     throw temporal::InvalidArgumentException("Timezone is not designated.");
