@@ -17,6 +17,7 @@
 #include <sstream>
 
 #include <rocksdb/cache.h>
+#include <rocksdb/comparator.h>
 #include <rocksdb/compression_type.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/iterator.h>
@@ -290,7 +291,7 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
   // if a < b: negative result
   // if a > b: positive result
   // else: zero result
-  virtual int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
+  int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
     // Very specialized to the keys we currently have
 
     // TODO: Move to PDS
@@ -328,21 +329,24 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
         return (1 - 2 * int(a_pid < b_pid));
         // return a_pid < b_pid ? -1 : 1;
       }
-      LOG_FATAL("Unknown PDS key.");
+      // Fall back on bytewise comparison
+      static auto *bc = rocksdb::BytewiseComparator();
+      bc->Compare(a, b);
+      // LOG_FATAL("Unknown PDS key.");
     }
     // Different keys, just check size
     return (1 - 2 * int(a.size() < b.size()));
     // return a.size() < b.size() ? -1 : 1;
   };
 
-  virtual bool Equal(const rocksdb::Slice &a, const rocksdb::Slice &b) const override { return Compare(a, b) == 0; }
+  bool Equal(const rocksdb::Slice &a, const rocksdb::Slice &b) const override { return Compare(a, b) == 0; }
 
   // Ignore the following methods for now:
-  virtual const char *Name() const { return "PdsKeyComparator"; };
+  const char *Name() const override { return "PdsKeyComparator"; };
 
-  virtual void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override{};
+  void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override{};
 
-  virtual void FindShortSuccessor(std::string *) const {};
+  void FindShortSuccessor(std::string *) const override{};
 };
 
 const rocksdb::Comparator *pds_cmp() {
@@ -374,7 +378,6 @@ PDS::PDS(std::filesystem::path root)
                  options.max_open_files = 256;
 
                  //  options.OptimizeLevelStyleCompaction(128 * 1024 * 1024);
-                 //  options.memtable_factory.reset(new rocksdb::SkipListFactory(4));
                  options.allow_concurrent_memtable_write = false;
                  options.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
 
