@@ -259,11 +259,12 @@ std::map<PropertyId, PropertyValue> PDS::Get(Gid gid, PdsItr * /*itr*/) {
 
 bool PDS::Set(Gid gid, PropertyId pid, const PropertyValue &pv, PdsItr * /*itr*/) {
   if (pv.IsNull()) {
-    return kvstore_.Delete(ToKey(gid, pid), w_options);
+    const bool res = kvstore_.Delete(ToKey2(gid, pid), w_options);
+    return res && kvstore_.Delete(ToKey(gid, pid), w_options);
   }
   // std::cout << "set " << pid.AsUint() << " - " << gid.AsUint() << std::endl;
   const bool res = kvstore_.Put(ToKey2(gid, pid), ToStr(pv), w_options);
-  return kvstore_.Put(ToKey(gid, pid), ToStr(pv), w_options) && res;
+  return res && kvstore_.Put(ToKey(gid, pid), ToStr(pv), w_options);
 }
 
 void PDS::Clear(Gid gid, PdsItr * /*itr*/) {
