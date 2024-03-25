@@ -79,10 +79,6 @@ class ReplicationInstance {
 
   auto EnableWritingOnMain() -> bool;
 
-  auto SetNewMainUUID(utils::UUID const &main_uuid) -> void;
-  auto ResetMainUUID() -> void;
-  auto GetMainUUID() const -> std::optional<utils::UUID> const &;
-
   auto GetSuccessCallback() -> HealthCheckInstanceCallback &;
   auto GetFailCallback() -> HealthCheckInstanceCallback &;
 
@@ -92,19 +88,12 @@ class ReplicationInstance {
   bool is_alive_{false};
   std::chrono::system_clock::time_point last_check_of_uuid_{};
 
-  // for replica this is main uuid of current main
-  // for "main" main this same as in CoordinatorData
-  // it is set to nullopt when replica is down
-  // TLDR; when replica is down and comes back up we reset uuid of main replica is listening to
-  // so we need to send swap uuid again
-  std::optional<utils::UUID> main_uuid_;
-
   HealthCheckInstanceCallback succ_cb_;
   HealthCheckInstanceCallback fail_cb_;
 
   friend bool operator==(ReplicationInstance const &first, ReplicationInstance const &second) {
     return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
-           first.is_alive_ == second.is_alive_ && first.main_uuid_ == second.main_uuid_;
+           first.is_alive_ == second.is_alive_;
   }
 };
 
