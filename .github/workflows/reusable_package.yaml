@@ -74,6 +74,7 @@ jobs:
               artifact_name="${{ inputs.os }}-platform"
             else
               artifact_name=${{ inputs.os }}
+              artifact_name=${artifact_name%*-arm}
             fi
             if [[ "${{ inputs.arch }}" == 'arm' ]]; then
               artifact_name="${artifact_name}-aarch64"
@@ -174,6 +175,7 @@ jobs:
               artifact_name="${{ inputs.os }}-platform"
             else
               artifact_name=${{ inputs.os }}
+              artifact_name=${artifact_name%*-arm}
             fi
             if [[ "${{ inputs.arch }}" == 'arm' ]]; then
               artifact_name="${artifact_name}-aarch64"
