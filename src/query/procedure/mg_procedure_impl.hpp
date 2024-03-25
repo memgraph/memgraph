@@ -195,7 +195,7 @@ struct mgp_local_time {
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::LocalTime>);
 
   mgp_local_time(const std::string_view string, memgraph::utils::MemoryResource *memory)
-      : memory(memory), local_time(memgraph::utils::ParseLocalTimeParameters(string).parameters) {}
+      : memory(memory), local_time(memgraph::utils::ParseLocalTimeParameters(string).first) {}
 
   mgp_local_time(const mgp_local_time_parameters *parameters, memgraph::utils::MemoryResource *memory)
       : memory(memory), local_time(MapLocalTimeParameters(parameters)) {}
@@ -229,7 +229,7 @@ struct mgp_local_time {
 };
 
 inline memgraph::utils::LocalDateTime CreateLocalDateTimeFromString(const std::string_view string) {
-  const auto &[date_parameters, local_time_parameters, _] = memgraph::utils::ParseLocalDateTimeParameters(string);
+  const auto &[date_parameters, local_time_parameters] = memgraph::utils::ParseLocalDateTimeParameters(string);
   return memgraph::utils::LocalDateTime{date_parameters, local_time_parameters};
 }
 

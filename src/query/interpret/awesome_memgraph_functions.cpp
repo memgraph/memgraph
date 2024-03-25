@@ -1225,7 +1225,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 
   if (args[0].IsString()) {
-    const auto &[local_time_parameters, is_extended, _] = utils::ParseLocalTimeParameters(args[0].ValueString());
+    const auto &[local_time_parameters, is_extended] = utils::ParseLocalTimeParameters(args[0].ValueString());
     return TypedValue(utils::LocalTime(local_time_parameters), ctx.memory);
   }
 
@@ -1252,7 +1252,7 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
   }
 
   if (args[0].IsString()) {
-    const auto &[date_parameters, local_time_parameters, _] = ParseLocalDateTimeParameters(args[0].ValueString());
+    const auto &[date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(args[0].ValueString());
     return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
   }
 

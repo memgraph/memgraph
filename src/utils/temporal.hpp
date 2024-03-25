@@ -194,13 +194,7 @@ struct LocalTimeParameters {
   bool operator==(const LocalTimeParameters &) const = default;
 };
 
-struct LocalTimeParsing {
-  LocalTimeParameters parameters;
-  bool extended_format;
-  uint64_t remainder_length;
-};
-
-LocalTimeParsing ParseLocalTimeParameters(std::string_view string, bool in_zoned_dt = false);
+std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
 
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
@@ -258,13 +252,7 @@ struct LocalTimeHash {
   size_t operator()(const LocalTime &local_time) const;
 };
 
-struct LocalDateTimeParsing {
-  DateParameters date_parameters;
-  LocalTimeParameters local_time_parameters;
-  uint64_t remainder_length;
-};
-
-LocalDateTimeParsing ParseLocalDateTimeParameters(std::string_view string, bool in_zoned_dt = false);
+std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
 
 struct LocalDateTime {
   explicit LocalDateTime(int64_t microseconds);

@@ -154,7 +154,7 @@ void TestLocalDateTime(mg::Client &client) {
     return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}", y, mo, d, h, m, s);
   };
   auto parse = [](const std::string_view str) {
-    const auto [dt, lt, _] = memgraph::utils::ParseLocalDateTimeParameters(str);
+    const auto [dt, lt] = memgraph::utils::ParseLocalDateTimeParameters(str);
     return memgraph::utils::LocalDateTime(dt, lt);
   };
   auto ldt_query = [](const std::string_view str) { return fmt::format("\"{}\"", str); };

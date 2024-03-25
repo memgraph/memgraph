@@ -215,7 +215,7 @@ First 3 digits represent milliseconds, while the second 3 digits represent micro
 
 }  // namespace
 
-LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bool in_zoned_dt) {
+std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view local_time_string) {
   // https://en.wikipedia.org/wiki/ISO_8601#Times
   // supported formats:
   //  hh:mm:ss.ssssss | hhmmss.ssssss
@@ -261,7 +261,7 @@ LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bo
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return {local_time_parameters, false, 0};
+    return {local_time_parameters, false};
   }
 
   process_optional_colon();
@@ -274,7 +274,7 @@ LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bo
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return {local_time_parameters, *using_colon, 0};
+    return {local_time_parameters, *using_colon};
   }
 
   process_optional_colon();
@@ -287,7 +287,7 @@ LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bo
   local_time_string.remove_prefix(2);
 
   if (local_time_string.empty()) {
-    return {local_time_parameters, *using_colon, 0};
+    return {local_time_parameters, *using_colon};
   }
 
   if (local_time_string.front() != '.') {
@@ -304,7 +304,7 @@ LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bo
   local_time_string.remove_prefix(3);
 
   if (local_time_string.empty()) {
-    return {local_time_parameters, *using_colon, 0};
+    return {local_time_parameters, *using_colon};
   }
 
   const auto maybe_microseconds = ParseNumber<int64_t>(local_time_string, 3);
@@ -315,11 +315,11 @@ LocalTimeParsing ParseLocalTimeParameters(std::string_view local_time_string, bo
   local_time_parameters.microsecond = *maybe_microseconds;
   local_time_string.remove_prefix(3);
 
-  if (!in_zoned_dt && !local_time_string.empty()) {
+  if (!local_time_string.empty()) {
     throw temporal::InvalidArgumentException("Extra characters present at the end of the string.");
   }
 
-  return LocalTimeParsing{local_time_parameters, *using_colon, local_time_string.length()};
+  return {local_time_parameters, *using_colon};
 }
 
 LocalTime::LocalTime(const int64_t microseconds) {
@@ -437,7 +437,7 @@ or both parts should be written in their basic forms without the separators.)hel
 
 }  // namespace
 
-LocalDateTimeParsing ParseLocalDateTimeParameters(std::string_view string, bool in_zoned_dt) {
+std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
   auto t_position = string.find('T');
   if (t_position == std::string_view::npos) {
     throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
@@ -456,8 +456,7 @@ LocalDateTimeParsing ParseLocalDateTimeParameters(std::string_view string, bool 
                                                kSupportedLocalDateTimeFormatsHelpMessage);
     }
 
-    auto [local_time_parameters, extended_time_format, remainder_length] =
-        ParseLocalTimeParameters(local_time_substring, in_zoned_dt);
+    auto [local_time_parameters, extended_time_format] = ParseLocalTimeParameters(local_time_substring);
 
     if (extended_date_format ^ extended_time_format) {
       throw temporal::InvalidArgumentException(
@@ -465,7 +464,7 @@ LocalDateTimeParsing ParseLocalDateTimeParameters(std::string_view string, bool 
           kSupportedLocalDateTimeFormatsHelpMessage);
     }
 
-    return {date_parameters, local_time_parameters, remainder_length};
+    return {date_parameters, local_time_parameters};
   } catch (const temporal::InvalidArgumentException &e) {
     throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",
                                              kSupportedLocalDateTimeFormatsHelpMessage);
@@ -649,8 +648,31 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
 }
 
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
-  auto [date_parameters, local_time_parameters, remainder_length] = ParseLocalDateTimeParameters(string, true);
-  string.remove_prefix(string.length() - remainder_length);
+  // https://en.wikipedia.org/wiki/ISO_8601#Time_zone_designators
+
+  auto get_offset_sign = [](std::string_view string) {
+    const auto plus_position = string.find('+');
+    if (plus_position != std::string::npos) {
+      return plus_position;
+    }
+
+    // The '-' is the same as the hyphens in the date substring (YYYY-MM-DD), but the date substring is always
+    // right-delimited by 'T'
+    return string.find('-', string.find('T'));
+  };
+
+  auto get_timezone_designator_start_position = [&get_offset_sign](std::string_view string) {
+    const auto utc_position = string.find('Z');
+    const auto offset_sign_position = get_offset_sign(string);
+    const auto timezone_name_position = string.find('[');  // Timezone names are enclosed by '[' ']'
+
+    return std::min({utc_position, offset_sign_position, timezone_name_position});
+  };
+
+  const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
+  std::string ldt_substring = {string.data(), timezone_designator_start_position};
+  auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
+  string.remove_prefix(timezone_designator_start_position);
 
   if (string.empty()) {
     throw temporal::InvalidArgumentException("Timezone is not designated.");

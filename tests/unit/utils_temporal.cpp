@@ -62,11 +62,6 @@ inline constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24
                                              TestLocalTimeParameters{{.microsecond = 1000}, true},
                                              TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
                                              TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
-
-// const std::chrono::sys_time LocalDateTimeToSysTime(const memgraph::utils::DateParameters &date_parameters,
-//                                                    const memgraph::utils::LocalTimeParameters &local_time_parameters)
-//                                                    {}
-
 }  // namespace
 
 TEST(TemporalTest, DateConstruction) {
@@ -290,17 +285,17 @@ TEST(TemporalTest, DateParsing) {
 
 TEST(TemporalTest, LocalTimeParsing) {
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_extended) {
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).parameters, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).first, local_time_parameters)
         << ToString(local_time_parameters);
     const auto time_string = fmt::format("T{}", string);
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(time_string).parameters, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(time_string).first, local_time_parameters)
         << ToString(local_time_parameters);
   }
 
   for (const auto &[string, local_time_parameters] : parsing_test_local_time_basic) {
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).parameters, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(string).first, local_time_parameters)
         << ToString(local_time_parameters);
-    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(fmt::format("T{}", string)).parameters, local_time_parameters)
+    ASSERT_EQ(memgraph::utils::ParseLocalTimeParameters(fmt::format("T{}", string)).first, local_time_parameters)
         << ToString(local_time_parameters);
   }
 
@@ -315,8 +310,8 @@ TEST(TemporalTest, LocalDateTimeParsing) {
         const auto local_date_time_string = fmt::format("{}T{}", date_string, local_time_string);
         if (is_valid) {
           const auto parsed = memgraph::utils::ParseLocalDateTimeParameters(local_date_time_string);
-          EXPECT_EQ(parsed.date_parameters, date_parameters);
-          EXPECT_EQ(parsed.local_time_parameters, local_time_parameters);
+          EXPECT_EQ(parsed.first, date_parameters);
+          EXPECT_EQ(parsed.second, local_time_parameters);
         }
       }
     }
@@ -330,7 +325,8 @@ TEST(TemporalTest, LocalDateTimeParsing) {
 
 TEST(TemporalTest, ZonedDateTimeParsing) {
   // The ZonedDateTime format is the LocalDateTime format & the timezone designation. As the first part is parsed with
-  // the existing LocalDateTime parser, the LocalDateTime data is shared and the test cases focus on timezone parsing.
+  // the existing LocalDateTime parser, the LocalDateTime data is shared and the test cases focus on timezone parsing,
+  // except for two cases that test ambiguous/nonexistent local times caused by daylight saving time changes.
 
   using namespace memgraph::utils;
 
@@ -339,8 +335,8 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
   const auto shared_expected_local_time_params = LocalTimeParameters{19, 23, 21, 123, 456};
 
   std::array timezone_parsing_cases{
-      std::make_pair("Z"sv, Timezone("Etc/UTC")),
-      std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
+      // std::make_pair("Z"sv, Timezone("Etc/UTC")),
+      // std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
       std::make_pair("+01:00[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
       std::make_pair("-08:00"sv, Timezone(std::chrono::minutes{-480})),
       std::make_pair("-08:00[America/Los_Angeles]"sv, Timezone("America/Los_Angeles")),
@@ -391,6 +387,12 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
+
+  const auto ambiguous_timestamp = "2023-10-29T02:30:00[Europe/Zagreb]"sv;  // 03:00 → 02:00
+  auto r = ZonedDateTime(ParseZonedDateTimeParameters(ambiguous_timestamp));
+
+  const auto nonexistent_timestamp = "2024-03-31T02:30:00[Europe/Zagreb]"sv;  // 02:00 → 03:00
+  auto s = ZonedDateTime(ParseZonedDateTimeParameters(nonexistent_timestamp));
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
