@@ -87,9 +87,9 @@ check() {
             continue
         fi
         if [ "$pkg" == dotnet-sdk-8.0  ]; then
-            # if ! /root/.dotnet/dotnet --list-sdks | grep -q "8\.0."; then
-              # missing="$pkg $missing"
-            # fi
+            if [ ! -f "/opt/dotnet-sdk-8.0/dotnet" ]; then
+              missing="$pkg $missing"
+            fi
             continue
         fi
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
@@ -124,10 +124,7 @@ install() {
             continue
         fi
         if [ "$pkg" == dotnet-sdk-8.0  ]; then
-            wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
-            chmod +x ./dotnet-install.sh
-            ./dotnet-install.sh --channel 8.0
-            rm dotnet-install.sh
+            install_dotnet_sdk "8.0"
             continue
         fi
         apt install -y "$pkg"
