@@ -731,7 +731,7 @@ ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_para
   std::chrono::sys_time<std::chrono::microseconds> duration{std::chrono::microseconds(
       LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
   zoned_time = std::chrono::zoned_time(timezone, duration);
-  // TODO antepusic if time ambiguous, e.g. when 3->2 AM, round up/down?
+  // TODO antepusic: if time ambiguous, e.g. when 3->2 AM during DST change, round up/down?
 }
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}

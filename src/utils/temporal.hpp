@@ -327,9 +327,7 @@ class Timezone {
           .end = std::chrono::sys_seconds::max(),
           .offset = std::chrono::duration_cast<std::chrono::seconds>(offset),
           .save = std::chrono::minutes{0},
-          .abbrev = "",
-          // offset >= std::chrono::minutes{0} ? "+" + std::format("{0:%H}:{0:%M}", offset)
-          //                                             : "-" + std::format("{0:%H}:{0:%M}", -offset)
+          .abbrev = "",  // custom timezones specified by offset don’t have names
       };
     }
     return std::get<const std::chrono::time_zone *>(offset_)->get_info(time_point);

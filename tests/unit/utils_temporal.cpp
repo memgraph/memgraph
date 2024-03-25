@@ -335,8 +335,8 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
   const auto shared_expected_local_time_params = LocalTimeParameters{19, 23, 21, 123, 456};
 
   std::array timezone_parsing_cases{
-      // std::make_pair("Z"sv, Timezone("Etc/UTC")),
-      // std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
+      std::make_pair("Z"sv, Timezone("Etc/UTC")),
+      std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
       std::make_pair("+01:00[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
       std::make_pair("-08:00"sv, Timezone(std::chrono::minutes{-480})),
       std::make_pair("-08:00[America/Los_Angeles]"sv, Timezone("America/Los_Angeles")),
@@ -388,6 +388,7 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
 
+  // TODO antepusic: clean up, verify & fix if necessary
   const auto ambiguous_timestamp = "2023-10-29T02:30:00[Europe/Zagreb]"sv;  // 03:00 → 02:00
   auto r = ZonedDateTime(ParseZonedDateTimeParameters(ambiguous_timestamp));
 
@@ -811,14 +812,12 @@ TEST(TemporalTest, ZonedDateTimeConvertsToString) {
   const std::string zdt2_expected_str = "1970-01-03T00:02:59.456123+01:00[Europe/Zagreb]";
   const auto zdt3 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone("US/Pacific")});
   const std::string zdt3_expected_str = "1997-08-24T09:32:09.000000-07:00[America/Los_Angeles]";
-  // expected (US/Pacific links to America/Los_Angeles, see
-  // https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)
   const auto zdt4 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone(std::chrono::minutes(90))});
   const std::string zdt4_expected_str = "1997-08-24T18:02:09.000000+01:30";
 
   ASSERT_EQ(zdt1_expected_str, zdt1.ToString());
   ASSERT_EQ(zdt2_expected_str, zdt2.ToString());
-  ASSERT_EQ(zdt3_expected_str, zdt3.ToString());
+  ASSERT_EQ(zdt3_expected_str, zdt3.ToString());  // US/Pacific links to America/Los_Angeles
   ASSERT_EQ(zdt4_expected_str, zdt4.ToString());
 }
 
