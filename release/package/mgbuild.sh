@@ -15,25 +15,25 @@ SUPPORTED_OS=(
     all
     amzn-2
     centos-7 centos-9
-    debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
+    debian-10 debian-11 debian-12
     fedora-36 fedora-38 fedora-39
     rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04
 )
 SUPPORTED_OS_V4=(
     amzn-2
     centos-7 centos-9
-    debian-10 debian-11 debian-11-arm
+    debian-10 debian-11
     fedora-36
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04
 )
 SUPPORTED_OS_V5=(
     amzn-2
     centos-7 centos-9
-    debian-11 debian-11-arm debian-12 debian-12-arm
+    debian-11 debian-12
     fedora-38 fedora-39
     rocky-9.3
-    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-20.04 ubuntu-22.04
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
@@ -214,7 +214,6 @@ check_support() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 build_memgraph () {
-  local build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
@@ -342,7 +341,6 @@ build_memgraph () {
 
 package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local build_container="mgbuild_${toolchain_version}_${os}"
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
@@ -388,7 +386,6 @@ package_docker() {
 }
 
 copy_memgraph() {
-  local build_container="mgbuild_${toolchain_version}_${os}"
   case "$1" in
     --binary)
       echo "Copying memgraph binary to host..."
@@ -434,7 +431,6 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
@@ -594,6 +590,11 @@ while [[ $# -gt 0 ]]; do
 done
 if [[ "$os" != "all" ]]; then
   check_support os_toolchain_combo $os $toolchain_version
+fi
+
+build_container="mgbuild_${toolchain_version}_${os}"
+if [[ "$arch" == 'arm' ]]; then
+  build_container="${build_container}-arm"
 fi
 
 if [[ "$command" == "" ]]; then
