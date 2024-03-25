@@ -194,7 +194,7 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
       std::chrono::minutes{-60}, std::chrono::minutes{-75}, std::chrono::minutes{-90},
   };
 
-  const auto check_faulty_timezones = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
+  const auto check_conversion = [&date_parameters, &local_time_parameters, &local_date_time](const auto &cases) {
     for (const auto &timezone_offset : cases) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
 
@@ -203,6 +203,8 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
   };
+
+  check_conversion(timezone_offsets);
 }
 
 TEST(TemporalTest, DurationConversion) {

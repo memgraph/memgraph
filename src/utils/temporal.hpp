@@ -22,8 +22,6 @@
 
 namespace memgraph::utils {
 
-class Timezone;
-
 template <typename T>
 concept Chrono = requires(T) {
   typename T::rep;
@@ -302,7 +300,7 @@ class Timezone {
  public:
   explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
-  explicit Timezone(const std::string &timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
+  explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
   const Timezone *operator->() const { return this; }
 

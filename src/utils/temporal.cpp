@@ -570,8 +570,8 @@ or both parts should be written in their basic forms without the separators.)hel
 }  // namespace
 
 Timezone ParseTimezoneFromName(std::string_view timezone_string) {
-  auto extract_timezone_name = [](std::string_view &string) {
-    if (string.front() != '[' or string.back() != ']') {
+  auto extract_timezone_name = [](std::string_view string) {
+    if (!string.starts_with('[') || !string.ends_with(']')) {
       throw temporal::InvalidArgumentException("Timezone name is not enclosed by '[' ']'.");
     }
     string.remove_prefix(1);
@@ -579,14 +579,14 @@ Timezone ParseTimezoneFromName(std::string_view timezone_string) {
     return string;
   };
 
-  const auto *timezone = [&]() {
+  const auto *timezone = std::invoke([&]() {
     try {
       return std::chrono::locate_zone(extract_timezone_name(timezone_string));
     } catch (const std::exception &_) {
       throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
     }
     return (const std::chrono::time_zone *)nullptr;
-  }();
+  });
 
   return Timezone(timezone);
 }
@@ -598,7 +598,7 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   //  ±hh
 
   const auto process_optional_colon = [&] {
-    const bool has_colon = timezone_offset_string.front() == ':';
+    const bool has_colon = timezone_offset_string.starts_with(':');
     if (has_colon) {
       timezone_offset_string.remove_prefix(1);
     }
@@ -631,7 +631,7 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
     return {Timezone(compute_offset(sign, maybe_hours.value(), 0)), 0};
   }
 
-  if (timezone_offset_string.front() == '[') {
+  if (timezone_offset_string.starts_with('[')) {
     return {Timezone(compute_offset(sign, maybe_hours.value(), 0)), timezone_offset_string.length()};
   }
 
@@ -678,7 +678,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
     throw temporal::InvalidArgumentException("Timezone is not designated.");
   }
 
-  if (string.front() == 'Z') {
+  if (string.starts_with('Z')) {
     if (string.length() != 1) {
       throw temporal::InvalidArgumentException("Invalid timezone format. {}",
                                                kSupportedZonedDateTimeFormatsHelpMessage);
@@ -691,7 +691,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
     };
   }
 
-  if (string.front() == '[') {
+  if (string.starts_with('[')) {
     return ZonedDateTimeParameters{
         .date = date_parameters,
         .local_time = local_time_parameters,
