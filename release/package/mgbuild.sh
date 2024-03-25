@@ -48,9 +48,9 @@ SUPPORTED_ARCHS=(
 )
 SUPPORTED_TESTS=(
     clang-tidy cppcheck-and-clang-format code-analysis
-    code-coverage drivers durability e2e gql-behave
+    code-coverage drivers drivers-high-availability durability e2e gql-behave
     integration leftover-CTest macro-benchmark
-    mgbench stress-plain stress-ssl 
+    mgbench stress-plain stress-ssl
     unit unit-coverage upload-to-bench-graph
 
 )
@@ -116,7 +116,7 @@ print_help () {
 
   echo -e "\nToolchain v5 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
-  
+
   echo -e "\nExample usage:"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
@@ -211,6 +211,7 @@ check_support() {
 build_memgraph () {
   local build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
   local container_output_dir="$container_build_dir/output"
   local arm_flag=""
@@ -295,7 +296,7 @@ build_memgraph () {
     docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
   fi
   # Change ownership of copied files so the mg user inside container can access them
-  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR" 
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || /environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
@@ -316,21 +317,20 @@ build_memgraph () {
 
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $cmake_cmd"
-  
+  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
-  # Default value for $threads is 0 instead of $(nproc) because macos 
+  # Default value for $threads is 0 instead of $(nproc) because macos
   # doesn't support the nproc command.
   # 0 is set for default value and checked here because mgbuild containers
   # support nproc
   # shellcheck disable=SC2016
   if [[ "$threads" == 0 ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc)'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$(nproc) -B mgconsole'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
   else
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN "'&& make -j$threads -B mgconsole'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads -B mgconsole'
   fi
 }
 
@@ -362,7 +362,7 @@ copy_memgraph() {
       local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
       local host_output_path="$PROJECT_ROOT/build/memgraph"
       mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
+      docker cp -L $build_container:$container_output_path $host_output_path
       echo "Binary saved to $host_output_path"
     ;;
     --build-logs)
@@ -370,7 +370,7 @@ copy_memgraph() {
       local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
       local host_output_path="$PROJECT_ROOT/build/logs"
       mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
+      docker cp -L $build_container:$container_output_path $host_output_path
       echo "Build logs saved to $host_output_path"
     ;;
     --package)
@@ -396,6 +396,7 @@ copy_memgraph() {
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
@@ -415,6 +416,9 @@ test_memgraph() {
     ;;
     drivers)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
+    ;;
+    drivers-high-availability)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& tests/integration/run.sh'
@@ -481,7 +485,7 @@ test_memgraph() {
       # docker network connect --alias $kafka_hostname $build_container_network $kafka_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       # docker network connect --alias $pulsar_hostname $build_container_network $pulsar_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -662,4 +666,4 @@ case $command in
         echo "Error: Unknown command '$command'"
         exit 1
     ;;
-esac    
+esac

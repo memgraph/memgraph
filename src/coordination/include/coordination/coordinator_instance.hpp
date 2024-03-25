@@ -26,6 +26,8 @@
 
 namespace memgraph::coordination {
 
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
+
 struct NewMainRes {
   std::string most_up_to_date_instance;
   std::string latest_epoch;
@@ -36,8 +38,14 @@ using InstanceNameDbHistories = std::pair<std::string, replication_coordination_
 class CoordinatorInstance {
  public:
   CoordinatorInstance();
+  CoordinatorInstance(CoordinatorInstance const &) = delete;
+  CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
+  CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;
+  CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig const &config)
+  ~CoordinatorInstance() = default;
+
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
@@ -48,15 +56,17 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+
+  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
+  auto HasMainState(std::string_view instance_name) const -> bool;
+
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+
  private:
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
-
-  auto OnRaftCommitCallback(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
   void MainFailCallback(std::string_view);
@@ -67,13 +77,13 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
-
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
-  // Leader and followers should both have same view on repl_instances_
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
+
+  // Thread pool needs to be constructed before raft state as raft state can call thread pool
+  utils::ThreadPool thread_pool_;
 
   RaftState raft_state_;
 };

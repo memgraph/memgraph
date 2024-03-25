@@ -104,6 +104,45 @@
                             <goal>single</goal>
                         </goals>
                     </execution>
+                    <execution>
+                        <id>build-e</id>
+                        <configuration>
+                            <archive>
+                                <manifest>
+                                    <mainClass>memgraph.WriteRouting</mainClass>
+                                </manifest>
+                            </archive>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                            <appendAssemblyId>false</appendAssemblyId>
+                            <finalName>WriteRouting</finalName>
+                        </configuration>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                      </execution>
+                      <execution>
+                        <id>build-f</id>
+                        <configuration>
+                            <archive>
+                                <manifest>
+                                    <mainClass>memgraph.ReadRouting</mainClass>
+                                </manifest>
+                            </archive>
+                            <descriptorRefs>
+                                <descriptorRef>jar-with-dependencies</descriptorRef>
+                            </descriptorRefs>
+                            <appendAssemblyId>false</appendAssemblyId>
+                            <finalName>ReadRouting</finalName>
+                        </configuration>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+
                 </executions>
             </plugin>
         </plugins>
