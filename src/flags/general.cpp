@@ -132,11 +132,11 @@ DEFINE_bool(storage_enable_schema_metadata, false,
             "Controls whether metadata should be collected about the resident labels and edge types.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_enable_automatic_label_index_creation, false,
+DEFINE_bool(storage_automatic_label_index_creation_enabled, false,
             "Controls whether label indexes on vertices should be created automatically.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_enable_automatic_edge_type_index_creation, false,
+DEFINE_bool(storage_automatic_edge_type_index_creation_enabled, false,
             "Controls whether edge-type indexes on relationships should be created automatically.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

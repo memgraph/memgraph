@@ -119,11 +119,11 @@ modifications:
     value: "false"
     override: true
 
-  - name: "storage_enable_automatic_label_index_creation"
+  - name: "storage_automatic_label_index_creation_enabled"
     value: "false"
     override: true
 
-  - name: "storage_enable_automatic_edge_type_index_creation"
+  - name: "storage_automatic_edge_type_index_creation_enabled"
     value: "false"
     override: true
 

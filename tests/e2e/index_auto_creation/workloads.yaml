@@ -1,7 +1,7 @@
 index_auto_creation: &index_auto_creation
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=TRUE", "--storage-enable-automatic-label-index-creation=TRUE", "--storage-enable-automatic-edge-type-index-creation=TRUE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=TRUE", "--storage-automatic-label-index-creation-enabled=TRUE", "--storage-automatic-edge-type-index-creation-enabled=TRUE"]
       log_file: "index_auto_creation.log"
       setup_queries: []
       validation_queries: []

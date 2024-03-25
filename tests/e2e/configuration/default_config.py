@@ -124,12 +124,12 @@ startup_config_dict = {
         "false",
         "Controls whether metadata should be collected about the resident labels and edge types.",
     ),
-    "storage_enable_automatic_label_index_creation": (
+    "storage_automatic_label_index_creation_enabled": (
         "false",
         "false",
         "Controls whether label indexes on vertices should be created automatically.",
     ),
-    "storage_enable_automatic_edge_type_index_creation": (
+    "storage_automatic_edge_type_index_creation_enabled": (
         "false",
         "false",
         "Controls whether edge-type indexes on relationships should be created automatically.",
