@@ -4220,8 +4220,8 @@ struct MgProcedureResultStream final {
 
   void Result(const Row &row) {
     PmrRow pmr_row(memory->impl);
-    for (auto &val : row) {
-      pmr_row.emplace_back(std::move(val));
+    for (const auto &val : row) {
+      pmr_row.emplace_back(val);
     }
 
     rows.emplace_back(std::move(pmr_row));
@@ -4260,7 +4260,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
-        mgp_execution_result *result = NewRawMgpObject<mgp_execution_result>(memory->impl);
+        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
 
         instance->interpreters.WithLock(
@@ -4271,7 +4271,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
-        for (auto header : prepare_query_result.headers) {
+        for (const auto &header : prepare_query_result.headers) {
           headers.emplace_back(header);
         }
         result->pImpl->headers = std::make_unique<mgp_execution_headers>(std::move(headers));
@@ -4303,8 +4303,7 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         const size_t headers_size = exec_result->pImpl->headers->headers.size();
         memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
         for (size_t idx = 0; idx < headers_size; idx++) {
-          items.emplace(exec_result->pImpl->headers->headers[idx],
-                        mgp_value{std::move(stream.rows[0][idx]), graph, memory->impl});
+          items.emplace(exec_result->pImpl->headers->headers[idx], mgp_value{stream.rows[0][idx], graph, memory->impl});
         }
 
         return NewRawMgpObject<mgp_map>(memory->impl, std::move(items));
