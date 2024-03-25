@@ -10,7 +10,7 @@ on:
         options:
           - Release
           - RelWithDebInfo
-      target_os:
+      os:
         type: choice
         description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
         default: 'debian-12'
@@ -65,15 +65,13 @@ on:
 
 jobs:
   AmazonLinux2:
-    if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'amzn-2' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "amzn-2"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -81,15 +79,13 @@ jobs:
     secrets: inherit
 
   CentOS7:
-    if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'centos-7' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-7"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -97,15 +93,13 @@ jobs:
     secrets: inherit
 
   CentOS9:
-    if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'centos-9' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-9"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -113,15 +107,13 @@ jobs:
     secrets: inherit
 
   Debian10:
-    if: ${{ (github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'debian-10' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-10"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -129,15 +121,13 @@ jobs:
     secrets: inherit
 
   Debian11:
-    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'debian-11' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -145,15 +135,13 @@ jobs:
     secrets: inherit
 
   Debian11-platform:
-    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'debian-11-platform' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       additional_build_args: "--for-platform"
       artifact_name: "debian-11-platform"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
@@ -163,16 +151,13 @@ jobs:
     secrets: inherit
 
   Debian11-arm:
-    if: ${{ (github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'debian-11-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
-      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 120
-      artifact_name: "debian-11-aarch64"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -180,15 +165,13 @@ jobs:
     secrets: inherit
 
   Debian12:
-    if: ${{ (github.event.inputs.target_os == 'debian-12' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'debian-12' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -196,16 +179,13 @@ jobs:
     secrets: inherit
 
   Debian12-arm:
-    if: ${{ (github.event.inputs.target_os == 'debian-12-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'debian-12-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
-      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 120
-      artifact_name: "debian-12-aarch64"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -213,17 +193,14 @@ jobs:
     secrets: inherit
 
   Docker-v4:
-    if: ${{ (github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_docker_package.yaml
     with:
       os: "debian-11"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       additional_build_args: "--for-docker"
-      artifact_name: "docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -231,17 +208,14 @@ jobs:
     secrets: inherit
 
   Docker-v5:
-    if: ${{ (github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_docker_package.yaml
     with:
       os: "debian-12"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       additional_build_args: "--for-docker"
-      artifact_name: "docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -249,17 +223,14 @@ jobs:
     secrets: inherit
 
   Docker-v4-arm:
-    if: ${{ (github.event.inputs.target_os == 'docker-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_docker_package.yaml
     with:
       os: "debian-11-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
-      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 120
       additional_build_args: "--for-docker"
-      artifact_name: "docker-aarch64"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -267,17 +238,14 @@ jobs:
     secrets: inherit
 
   Docker-v5-arm:
-    if: ${{ (github.event.inputs.target_os == 'docker-arm' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_docker_package.yaml
     with:
       os: "debian-12-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
-      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 120
       additional_build_args: "--for-docker"
-      artifact_name: "docker-aarch64"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -285,15 +253,13 @@ jobs:
     secrets: inherit
 
   Fedora36:
-    if: ${{ (github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'fedora-36' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "fedora-36"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -301,15 +267,13 @@ jobs:
     secrets: inherit
 
   Fedora38:
-    if: ${{ (github.event.inputs.target_os == 'fedora-38' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'fedora-38' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "fedora-38"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -317,15 +281,13 @@ jobs:
     secrets: inherit
 
   Fedora39:
-    if: ${{ (github.event.inputs.target_os == 'fedora-39' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'fedora-39' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "fedora-39"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -333,15 +295,13 @@ jobs:
     secrets: inherit
 
   RockyLinux9_3:
-    if: ${{ (github.event.inputs.target_os == 'rocky-9.3' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v5' }}
+    if: ${{ (github.event.inputs.os == 'rocky-9.3' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "rocky-9.3"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -349,15 +309,13 @@ jobs:
     secrets: inherit
 
   Ubuntu18_04:
-    if: ${{ (github.event.inputs.target_os == 'ubuntu-18.04' || github.event.inputs.target_os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ (github.event.inputs.os == 'ubuntu-18.04' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-18.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -365,15 +323,13 @@ jobs:
     secrets: inherit
 
   Ubuntu20_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-20.04' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'ubuntu-20.04' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-20.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -381,15 +337,13 @@ jobs:
     secrets: inherit
 
   Ubuntu22_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'ubuntu-22.04' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-22.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
-      runner_arch_label: "X64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 60
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -397,16 +351,13 @@ jobs:
     secrets: inherit
 
   Ubuntu22_04-arm:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22.04-arm' || github.event.inputs.target_os == 'all' }}
+    if: ${{ github.event.inputs.os == 'ubuntu-22.04-arm' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-22.04-arm"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
-      runner_arch_label: "ARM64"
       build_type: ${{ github.event.inputs.build_type }}
-      timeout_minutes: 120
-      artifact_name: "ubuntu-22.04-aarch64"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
