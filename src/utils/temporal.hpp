@@ -341,12 +341,13 @@ class Timezone {
   }
 
   template <class DurationT>
-  auto to_sys(std::chrono::local_time<DurationT> time_point) const {
+  auto to_sys(std::chrono::local_time<DurationT> time_point,
+              std::chrono::choose choice = std::chrono::choose::earliest) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       using sys_time = std::chrono::sys_time<std::common_type_t<DurationT, std::chrono::minutes>>;
       return sys_time{(time_point - std::get<std::chrono::minutes>(offset_)).time_since_epoch()};
     }
-    return std::get<const std::chrono::time_zone *>(offset_)->to_sys(time_point);
+    return std::get<const std::chrono::time_zone *>(offset_)->to_sys(time_point, choice);
   }
 
   std::string_view TimezoneName() const {
@@ -403,7 +404,8 @@ struct ZonedDateTime {
 
   friend ZonedDateTime operator+(const ZonedDateTime &zdt, const Duration &dur) {
     return ZonedDateTime(std::chrono::zoned_time(
-        zdt.zoned_time.get_time_zone(), zdt.zoned_time.get_sys_time() + std::chrono::microseconds(dur.microseconds)));
+        zdt.zoned_time.get_time_zone(), zdt.zoned_time.get_local_time() + std::chrono::microseconds(dur.microseconds),
+        std::chrono::choose::earliest));
   }
 
   friend ZonedDateTime operator+(const Duration &dur, const ZonedDateTime &zdt) { return zdt + dur; }
