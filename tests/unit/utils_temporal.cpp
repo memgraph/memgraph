@@ -205,6 +205,25 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
   };
 
   check_conversion(timezone_offsets);
+
+  constexpr std::array named_timezones{
+      std::make_pair("GMT", std::chrono::minutes{0}),
+      std::make_pair("Europe/Zagreb", std::chrono::minutes{60}),  // local_date_time (March 22) is outside of DST
+      std::make_pair("America/Los_Angeles", std::chrono::minutes{-420}),  // local_date_time (March 22) is in DST
+  };
+
+  const auto check_conversion_from_named = [&date_parameters, &local_time_parameters,
+                                            &local_date_time](const auto &cases) {
+    for (const auto &[timezone_name, timezone_offset] : cases) {
+      const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
+
+      EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
+                local_date_time.MicrosecondsSinceEpoch() +
+                    std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
+    }
+  };
+
+  check_conversion_from_named(named_timezones);
 }
 
 TEST(TemporalTest, DurationConversion) {
