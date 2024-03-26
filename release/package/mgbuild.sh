@@ -223,6 +223,7 @@ build_memgraph () {
     arm_flag="-DMG_ARCH="ARM64""
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
+  local skip_rpath_flags="-DCMAKE_SKIP_INSTALL_RPATH:BOOL=YES -DCMAKE_SKIP_RPATH:BOOL=YES"
   local telemetry_id_override_flag=""
   local community_flag=""
   local coverage_flag=""
@@ -321,7 +322,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
+  local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
