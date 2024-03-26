@@ -577,14 +577,6 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-      # local kafka_container="kafka_kafka_1"
-      # local kafka_hostname="kafka"
-      # local pulsar_container="pulsar_pulsar_1"
-      # local pulsar_hostname="pulsar"
-      # local setup_hostnames="export KAFKA_HOSTNAME=$kafka_hostname && PULSAR_HOSTNAME=$pulsar_hostname"
-      # local build_container_network=$(docker inspect $build_container --format='{{ .HostConfig.NetworkMode }}')
-      # docker network connect --alias $kafka_hostname $build_container_network $kafka_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
-      # docker network connect --alias $pulsar_hostname $build_container_network $pulsar_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
