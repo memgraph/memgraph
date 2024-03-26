@@ -97,6 +97,6 @@ done
 if [[ "$is_supported" == true ]]; then
     run_script "$OS_ARCH_SCRIPT" "$@"
 else
-    echo "Unsupported OS/Architecture combination: $OS_ARCH"
+    echo "Unsupported OS: $OS_ARCH"
     exit 1
 fi
