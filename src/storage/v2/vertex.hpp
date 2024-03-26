@@ -102,7 +102,8 @@ struct Vertex {
   bool HasAllProperties(const std::set<PropertyId> &properties, PdsItr *itr = nullptr) const {
     // if (deleted) return {};
     if (!has_prop) return {};
-    return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
+    return std::all_of(properties.begin(), properties.end(),
+                       [this, itr](const auto &prop) { return HasProperty(prop, itr); });
   }
 
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) const {
@@ -144,6 +145,7 @@ struct Vertex {
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
       std::map<PropertyId, PropertyValue> &properties) {
     // if (deleted) return {};
+    if (!has_prop && properties.empty()) return {};
     auto old_properties = Properties();
     ClearProperties();
 

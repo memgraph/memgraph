@@ -33,8 +33,8 @@ struct PdsItr {
   PropertyValue pv_{};
 
   PdsItr() {
-    pid_ = PropertyId::FromUint(0);
-    gid_ = Gid::FromUint(0);
+    pid_ = PropertyId::FromInt(-1);
+    gid_ = Gid::FromInt(-1);
   }
 };
 
@@ -68,10 +68,16 @@ inline PropertyValue ToPV(std::string_view sv) {
 class PDS {
  public:
   static void Init(std::filesystem::path root) {
-    if (ptr_ == nullptr) ptr_ = new PDS(root);
+    if (ptr_ == nullptr) {
+      std::cout << "PDS init " << root << std::endl;
+      ptr_ = new PDS(root);
+    }
   }
 
-  static void Deinit() { delete ptr_; }
+  static void Deinit() {
+    delete ptr_;
+    ptr_ = nullptr;
+  }
 
   static PDS *get() {
     if (ptr_ == nullptr) {
