@@ -70,12 +70,10 @@ class RaftState {
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
   auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
-  auto AppendOpenLockRegister(CoordinatorToReplicaConfig const &) -> bool;
-  auto AppendOpenLockUnregister(std::string_view) -> bool;
-  auto AppendOpenLockFailover(std::string_view instance_name) -> bool;
-  auto AppendOpenLockSetInstanceToMain(std::string_view instance_name) -> bool;
-  auto AppendOpenLockSetInstanceToReplica(std::string_view instance_name) -> bool;
+  auto AppendOpenLock() -> bool;
+  auto AppendCloseLock() -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
+  auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   // TODO: (andi) Do we need then GetAllCoordinators?
