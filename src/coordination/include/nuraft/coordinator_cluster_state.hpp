@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
@@ -21,6 +21,7 @@
 
 #include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
+#include "json/json.hpp"
 
 #include <map>
 #include <numeric>
@@ -31,12 +32,40 @@ namespace memgraph::coordination {
 
 using replication_coordination_glue::ReplicationRole;
 
-struct InstanceState {
-  CoordinatorClientConfig config;
-  ReplicationRole role;
+struct ReplicationInstanceState {
+  CoordinatorToReplicaConfig config;
+  ReplicationRole status;
+
+  // for replica this is main uuid of current main
+  // for "main" main this same as current_main_id_
+  // when replica is down and comes back up we reset uuid of main replica is listening to
+  // so we need to send swap uuid again
+  // For MAIN we don't enable writing until cluster is in healthy state
+  utils::UUID instance_uuid;
+
+  bool needs_demote{false};
+
+  friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
+    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid &&
+           lhs.needs_demote == rhs.needs_demote;
+  }
 };
 
-using TRaftLog = std::variant<CoordinatorClientConfig, std::string, utils::UUID>;
+// NOTE: Currently instance of coordinator doesn't change from the registration. Hence, just wrap
+// CoordinatorToCoordinatorConfig.
+struct CoordinatorInstanceState {
+  CoordinatorToCoordinatorConfig config;
+
+  friend auto operator==(CoordinatorInstanceState const &lhs, CoordinatorInstanceState const &rhs) -> bool {
+    return lhs.config == rhs.config;
+  }
+};
+
+void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
+void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
+
+using TRaftLog = std::variant<std::string, utils::UUID, CoordinatorToReplicaConfig, CoordinatorToCoordinatorConfig,
+                              InstanceUUIDUpdate, std::monostate>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
@@ -45,6 +74,9 @@ using nuraft::ptr;
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
+  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
+                                   utils::UUID const &current_main_uuid, bool is_lock_opened);
+
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
 
@@ -52,15 +84,13 @@ class CoordinatorClusterState {
   CoordinatorClusterState &operator=(CoordinatorClusterState &&other) noexcept;
   ~CoordinatorClusterState() = default;
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
-
   auto MainExists() const -> bool;
 
-  auto IsMain(std::string_view instance_name) const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
 
-  auto IsReplica(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string_view instance_name, ReplicationRole role) -> void;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
 
@@ -68,14 +98,22 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
+  auto GetCurrentMainUUID() const -> utils::UUID;
+
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+
+  auto IsLockOpened() const -> bool;
+
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
  private:
-  std::map<std::string, InstanceState, std::less<>> instance_roles_;
-  utils::UUID uuid_{};
+  std::vector<CoordinatorInstanceState> coordinators_{};
+  std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
+  utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
+  bool is_lock_opened_{false};
 };
 
 }  // namespace memgraph::coordination

@@ -133,6 +133,8 @@ symbolicName : UnescapedSymbolicName
 
 query : cypherQuery
       | indexQuery
+      | edgeIndexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -387,22 +389,22 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-coordinatorSocketAddress : literal ;
-replicationSocketAddress : literal ;
-raftSocketAddress : literal ;
-
 registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
                 TO socketAddress ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ON coordinatorSocketAddress ( AS ASYNC ) ? WITH replicationSocketAddress ;
+configKeyValuePair : literal ':' literal ;
+
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
+
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 
-raftServerId : literal ;
+coordinatorServerId : literal ;
 
-addCoordinatorInstance : ADD COORDINATOR raftServerId ON raftSocketAddress ;
+addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
 
 dropReplica : DROP REPLICA instanceName ;
 
@@ -455,10 +457,6 @@ commonCreateStreamConfig : TRANSFORM transformationName=procedureName
                          ;
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
-
-configKeyValuePair : literal ':' literal ;
-
-configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
 kafkaCreateStreamConfig : TOPICS topicNames
                         | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
@@ -527,3 +525,9 @@ showDatabase : SHOW DATABASE ;
 showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;

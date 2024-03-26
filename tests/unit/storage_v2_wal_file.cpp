@@ -37,6 +37,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
+    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
@@ -49,6 +53,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
@@ -70,7 +78,7 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false) {}
+                       gen->storage_mode_, false, false) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
@@ -248,7 +256,7 @@ class DeltaGenerator final {
         ASSERT_TRUE(false) << "Unexpected statistics operation!";
       }
     }
-    wal_file_.AppendOperation(operation, label_id, property_ids, l_stats, lp_stats, timestamp_);
+    wal_file_.AppendOperation(operation, std::nullopt, label_id, property_ids, l_stats, lp_stats, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -267,6 +275,8 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
@@ -280,6 +290,43 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+          MG_ASSERT(false, "Invalid function call!");
+      }
+      data_.emplace_back(timestamp_, data);
+    }
+  }
+
+  void AppendEdgeTypeOperation(memgraph::storage::durability::StorageMetadataOperation operation,
+                               const std::string &edge_type) {
+    auto edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
+    wal_file_.AppendOperation(operation, edge_type_id, timestamp_);
+    if (valid_) {
+      UpdateStats(timestamp_, 1);
+      memgraph::storage::durability::WalDeltaData data;
+      data.type = StorageMetadataOperationToWalDeltaDataType(operation);
+      switch (operation) {
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+          data.operation_edge_type.edge_type = edge_type;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:;
+        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+          MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);
     }

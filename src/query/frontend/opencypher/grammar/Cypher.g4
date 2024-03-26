@@ -25,6 +25,7 @@ statement : query ;
 
 query : cypherQuery
       | indexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -64,6 +65,8 @@ profileQuery : PROFILE cypherQuery ;
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
+
+textIndexQuery : createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -193,7 +196,10 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName | parameter;
+labelName : symbolicName
+          | parameter
+          | variable ( propertyLookup )+
+          ;
 
 relTypeName : symbolicName ;
 
@@ -338,6 +344,12 @@ integerLiteral : DecimalLiteral
 createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
+
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
 
 doubleLiteral : FloatingLiteral ;
 

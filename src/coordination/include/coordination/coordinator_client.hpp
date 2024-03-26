@@ -13,8 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "rpc/client.hpp"
 #include "rpc_errors.hpp"
 #include "utils/result.hpp"
@@ -25,11 +26,11 @@ namespace memgraph::coordination {
 
 class CoordinatorInstance;
 using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
-using ReplicationClientsInfo = std::vector<ReplClientInfo>;
+using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class CoordinatorClient {
  public:
-  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
+  explicit CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
                              HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb);
 
   ~CoordinatorClient() = default;
@@ -62,7 +63,9 @@ class CoordinatorClient {
 
   auto SendGetInstanceUUIDRpc() const -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
-  auto ReplicationClientInfo() const -> ReplClientInfo;
+  auto ReplicationClientInfo() const -> ReplicationClientInfo;
+
+  auto SendFrequentHeartbeat() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
@@ -83,8 +86,11 @@ class CoordinatorClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  CoordinatorClientConfig config_;
+  CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
+  // The reason why we have HealthCheckClientCallback is because we need to acquire lock
+  // before we do correct function call (main or replica), as otherwise we can enter REPLICA callback
+  // but right before instance was promoted to MAIN
   HealthCheckClientCallback succ_cb_;
   HealthCheckClientCallback fail_cb_;
 };

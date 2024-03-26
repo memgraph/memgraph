@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
   M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.") \
   M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")           \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                 \
+  M(ScanAllByEdgeTypeOperator, Operator, "Number of times ScanAllByEdgeTypeOperator operator was used.")             \
   M(ExpandOperator, Operator, "Number of times Expand operator was used.")                                           \
   M(ExpandVariableOperator, Operator, "Number of times ExpandVariable operator was used.")                           \
   M(ConstructNamedPathOperator, Operator, "Number of times ConstructNamedPath operator was used.")                   \
@@ -59,6 +60,7 @@
                                                                                                                      \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                      \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                     \
+  M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                        \
                                                                                                                      \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                            \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                               \

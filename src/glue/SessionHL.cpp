@@ -59,12 +59,14 @@ class TypedValueResultStreamBase {
  public:
   explicit TypedValueResultStreamBase(memgraph::storage::Storage *storage);
 
-  std::vector<memgraph::communication::bolt::Value> DecodeValues(
-      const std::vector<memgraph::query::TypedValue> &values) const;
+  void DecodeValues(const std::vector<memgraph::query::TypedValue> &values);
+
+  auto AccessValues() const -> std::vector<memgraph::communication::bolt::Value> const & { return decoded_values_; }
 
  protected:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
+  std::vector<memgraph::communication::bolt::Value> decoded_values_;
 };
 
 /// Wrapper around TEncoder which converts TypedValue to Value
@@ -75,16 +77,18 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
   TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
       : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
 
-  void Result(const std::vector<memgraph::query::TypedValue> &values) { encoder_->MessageRecord(DecodeValues(values)); }
+  void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    DecodeValues(values);
+    encoder_->MessageRecord(AccessValues());
+  }
 
  private:
   TEncoder *encoder_;
 };
 
-std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::DecodeValues(
-    const std::vector<memgraph::query::TypedValue> &values) const {
-  std::vector<memgraph::communication::bolt::Value> decoded_values;
-  decoded_values.reserve(values.size());
+void TypedValueResultStreamBase::DecodeValues(const std::vector<memgraph::query::TypedValue> &values) {
+  decoded_values_.reserve(values.size());
+  decoded_values_.clear();
   for (const auto &v : values) {
     auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {
@@ -99,9 +103,8 @@ std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::De
           throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
       }
     }
-    decoded_values.emplace_back(std::move(*maybe_value));
+    decoded_values_.emplace_back(std::move(*maybe_value));
   }
-  return decoded_values;
 }
 
 TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
@@ -245,6 +248,40 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
+
+using memgraph::communication::bolt::Value;
+
+#ifdef MG_ENTERPRISE
+auto SessionHL::Route(std::map<std::string, Value> const &routing,
+                      std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
+                      std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> {
+  auto routing_map = ranges::views::transform(
+                         routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
+                     ranges::to<std::map<std::string, std::string>>();
+
+  auto routing_table_res = interpreter_.Route(routing_map);
+
+  auto create_server = [](auto const &server_info) -> Value {
+    auto const &[addresses, role] = server_info;
+    std::map<std::string, Value> server_map;
+    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return Value{addr}; }) |
+                          ranges::to<std::vector<Value>>();
+
+    server_map["addresses"] = std::move(bolt_addresses);
+    server_map["role"] = memgraph::communication::bolt::Value{role};
+    return Value{std::move(server_map)};
+  };
+
+  std::map<std::string, Value> communication_res;
+  communication_res["ttl"] = Value{routing_table_res.ttl};
+  communication_res["db"] = Value{};
+
+  auto servers = ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<Value>>();
+  communication_res["servers"] = memgraph::communication::bolt::Value{std::move(servers)};
+
+  return {{"rt", memgraph::communication::bolt::Value{std::move(communication_res)}}};
+}
+#endif
 
 void SessionHL::RollbackTransaction() {
   try {

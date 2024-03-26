@@ -20,7 +20,7 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorClientConfig config,
+ReplicationInstance::ReplicationInstance(CoordinatorInstance *peer, CoordinatorToReplicaConfig config,
                                          HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb,
                                          HealthCheckInstanceCallback succ_instance_cb,
                                          HealthCheckInstanceCallback fail_instance_cb)
@@ -56,7 +56,6 @@ auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, Replication
     return false;
   }
 
-  main_uuid_ = new_uuid;
   succ_cb_ = main_succ_cb;
   fail_cb_ = main_fail_cb;
 
@@ -64,6 +63,8 @@ auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, Replication
 }
 
 auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
+
+auto ReplicationInstance::SendFrequentHeartbeat() const -> bool { return client_.SendFrequentHeartbeat(); }
 
 auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                           HealthCheckInstanceCallback replica_fail_cb) -> bool {
@@ -82,17 +83,14 @@ auto ReplicationInstance::StopFrequentCheck() -> void { client_.StopFrequentChec
 auto ReplicationInstance::PauseFrequentCheck() -> void { client_.PauseFrequentCheck(); }
 auto ReplicationInstance::ResumeFrequentCheck() -> void { client_.ResumeFrequentCheck(); }
 
-auto ReplicationInstance::ReplicationClientInfo() const -> CoordinatorClientConfig::ReplicationClientInfo {
+auto ReplicationInstance::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return client_.ReplicationClientInfo();
 }
 
-auto ReplicationInstance::GetSuccessCallback() -> HealthCheckInstanceCallback & { return succ_cb_; }
-auto ReplicationInstance::GetFailCallback() -> HealthCheckInstanceCallback & { return fail_cb_; }
+auto ReplicationInstance::GetSuccessCallback() -> HealthCheckInstanceCallback { return succ_cb_; }
+auto ReplicationInstance::GetFailCallback() -> HealthCheckInstanceCallback { return fail_cb_; }
 
 auto ReplicationInstance::GetClient() -> CoordinatorClient & { return client_; }
-
-auto ReplicationInstance::SetNewMainUUID(utils::UUID const &main_uuid) -> void { main_uuid_ = main_uuid; }
-auto ReplicationInstance::GetMainUUID() const -> std::optional<utils::UUID> const & { return main_uuid_; }
 
 auto ReplicationInstance::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
   if (!IsReadyForUUIDPing()) {
@@ -116,7 +114,6 @@ auto ReplicationInstance::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid
   if (!replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid)) {
     return false;
   }
-  SetNewMainUUID(new_main_uuid);
   return true;
 }
 
@@ -132,6 +129,11 @@ auto ReplicationInstance::SendGetInstanceUUID()
 }
 
 void ReplicationInstance::UpdateReplicaLastResponseUUID() { last_check_of_uuid_ = std::chrono::system_clock::now(); }
+
+void ReplicationInstance::SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb) {
+  succ_cb_ = succ_cb;
+  fail_cb_ = fail_cb;
+}
 
 }  // namespace memgraph::coordination
 #endif

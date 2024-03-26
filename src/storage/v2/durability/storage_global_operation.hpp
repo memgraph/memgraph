@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,10 @@ enum class StorageMetadataOperation {
   LABEL_PROPERTY_INDEX_DROP,
   LABEL_PROPERTY_INDEX_STATS_SET,
   LABEL_PROPERTY_INDEX_STATS_CLEAR,
+  EDGE_TYPE_INDEX_CREATE,
+  EDGE_TYPE_INDEX_DROP,
+  TEXT_INDEX_CREATE,
+  TEXT_INDEX_DROP,
   EXISTENCE_CONSTRAINT_CREATE,
   EXISTENCE_CONSTRAINT_DROP,
   UNIQUE_CONSTRAINT_CREATE,

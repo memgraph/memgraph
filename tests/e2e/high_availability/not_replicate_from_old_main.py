@@ -153,7 +153,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -167,7 +167,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -180,13 +180,13 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE shared_instance ON '127.0.0.1:10011' WITH '127.0.0.1:10001';",
-                "REGISTER INSTANCE instance_2 ON '127.0.0.1:10012' WITH '127.0.0.1:10002';",
+                "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
                 "SET INSTANCE instance_2 TO MAIN",
             ],
         },
@@ -220,7 +220,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -233,8 +233,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10112",
+                "--coordinator-id=1",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [],
@@ -244,10 +244,12 @@ def test_not_replicate_old_main_register_new_cluster():
     interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_COORD_CLUSTER_DESCRIPTION)
     second_cluster_coord_cursor = connect(host="localhost", port=7691).cursor()
     execute_and_fetch_all(
-        second_cluster_coord_cursor, "REGISTER INSTANCE shared_instance ON '127.0.0.1:10011' WITH '127.0.0.1:10001';"
+        second_cluster_coord_cursor,
+        "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
     )
     execute_and_fetch_all(
-        second_cluster_coord_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003';"
+        second_cluster_coord_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
     )
     execute_and_fetch_all(second_cluster_coord_cursor, "SET INSTANCE instance_3 TO MAIN")
 
