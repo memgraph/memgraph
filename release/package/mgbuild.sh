@@ -354,6 +354,10 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
   fi
+  if [[ "$os" =~ ^"fedora".* ]]; then
+      docker exec -u root "$build_container" bash -c "yum -y update"
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
+  fi
   if [[ "$os" =~ ^"debian".* ]]; then
       docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
@@ -794,7 +798,7 @@ case $command in
       copy_memgraph $@
     ;;
     package-docker)
-      package_docker
+      package_docker $@
     ;;
     *)
         echo "Error: Unknown command '$command'"
