@@ -64,6 +64,8 @@ auto ReplicationInstance::PromoteToMain(utils::UUID const &new_uuid, Replication
 
 auto ReplicationInstance::SendDemoteToReplicaRpc() -> bool { return client_.DemoteToReplica(); }
 
+auto ReplicationInstance::SendFrequentHeartbeat() const -> bool { return client_.SendFrequentHeartbeat(); }
+
 auto ReplicationInstance::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                           HealthCheckInstanceCallback replica_fail_cb) -> bool {
   if (!client_.DemoteToReplica()) {
@@ -85,8 +87,8 @@ auto ReplicationInstance::ReplicationClientInfo() const -> coordination::Replica
   return client_.ReplicationClientInfo();
 }
 
-auto ReplicationInstance::GetSuccessCallback() -> HealthCheckInstanceCallback & { return succ_cb_; }
-auto ReplicationInstance::GetFailCallback() -> HealthCheckInstanceCallback & { return fail_cb_; }
+auto ReplicationInstance::GetSuccessCallback() -> HealthCheckInstanceCallback { return succ_cb_; }
+auto ReplicationInstance::GetFailCallback() -> HealthCheckInstanceCallback { return fail_cb_; }
 
 auto ReplicationInstance::GetClient() -> CoordinatorClient & { return client_; }
 
@@ -127,6 +129,11 @@ auto ReplicationInstance::SendGetInstanceUUID()
 }
 
 void ReplicationInstance::UpdateReplicaLastResponseUUID() { last_check_of_uuid_ = std::chrono::system_clock::now(); }
+
+void ReplicationInstance::SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb) {
+  succ_cb_ = succ_cb;
+  fail_cb_ = fail_cb;
+}
 
 }  // namespace memgraph::coordination
 #endif
