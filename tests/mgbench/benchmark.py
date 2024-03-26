@@ -668,12 +668,32 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     return import_results, rss_usage
 
 
+def save_memory_usage_of_empty_db(vendor_runner, workload, results):
+    rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
+    vendor_runner.start_db(rss_db)
+    usage = vendor_runner.stop_db(rss_db)
+    key = [workload.NAME, workload.get_variant(), EMPTY_DB]
+    results.set_value(*key, value={DATABASE: usage})
+    return usage
+
+
+def save_memory_usage_of_imported_db(vendor_runner, workload, results, storage_mode):
+    rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DB
+    vendor_runner.start_db(rss_db)
+    usage = vendor_runner.stop_db(rss_db)
+    key = [workload.NAME, workload.get_variant(), IMPORTED_DB, storage_mode]
+    results.set_value(*key, value={DATABASE: usage})
+    return usage
+
+
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
+    save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
     import_results, rss_usage = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
     save_import_results(workload, results, import_results, rss_usage)
+    save_memory_usage_of_imported_db(vendor_runner, workload, results, storage_mode)
 
     for group in sorted(bench_queries.keys()):
         log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode for {group} group")
@@ -781,7 +801,7 @@ def log_benchmark_summary(results: Dict, storage_mode):
             continue
         for groups in variants.values():
             for group, queries in groups.items():
-                if group == IMPORT:
+                if group == IMPORT or group == EMPTY_DB or group == IMPORTED_DB:
                     continue
                 for query, auth in queries.items():
                     for value in auth.values():
