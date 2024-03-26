@@ -108,8 +108,9 @@ print_help () {
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
 
   echo -e "\npackage-docker options:"
-  echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
-  echo -e "  --src-dir string              Specify a custom path for the source directory on host. This directory should contain memgraph package."
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
+  echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
+  echo -e "                                This directory should contain the memgraph package."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -386,11 +387,11 @@ package_docker() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
-        package_dir=$2
+        package_dir="$PROJECT_ROOT/$2"
         shift 2
       ;;
       --src-dir)
-        docker_host_folder=$2
+        docker_host_folder="$PROJECT_ROOT/$2"
         shift 2
       ;;
       *)
