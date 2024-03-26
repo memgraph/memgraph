@@ -19,14 +19,17 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state) {
-  j = nlohmann::json{
-      {"config", instance_state.config}, {"status", instance_state.status}, {"uuid", instance_state.instance_uuid}};
+  j = nlohmann::json{{"config", instance_state.config},
+                     {"status", instance_state.status},
+                     {"uuid", instance_state.instance_uuid},
+                     {"needs_demote", instance_state.needs_demote}};
 }
 
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state) {
   j.at("config").get_to(instance_state.config);
   j.at("status").get_to(instance_state.status);
   j.at("uuid").get_to(instance_state.instance_uuid);
+  j.at("needs_demote").get_to(instance_state.needs_demote);
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
@@ -91,43 +94,36 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
 auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {
-      // end of OPEN_LOCK_REGISTER_REPLICATION_INSTANCE
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
       auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
       spdlog::trace("DoAction: register replication instance {}", config.instance_name);
       // Setting instance uuid to random, if registration fails, we are still in random state
       repl_instances_.emplace(config.instance_name,
-                              ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}});
-      is_lock_opened_ = false;
+                              ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}, false});
       break;
     }
-      // end of OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
       spdlog::trace("DoAction: unregister replication instance {}", instance_name);
       repl_instances_.erase(instance_name);
-      is_lock_opened_ = false;
       break;
     }
-      // end of OPEN_LOCK_SET_INSTANCE_AS_MAIN and OPEN_LOCK_FAILOVER
     case RaftLogAction::SET_INSTANCE_AS_MAIN: {
       auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
       auto it = repl_instances_.find(instance_uuid_change.instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::MAIN;
       it->second.instance_uuid = instance_uuid_change.uuid;
-      is_lock_opened_ = false;
       spdlog::trace("DoAction: set replication instance {} as main with uuid {}", instance_uuid_change.instance_name,
                     std::string{instance_uuid_change.uuid});
       break;
     }
-      // end of OPEN_LOCK_SET_INSTANCE_AS_REPLICA
     case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
       auto const instance_name = std::get<std::string>(log_entry);
       auto it = repl_instances_.find(instance_name);
       MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
       it->second.status = ReplicationRole::REPLICA;
-      is_lock_opened_ = false;
+      it->second.needs_demote = false;
       spdlog::trace("DoAction: set replication instance {} as replica", instance_name);
       break;
     }
@@ -151,35 +147,23 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
       spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_server_id);
       break;
     }
-    case RaftLogAction::OPEN_LOCK_REGISTER_REPLICATION_INSTANCE: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock register");
+    case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
+      auto const instance_name = std::get<std::string>(log_entry);
+      auto it = repl_instances_.find(instance_name);
+      MG_ASSERT(it != repl_instances_.end(), "Instance does not exist as part of raft state!");
+      it->second.needs_demote = true;
+      spdlog::trace("Added action that instance {} needs demote to replica", instance_name);
       break;
-      // TODO(antoniofilipovic) save what we are doing to be able to undo....
     }
-    case RaftLogAction::OPEN_LOCK_UNREGISTER_REPLICATION_INSTANCE: {
+    case RaftLogAction::OPEN_LOCK: {
       is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock unregister");
+      spdlog::trace("DoAction: Opened lock");
       break;
-      // TODO(antoniofilipovic) save what we are doing
     }
-    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_MAIN: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock set instance as main");
+    case RaftLogAction::CLOSE_LOCK: {
+      is_lock_opened_ = false;
+      spdlog::trace("DoAction: Closed lock");
       break;
-      // TODO(antoniofilipovic) save what we are doing
-    }
-    case RaftLogAction::OPEN_LOCK_FAILOVER: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock failover");
-      break;
-      // TODO(antoniofilipovic) save what we are doing
-    }
-    case RaftLogAction::OPEN_LOCK_SET_INSTANCE_AS_REPLICA: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: open lock set instance as replica");
-      break;
-      // TODO(antoniofilipovic) save what we need to undo
     }
   }
 }
