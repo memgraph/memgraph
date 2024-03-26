@@ -100,9 +100,11 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
 
-  echo -e "\ncopy options:"
+  echo -e "\ncopy options (select one from --binary, --build-logs or --package) (default \"--binary\"):"
+  echo -e "  --artifact-name string        Specify a custom name for the copied artifact (optional)"
   echo -e "  --binary                      Copy memgraph binary from mgbuild container to host"
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
+  echo -e "  --dest-dir string             Specify a custom path to destination directory on host (optional)"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
 
   echo -e "\npush options:"
@@ -387,31 +389,56 @@ package_docker() {
 }
 
 copy_memgraph() {
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local artifact="binary"
+  local artifact_name="memgraph"
+  local container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+  local host_dir="$PROJECT_BUILD_DIR"
+  local host_dir_override=""
+  local artifact_name_override=""
   case "$1" in
-    --binary)
-      echo "Copying memgraph binary to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
-      local host_output_path="$PROJECT_ROOT/build/memgraph"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path
-      echo "Binary saved to $host_output_path"
+    --binary)#cp -L
+      if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        exit 1
+      fi
+      artifact="binary"
+      artifact_name="memgraph"
+      container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+      host_dir="$PROJECT_BUILD_DIR"
+      shift 1
     ;;
-    --build-logs)
-      echo "Copying memgraph build logs to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
-      local host_output_path="$PROJECT_ROOT/build/logs"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path
-      echo "Build logs saved to $host_output_path"
+    --build-logs)#cp -L
+      if [[ "$artifact" == "package" ]]; then
+        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        exit 1
+      fi
+      artifact="build logs"
+      artifact_name="logs"
+      container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+      host_dir="$PROJECT_BUILD_DIR"
+      shift 1
     ;;
-    --package)
-      echo "Copying memgraph package to host..."
-      local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
-      local host_output_dir="$PROJECT_ROOT/build/output/$os"
-      local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-      mkdir -p "$host_output_dir"
-      docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
-      echo "Package saved to $host_output_dir/$last_package_name"
+    --package)#cp
+      if [[ "$artifact" == "build logs" ]]; then
+        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        exit 1
+      fi
+      artifact="package"
+      local container_package_dir="$MGBUILD_BUILD_DIR/output"
+      host_dir="$PROJECT_BUILD_DIR/output/$os"
+      artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
+      container_artifact_path="$container_package_dir/$artifact_name"
+      shift 1
+    ;;
+    --dest-dir)
+      host_dir_override=$2
+      shift 2
+    ;;
+    --artifact-name)
+      artifact_name_override=$2
+      shift 2
     ;;
     *)
       echo "Error: Unknown flag '$1'"
@@ -419,6 +446,21 @@ copy_memgraph() {
       exit 1
     ;;
   esac
+  if [[ "$host_dir_override" != "" ]]; then
+    host_dir=$host_dir_override
+  fi
+  if [[ "$artifact_name_override" != "" ]]; then
+    artifact_name=$artifact_name_override
+  fi
+
+  echo -e "Copying memgraph $artifact from $build_container to host ..."
+  mkdir -p $host_dir
+  if [[ "$artifact" == "package" ]]; then
+    docker cp $build_container:$container_artifact_path $host_dir/$artifact_name
+  else
+    docker cp -L $build_container:$container_artifact_path $host_dir/$artifact_name
+  fi
+  echo -e "Memgraph $artifact saved to $host_dir!"
 }
 
 
