@@ -69,6 +69,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
+    TEXT_INDEX_CREATE,
+    TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
@@ -127,6 +129,11 @@ struct WalDeltaData {
     std::string property;
     std::string stats;
   } operation_label_property_stats;
+
+  struct {
+    std::string index_name;
+    std::string label;
+  } operation_text;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -163,6 +170,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP:
+    case WalDeltaData::Type::TEXT_INDEX_CREATE:
+    case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
@@ -213,7 +222,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 /// Function used to encode non-transactional operation.
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                     const std::optional<std::string> text_index_name, LabelId label,
+                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                      const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
@@ -248,8 +258,9 @@ class WalFile {
 
   void AppendTransactionEnd(uint64_t timestamp);
 
-  void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                       const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+  void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
+                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
 

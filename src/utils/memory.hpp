@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,11 @@
 
 #pragma once
 
+#include <climits>
 #include <cstddef>
+#include <cstdint>
+#include <forward_list>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -248,6 +252,8 @@ bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
   return !(a == b);
 }
 
+auto NullMemoryResource() noexcept -> MemoryResource *;
+
 /// Wraps std::pmr::memory_resource for use with out MemoryResource
 class StdMemoryResource final : public MemoryResource {
  public:
@@ -381,36 +387,44 @@ class MonotonicBufferResource final : public MemoryResource {
 namespace impl {
 
 template <class T>
+using AList = std::forward_list<T, Allocator<T>>;
+
+template <class T>
 using AVector = std::vector<T, Allocator<T>>;
 
 /// Holds a number of Chunks each serving blocks of particular size. When a
-/// Chunk runs out of available blocks, a new Chunk is allocated. The naming is
-/// taken from `libstdc++` implementation, but the implementation details are
-/// more similar to `FixedAllocator` described in "Small Object Allocation" from
-/// "Modern C++ Design".
+/// Chunk runs out of available blocks, a new Chunk is allocated.
 class Pool final {
   /// Holds a pointer into a chunk of memory which consists of equal sized
-  /// blocks. Each Chunk can handle `std::numeric_limits<unsigned char>::max()`
-  /// number of blocks. Blocks form a "free-list", where each unused block has
-  /// an embedded index to the next unused block.
+  /// blocks. Blocks form a "free-list"
   struct Chunk {
-    unsigned char *data;
-    unsigned char first_available_block_ix;
-    unsigned char blocks_available;
+    // TODO: make blocks_per_chunk a per chunk thing (ie. allow chunk growth)
+    std::byte *raw_data;
+    explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
+    std::byte *build_freelist(std::size_t block_size, std::size_t blocks_in_chunk) {
+      auto current = raw_data;
+      std::byte *prev = nullptr;
+      auto end = current + (blocks_in_chunk * block_size);
+      while (current != end) {
+        std::byte **list_entry = reinterpret_cast<std::byte **>(current);
+        *list_entry = std::exchange(prev, current);
+        current += block_size;
+      }
+      DMG_ASSERT(prev != nullptr);
+      return prev;
+    }
   };
 
-  unsigned char blocks_per_chunk_;
-  size_t block_size_;
-  AVector<Chunk> chunks_;
-  Chunk *last_alloc_chunk_{nullptr};
-  Chunk *last_dealloc_chunk_{nullptr};
+  std::byte *free_list_{nullptr};
+  uint8_t blocks_per_chunk_{};
+  std::size_t block_size_{};
+
+  AList<Chunk> chunks_;  // TODO: do ourself so we can do fast Release (detect monotonic, do nothing)
 
  public:
-  static constexpr auto MaxBlocksInChunk() {
-    return std::numeric_limits<decltype(Chunk::first_available_block_ix)>::max();
-  }
+  static constexpr auto MaxBlocksInChunk = std::numeric_limits<decltype(blocks_per_chunk_)>::max();
 
-  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory);
+  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory);
 
   Pool(const Pool &) = delete;
   Pool &operator=(const Pool &) = delete;
@@ -430,8 +444,147 @@ class Pool final {
   void *Allocate();
 
   void Deallocate(void *p);
+};
 
-  void Release();
+// C++ overloads for clz
+constexpr auto clz(unsigned int x) { return __builtin_clz(x); }
+constexpr auto clz(unsigned long x) { return __builtin_clzl(x); }
+constexpr auto clz(unsigned long long x) { return __builtin_clzll(x); }
+
+template <typename T>
+constexpr auto bits_sizeof = sizeof(T) * CHAR_BIT;
+
+/// 0-based bit index of the most significant bit assumed that `n` != 0
+template <typename T>
+constexpr auto msb_index(T n) {
+  return bits_sizeof<T> - clz(n) - T(1);
+}
+
+/* This function will in O(1) time provide a bin index based on:
+ * B  - the number of most significant bits to be sensitive to
+ * LB - the value that should be considered below the consideration for bin index of 0 (LB is exclusive)
+ *
+ * lets say we were:
+ * - sensitive to two bits (B == 2)
+ * - lowest bin is for 8 (LB == 8)
+ *
+ * our bin indexes would look like:
+ *   0 - 0000'1100 12
+ *   1 - 0001'0000 16
+ *   2 - 0001'1000 24
+ *   3 - 0010'0000 32
+ *   4 - 0011'0000 48
+ *   5 - 0100'0000 64
+ *   6 - 0110'0000 96
+ *   7 - 1000'0000 128
+ *   8 - 1100'0000 192
+ *   ...
+ *
+ * Example:
+ * Given n == 70, we want to return the bin index to the first value which is
+ * larger than n.
+ * bin_index<2,8>(70) => 6, as 64 (index 5) < 70 and 70 <= 96 (index 6)
+ */
+template <std::size_t B = 2, std::size_t LB = 8>
+constexpr std::size_t bin_index(std::size_t n) {
+  static_assert(B >= 1U, "Needs to be sensitive to at least one bit");
+  static_assert(LB != 0U, "Lower bound need to be non-zero");
+  DMG_ASSERT(n > LB);
+
+  // We will alway be sensitive to at least the MSB
+  // exponent tells us how many bits we need to use to select within a level
+  constexpr auto kExponent = B - 1U;
+  // 2^exponent gives the size of each level
+  constexpr auto kSize = 1U << kExponent;
+  // offset help adjust results down to be inline with bin_index(LB) == 0
+  constexpr auto kOffset = msb_index(LB);
+
+  auto const msb_idx = msb_index(n);
+  DMG_ASSERT(msb_idx != 0);
+
+  auto const mask = (1u << msb_idx) - 1u;
+  auto const under = n & mask;
+  auto const selector = under >> (msb_idx - kExponent);
+
+  auto const rest = under & (mask >> kExponent);
+  auto const no_overflow = rest == 0U;
+
+  auto const msb_level = kSize * (msb_idx - kOffset);
+  return msb_level + selector - no_overflow;
+}
+
+// This is the inverse opperation for bin_index
+// bin_size(bin_index(X)-1) < X <= bin_size(bin_index(X))
+template <std::size_t B = 2, std::size_t LB = 8>
+std::size_t bin_size(std::size_t idx) {
+  constexpr auto kExponent = B - 1U;
+  constexpr auto kSize = 1U << kExponent;
+  constexpr auto kOffset = msb_index(LB);
+
+  // no need to optimise `/` or `%` compiler can see `kSize` is a power of 2
+  auto const level = (idx + 1) / kSize;
+  auto const sub_level = (idx + 1) % kSize;
+  return (1U << (level + kOffset)) | (sub_level << (level + kOffset - kExponent));
+}
+
+template <std::size_t Bits, std::size_t LB, std::size_t UB>
+struct MultiPool {
+  static_assert(LB < UB, "lower bound must be less than upper bound");
+  static_assert(IsPow2(LB) && IsPow2(UB), "Design untested for non powers of 2");
+  static_assert((LB << Bits) % sizeof(void *) == 0, "Smallest pool must have space and alignment for freelist");
+
+  // upper bound is inclusive
+  static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
+  static bool is_above_upper_bound(std::size_t size) { return UB < size; }
+
+  static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
+
+  MultiPool(uint8_t blocks_per_chunk, MemoryResource *memory, MemoryResource *internal_memory)
+      : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {}
+
+  ~MultiPool() {
+    if (pools_) {
+      auto pool_alloc = Allocator<Pool>(internal_memory_);
+      for (auto i = 0U; i != n_bins; ++i) {
+        pool_alloc.destroy(&pools_[i]);
+      }
+      pool_alloc.deallocate(pools_, n_bins);
+    }
+  }
+
+  void *allocate(std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    if (!pools_) [[unlikely]] {
+      initialise_pools();
+    }
+    return pools_[idx].Allocate();
+  }
+
+  void deallocate(void *ptr, std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    pools_[idx].Deallocate(ptr);
+  }
+
+ private:
+  void initialise_pools() {
+    auto pool_alloc = Allocator<Pool>(internal_memory_);
+    auto pools = pool_alloc.allocate(n_bins);
+    try {
+      for (auto i = 0U; i != n_bins; ++i) {
+        auto block_size = bin_size<Bits, LB>(i);
+        pool_alloc.construct(&pools[i], block_size, blocks_per_chunk_, memory_);
+      }
+      pools_ = pools;
+    } catch (...) {
+      pool_alloc.deallocate(pools, n_bins);
+      throw;
+    }
+  }
+
+  Pool *pools_{};
+  uint8_t blocks_per_chunk_{};
+  MemoryResource *memory_{};
+  MemoryResource *internal_memory_{};
 };
 
 }  // namespace impl
@@ -442,8 +595,6 @@ class Pool final {
 ///
 /// This class has the following properties with regards to memory management.
 ///
-///   * All allocated memory will be freed upon destruction, even if Deallocate
-///     has not been called for some of the allocated blocks.
 ///   * It consists of a collection of impl::Pool instances, each serving
 ///     requests for different block sizes. Each impl::Pool manages a collection
 ///     of impl::Pool::Chunk instances which are divided into blocks of uniform
@@ -452,91 +603,46 @@ class Pool final {
 ///     arbitrary alignment requests. Each requested block size must be a
 ///     multiple of alignment or smaller than the alignment value.
 ///   * An allocation request within the limits of the maximum block size will
-///     find a Pool serving the requested size. If there's no Pool serving such
-///     a request, a new one is instantiated.
+///     find a Pool serving the requested size. Some requests will share a larger
+///     pool size.
 ///   * When a Pool exhausts its Chunk, a new one is allocated with the size for
 ///     the maximum number of blocks.
 ///   * Allocation requests which exceed the maximum block size will be
 ///     forwarded to upstream MemoryResource.
-///   * Maximum block size and maximum number of blocks per chunk can be tuned
-///     by passing the arguments to the constructor.
+///   * Maximum number of blocks per chunk can be tuned by passing the
+///     arguments to the constructor.
+
 class PoolResource final : public MemoryResource {
  public:
-  /// Construct with given max_blocks_per_chunk, max_block_size and upstream
-  /// memory.
-  ///
-  /// The implementation will use std::min(max_blocks_per_chunk,
-  /// impl::Pool::MaxBlocksInChunk()) as the real maximum number of blocks per
-  /// chunk. Allocation requests exceeding max_block_size are simply forwarded
-  /// to upstream memory.
-  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools = NewDeleteResource(),
-               MemoryResource *memory_unpooled = NewDeleteResource());
-
-  PoolResource(const PoolResource &) = delete;
-  PoolResource &operator=(const PoolResource &) = delete;
-
-  PoolResource(PoolResource &&) = default;
-  PoolResource &operator=(PoolResource &&) = default;
-
-  ~PoolResource() override { Release(); }
-
-  MemoryResource *GetUpstreamResource() const { return pools_.get_allocator().GetMemoryResource(); }
-  MemoryResource *GetUpstreamResourceBlocks() const { return unpooled_.get_allocator().GetMemoryResource(); }
-
-  /// Release all allocated memory.
-  void Release();
+  PoolResource(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
+                MemoryResource *internal_memory = NewDeleteResource())
+      : mini_pools_{
+            impl::Pool{8, blocks_per_chunk, memory},
+            impl::Pool{16, blocks_per_chunk, memory},
+            impl::Pool{24, blocks_per_chunk, memory},
+            impl::Pool{32, blocks_per_chunk, memory},
+            impl::Pool{40, blocks_per_chunk, memory},
+            impl::Pool{48, blocks_per_chunk, memory},
+            impl::Pool{56, blocks_per_chunk, memory},
+            impl::Pool{64, blocks_per_chunk, memory},
+        },
+        pools_3bit_(blocks_per_chunk, memory, internal_memory),
+        pools_4bit_(blocks_per_chunk, memory, internal_memory),
+        pools_5bit_(blocks_per_chunk, memory, internal_memory),
+        unpooled_memory_{internal_memory} {}
+  ~PoolResource() override = default;
 
  private:
-  // Big block larger than max_block_size_, doesn't go into a pool.
-  struct BigBlock {
-    size_t bytes;
-    size_t alignment;
-    void *data;
-  };
-
-  // TODO: Potential memory optimization is replacing `std::vector` with our
-  // custom vector implementation which doesn't store a `MemoryResource *`.
-  // Currently we have vectors for `pools_` and `unpooled_`, as well as each
-  // `impl::Pool` stores a `chunks_` vector.
-
-  // Pools are sorted by bound_size_, ascending.
-  impl::AVector<impl::Pool> pools_;
-  impl::Pool *last_alloc_pool_{nullptr};
-  impl::Pool *last_dealloc_pool_{nullptr};
-  // Unpooled BigBlocks are sorted by data pointer.
-  impl::AVector<BigBlock> unpooled_;
-  size_t max_blocks_per_chunk_;
-  size_t max_block_size_;
-
   void *DoAllocate(size_t bytes, size_t alignment) override;
-
   void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
-};
-
-/// Like PoolResource but uses SpinLock for thread safe usage.
-class SynchronizedPoolResource final : public MemoryResource {
- public:
-  SynchronizedPoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
-                           MemoryResource *memory = NewDeleteResource())
-      : pool_memory_(max_blocks_per_chunk, max_block_size, memory) {}
+  bool DoIsEqual(MemoryResource const &other) const noexcept override;
 
  private:
-  PoolResource pool_memory_;
-  SpinLock lock_;
-
-  void *DoAllocate(size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    return pool_memory_.Allocate(bytes, alignment);
-  }
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    pool_memory_.Deallocate(p, bytes, alignment);
-  }
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  std::array<impl::Pool, 8> mini_pools_;
+  impl::MultiPool<3, 64, 128> pools_3bit_;
+  impl::MultiPool<4, 128, 512> pools_4bit_;
+  impl::MultiPool<5, 512, 1024> pools_5bit_;
+  MemoryResource *unpooled_memory_;
 };
 
 class MemoryTrackingResource final : public utils::MemoryResource {

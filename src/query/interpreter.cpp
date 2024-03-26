@@ -39,6 +39,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "flags/experimental.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -246,27 +247,6 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-bool IsAllShortestPathsQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  for (const auto &clause : clauses) {
-    if (clause->GetTypeInfo() != Match::kType) {
-      continue;
-    }
-    auto *match_clause = utils::Downcast<Match>(clause);
-    for (const auto &pattern : match_clause->patterns_) {
-      for (const auto &atom : pattern->atoms_) {
-        if (atom->GetTypeInfo() != EdgeAtom::kType) {
-          continue;
-        }
-        auto *edge_atom = utils::Downcast<EdgeAtom>(atom);
-        if (edge_atom->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
-}
-
 inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
@@ -348,15 +328,14 @@ class ReplQueryHandler {
 
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
-    const auto maybe_ip_and_port =
+    auto maybe_endpoint =
         io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_ip_and_port) {
-      const auto [ip, port] = *maybe_ip_and_port;
+    if (maybe_endpoint) {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = std::string(ip),
-                                               .port = port,
+                                               .ip_address = std::move(maybe_endpoint->address),
+                                               .port = maybe_endpoint->port,
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
@@ -428,44 +407,51 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't register instance as cluster didn't accept entering unregistration state!");
       case SUCCESS:
         break;
     }
   }
 
-  void RegisterReplicationInstance(std::string_view coordinator_socket_address,
-                                   std::string_view replication_socket_address,
+  void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                   std::string_view replication_server,
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
                                    std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    const auto maybe_replication_ip_port = io::network::Endpoint::ParseSocketOrAddress(replication_socket_address);
-    if (!maybe_replication_ip_port) {
+    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    if (!maybe_bolt_server) {
+      throw QueryRuntimeException("Invalid bolt socket address!");
+    }
+
+    auto const maybe_management_server = io::network::Endpoint::ParseSocketOrAddress(management_server);
+    if (!maybe_management_server) {
+      throw QueryRuntimeException("Invalid management socket address!");
+    }
+
+    auto const maybe_replication_server = io::network::Endpoint::ParseSocketOrAddress(replication_server);
+    if (!maybe_replication_server) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
 
-    const auto maybe_coordinator_ip_port = io::network::Endpoint::ParseSocketOrAddress(coordinator_socket_address);
-    if (!maybe_replication_ip_port) {
-      throw QueryRuntimeException("Invalid replication socket address!");
-    }
-
-    const auto [replication_ip, replication_port] = *maybe_replication_ip_port;
-    const auto [coordinator_server_ip, coordinator_server_port] = *maybe_coordinator_ip_port;
-    const auto repl_config = coordination::CoordinatorClientConfig::ReplicationClientInfo{
-        .instance_name = std::string(instance_name),
-        .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
-        .replication_ip_address = std::string(replication_ip),
-        .replication_port = replication_port};
+    auto const repl_config =
+        coordination::ReplicationClientInfo{.instance_name = std::string(instance_name),
+                                            .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
+                                            .replication_server = *maybe_replication_server};
 
     auto coordinator_client_config =
-        coordination::CoordinatorClientConfig{.instance_name = std::string(instance_name),
-                                              .ip_address = std::string(coordinator_server_ip),
-                                              .port = coordinator_server_port,
-                                              .instance_health_check_frequency_sec = instance_check_frequency,
-                                              .instance_down_timeout_sec = instance_down_timeout,
-                                              .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                              .replication_client_info = repl_config,
-                                              .ssl = std::nullopt};
+        coordination::CoordinatorToReplicaConfig{.instance_name = std::string(instance_name),
+                                                 .mgt_server = *maybe_management_server,
+                                                 .bolt_server = *maybe_bolt_server,
+                                                 .replication_client_info = repl_config,
+                                                 .instance_health_check_frequency_sec = instance_check_frequency,
+                                                 .instance_down_timeout_sec = instance_down_timeout,
+                                                 .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
+                                                 .ssl = std::nullopt};
 
     auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
@@ -488,20 +474,36 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because cluster didn't accept registration query!");
       case SUCCESS:
         break;
     }
   }
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view raft_socket_address) -> void override {
-    auto const maybe_ip_and_port = io::network::Endpoint::ParseSocketOrAddress(raft_socket_address);
-    if (maybe_ip_and_port) {
-      auto const [ip, port] = *maybe_ip_and_port;
-      spdlog::info("Adding instance {} with raft socket address {}:{}.", raft_server_id, ip, port);
-      coordinator_handler_.AddCoordinatorInstance(raft_server_id, port, ip);
-    } else {
-      spdlog::error("Invalid raft socket address {}.", raft_socket_address);
+  auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
+                              std::string_view coordinator_server) -> void override {
+    auto const maybe_coordinator_server = io::network::Endpoint::ParseSocketOrAddress(coordinator_server);
+    if (!maybe_coordinator_server) {
+      throw QueryRuntimeException("Invalid coordinator socket address!");
     }
+
+    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    if (!maybe_bolt_server) {
+      throw QueryRuntimeException("Invalid bolt socket address!");
+    }
+
+    auto const coord_coord_config =
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
+                                                     .bolt_server = *maybe_bolt_server,
+                                                     .coordinator_server = *maybe_coordinator_server};
+
+    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 
   void SetReplicationInstanceToMain(std::string_view instance_name) override {
@@ -523,6 +525,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case SWAP_UUID_FAILED:
         throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
+      case OPEN_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't set replica instance to main as cluster didn't accept setting instance state.");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case ENABLE_WRITING_FAILED:
+        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case SUCCESS:
         break;
     }
@@ -538,7 +548,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 /// returns false if the replication role can't be set
-/// @throw QueryRuntimeException if an error ocurred.
+/// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          Interpreter &interpreter) {
@@ -951,10 +961,10 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator can't set roles!");
       }
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't set role manually on instance with coordinator server port.");
       }
 #endif
@@ -981,7 +991,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator doesn't have a replication role!");
       }
 #endif
@@ -1002,7 +1012,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't register replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1023,7 +1033,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port) {
+      if (FLAGS_management_port) {
         throw QueryRuntimeException("Can't drop replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1038,7 +1048,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_raft_server_id) {
+      if (FLAGS_coordinator_id) {
         throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW INSTANCES instead.");
       }
 #endif
@@ -1185,7 +1195,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
       }
 
@@ -1217,8 +1227,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
+                     bolt_server = bolt_server_it->second,
                      coordinator_server = coordinator_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, coordinator_server);
+        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1228,7 +1239,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1263,15 +1274,15 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
-                     management_server = management_server_it->second,
-                     replication_server = replication_server_it->second, bolt_server = bolt_server_it->second,
+                     bolt_server = bolt_server_it->second, management_server = management_server_it->second,
+                     replication_server = replication_server_it->second,
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
                      instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(management_server, replication_server, instance_health_check_frequency_sec,
-                                            instance_down_timeout_sec, instance_get_uuid_frequency_sec, instance_name,
-                                            sync_mode);
+        handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
+                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
+                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1281,7 +1292,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
@@ -1296,7 +1307,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
 
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1313,7 +1324,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::SHOW_INSTANCES: {
-      if (!FLAGS_raft_server_id) {
+      if (!FLAGS_coordinator_id) {
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
@@ -1733,8 +1744,7 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, bool use_monotonic_memory = true,
-                    FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1759,26 +1769,17 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
-
-  // In the case of LOAD CSV, we want to use only PoolResource without MonotonicMemoryResource
-  // to reuse allocated memory. As LOAD CSV is processing row by row
-  // it is possible to reduce memory usage significantly if MemoryResource deals with memory allocation
-  // can reuse memory that was allocated on processing the first row on all subsequent rows.
-  // This flag signals to `PullPlan::Pull` which MemoryResource to use
-  bool use_monotonic_memory_;
 };
 
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, bool use_monotonic_memory,
-                   FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit),
-      use_monotonic_memory_(use_monotonic_memory) {
+      memory_limit_(memory_limit) {
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -1804,6 +1805,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.is_profile_query = is_profile_query;
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
+  ctx_.evaluation_context.memory = execution_memory;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -1827,43 +1829,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
         }
       }};
 
-  // Set up temporary memory for a single Pull. Initial memory comes from the
-  // stack. 256 KiB should fit on the stack and should be more than enough for a
-  // single `Pull`.
-  static constexpr size_t stack_size = 256UL * 1024UL;
-  char stack_data[stack_size];
-
-  utils::ResourceWithOutOfMemoryException resource_with_exception;
-  utils::MonotonicBufferResource monotonic_memory{&stack_data[0], stack_size, &resource_with_exception};
-  std::optional<utils::PoolResource> pool_memory;
-  static constexpr auto kMaxBlockPerChunks = 128;
-
-  if (!use_monotonic_memory_) {
-    pool_memory.emplace(kMaxBlockPerChunks, kExecutionPoolMaxBlockSize, &resource_with_exception,
-                        &resource_with_exception);
-  } else {
-    // We can throw on every query because a simple queries for deleting will use only
-    // the stack allocated buffer.
-    // Also, we want to throw only when the query engine requests more memory and not the storage
-    // so we add the exception to the allocator.
-    // TODO (mferencevic): Tune the parameters accordingly.
-    pool_memory.emplace(kMaxBlockPerChunks, 1024, &monotonic_memory, &resource_with_exception);
-  }
-
-  ctx_.evaluation_context.memory = &*pool_memory;
-
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
 
-  const auto stream_values = [&]() {
-    // TODO: The streamed values should also probably use the above memory.
-    std::vector<TypedValue> values;
-    values.reserve(output_symbols.size());
-
-    for (const auto &symbol : output_symbols) {
-      values.emplace_back(frame_[symbol]);
+  auto values = std::vector<TypedValue>(output_symbols.size());
+  const auto stream_values = [&] {
+    for (auto const i : ranges::views::iota(0UL, output_symbols.size())) {
+      values[i] = frame_[output_symbols[i]];
     }
-
     stream->Result(values);
   };
 
@@ -1973,7 +1946,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
-    ResetInterpreter();
     // TODO: Evaluate doing move(extras). Currently the extras is very small, but this will be important if it ever
     // becomes large.
     handler = [this, extras = extras] {
@@ -2051,30 +2023,6 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-bool IsLoadCsvQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  return std::any_of(clauses.begin(), clauses.end(),
-                     [](memgraph::query::Clause const *clause) { return clause->GetTypeInfo() == LoadCsv::kType; });
-}
-
-bool IsCallBatchedProcedureQuery(const std::vector<memgraph::query::Clause *> &clauses) {
-  EvaluationContext evaluation_context;
-
-  return std::ranges::any_of(clauses, [&evaluation_context](memgraph::query::Clause *clause) -> bool {
-    if (!(clause->GetTypeInfo() == CallProcedure::kType)) return false;
-    auto *call_procedure_clause = utils::Downcast<CallProcedure>(clause);
-
-    const auto &maybe_found = memgraph::query::procedure::FindProcedure(
-        procedure::gModuleRegistry, call_procedure_clause->procedure_name_, evaluation_context.memory);
-    if (!maybe_found) {
-      throw QueryRuntimeException("There is no procedure named '{}'.", call_procedure_clause->procedure_name_);
-    }
-    const auto &[module, proc] = *maybe_found;
-    if (!proc->info.is_batched) return false;
-    spdlog::trace("Using PoolResource for batched query procedure");
-    return true;
-  });
-}
-
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -2094,7 +2042,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
   auto clauses = cypher_query->single_query_->clauses_;
-  bool contains_csv = false;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
@@ -2102,12 +2049,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
-    contains_csv = true;
   }
-
-  // If this is LOAD CSV query, use PoolResource without MonotonicMemoryResource as we want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Cypher query expects a current DB transaction");
   auto *dba =
@@ -2147,7 +2089,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
-      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit, use_monotonic_memory,
+      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -2261,18 +2203,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
 
-  bool contains_csv = false;
-  auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(clauses.begin(), clauses.end(),
-                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
-    contains_csv = true;
-  }
-
-  // If this is LOAD CSV, BatchedProcedure or AllShortest query, use PoolResource without MonotonicMemoryResource as we
-  // want to reuse allocated memory
-  auto use_monotonic_memory =
-      !contains_csv && !IsCallBatchedProcedureQuery(clauses) && !IsAllShortestPathsQuery(clauses);
-
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in PROFILE");
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
@@ -2306,14 +2236,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // We want to execute the query we are profiling lazily, so we delay
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, use_monotonic_memory,
-       frame_change_collector, tx_timer = std::move(tx_timer)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
+       tx_timer = std::move(tx_timer)](AnyStream *stream,
+                                       std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-                       transaction_status, std::move(tx_timer), nullptr, memory_limit, use_monotonic_memory,
+                       transaction_status, std::move(tx_timer), nullptr, memory_limit,
                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
@@ -2807,6 +2737,75 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
         handler(index_notification);
         notifications->push_back(index_notification);
         return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
+PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                    std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  // TODO: we will need transaction for replication
+  MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  // Creating an index influences computed plan costs.
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel(text_index_query->label_.name);
+  auto &index_name = text_index_query->index_name_;
+
+  Notification index_notification(SeverityLevel::INFO);
+  switch (text_index_query->action_) {
+    case TextIndexQuery::Action::CREATE: {
+      index_notification.code = NotificationCode::CREATE_INDEX;
+      index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, index_name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+          throw TextSearchDisabledException();
+        }
+        dba->CreateTextIndex(index_name, label);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+      };
+      break;
+    }
+    case TextIndexQuery::Action::DROP: {
+      index_notification.code = NotificationCode::DROP_INDEX;
+      index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, index_name,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+          throw TextSearchDisabledException();
+        }
+        dba->DropTextIndex(index_name);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
       },
       RWType::W};
 }
@@ -3601,7 +3600,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   }
 
   MG_ASSERT(current_db.db_acc_, "Database info query expects a current DB");
-  MG_ASSERT(current_db.db_transactional_accessor_, "Database ifo query expects a current DB transaction");
+  MG_ASSERT(current_db.db_transactional_accessor_, "Database info query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
@@ -3616,10 +3615,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
+        const std::string_view text_index_mark{"text"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.label.size() + info.label_property.size());
+        results.reserve(info.label.size() + info.label_property.size() + info.text_indices.size());
         for (const auto &item : info.label) {
           results.push_back({TypedValue(label_index_mark), TypedValue(storage->LabelToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
@@ -3633,6 +3633,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+        }
+        for (const auto &[index_name, label] : info.text_indices) {
+          results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+                             TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
         }
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
@@ -4276,6 +4280,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
+  ResetInterpreter();
   const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
   prepared_query.query_handler(nullptr, {});
 }
@@ -4291,6 +4296,28 @@ void Interpreter::RollbackTransaction() {
   prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
+
+#ifdef MG_ENTERPRISE
+auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
+  // TODO: (andi) Test
+  if (!FLAGS_coordinator_id) {
+    auto const &address = routing.find("address");
+    if (address == routing.end()) {
+      throw QueryException("Routing table must contain address field.");
+    }
+
+    auto result = RouteResult{};
+    if (interpreter_context_->repl_state->IsMain()) {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "WRITE");
+    } else {
+      result.servers.emplace_back(std::vector<std::string>{address->second}, "READ");
+    }
+    return result;
+  }
+
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+}
+#endif
 
 #if MG_ENTERPRISE
 // Before Prepare or during Prepare, but single-threaded.
@@ -4310,12 +4337,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    auto resource = utils::MonotonicBufferResource(kExecutionMemoryBlockSize);
-    auto prepared_query = PrepareTransactionQuery(trimmed_query, extras);
-    auto &query_execution =
-        query_executions_.emplace_back(QueryExecution::Create(std::move(resource), std::move(prepared_query)));
-    std::optional<int> qid =
-        in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
+    if (trimmed_query == "BEGIN") {
+      ResetInterpreter();
+    }
+    auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
+    query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
+    auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
 
@@ -4345,35 +4372,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
 
-    CypherQuery const *const cypher_query = [&]() -> CypherQuery * {
-      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
-        return cypher_query;
-      }
-      if (auto *profile_query = utils::Downcast<ProfileQuery>(parsed_query.query)) {
-        return profile_query->cypher_query_;
-      }
-      return nullptr;
-    }();  // IILE
-
-    auto const [usePool, hasAllShortestPaths] = [&]() -> std::pair<bool, bool> {
-      if (!cypher_query) {
-        return {false, false};
-      }
-      auto const &clauses = cypher_query->single_query_->clauses_;
-      bool hasAllShortestPaths = IsAllShortestPathsQuery(clauses);
-      // Using PoolResource without MonotonicMemoryResouce for LOAD CSV reduces memory usage.
-      bool usePool = hasAllShortestPaths || IsCallBatchedProcedureQuery(clauses) || IsLoadCsvQuery(clauses);
-      return {usePool, hasAllShortestPaths};
-    }();  // IILE
-
     // Setup QueryExecution
-    // its MemoryResource is mostly used for allocations done on Frame and storing `row`s
-    if (usePool) {
-      query_executions_.emplace_back(QueryExecution::Create(utils::PoolResource(128, kExecutionPoolMaxBlockSize)));
-    } else {
-      query_executions_.emplace_back(QueryExecution::Create(utils::MonotonicBufferResource(kExecutionMemoryBlockSize)));
-    }
-
+    query_executions_.emplace_back(QueryExecution::Create());
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
 
@@ -4421,20 +4421,22 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
       bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_raft_server_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
+    if (FLAGS_coordinator_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
         !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
@@ -4442,9 +4444,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     utils::Timer planning_timer;
     PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource =
-        std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
-                   query_execution->execution_memory);
+    utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
@@ -4455,10 +4455,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, current_db_,
-                                           &query_execution->execution_memory_with_exception, user_or_role_,
-                                           &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                              &query_execution->notifications, interpreter_context_, current_db_, memory_resource,
+                              user_or_role_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
@@ -4466,6 +4466,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                          &query_execution->notifications, current_db_);
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                             &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -4564,7 +4567,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw QueryException("Write query forbidden on the replica!");
       }
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_server_port && !interpreter_context_->repl_state->IsMainWriteable()) {
+      if (FLAGS_management_port && !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
         throw QueryException(
             "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
@@ -4660,7 +4663,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                             std::atomic<TransactionStatus> *transaction_status) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
-    utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+    QueryAllocator execution_memory{};
 
     // create a new transaction for each trigger
     auto tx_acc = db_acc->Access();
@@ -4671,7 +4674,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, &execution_memory, flags::run_time::GetExecutionTimeout(),
+      trigger.Execute(&db_accessor, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
@@ -4825,11 +4828,12 @@ void Interpreter::Commit() {
   if (trigger_context) {
     // Run the triggers
     for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
-      utils::MonotonicBufferResource execution_memory{kExecutionMemoryBlockSize};
+      QueryAllocator execution_memory{};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, &execution_memory, flags::run_time::GetExecutionTimeout(),
-                        &interpreter_context_->is_shutting_down, &transaction_status_, *trigger_context);
+        trigger.Execute(&*current_db_.execution_db_accessor_, execution_memory.resource(),
+                        flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
+                        &transaction_status_, *trigger_context);
       } catch (const utils::BasicException &e) {
         throw utils::BasicException(
             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
