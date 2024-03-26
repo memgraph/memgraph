@@ -2692,15 +2692,15 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<RollUpApply>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->list_collection_branch_ = list_collection_branch_ ? list_collection_branch_->Clone(storage) : nullptr;
-    object->list_collection_symbols_ = list_collection_symbols_;
+    object->list_collection_symbol_ = list_collection_symbol_;
     object->result_symbol_ = result_symbol_;
     return object;
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
-  std::vector<Symbol> list_collection_symbols_;
   Symbol result_symbol_;
+  Symbol list_collection_symbol_;
 };
 
 }  // namespace plan

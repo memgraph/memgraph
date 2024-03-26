@@ -5774,10 +5774,14 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
 RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
                          std::shared_ptr<LogicalOperator> &&list_collection_branch,
                          const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
-    : input_(input),
-      list_collection_branch_(list_collection_branch),
-      list_collection_symbols_(list_collection_symbols),
-      result_symbol_(std::move(result_symbol)) {}
+    : input_(std::move(input)),
+      list_collection_branch_(std::move(list_collection_branch)),
+      result_symbol_(std::move(result_symbol)) {
+  if (list_collection_symbols.size() != 1) {
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Contact support.");
+  }
+  list_collection_symbol_ = list_collection_symbols[0];
+}
 
 std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
@@ -5805,30 +5809,25 @@ class RollUpApplyCursor : public Cursor {
         list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem)) {
     MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
     MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
-    MG_ASSERT(self_.list_collection_symbols_.size() == 1U, "Expected a single list collection symbol.");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    auto clear_frame_change_collector = [&context](const auto &symbols) {
-      for (const auto &symbol : symbols) {
-        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
-          context.frame_change_collector->ResetTrackingValue(symbol.name());
-        }
-      }
-    };
-
     TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
     if (input_cursor_->Pull(frame, context)) {
       while (list_collection_cursor_->Pull(frame, context)) {
         // collect values from the list collection branch
-        for (const auto &output_symbol : self_.list_collection_symbols_) {
-          result.ValueList().emplace_back(frame[output_symbol]);
-        }
+        result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
       }
-      clear_frame_change_collector(self_.list_collection_symbols_);
+
+      // Clear frame change collector
+      if (context.frame_change_collector &&
+          context.frame_change_collector->IsKeyTracked(self_.list_collection_symbol_.name())) {
+        context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_.name());
+      }
+
       frame[self_.result_symbol_] = result;
       // After a successful input from the list_collection_cursor_
       // reset state of cursor because it has to a Once at the beginning
