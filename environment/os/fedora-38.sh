@@ -45,7 +45,7 @@ MEMGRAPH_BUILD_DEPS=(
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
-    openssl-devel
+    openssl-devel openssl
     libseccomp-devel
     python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-pyyaml nmap-ncat # for tests
     libcurl-devel # mg-requests
