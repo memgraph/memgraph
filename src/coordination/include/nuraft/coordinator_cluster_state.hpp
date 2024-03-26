@@ -43,8 +43,11 @@ struct ReplicationInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
+  bool needs_demote{false};
+
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
-    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid;
+    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid &&
+           lhs.needs_demote == rhs.needs_demote;
   }
 };
 
@@ -61,8 +64,8 @@ struct CoordinatorInstanceState {
 void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
 
-using TRaftLog = std::variant<CoordinatorToReplicaConfig, std::string, utils::UUID, CoordinatorToCoordinatorConfig,
-                              InstanceUUIDUpdate>;
+using TRaftLog = std::variant<std::string, utils::UUID, CoordinatorToReplicaConfig, CoordinatorToCoordinatorConfig,
+                              InstanceUUIDUpdate, std::monostate>;
 
 using nuraft::buffer;
 using nuraft::buffer_serializer;
