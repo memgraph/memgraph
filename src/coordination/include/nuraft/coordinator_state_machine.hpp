@@ -43,10 +43,8 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeOpenLockRegister(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
-  static auto SerializeOpenLockUnregister(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeOpenLockSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeOpenLockFailover(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeOpenLock() -> ptr<buffer>;
+  static auto SerializeCloseLock() -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
   static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
@@ -54,7 +52,7 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
   static auto SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
-  static auto SerializeOpenLockSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 

@@ -60,25 +60,16 @@ void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.Run(
-      config_.instance_name, config_.instance_health_check_frequency_sec,
-      [this, instance_name = config_.instance_name] {
-        try {
-          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
-                        config_.CoordinatorSocketAddress());
-          {  // NOTE: This is intentionally scoped so that stream lock could get released.
-            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-            stream.AwaitResponse();
-          }
-          // Subtle race condition:
-          // acquiring of lock needs to happen before function call, as function callback can be changed
-          // for instance after lock is already acquired
-          // (failover case when instance is promoted to MAIN)
-          succ_cb_(coord_instance_, instance_name);
-        } catch (rpc::RpcFailedException const &) {
-          fail_cb_(coord_instance_, instance_name);
-        }
-      });
+  instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
+                        [this, instance_name = config_.instance_name] {
+                          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
+                                        config_.CoordinatorSocketAddress());
+                          if (SendFrequentHeartbeat()) {
+                            succ_cb_(coord_instance_, instance_name);
+                            return;
+                          }
+                          fail_cb_(coord_instance_, instance_name);
+                        });
 }
 
 void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
@@ -118,6 +109,16 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
     spdlog::error("Failed to set instance {} to replica!", instance_name);
   }
   return false;
+}
+
+auto CoordinatorClient::SendFrequentHeartbeat() const -> bool {
+  try {
+    auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+    stream.AwaitResponse();
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    return false;
+  }
 }
 
 auto CoordinatorClient::SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool {
