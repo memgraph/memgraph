@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <thread>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"

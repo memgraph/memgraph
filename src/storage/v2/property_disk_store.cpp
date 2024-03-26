@@ -13,8 +13,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 #include <rocksdb/cache.h>
 #include <rocksdb/comparator.h>
@@ -47,14 +49,13 @@ std::string PDS::ToKey(Gid gid, PropertyId pid) {
 
 std::string PDS::ToKey2(Gid gid, PropertyId pid) {
   std::string key(16, '\0');
-  key[0] = 1;
-  key[1] = 1;
-  key[2] = 1;
-  key[3] = 1;
-  *(uint32_t *)&key[4] = *reinterpret_cast<uint32_t *>(&pid);
+  // key[0] = 1;
+  // key[1] = 1;
+  // key[2] = 1;
+  // key[3] = 1;
+  // *(uint32_t *)&key[4] = *reinterpret_cast<uint32_t *>(&pid);
+  *(uint64_t *)key.data() = pid.AsUint() + (0xFFFFFFFFUL << 32U);
   *(uint64_t *)&key[8] = *reinterpret_cast<uint64_t *>(&gid);
-  // memcpy(&key[4], &pid, sizeof(pid));
-  // memcpy(&key[8], &gid, sizeof(gid));
   return key;
 }
 
@@ -62,19 +63,18 @@ std::string PDS::Key2Key2(std::string_view key) { return ToKey2(ToGid(key), ToPi
 
 std::string PDS::ToPrefix(Gid gid) {
   std::string key(sizeof(gid), '\0');
-  *(uint64_t *)&key[0] = *reinterpret_cast<uint64_t *>(&gid);
-  // memcpy(key.data(), &gid, sizeof(gid));a_pid < b_pid
+  *(uint64_t *)key.data() = *reinterpret_cast<uint64_t *>(&gid);
   return key;
 }
 
 std::string PDS::ToPrefix2(PropertyId pid) {
   std::string key(8, '\0');
-  key[0] = 1;
-  key[1] = 1;
-  key[2] = 1;
-  key[3] = 1;
-  // memcpy(&key[4], &pid, sizeof(pid));
-  *(uint32_t *)&key[4] = *reinterpret_cast<uint32_t *>(&pid);
+  // key[0] = 1;
+  // key[1] = 1;
+  // key[2] = 1;
+  // key[3] = 1;
+  // *(uint32_t *)&key[4] = *reinterpret_cast<uint32_t *>(&pid);
+  *(uint64_t *)key.data() = pid.AsUint() + (0xFFFFFFFFUL << 32U);
   return key;
 }
 
@@ -92,6 +92,12 @@ PropertyId PDS::ToPid(std::string_view sv) {
   // memcpy(&pid, &sv[8], sizeof(pid));
   return PropertyId::FromUint(*(uint32_t *)&sv[8]);
 }
+
+// TODO: Move to PDS
+PropertyId ToPid2(auto sv) {
+  // return PropertyId::FromUint(*(uint32_t *)&sv[4]);
+  return PropertyId::FromUint(uint32_t(*(uint64_t *)sv.data() & 0xFFFFFFFFUL));
+};
 
 std::string PDS::ToStr(const PropertyValue &pv) {
   std::string val{};
@@ -141,8 +147,8 @@ std::optional<PropertyValue> PDS::Get(Gid gid, PropertyId pid, PdsItr *itr) {
     // std::cout << "clean" << std::endl;
     delete itr->itr_;
     itr->itr_ = nullptr;
-    itr->gid_ = Gid::FromUint(0);
-    itr->pid_ = PropertyId::FromUint(0);
+    itr->gid_ = Gid::FromInt(-1);
+    itr->pid_ = PropertyId::FromInt(-1);
   };
 
   auto get_itr = [&]() {
@@ -188,52 +194,47 @@ std::optional<PropertyValue> PDS::Get(Gid gid, PropertyId pid, PdsItr *itr) {
   }
 
   // HACK to get iterator if at the beginning, not necessarily true.
-  if (gid.AsUint() > 10) {
-    // std::cout << "get" << std::endl;
-    clean();
-    auto res = kvstore_.Get(ToKey2(gid, pid));
-    if (res) {
-      itr->pid_ = pid;
-      itr->gid_ = gid;
-      itr->pv_ = ToPV(*res);
-      // std::cout << "val " << __LINE__ << std::endl;
-      return itr->pv_;
+  if (gid.AsUint() < 10) {
+    get_itr();
+    if (itr->itr_) {
+      while (itr->gid_ < gid) {
+        // std::cout << "next2" << std::endl;
+        itr->itr_->Next();
+        if (!itr->itr_->Valid()) {
+          clean();
+          break;
+          // // std::cout << "nullopt " << __LINE__ << std::endl;
+          // return {};
+        }
+        itr->gid_ = ToGid2(itr->itr_->key().ToStringView());
+        // std::cout << "gid: " << gid_.AsUint() << std::endl;
+      }
+      if (itr->gid_ == gid) {
+        if (itr->itr_ && itr->itr_->Valid()) {
+          itr->pv_ = ToPV(itr->itr_->value().ToStringView());
+          // std::cout << "val " << __LINE__ << std::endl;
+          return itr->pv_;
+        }
+        // clean();
+        // // std::cout << "nullopt " << __LINE__ << std::endl;
+        // return {};
+      }
     }
-    // std::cout << "nullopt " << __LINE__ << std::endl;
-    return {};
   }
 
-  get_itr();
-  if (!itr->itr_) {
-    clean();
-    // std::cout << "nullopt " << __LINE__ << std::endl;
-    return {};
-  }
-  while (itr->gid_ < gid) {
-    // std::cout << "next2" << std::endl;
-    itr->itr_->Next();
-    if (!itr->itr_->Valid()) {
-      clean();
-      // std::cout << "nullopt " << __LINE__ << std::endl;
-      return {};
-    }
-    itr->gid_ = ToGid2(itr->itr_->key().ToStringView());
-    // std::cout << "gid: " << gid_.AsUint() << std::endl;
-  }
-  if (itr->gid_ == gid) {
-    if (itr->itr_ && itr->itr_->Valid()) {
-      itr->pv_ = ToPV(itr->itr_->value().ToStringView());
-      // std::cout << "val " << __LINE__ << std::endl;
-      return itr->pv_;
-    }
-    clean();
-    // std::cout << "nullopt " << __LINE__ << std::endl;
-    return {};
-  }
-
+  // Fall back on point search
+  // std::cout << "get" << std::endl;
   clean();
+  auto res = kvstore_.Get(ToKey2(gid, pid));
+  if (res) {
+    itr->pid_ = pid;
+    itr->gid_ = gid;
+    itr->pv_ = ToPV(*res);
+    // std::cout << "val " << __LINE__ << std::endl;
+    return itr->pv_;
+  }
   // std::cout << "nullopt " << __LINE__ << std::endl;
-  return std::nullopt;
+  return {};
 }
 
 size_t PDS::GetSize(Gid gid, PropertyId pid, PdsItr * /*itr*/) {
@@ -245,7 +246,7 @@ size_t PDS::GetSize(Gid gid, PropertyId pid, PdsItr * /*itr*/) {
 }
 
 std::map<PropertyId, PropertyValue> PDS::Get(Gid gid, PdsItr * /*itr*/) {
-  std::map<PropertyId, PropertyValue> res;
+  std::map<PropertyId, PropertyValue> res{};
   const auto prf = ToPrefix(gid);
   auto itr = kvstore_.begin(prf, r_options);
   auto end = kvstore_.end(prf, r_options);
@@ -280,7 +281,7 @@ void PDS::Clear(Gid gid, PdsItr * /*itr*/) {
   kvstore_.DeleteMultiple(keys2, w_options);
 }
 
-bool PDS::Has(Gid gid, PropertyId pid, PdsItr * /*itr*/) { return kvstore_.Size(ToKey(gid, pid), r_options) != 0; }
+bool PDS::Has(Gid gid, PropertyId pid, PdsItr * /*itr*/) { return Get(gid, pid) != std::nullopt; }
 
 class PdsKeyComparator : public ::rocksdb::Comparator {
  public:
@@ -295,18 +296,15 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
   int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
     // Very specialized to the keys we currently have
 
-    // TODO: Move to PDS
-    auto ToPid2 = [](auto sv) { return PropertyId::FromUint(*(uint32_t *)&sv[4]); };
-
     if (a.size() == b.size()) {
       if (a.size() == 12) {  // Key1
 
-        const auto a_gid = PDS::ToGid(a.ToStringView());  //*(uint64_t *)a.data();
-        const auto b_gid = PDS::ToGid(b.ToStringView());  //*(uint64_t *)b.data();
+        const auto a_gid = PDS::ToGid(a.ToStringView());
+        const auto b_gid = PDS::ToGid(b.ToStringView());
         if (a_gid == b_gid) {
           // Same Gid, check Pid
-          const auto a_pid = PDS::ToPid(a.ToStringView());  //*(uint32_t *)&a.data()[8];
-          const auto b_pid = PDS::ToPid(b.ToStringView());  //*(uint32_t *)&b.data()[8];
+          const auto a_pid = PDS::ToPid(a.ToStringView());
+          const auto b_pid = PDS::ToPid(b.ToStringView());
           return int(a_pid != b_pid) * (1 - 2 * int(a_pid < b_pid));
           // if (a_pid == b_pid) return 0;
           // return a_pid < b_pid ? -1 : 1;
@@ -315,13 +313,13 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
         return (1 - 2 * int(a_gid < b_gid));
         // return a_gid < b_gid ? -1 : 1;
       }
-      if (a.size() == 16) {                           // Key2
-        const auto a_pid = ToPid2(a.ToStringView());  //*(uint64_t *)a.data();
-        const auto b_pid = ToPid2(b.ToStringView());  //*(uint64_t *)b.data();
+      if (a.size() == 16) {  // Key2
+        const auto a_pid = ToPid2(a.ToStringView());
+        const auto b_pid = ToPid2(b.ToStringView());
         if (a_pid == b_pid) {
           // Same Pid, check Gid
-          const auto a_gid = PDS::ToGid2(a.ToStringView());  //*(uint64_t *)&a.data()[8];
-          const auto b_gid = PDS::ToGid2(b.ToStringView());  //*(uint64_t *)&b.data()[8];
+          const auto a_gid = PDS::ToGid2(a.ToStringView());
+          const auto b_gid = PDS::ToGid2(b.ToStringView());
           return int(a_gid != b_gid) * (1 - 2 * int(a_gid < b_gid));
           // if (a_gid == b_gid) return 0;
           // return a_gid < b_gid ? -1 : 1;

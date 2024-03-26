@@ -30,6 +30,7 @@ class PdsTest : public ::testing::Test {
   PdsTest() { memgraph::storage::PDS::Init(test_root); }
 
   ~PdsTest() override {
+    memgraph::storage::PDS::Deinit();
     try {
       if (std::filesystem::exists(test_root)) {
         std::filesystem::remove_all(test_root);

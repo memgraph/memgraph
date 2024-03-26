@@ -77,7 +77,7 @@ struct Edge {
 
   Delta *delta;
 
-  Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (1 << 31)); }
+  Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (3UL << 62U)); }
 
   PropertyValue GetProperty(PropertyId property, PdsItr *itr = nullptr) const {
     if (!has_prop) return {};
@@ -87,7 +87,7 @@ struct Edge {
   }
 
   bool SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) {
-    if (!has_prop) return {};
+    has_prop = true;
     return PDS::get()->Set(HotFixForGID(), property, value, itr);
   }
 
