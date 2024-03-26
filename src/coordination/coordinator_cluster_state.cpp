@@ -51,8 +51,8 @@ CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, Replicati
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig const &config) {
   auto c2c_config = CoordinatorToCoordinatorConfig{
       .coordinator_id = config.coordinator_id,
-      .bolt_server = io::network::Endpoint{"127.0.0.1", static_cast<uint16_t>(config.bolt_port)},
-      .coordinator_server = io::network::Endpoint{"127.0.0.1", static_cast<uint16_t>(config.coordinator_port)}};
+      .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.bolt_port)},
+      .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
   coordinators_.emplace_back(CoordinatorInstanceState{.config = std::move(c2c_config)});
 }
 

@@ -371,11 +371,6 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_replicas);
 
-  if (!raft_state_.RequestLeadership()) {
-    spdlog::error("Failover failed since the instance is not the leader!");
-    return;
-  }
-
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
     return;

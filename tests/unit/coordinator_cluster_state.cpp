@@ -180,8 +180,10 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   cluster_state.DoAction(InstanceUUIDUpdate{.instance_name = "instance3", .uuid = UUID{}},
                          RaftLogAction::SET_INSTANCE_AS_MAIN);
   cluster_state.DoAction("instance3", RaftLogAction::SET_INSTANCE_AS_REPLICA);
-  cluster_state.DoAction(InstanceUUIDUpdate{.instance_name = "instance2", .uuid = UUID{}},
+  auto const new_main_uuid = UUID{};
+  cluster_state.DoAction(InstanceUUIDUpdate{.instance_name = "instance2", .uuid = new_main_uuid},
                          RaftLogAction::SET_INSTANCE_AS_MAIN);
+  cluster_state.DoAction(new_main_uuid, RaftLogAction::UPDATE_UUID_OF_NEW_MAIN);
   auto const repl_instances = cluster_state.GetReplicationInstances();
   ASSERT_EQ(repl_instances.size(), 2);
   ASSERT_EQ(repl_instances[0].status, ReplicationRole::MAIN);
@@ -191,6 +193,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   ASSERT_FALSE(cluster_state.HasMainState("instance3"));
   ASSERT_TRUE(cluster_state.HasReplicaState("instance3"));
   ASSERT_FALSE(cluster_state.HasReplicaState("instance2"));
+  ASSERT_TRUE(cluster_state.IsCurrentMain("instance2"));
 }
 
 TEST_F(CoordinatorClusterStateTest, UpdateUUID) {
