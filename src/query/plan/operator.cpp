@@ -5771,13 +5771,13 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
-RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &&input,
+RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
                          std::shared_ptr<LogicalOperator> &&list_collection_branch,
                          const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
     : input_(input),
       list_collection_branch_(list_collection_branch),
       list_collection_symbols_(list_collection_symbols),
-      result_symbol_(result_symbol) {}
+      result_symbol_(std::move(result_symbol)) {}
 
 std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);

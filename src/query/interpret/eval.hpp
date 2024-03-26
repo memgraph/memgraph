@@ -1106,7 +1106,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(PatternComprehension &pattern_comprehension) override {
-    TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
     if (!frame_pattern_comprehension_value.IsList()) [[unlikely]] {
       throw QueryRuntimeException(
           "Unexpected behavior: Pattern Comprehension expected a list, got {}. Please report the problem on GitHub "

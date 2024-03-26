@@ -2677,7 +2677,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   RollUpApply() = default;
-  RollUpApply(const std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
+  RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
               const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol);
 
   bool HasSingleInput() const override { return false; }
