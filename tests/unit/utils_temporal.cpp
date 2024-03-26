@@ -199,17 +199,17 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
 
       EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
-                local_date_time.MicrosecondsSinceEpoch() +
+                local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
   };
 
   check_conversion(timezone_offsets);
 
-  constexpr std::array named_timezones{
+  const std::array named_timezones{
       std::make_pair("GMT", std::chrono::minutes{0}),
-      std::make_pair("Europe/Zagreb", std::chrono::minutes{60}),  // local_date_time (March 22) is outside of DST
-      std::make_pair("America/Los_Angeles", std::chrono::minutes{-420}),  // local_date_time (March 22) is in DST
+      std::make_pair("Europe/Zagreb", std::chrono::minutes{60}),          // local_date_time in standard time
+      std::make_pair("America/Los_Angeles", std::chrono::minutes{-420}),  // local_date_time in daylight saving time
   };
 
   const auto check_conversion_from_named = [&date_parameters, &local_time_parameters,
@@ -218,12 +218,36 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
 
       EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
-                local_date_time.MicrosecondsSinceEpoch() +
+                local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
   };
 
   check_conversion_from_named(named_timezones);
+}
+
+TEST(TemporalTest, AmbiguousZonedDateTimeDescription) {
+  // Ambiguity caused by the switch from daylight saving time to standard time (Europe/Zagreb: 3 AM local time on the
+  // last Sunday in October)
+  // Memgraph chooses the earlier of the two possible instants
+
+  using namespace memgraph::utils;
+
+  const auto ambiguous_timestamp = "2023-10-29T02:30:00[Europe/Zagreb]";
+  auto r = ZonedDateTime(ParseZonedDateTimeParameters(ambiguous_timestamp));
+  std::cout << r.ToString() << std::endl;
+}
+
+TEST(TemporalTest, ZonedDateTimeDescriptionInGap) {
+  // Ambiguity caused by the switch from standard time to daylight saving time (Europe/Zagreb: 2 AM local time on the
+  // last Sunday in March)
+  // Std::chrono adjusts the time to the next valid instant
+
+  using namespace memgraph::utils;
+
+  const auto nonexistent_timestamp = "2024-03-31T02:30:00[Europe/Zagreb]";  // 02:00 → 03:00
+  auto s = ZonedDateTime(ParseZonedDateTimeParameters(nonexistent_timestamp));
+  std::cout << s.ToString() << std::endl;
 }
 
 TEST(TemporalTest, DurationConversion) {
@@ -355,7 +379,7 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
   const auto shared_expected_date_params = DateParameters{2020, 11, 22};
   const auto shared_expected_local_time_params = LocalTimeParameters{19, 23, 21, 123, 456};
 
-  std::array timezone_parsing_cases{
+  const std::array timezone_parsing_cases{
       std::make_pair("Z"sv, Timezone("Etc/UTC")),
       std::make_pair("+01:00"sv, Timezone(std::chrono::minutes{60})),
       std::make_pair("+01:00[Europe/Zagreb]"sv, Timezone("Europe/Zagreb")),
@@ -374,7 +398,7 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
       std::make_pair("[GMT]"sv, Timezone("GMT")),
   };
 
-  std::array faulty_timezone_cases{
+  const std::array faulty_timezone_cases{
       "Z_extra_text"sv,
       "+01:00_extra_text"sv,
       "+01:00[Europe/Zagreb]_extra_text"sv,
@@ -412,13 +436,6 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
-
-  // TODO antepusic: clean up, verify & fix if necessary
-  const auto ambiguous_timestamp = "2023-10-29T02:30:00[Europe/Zagreb]"sv;  // 03:00 → 02:00
-  auto r = ZonedDateTime(ParseZonedDateTimeParameters(ambiguous_timestamp));
-
-  const auto nonexistent_timestamp = "2024-03-31T02:30:00[Europe/Zagreb]"sv;  // 02:00 → 03:00
-  auto s = ZonedDateTime(ParseZonedDateTimeParameters(nonexistent_timestamp));
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {
@@ -539,11 +556,31 @@ TEST(TemporalTest, PrintLocalDateTime) {
 TEST(TemporalTest, PrintZonedDateTime) {
   using namespace memgraph::utils;
 
-  const auto zdt = ZonedDateTime({{1970, 1, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")});
-  std::ostringstream stream;
-  stream << zdt;
-  ASSERT_TRUE(stream);
-  ASSERT_EQ(stream.view(), "1970-01-01T14:02:40.100050+01:00[Europe/Zagreb]");
+  const std::array cases{
+      // Standard time
+      std::make_pair(ZonedDateTime({{2024, 1, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")}),
+                     "2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"),
+      // Daylight saving time
+      std::make_pair(ZonedDateTime({{2024, 7, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")}),
+                     "2024-07-01T13:02:40.100050+02:00[Europe/Zagreb]"),
+      // Timezone links to another
+      std::make_pair(ZonedDateTime({{2024, 7, 1}, {13, 2, 40, 100, 50}, Timezone("US/Pacific")}),
+                     "2024-07-01T13:02:40.100050-07:00[America/Los_Angeles]"),
+      // Timezone from offset (no name specified)
+      std::make_pair(ZonedDateTime({{2024, 1, 1}, {13, 2, 40, 100, 50}, Timezone(std::chrono::minutes{60})}),
+                     "2024-01-01T13:02:40.100050+01:00"),
+  };
+
+  auto check_to_string = [](const auto &cases) {
+    for (const auto &[zdt, expected_string] : cases) {
+      std::ostringstream stream;
+      stream << zdt;
+      ASSERT_TRUE(stream);
+      ASSERT_EQ(stream.view(), expected_string);
+    }
+  };
+
+  check_to_string(cases);
 }
 
 TEST(TemporalTest, DurationAddition) {
@@ -831,19 +868,28 @@ TEST(TemporalTest, LocalDateTimeConvertsToString) {
 TEST(TemporalTest, ZonedDateTimeConvertsToString) {
   using namespace memgraph::utils;
 
-  const auto zdt1 = ZonedDateTime({{1970, 1, 2}, {23, 02, 59}, Timezone("Europe/Zagreb")});
-  const std::string zdt1_expected_str = "1970-01-03T00:02:59.000000+01:00[Europe/Zagreb]";
-  const auto zdt2 = ZonedDateTime({{1970, 1, 2}, {23, 02, 59, 456, 123}, Timezone("Europe/Zagreb")});
-  const std::string zdt2_expected_str = "1970-01-03T00:02:59.456123+01:00[Europe/Zagreb]";
-  const auto zdt3 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone("US/Pacific")});
-  const std::string zdt3_expected_str = "1997-08-24T09:32:09.000000-07:00[America/Los_Angeles]";
-  const auto zdt4 = ZonedDateTime({{1997, 8, 24}, {16, 32, 9}, Timezone(std::chrono::minutes(90))});
-  const std::string zdt4_expected_str = "1997-08-24T18:02:09.000000+01:30";
+  const std::array cases{
+      // Standard time
+      std::make_pair(ZonedDateTime({{2024, 1, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")}),
+                     "2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"),
+      // Daylight saving time
+      std::make_pair(ZonedDateTime({{2024, 7, 1}, {13, 2, 40, 100, 50}, Timezone("Europe/Zagreb")}),
+                     "2024-07-01T13:02:40.100050+02:00[Europe/Zagreb]"),
+      // Timezone links to another
+      std::make_pair(ZonedDateTime({{2024, 7, 1}, {13, 2, 40, 100, 50}, Timezone("US/Pacific")}),
+                     "2024-07-01T13:02:40.100050-07:00[America/Los_Angeles]"),
+      // Timezone from offset (no name specified)
+      std::make_pair(ZonedDateTime({{2024, 1, 1}, {13, 2, 40, 100, 50}, Timezone(std::chrono::minutes{60})}),
+                     "2024-01-01T13:02:40.100050+01:00"),
+  };
 
-  ASSERT_EQ(zdt1_expected_str, zdt1.ToString());
-  ASSERT_EQ(zdt2_expected_str, zdt2.ToString());
-  ASSERT_EQ(zdt3_expected_str, zdt3.ToString());  // US/Pacific links to America/Los_Angeles
-  ASSERT_EQ(zdt4_expected_str, zdt4.ToString());
+  auto check_to_string = [](const auto &cases) {
+    for (const auto &[zdt, expected_string] : cases) {
+      ASSERT_EQ(zdt.ToString(), expected_string);
+    }
+  };
+
+  check_to_string(cases);
 }
 
 TEST(TemporalTest, DurationConvertsToString) {
