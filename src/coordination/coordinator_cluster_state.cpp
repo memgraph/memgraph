@@ -111,12 +111,6 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
          it->second.instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::InsertInstance(std::string instance_name, ReplicationInstanceState instance_state)
-    -> void {
-  auto lock = std::lock_guard{log_lock_};
-  repl_instances_.insert_or_assign(std::move(instance_name), std::move(instance_state));
-}
-
 auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {

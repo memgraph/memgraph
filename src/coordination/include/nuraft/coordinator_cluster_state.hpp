@@ -97,8 +97,6 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string instance_name, ReplicationInstanceState instance_state) -> void;
-
   auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
