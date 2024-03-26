@@ -40,7 +40,7 @@ fi
 run_script() {
     local distro_script=$1
     echo "Running script for $@"
-    sudo ./environment/os/"$@"
+    ./environment/os/"$@"
 }
 
 # Detect OS, version, and architecture
