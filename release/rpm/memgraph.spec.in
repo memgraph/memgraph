@@ -42,10 +42,6 @@ BuildRequires: systemd
 %{nil}
 %endif
 
-%if 0%{?fedora} && 0%{?fedora} > 37
-%global __brp_check_rpaths %{nil}
-%endif
-
 %if 0%{?fedora} && 0%{?fedora} < 35
 %global __os_install_post    \
     /usr/lib/rpm/brp-compress \
