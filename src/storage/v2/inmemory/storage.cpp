@@ -319,7 +319,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
       !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
-    storage_->edge_types_to_auto_index_->emplace(edge_type);
+    storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+      if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
+        ++(it->second);
+        return;
+      }
+      edge_type_indices.insert({edge_type, 1});
+    });
+    transaction_.introduced_new_edge_type_index_.insert(edge_type);
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
@@ -815,19 +822,25 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (const auto label : label_indices) {
-            CreateIndex(label, false);
+          for (auto &label : label_indices) {
+            --label.second;
+            if (label.second == 0) {
+              CreateIndex(label.first, false);
+              label_indices.erase(label.first);
+            }
           }
-          label_indices.clear();
         });
       }
 
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-          for (const auto edge_type : edge_type_indices) {
-            CreateIndex(edge_type, false);
+          for (auto &edge_type : edge_type_indices) {
+            --edge_type.second;
+            if (edge_type.second == 0) {
+              CreateIndex(edge_type.first, false);
+              edge_type_indices.erase(edge_type.first);
+            }
           }
-          edge_type_indices.clear();
         });
       }
 
@@ -1232,6 +1245,20 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       /// We MUST unlink (aka. remove) entries in indexes and constraints
       /// before we unlink (aka. remove) vertices from storage
       /// this is because they point into vertices skip_list
+
+      // auto index creation cleanup
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        for (const auto label : transaction_.introduced_new_label_index_) {
+          storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { --label_indices.at(label); });
+        }
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
+          storage_->edge_types_to_auto_index_.WithLock(
+              [&](auto &edge_type_indices) { --edge_type_indices.at(edge_type); });
+        }
+      }
 
       // INDICES
       for (auto const &[label, vertices] : label_cleanup) {

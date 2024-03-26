@@ -471,8 +471,8 @@ class Storage {
   // Sets that hold onto labels and edge-types that have to be created.
   // Used only if the label/edge-type autocreation flags are enabled,
   // does not affect index creation otherwise.
-  utils::Synchronized<std::set<LabelId>, utils::SpinLock> labels_to_auto_index_;
-  utils::Synchronized<std::set<EdgeTypeId>, utils::SpinLock> edge_types_to_auto_index_;
+  utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
+  utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
