@@ -49,7 +49,7 @@ jobs:
   community_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Community build"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -105,7 +105,7 @@ jobs:
   coverage_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Coverage build"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
     env:
       BUILD_TYPE: Debug
@@ -178,7 +178,7 @@ jobs:
   debug_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug build"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
     env:
       BUILD_TYPE: Debug
@@ -275,7 +275,7 @@ jobs:
   debug_integration_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Debug integration tests"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
     env:
       BUILD_TYPE: Debug
@@ -333,7 +333,7 @@ jobs:
   release_build:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release build"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -429,7 +429,7 @@ jobs:
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release Benchmark Tests"
-    runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, Gen7, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -504,7 +504,7 @@ jobs:
   release_e2e_test:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release End-to-end Test"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -578,7 +578,7 @@ jobs:
   release_durability_stress_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
     name: "Release durability and stress tests"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -663,7 +663,7 @@ jobs:
   release_jepsen_test:
     if: ${{ inputs.run_release_tests == 'true' && inputs.os == 'debian-12' }}
     name: "Release Jepsen Test"
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.runner_arch_label }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
 
     steps:
@@ -733,7 +733,7 @@ jobs:
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
     name: "Stress test large"
-    runs-on: [self-hosted, DockerMgBuild, X64, BigMemory]
+    runs-on: [self-hosted, DockerMgBuild, BigMemory, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 720
 
     steps:

@@ -52,7 +52,6 @@ jobs:
       os: ${{ github.event.inputs.os || 'debian-11' }}
       toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
       arch: "amd"
-      runner_arch_label: "X64"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
@@ -67,7 +66,6 @@ jobs:
       os: ${{ matrix.os }}
       toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
       arch: "amd"
-      runner_arch_label: "X64"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
@@ -80,9 +78,7 @@ jobs:
   #     os: ${{ github.event.inputs.os || 'debian-11' }}
   #     toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
   #     arch: "amd"
-  #     runner_arch_label: "X64"
   #     build_type: ${{ github.event.inputs.build_type || 'Release' }}
-  #     timeout_minutes: 60
   #     push_to_s3: 'true'
   #     s3_bucket: "download.memgraph.com"
   #     s3_region: "eu-west-1"
