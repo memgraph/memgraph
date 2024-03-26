@@ -70,17 +70,17 @@ jobs:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  # Package:
-  #   if: github.ref_type == 'tag'
-  #   needs: [TestIndividual]
-  #   uses: ./.github/workflows/reusable_package.yaml
-  #   with:
-  #     os: ${{ github.event.inputs.os || 'debian-11' }}
-  #     toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
-  #     arch: "amd"
-  #     build_type: ${{ github.event.inputs.build_type || 'Release' }}
-  #     push_to_s3: 'true'
-  #     s3_bucket: "download.memgraph.com"
-  #     s3_region: "eu-west-1"
-  #     s3_dest_dir: "memgraph-unofficial/${{ github.ref_name }}"
-  #   secrets: inherit
+  Package:
+    if: github.ref_type == 'tag'
+    needs: [TestIndividual]
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ github.event.inputs.os || 'debian-11' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      push_to_s3: 'true'
+      s3_bucket: "deps.memgraph.io"
+      s3_region: "eu-west-1"
+      s3_dest_dir: "memgraph-unofficial/${{ github.ref_name }}"
+    secrets: inherit
