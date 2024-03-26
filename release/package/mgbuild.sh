@@ -65,9 +65,9 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
-  echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container to host"
+  echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
-  echo -e "  package-docker                Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                 Run mgbuild container"
@@ -100,12 +100,16 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
 
-  echo -e "\ncopy options (select one from --binary, --build-logs or --package) (default \"--binary\"):"
-  echo -e "  --artifact-name string        Specify a custom name for the copied artifact (optional)"
-  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host"
+  echo -e "\ncopy options (default \"--binary\"):"
+  echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
+  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host (default)"
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
-  echo -e "  --dest-dir string             Specify a custom path to destination directory on host (optional)"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
+
+  echo -e "\npackage-docker options:"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
+  echo -e "  --src-dir string              Specify a custom path for the source directory on host. This directory should contain memgraph package."
 
   echo -e "\npush options:"
   echo -e "  -p, --password string         Specify password for docker login (default empty)"
@@ -374,6 +378,24 @@ package_docker() {
     fi
   fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
+  local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        package_dir=$2
+        shift 2
+      ;;
+      --src-dir)
+        docker_host_folder=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
   # shellcheck disable=SC2012
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
@@ -381,7 +403,6 @@ package_docker() {
   ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
-  local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   local docker_host_image_path="$docker_host_folder/$docker_image_name"
   mkdir -p "$docker_host_folder"
   cp "$docker_build_folder/$docker_image_name" "$docker_host_folder"

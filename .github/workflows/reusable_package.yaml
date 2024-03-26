@@ -64,7 +64,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: "Set artifact name"
+      - name: "Set artifact name and dir"
         run: |
           if [[ -z "${{ inputs.artifact_name }}" ]]; then
             if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
@@ -83,6 +83,7 @@ jobs:
             artifact_name=${{ inputs.artifact_name }}
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
+          echo "ARTIFACT_DIR=build/output/$artifact_name" >> $GITHUB_ENV
 
       - name: "Spin up mgbuild container"
         run: |
@@ -116,14 +117,9 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
-          copy --package
-
-      - name: "Upload package"
-        if: ${{ env.FOR_DOCKER != 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: "build/output/${{ inputs.os }}/memgraph*"
+          copy \
+          --package \
+          --dest-dir "${{ env.ARTIFACT_DIR }}"
 
       - name: "Create docker package"
         if: ${{ env.FOR_DOCKER == 'true' }}
@@ -132,14 +128,23 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
-          package-docker
+          package-docker \
+          --src-dir "${{ env.ARTIFACT_DIR }}" \
+          --dest-dir "${{ env.ARTIFACT_DIR }}"
+
+      - name: "Upload regular package"
+        if: ${{ env.FOR_DOCKER != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "${{ env.ARTIFACT_DIR }}/memgraph*"
 
       - name: "Upload docker package"
         if: ${{ env.FOR_DOCKER == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "build/output/docker/${{ inputs.arch }}/${{ inputs.toolchain }}/memgraph*"
+          path: "${{ env.ARTIFACT_DIR }}/memgraph*.tar.gz"
 
       - name: "Stop mgbuild container"
         if: always()

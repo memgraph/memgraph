@@ -470,7 +470,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --package
+          copy --package --dest-dir build/output/${{ env.OS }}
 
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
@@ -484,7 +484,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --build-logs
+          copy --build-logs --dest-dir build/logs
 
       - name: Save test data
         uses: actions/upload-artifact@v4
@@ -553,7 +553,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary
+          copy --binary --dest-dir build
 
       - name: Refresh Jepsen Cluster
         run: |
