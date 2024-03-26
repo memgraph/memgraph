@@ -789,7 +789,7 @@ case $command in
       build_memgraph $@
     ;;
     package-memgraph)
-      package_memgraph
+      package_memgraph $@
     ;;
     test-memgraph)
       test_memgraph $@
