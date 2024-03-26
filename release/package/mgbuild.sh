@@ -454,15 +454,15 @@ copy_memgraph() {
   if [[ "$artifact_name_override" != "" ]]; then
     artifact_name=$artifact_name_override
   fi
-
+  local host_artifact_path="$host_dir/$artifact_name"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
   mkdir -p $host_dir
   if [[ "$artifact" == "package" ]]; then
-    docker cp $build_container:$container_artifact_path $host_dir/$artifact_name
+    docker cp $build_container:$container_artifact_path $host_artifact_path
   else
-    docker cp -L $build_container:$container_artifact_path $host_dir/$artifact_name
+    docker cp -L $build_container:$container_artifact_path $host_artifact_path
   fi
-  echo -e "Memgraph $artifact saved to $host_dir!"
+  echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }
 
 
