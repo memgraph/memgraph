@@ -64,6 +64,23 @@ def test_auto_create_single_label_index(cursor):
     execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
 
 
+def test_auto_create_several_different_label_index(cursor):
+    label1 = "SOMELABEL1"
+    label2 = "SOMELABEL2"
+    label3 = "SOMELABEL3"
+    execute_and_fetch_all(cursor, f"CREATE (n:{label1}:{label2}:{label3})")
+    index_stats = get_index_stats(cursor)
+    assert number_of_index_structures_are(index_stats, 3)
+
+    execute_and_fetch_all(cursor, f"DROP INDEX ON :{label1}")
+    execute_and_fetch_all(cursor, f"DROP INDEX ON :{label2}")
+    execute_and_fetch_all(cursor, f"DROP INDEX ON :{label3}")
+    index_stats = get_index_stats(cursor)
+    assert number_of_index_structures_are(index_stats, 0)
+
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+
+
 def test_auto_create_multiple_label_index(cursor):
     label1 = "SOMELABEL1"
     execute_and_fetch_all(cursor, f"CREATE (n:{label1})")
