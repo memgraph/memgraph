@@ -216,6 +216,18 @@ CLUSTER_DEALLOC() {
   echo "Cluster dealloc DONE"
 }
 
+CLUSTER_NODES_CLEANUP() {
+  jepsen_control_exec="docker exec jepsen-control bash -c"
+  INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
+  $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
+  for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+      jepsen_node_name="jepsen-n$iter"
+      jepsen_node_exec="docker exec $jepsen_node_name bash -c"
+      INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
+      $jepsen_node_exec "rm -rf /opt/memgraph/*"
+  done
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -241,15 +253,7 @@ case $1 in
     ;;
 
     cluster-nodes-cleanup)
-        jepsen_control_exec="docker exec jepsen-control bash -c"
-        INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
-        $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
-        for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
-            jepsen_node_name="jepsen-n$iter"
-            jepsen_node_exec="docker exec $jepsen_node_name bash -c"
-            INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
-            $jepsen_node_exec "rm -rf /opt/memgraph/*"
-        done
+        CLUSTER_NODES_CLEANUP
     ;;
 
     mgbuild)

@@ -38,6 +38,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -46,7 +52,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build community binary 
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -97,6 +103,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -140,7 +152,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
 
-      - name: Build combined ASAN, UBSAN and coverage binaries
+      - name: Build combined ASAN, UBSAN and coverage binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -217,6 +229,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -225,7 +243,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build debug binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -315,6 +333,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -323,7 +347,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -435,7 +459,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --package
+          copy --package --dest-dir build/output/${{ env.OS }}
 
       - name: Save enterprise DEB package
         uses: actions/upload-artifact@v4
@@ -449,7 +473,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --build-logs
+          copy --build-logs --dest-dir build/logs
 
       - name: Save test data
         uses: actions/upload-artifact@v4
@@ -488,6 +512,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -496,7 +526,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -512,7 +542,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary
+          copy --binary --dest-dir build
 
       - name: Refresh Jepsen Cluster
         run: |
@@ -526,7 +556,7 @@ jobs:
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4
-        if: ${{ always() }}
+        if: always()
         with:
           name: "Jepsen Report"
           path: tests/jepsen/Jepsen.tar.gz
@@ -561,6 +591,12 @@ jobs:
           # branches and tags. (default: 1)
           fetch-depth: 0
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -569,7 +605,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build release binaries
+      - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
