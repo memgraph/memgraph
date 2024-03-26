@@ -824,6 +824,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
           for (auto &label : label_indices) {
             --label.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific label, we only build the index
+            // when the last one commits.
             if (label.second == 0) {
               CreateIndex(label.first, false);
               label_indices.erase(label.first);
@@ -836,6 +839,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
           for (auto &edge_type : edge_type_indices) {
             --edge_type.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific edge-type, we only build the index
+            // when the last one commits.
             if (edge_type.second == 0) {
               CreateIndex(edge_type.first, false);
               edge_type_indices.erase(edge_type.first);
