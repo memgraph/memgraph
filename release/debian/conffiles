@@ -1,4 +1,5 @@
 /etc/memgraph/memgraph.conf
 /etc/memgraph/apoc_compatibility_mappings.json
 /etc/memgraph/auth_module/ldap.example.yaml
+/etc/memgraph/auth_module/saml/settings.json
 /etc/logrotate.d/memgraph

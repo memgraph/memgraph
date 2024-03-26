@@ -29,3 +29,7 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
         DESTINATION lib/memgraph/auth_module)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
         DESTINATION /etc/memgraph/auth_module)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/saml/saml.py
+        DESTINATION lib/memgraph/auth_module/saml)
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/saml/settings.json
+        DESTINATION /etc/memgraph/auth_module/saml)

@@ -134,6 +134,7 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 %config(noreplace) "/etc/memgraph/memgraph.conf"
 %config(noreplace) "/etc/memgraph/apoc_compatibility_mappings.json"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
+%config(noreplace) "/etc/memgraph/auth_module/saml/settings.json"
 %config(noreplace) "/etc/logrotate.d/memgraph"
 
 @CPACK_RPM_USER_INSTALL_FILES@
