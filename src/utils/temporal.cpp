@@ -734,10 +734,9 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
-  std::chrono::sys_time<std::chrono::microseconds> duration{std::chrono::microseconds(
+  std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
       LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
-  zoned_time = std::chrono::zoned_time(timezone, duration);
-  // TODO antepusic: if time ambiguous, e.g. when 3->2 AM during DST change, round up/down?
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
 }
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}
@@ -745,14 +744,14 @@ ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(
 ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
     : zoned_time(zoned_time) {}
 
-int64_t ZonedDateTime::MicrosecondsSinceEpoch() const { return zoned_time.get_local_time().time_since_epoch().count(); }
+int64_t ZonedDateTime::MicrosecondsSinceEpoch() const { return zoned_time.get_sys_time().time_since_epoch().count(); }
 
 int64_t ZonedDateTime::SecondsSinceEpoch() const {
-  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_local_time().time_since_epoch()).count();
+  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch()).count();
 }
 
 int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
-  const auto time_since_epoch = zoned_time.get_local_time().time_since_epoch();
+  const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
   const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
 
   return (time_since_epoch - full_seconds).count();
