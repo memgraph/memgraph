@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "rpc/client.hpp"
 #include "rpc_errors.hpp"
 #include "utils/result.hpp"
@@ -64,6 +65,8 @@ class CoordinatorClient {
 
   auto ReplicationClientInfo() const -> ReplicationClientInfo;
 
+  auto SendFrequentHeartbeat() const -> bool;
+
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
 
@@ -85,6 +88,9 @@ class CoordinatorClient {
 
   CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
+  // The reason why we have HealthCheckClientCallback is because we need to acquire lock
+  // before we do correct function call (main or replica), as otherwise we can enter REPLICA callback
+  // but right before instance was promoted to MAIN
   HealthCheckClientCallback succ_cb_;
   HealthCheckClientCallback fail_cb_;
 };
