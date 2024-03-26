@@ -37,6 +37,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10011 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_instance_1=$!
 wait_for_server 7687
@@ -53,6 +54,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10012 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_instance_2=$!
 wait_for_server 7688
@@ -69,6 +71,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10013 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_instance_3=$!
 wait_for_server 7689
@@ -87,6 +90,7 @@ $binary_dir/memgraph \
     --coordinator-id=1 \
     --coordinator-port=10111 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_coordinator_1=$!
 wait_for_server 7690
@@ -104,6 +108,7 @@ $binary_dir/memgraph \
     --coordinator-id=2 \
     --coordinator-port=10112 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_coordinator_2=$!
 wait_for_server 7691
@@ -121,6 +126,7 @@ $binary_dir/memgraph \
     --coordinator-id=3 \
     --coordinator-port=10113 \
     --experimental-enabled=high-availability \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid_coordinator_3=$!
 wait_for_server 7692
