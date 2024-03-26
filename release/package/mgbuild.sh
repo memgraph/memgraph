@@ -397,55 +397,57 @@ copy_memgraph() {
   local host_dir="$PROJECT_BUILD_DIR"
   local host_dir_override=""
   local artifact_name_override=""
-  case "$1" in
-    --binary)#cp -L
-      if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
-        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --binary)#cp -L
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="binary"
+        artifact_name="memgraph"
+        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --build-logs)#cp -L
+        if [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="build logs"
+        artifact_name="logs"
+        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --package)#cp
+        if [[ "$artifact" == "build logs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="package"
+        local container_package_dir="$MGBUILD_BUILD_DIR/output"
+        host_dir="$PROJECT_BUILD_DIR/output/$os"
+        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
+        container_artifact_path="$container_package_dir/$artifact_name"
+        shift 1
+      ;;
+      --dest-dir)
+        host_dir_override=$2
+        shift 2
+      ;;
+      --artifact-name)
+        artifact_name_override=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
         exit 1
-      fi
-      artifact="binary"
-      artifact_name="memgraph"
-      container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
-      host_dir="$PROJECT_BUILD_DIR"
-      shift 1
-    ;;
-    --build-logs)#cp -L
-      if [[ "$artifact" == "package" ]]; then
-        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
-        exit 1
-      fi
-      artifact="build logs"
-      artifact_name="logs"
-      container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
-      host_dir="$PROJECT_BUILD_DIR"
-      shift 1
-    ;;
-    --package)#cp
-      if [[ "$artifact" == "build logs" ]]; then
-        echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
-        exit 1
-      fi
-      artifact="package"
-      local container_package_dir="$MGBUILD_BUILD_DIR/output"
-      host_dir="$PROJECT_BUILD_DIR/output/$os"
-      artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
-      container_artifact_path="$container_package_dir/$artifact_name"
-      shift 1
-    ;;
-    --dest-dir)
-      host_dir_override=$2
-      shift 2
-    ;;
-    --artifact-name)
-      artifact_name_override=$2
-      shift 2
-    ;;
-    *)
-      echo "Error: Unknown flag '$1'"
-      print_help
-      exit 1
-    ;;
-  esac
+      ;;
+    esac
+  done
   if [[ "$host_dir_override" != "" ]]; then
     host_dir=$host_dir_override
   fi
