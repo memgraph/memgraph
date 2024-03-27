@@ -32,8 +32,9 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
-                      | BOOTSTRAP_SERVERS
                       | BUILD
+                      | BOOTSTRAP_SERVERS
+                      | CALL
                       | CHECK
                       | CLEAR
                       | COMMIT
@@ -41,16 +42,20 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIG
                       | CONFIGS
                       | CONSUMER_GROUP
+                      | COORDINATOR
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | DATA
+                      | DO
                       | DELIMITER
                       | DATABASE
+                      | DATABASES
                       | DENY
+                      | DIRECTORY
                       | DROP
-                      | DO
                       | DUMP
+                      | DURABILITY
                       | EDGE
                       | EDGE_TYPES
                       | EXECUTE
@@ -58,20 +63,21 @@ memgraphCypherKeyword : cypherKeyword
                       | FOR
                       | FOREACH
                       | FREE
+                      | FREE_MEMORY
                       | FROM
                       | GLOBAL
-                      | GRAPH
                       | GRANT
+                      | GRAPH
+                      | GRANTS
                       | HEADER
                       | IDENTIFIED
-                      | INSTANCE
-                      | INSTANCES
-                      | NODE_LABELS
-                      | NULLIF
+                      | IGNORE
                       | IMPORT
                       | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | INSTANCE
+                      | INSTANCES
                       | ISOLATION
                       | KAFKA
                       | LABELS
@@ -80,14 +86,22 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MODE
+                      | MODULE_READ
+                      | MODULE_WRITE
+                      | MULTI_DATABASE_EDIT
+                      | MULTI_DATABASE_USE
                       | NEXT
                       | NO
+                      | NODE_LABELS
                       | NOTHING
+                      | ON_DISK_TRANSACTIONAL
+                      | NULLIF
                       | PASSWORD
-                      | PULSAR
                       | PORT
                       | PRIVILEGES
+                      | PULSAR
                       | READ
+                      | READ_FILE
                       | REGISTER
                       | REPLICA
                       | REPLICAS
@@ -96,34 +110,42 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | QUOTE
+                      | SERVER
+                      | SERVICE_URL
                       | SESSION
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
                       | START
+                      | STATISTICS
                       | STATS
                       | STATUS
+                      | STOP
                       | STORAGE
+                      | STORAGE_MODE
                       | STREAM
                       | STREAMS
                       | SYNC
+                      | TERMINATE
                       | TIMEOUT
                       | TO
                       | TOPICS
                       | TRANSACTION
+                      | TRANSACTION_MANAGEMENT
+                      | TRANSACTIONS
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
                       | UNCOMMITTED
                       | UNLOCK
+                      | UNREGISTER
                       | UPDATE
                       | USE
                       | USER
                       | USERS
                       | USING
                       | VERSION
-                      | TERMINATE
-                      | TRANSACTIONS
+                      | WEBSOCKET
                       ;
 
 symbolicName : UnescapedSymbolicName
