@@ -77,7 +77,7 @@ void from_json(nlohmann::json const &j, CoordinatorInstanceState &instance_state
 // Source of truth since it is modified only as the result of RAFT's commiting
 class CoordinatorClusterState {
  public:
-  explicit CoordinatorClusterState(CoordinatorInstanceInitConfig const &config);
+  CoordinatorClusterState() = default;
   explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
                                    std::vector<CoordinatorInstanceState> coordinators,
                                    utils::UUID const &current_main_uuid, bool is_lock_opened);
@@ -110,6 +110,8 @@ class CoordinatorClusterState {
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto IsLockOpened() const -> bool;
+
+  auto CoordinatorExists(uint32_t coordinator_id) const -> bool;
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 

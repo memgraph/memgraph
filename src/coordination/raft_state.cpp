@@ -38,7 +38,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb)
     : raft_endpoint_("0.0.0.0", config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>(config)),
+      state_machine_(cs_new<CoordinatorStateMachine>()),
       state_manager_(cs_new<CoordinatorStateManager>(coordinator_id_, raft_endpoint_.SocketAddress())),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
@@ -392,12 +392,6 @@ auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::
   return state_machine_->GetInstanceUUID(instance_name);
 }
 
-auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
-  std::vector<ptr<srv_config>> all_srv_configs;
-  raft_server_->get_srv_config_all(all_srv_configs);
-  return all_srv_configs;
-}
-
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
   return state_machine_->GetCoordinatorInstances();
 }
@@ -445,6 +439,10 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   res.emplace_back(std::move(bolt_coords), "ROUTE");
 
   return res;
+}
+
+auto RaftState::CoordinatorExists(uint32_t coordinator_id) const -> bool {
+  return state_machine_->CoordinatorExists(coordinator_id);
 }
 
 }  // namespace memgraph::coordination
