@@ -487,3 +487,6 @@ add_unit_test(high_availability_cluster_setup.cpp)
 target_link_libraries(${test_prefix}high_availability_cluster_setup gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}high_availability_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+add_unit_test(pds.cpp)
+target_link_libraries(${test_prefix}pds mg-storage-v2)

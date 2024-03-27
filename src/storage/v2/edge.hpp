@@ -19,6 +19,10 @@
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
+#include "storage/v2/property_disk_store.hpp"
+
+// #include "storage/v2/property_disk_store.hpp"
+
 namespace memgraph::storage {
 
 struct Vertex;
@@ -30,16 +34,120 @@ struct Edge {
               "Edge must be created with an initial DELETE_OBJECT delta!");
   }
 
+  ~Edge() {
+    // TODO: Don't want to do this here
+    if (!moved) ClearProperties();
+  }
+
+  Edge(Edge &) = delete;
+  Edge &operator=(Edge &) = delete;
+  Edge(Edge &&) = default;
+  Edge &operator=(Edge &&) = delete;
+
   Gid gid;
 
-  PropertyStore properties;
+  // PropertyStore properties;
 
   mutable utils::RWSpinLock lock;
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
 
+  bool has_prop;
+
+  class HotFixMove {
+   public:
+    HotFixMove() {}
+    HotFixMove(HotFixMove &&other) noexcept {
+      if (this != &other) {
+        // We want only the latest object to be marked as not-moved; while all previous should be marked as moved
+        moved = false;
+        other.moved = true;
+      }
+    }
+    HotFixMove(HotFixMove &) = delete;
+    HotFixMove &operator=(HotFixMove &) = delete;
+    HotFixMove &operator=(HotFixMove &&) = delete;
+
+    operator bool() const { return moved; }
+
+   private:
+    bool moved{false};
+  } moved;
+
   Delta *delta;
+
+  Gid HotFixForGID() const { return Gid::FromUint(gid.AsUint() + (3UL << 62U)); }
+
+  PropertyValue GetProperty(PropertyId property, PdsItr *itr = nullptr) const {
+    if (!has_prop) return {};
+    const auto prop = PDS::get()->Get(HotFixForGID(), property, itr);
+    if (prop) return *prop;
+    return {};
+  }
+
+  bool SetProperty(PropertyId property, const PropertyValue &value, PdsItr *itr = nullptr) {
+    has_prop = true;
+    return PDS::get()->Set(HotFixForGID(), property, value, itr);
+  }
+
+  template <typename TContainer>
+  bool InitProperties(const TContainer &properties) {
+    auto *pds = PDS::get();
+    for (const auto &[property, value] : properties) {
+      if (value.IsNull()) {
+        continue;
+      }
+      if (!pds->Set(HotFixForGID(), property, value)) {
+        return false;
+      }
+      has_prop = true;
+    }
+    return true;
+  }
+
+  void ClearProperties() {
+    if (!has_prop) return;
+    has_prop = false;
+    auto *pds = PDS::get();
+    pds->Clear(HotFixForGID());
+  }
+
+  std::map<PropertyId, PropertyValue> Properties() {
+    if (!has_prop) return {};
+    return PDS::get()->Get(HotFixForGID());
+  }
+
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
+      std::map<PropertyId, PropertyValue> &properties) {
+    if (!has_prop && properties.empty()) return {};
+    auto old_properties = Properties();
+    ClearProperties();
+
+    std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
+    id_old_new_change.reserve(properties.size() + old_properties.size());
+    for (const auto &[prop_id, new_value] : properties) {
+      if (!old_properties.contains(prop_id)) {
+        id_old_new_change.emplace_back(prop_id, PropertyValue(), new_value);
+      }
+    }
+
+    for (const auto &[old_key, old_value] : old_properties) {
+      auto [it, inserted] = properties.emplace(old_key, old_value);
+      if (!inserted) {
+        auto &new_value = it->second;
+        id_old_new_change.emplace_back(it->first, old_value, new_value);
+      }
+    }
+
+    MG_ASSERT(InitProperties(properties));
+    return id_old_new_change;
+  }
+
+  uint64_t PropertySize(PropertyId property) const {
+    if (!has_prop) return {};
+    return PDS::get()->GetSize(HotFixForGID(), property);
+  }
 };
 
 static_assert(alignof(Edge) >= 8, "The Edge should be aligned to at least 8!");

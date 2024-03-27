@@ -279,7 +279,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
       {
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of edge properties!");
-        auto &props = it->properties;
         read_properties.clear();
         read_properties.reserve(*props_size);
         for (uint64_t j = 0; j < *props_size; ++j) {
@@ -289,7 +288,7 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
           if (!value) throw RecoveryFailure("Couldn't read edge property value!");
           read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
         }
-        props.InitProperties(std::move(read_properties));
+        it->InitProperties(std::move(read_properties));
       }
     } else {
       spdlog::debug("Ensuring edge {} doesn't have any properties.", *gid);
@@ -372,7 +371,6 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
     {
       auto props_size = snapshot.ReadUint();
       if (!props_size) throw RecoveryFailure("Couldn't read size of vertex properties!");
-      auto &props = it->properties;
       read_properties.clear();
       read_properties.reserve(*props_size);
       for (uint64_t j = 0; j < *props_size; ++j) {
@@ -382,7 +380,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
         if (!value) throw RecoveryFailure("Couldn't read vertex property value!");
         read_properties.emplace_back(get_property_from_id(*key), std::move(*value));
       }
-      props.InitProperties(std::move(read_properties));
+      it->InitProperties(std::move(read_properties));
     }
 
     // Skip in edges.
@@ -728,7 +726,6 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           {
             auto props_size = snapshot.ReadUint();
             if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
-            auto &props = it->properties;
             for (uint64_t j = 0; j < *props_size; ++j) {
               auto key = snapshot.ReadUint();
               if (!key) throw RecoveryFailure("Couldn't read edge property id!");
@@ -736,7 +733,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
               if (!value) throw RecoveryFailure("Couldn't read edge property value!");
               SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for edge {}.",
                            name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
-              props.SetProperty(get_property_from_id(*key), *value);
+              it->SetProperty(get_property_from_id(*key), *value);
             }
           }
         } else {
@@ -804,7 +801,6 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       {
         auto props_size = snapshot.ReadUint();
         if (!props_size) throw RecoveryFailure("Couldn't read the size of properties!");
-        auto &props = it->properties;
         for (uint64_t j = 0; j < *props_size; ++j) {
           auto key = snapshot.ReadUint();
           if (!key) throw RecoveryFailure("Couldn't read the vertex property id!");
@@ -812,7 +808,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           if (!value) throw RecoveryFailure("Couldn't read the vertex property value!");
           SPDLOG_TRACE("Recovered property \"{}\" with value \"{}\" for vertex {}.",
                        name_id_mapper->IdToName(snapshot_id_map.at(*key)), *value, *gid);
-          props.SetProperty(get_property_from_id(*key), *value);
+          it->SetProperty(get_property_from_id(*key), *value);
         }
       }
 

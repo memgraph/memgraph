@@ -184,6 +184,10 @@ import_external_library(rocksdb STATIC
   -DGFLAGS_NOTHREADS=OFF
   -DCMAKE_INSTALL_LIBDIR=lib
   -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+  -DWITH_JEMALLOC=1
+  # -DWITH_LZ4=1
+  # -DWITH_SNAPPY=1
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo
   BUILD_COMMAND $(MAKE) rocksdb)
 
 # Setup libbcrypt

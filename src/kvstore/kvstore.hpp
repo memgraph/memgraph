@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <rocksdb/options.h>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -19,6 +20,8 @@
 #include <vector>
 
 #include "utils/exceptions.hpp"
+
+#include <rocksdb/iterator.h>
 
 namespace memgraph::kvstore {
 
@@ -43,6 +46,7 @@ class KVStore final {
    *       storage directory because that will lead to undefined behaviour.
    */
   explicit KVStore(std::filesystem::path storage);
+  explicit KVStore(std::filesystem::path storage, rocksdb::Options db_options);
 
   KVStore(const KVStore &other) = delete;
   KVStore(KVStore &&other);
@@ -61,7 +65,7 @@ class KVStore final {
    * @return true if the value has been successfully stored.
    *         In case of any error false is going to be returned.
    */
-  bool Put(std::string_view key, std::string_view value);
+  bool Put(std::string_view key, std::string_view value, rocksdb::WriteOptions options = {});
 
   /**
    * Store values under the given keys.
@@ -71,7 +75,7 @@ class KVStore final {
    * @return true if the items have been successfully stored.
    *         In case of any error false is going to be returned.
    */
-  bool PutMultiple(const std::map<std::string, std::string> &items);
+  bool PutMultiple(const std::map<std::string, std::string> &items, rocksdb::WriteOptions options = {});
 
   /**
    * Retrieve value for the given key.
@@ -81,7 +85,12 @@ class KVStore final {
    * @return Value for the given key. std::nullopt in case of any error
    *         OR the value doesn't exist.
    */
-  std::optional<std::string> Get(std::string_view key) const noexcept;
+  std::optional<std::string> Get(std::string_view key, rocksdb::ReadOptions options = {}) const noexcept;
+
+  rocksdb::Iterator *GetItr(std::string_view prefix = "", rocksdb::ReadOptions options = {});
+
+  std::map<std::string, std::string> GetMultiple(std::vector<rocksdb::Slice> keys,
+                                                 rocksdb::ReadOptions options) const noexcept;
 
   /**
    * Deletes the key and corresponding value from storage.
@@ -92,7 +101,7 @@ class KVStore final {
    *         true if the key doesn't exist and underlying storage
    *         didn't encounter any error.
    */
-  bool Delete(std::string_view key);
+  bool Delete(std::string_view key, rocksdb::WriteOptions options = {});
 
   /**
    * Deletes the keys and corresponding values from storage.
@@ -103,7 +112,7 @@ class KVStore final {
    *         true if the keys don't exist and underlying storage
    *         didn't encounter any error.
    */
-  bool DeleteMultiple(const std::vector<std::string> &keys);
+  bool DeleteMultiple(const std::vector<std::string> &keys, rocksdb::WriteOptions options = {});
 
   /**
    * Delete all (key, value) pairs where key begins with a given prefix.
@@ -115,7 +124,8 @@ class KVStore final {
    *         true if the key doesn't exist and underlying storage
    *         didn't encounter any error.
    */
-  bool DeletePrefix(const std::string &prefix = "");
+  bool DeletePrefix(const std::string &prefix = "", rocksdb::WriteOptions options = {},
+                    rocksdb::ReadOptions read_options = {});
 
   /**
    * Store values under the given keys and delete the keys.
@@ -126,7 +136,8 @@ class KVStore final {
    * @return true if the items have been successfully stored and deleted.
    *         In case of any error false is going to be returned.
    */
-  bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items, const std::vector<std::string> &keys);
+  bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items, const std::vector<std::string> &keys,
+                            rocksdb::WriteOptions options = {});
 
   /**
    * Returns total number of stored (key, value) pairs. The function takes an
@@ -138,7 +149,7 @@ class KVStore final {
    *
    * @return - number of stored pairs.
    */
-  size_t Size(const std::string &prefix = "") const;
+  size_t Size(const std::string &prefix = "", rocksdb::ReadOptions options = {}) const;
 
   /**
    * Compact the underlying storage for the key range [begin_prefix,
@@ -168,7 +179,8 @@ class KVStore final {
     using pointer = const std::pair<std::string, std::string> *;
     using reference = const std::pair<std::string, std::string> &;
 
-    explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false);
+    explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false,
+                      rocksdb::ReadOptions options = {});
 
     iterator(const iterator &other) = delete;
 
@@ -199,9 +211,13 @@ class KVStore final {
     std::unique_ptr<impl> pimpl_;
   };
 
-  iterator begin(const std::string &prefix = "") const { return iterator(this, prefix); }
+  iterator begin(const std::string &prefix = "", rocksdb::ReadOptions options = {}) const {
+    return iterator(this, prefix, false, options);
+  }
 
-  iterator end(const std::string &prefix = "") const { return iterator(this, prefix, true); }
+  iterator end(const std::string &prefix = "", rocksdb::ReadOptions options = {}) const {
+    return iterator(this, prefix, true, options);
+  }
 
  private:
   struct impl;

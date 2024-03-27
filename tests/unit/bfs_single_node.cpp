@@ -9,9 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <filesystem>
 #include "bfs_common.hpp"
 
 #include "disk_test_utils.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -22,12 +24,18 @@ template <typename StorageType>
 class SingleNodeDb : public Database {
  public:
   const std::string testSuite = "bfs_single_node";
+  const std::filesystem::path root_test = "/tmp/" + testSuite;
 
-  SingleNodeDb() : config_(disk_test_utils::GenerateOnDiskConfig(testSuite)), db_(new StorageType(config_)) {}
+  SingleNodeDb() : config_(disk_test_utils::GenerateOnDiskConfig(testSuite)), db_(new StorageType(config_)) {
+    memgraph::storage::UpdatePaths(config_, root_test);
+  }
 
   ~SingleNodeDb() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+    if (std::filesystem::exists(root_test)) {
+      std::filesystem::remove_all(root_test);
     }
   }
 
