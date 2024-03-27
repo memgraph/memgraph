@@ -117,7 +117,7 @@ struct InterpreterContext {
       std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
- private:
+  // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                      replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
