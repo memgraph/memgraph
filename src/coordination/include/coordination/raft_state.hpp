@@ -79,7 +79,6 @@ class RaftState {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
-  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
@@ -91,6 +90,8 @@ class RaftState {
 
   auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;
+
+  auto CoordinatorExists(uint32_t coordinator_id) const -> bool;
 
  private:
   io::network::Endpoint raft_endpoint_;
