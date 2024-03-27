@@ -407,6 +407,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -469,6 +475,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -514,6 +527,15 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case SWAP_UUID_FAILED:
         throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case ENABLE_WRITING_FAILED:
+        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -529,7 +551,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 /// returns false if the replication role can't be set
-/// @throw QueryRuntimeException if an error ocurred.
+/// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          Interpreter &interpreter) {

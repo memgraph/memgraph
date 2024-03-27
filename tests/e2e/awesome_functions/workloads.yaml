@@ -8,7 +8,11 @@ awesome_functions_cluster: &awesome_functions_cluster
 
 
 workloads:
-  - name: "Awesome Functions"
+  - name: "Property size awesome function"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["awesome_functions/awesome_functions.py"]
+    args: ["awesome_functions/property_size.py"]
+    <<: *awesome_functions_cluster
+  - name: "Value type awesome function"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["awesome_functions/value_type.py"]
     <<: *awesome_functions_cluster

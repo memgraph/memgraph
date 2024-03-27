@@ -40,20 +40,19 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
-  ~CoordinatorStateMachine() override {}
-
-  // TODO: (andi) Check API of this class.
-  auto MainExists() const -> bool;
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
+  ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
+  static auto SerializeOpenLock() -> ptr<buffer>;
+  static auto SerializeCloseLock() -> ptr<buffer>;
   static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
   static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
+  static auto SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer>;
 
   static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
@@ -85,7 +84,15 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
+  // Getters
+  auto MainExists() const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
+
+  auto GetCurrentMainUUID() const -> utils::UUID;
+  auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
+  auto IsLockOpened() const -> bool;
 
  private:
   struct SnapshotCtx {

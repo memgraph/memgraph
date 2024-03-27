@@ -64,22 +64,30 @@ class RaftState {
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto MainExists() const -> bool;
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
-
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
-  auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
-  auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
+  auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
+  auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
+  auto AppendOpenLock() -> bool;
+  auto AppendCloseLock() -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
+  auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
   // TODO: (andi) Do we need then GetAllCoordinators?
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
+  auto MainExists() const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
+
+  auto GetCurrentMainUUID() const -> utils::UUID;
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+
+  auto IsLockOpened() const -> bool;
 
  private:
   // TODO: (andi) I think variables below can be abstracted/clean them.

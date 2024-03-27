@@ -62,8 +62,48 @@ class CoordinatorInstance {
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
+  auto HasMainState(std::string_view instance_name) const -> bool;
+
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+
  private:
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  template <ranges::forward_range R>
+  auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
+    auto const get_ts = [](ReplicationInstance &replica) {
+      spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
+      return replica.GetClient().SendGetInstanceTimestampsRpc();
+    };
+
+    auto maybe_instance_db_histories = alive_instances | ranges::views::transform(get_ts) | ranges::to<std::vector>();
+
+    auto const ts_has_error = [](auto const &res) -> bool { return res.HasError(); };
+
+    if (std::ranges::any_of(maybe_instance_db_histories, ts_has_error)) {
+      spdlog::error("At least one instance which was alive didn't provide per database history.");
+      return std::nullopt;
+    }
+
+    auto const ts_has_value = [](auto const &zipped) -> bool {
+      auto &[replica, res] = zipped;
+      return res.HasValue();
+    };
+
+    auto transform_to_pairs = ranges::views::transform([](auto const &zipped) {
+      auto &[replica, res] = zipped;
+      return std::make_pair(replica.InstanceName(), res.GetValue());
+    });
+
+    auto instance_db_histories = ranges::views::zip(alive_instances, maybe_instance_db_histories) |
+                                 ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
+
+    auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
+        ChooseMostUpToDateInstance(instance_db_histories);
+
+    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
+                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
+
+    return most_up_to_date_instance;
+  }
 
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
@@ -75,12 +115,20 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
+  void DemoteSuccessCallback(std::string_view repl_instance_name);
 
+  void DemoteFailCallback(std::string_view repl_instance_name);
+
+  void ForceResetCluster();
+
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // NOTE: Must be std::list because we rely on pointer stability.
+  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
+
+  // Thread pool needs to be constructed before raft state as raft state can call thread pool
+  utils::ThreadPool thread_pool_;
 
   RaftState raft_state_;
 };

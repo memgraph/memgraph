@@ -6,6 +6,9 @@ services:
       context: amzn-2
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_amzn-2"
 
   mgbuild_v5_centos-7:
@@ -14,6 +17,9 @@ services:
       context: centos-7
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_centos-7"
 
   mgbuild_v5_centos-9:
@@ -22,6 +28,9 @@ services:
       context: centos-9
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_centos-9"
 
   mgbuild_v5_debian-11:
@@ -30,6 +39,9 @@ services:
       context: debian-11
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_debian-11"
 
   mgbuild_v5_debian-12:
@@ -38,6 +50,9 @@ services:
       context: debian-12
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_debian-12"
 
   mgbuild_v5_fedora-38:
@@ -46,6 +61,9 @@ services:
       context: fedora-38
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_fedora-38"
 
   mgbuild_v5_fedora-39:
@@ -54,6 +72,9 @@ services:
       context: fedora-39
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_fedora-39"
 
   mgbuild_v5_rocky-9.3:
@@ -62,6 +83,9 @@ services:
       context: rocky-9.3
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_rocky-9.3"
 
   mgbuild_v5_ubuntu-20.04:
@@ -70,6 +94,9 @@ services:
       context: ubuntu-20.04
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_ubuntu-20.04"
 
   mgbuild_v5_ubuntu-22.04:
@@ -78,4 +105,7 @@ services:
       context: ubuntu-22.04
       args:
         TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_ubuntu-22.04"
