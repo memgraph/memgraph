@@ -236,6 +236,56 @@ Feature: Aggregations
             | min(null) |
             | null      |
 
+    Scenario: Min test 05: Date
+        Given any graph
+        When executing query:
+            """
+            UNWIND [date("2024-03-05"), date("2023-04-05"), date("2023-03-06")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)     |
+            | 2023-03-06 |
+        And no side effects
+
+    Scenario: Min test 06: LocalTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localTime("09:16:00"), localTime("09:15:59"), localTime("10:15:00")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)             |
+            | 09:15:59.000000000 |
+        And no side effects
+
+    Scenario: Min test 07: LocalDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localDateTime("2024-03-05T09:15:00"),
+            localDateTime("2023-04-05T09:15:00"),
+            localDateTime("2023-03-06T09:15:00"),
+            localDateTime("2023-03-05T10:15:00"),
+            localDateTime("2023-03-05T09:16:00"),
+            localDateTime("2023-03-05T09:15:59")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)                        |
+            | 2023-03-05T09:15:59.000000000 |
+        And no side effects
+
+    Scenario: Min test 08: Duration
+        Given any graph
+        When executing query:
+            """
+            UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
+            RETURN min(i)
+            """
+        Then an error should be raised
+
     Scenario: Max test 01:
         Given an empty graph
         And having executed
@@ -287,6 +337,56 @@ Feature: Aggregations
             | max(null) |
             | null      |
 
+    Scenario: Max test 05: Date
+        Given any graph
+        When executing query:
+            """
+            UNWIND [date("2024-03-05"), date("2023-04-05"), date("2023-03-06")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)     |
+            | 2024-03-05 |
+        And no side effects
+
+    Scenario: Max test 06: LocalTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localTime("10:15:00"), localTime("09:16:00"), localTime("09:15:59")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)             |
+            | 10:15:00.000000000 |
+        And no side effects
+
+    Scenario: Max test 07: LocalDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localDateTime("2024-03-05T09:15:00"),
+            localDateTime("2023-04-05T09:15:00"),
+            localDateTime("2023-03-06T09:15:00"),
+            localDateTime("2023-03-05T10:15:00"),
+            localDateTime("2023-03-05T09:16:00"),
+            localDateTime("2023-03-05T09:15:59")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)                        |
+            | 2024-03-05T09:15:00.000000000 |
+        And no side effects
+
+    Scenario: Max test 08: Duration
+        Given any graph
+        When executing query:
+            """
+            UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
+            RETURN max(i)
+            """
+        Then an error should be raised
+
     Scenario: Collect test 01:
         Given an empty graph
         And having executed
@@ -329,7 +429,7 @@ Feature: Aggregations
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
 
-        Scenario: Combined aggregations - some evauluates to null:
+        Scenario: Combined aggregations - some evaluate to null:
         Given an empty graph
         And having executed
             """

@@ -4075,11 +4075,13 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
       case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
         return;
       default:
         throw QueryRuntimeException(
-            "Only boolean, numeric and string values are allowed in "
-            "MIN and MAX aggregations.");
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX aggregations.");
     }
   }
 
