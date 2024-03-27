@@ -30,7 +30,7 @@ SUPPORTED_OS_V4=(
 SUPPORTED_OS_V5=(
     amzn-2
     centos-7 centos-9
-    debian-11 debian-11-arm debian-12 debian-12-arm
+    debian-11 debian-12 debian-12-arm
     fedora-38 fedora-39
     rocky-9.3
     ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
@@ -63,10 +63,11 @@ print_help () {
   echo -e "\nInteract with mgbuild containers"
 
   echo -e "\nCommands:"
-  echo -e "  build                         Build mgbuild image"
+  echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
-  echo -e "  copy OPTIONS                  Copy an artifact from mgbuild container to host"
+  echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
   echo -e "  pull                          Pull mgbuild image from dockerhub"
   echo -e "  push [OPTIONS]                Push mgbuild image to dockerhub"
   echo -e "  run [OPTIONS]                 Run mgbuild container"
@@ -85,6 +86,9 @@ print_help () {
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
 
+  echo -e "\nbuild options:"
+  echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
+
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
   echo -e "  --community                   Build community version"
@@ -96,14 +100,21 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
 
-  echo -e "\ncopy options:"
-  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host"
+  echo -e "\ncopy options (default \"--binary\"):"
+  echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
+  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host (default)"
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
 
+  echo -e "\npackage-docker options:"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
+  echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
+  echo -e "                                This directory should contain the memgraph package."
+
   echo -e "\npush options:"
-  echo -e "  -p, --password string         Specify password for docker login"
-  echo -e "  -u, --username string         Specify username for docker login"
+  echo -e "  -p, --password string         Specify password for docker login (default empty)"
+  echo -e "  -u, --username string         Specify username for docker login (default empty)"
 
   echo -e "\nrun options:"
   echo -e "  --pull                        Pull the mgbuild image before running"
@@ -118,6 +129,7 @@ print_help () {
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
 
   echo -e "\nExample usage:"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
@@ -209,7 +221,6 @@ check_support() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 build_memgraph () {
-  local build_container="mgbuild_${toolchain_version}_${os}"
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local container_build_dir="$MGBUILD_ROOT_DIR/build"
@@ -219,6 +230,7 @@ build_memgraph () {
     arm_flag="-DMG_ARCH="ARM64""
   fi
   local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
+  local skip_rpath_flags="-DCMAKE_SKIP_INSTALL_RPATH:BOOL=YES -DCMAKE_SKIP_RPATH:BOOL=YES"
   local telemetry_id_override_flag=""
   local community_flag=""
   local coverage_flag=""
@@ -274,6 +286,7 @@ build_memgraph () {
       ;;
       *)
         echo "Error: Unknown flag '$1'"
+        print_help
         exit 1
       ;;
     esac
@@ -294,9 +307,9 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
     docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+    # Change ownership of copied files so the mg user inside container can access them
+    docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
   fi
-  # Change ownership of copied files so the mg user inside container can access them
-  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check TOOLCHAIN_RUN_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install TOOLCHAIN_RUN_DEPS"
@@ -316,7 +329,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
+  local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
@@ -336,12 +349,15 @@ build_memgraph () {
 
 package_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local build_container="mgbuild_${toolchain_version}_${os}"
   local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
   local package_command=""
   if [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"fedora".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc' memgraph*.rpm "
+  fi
+  if [[ "$os" =~ ^"fedora".* ]]; then
+      docker exec -u root "$build_container" bash -c "yum -y update"
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
   fi
   if [[ "$os" =~ ^"debian".* ]]; then
       docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
@@ -354,39 +370,125 @@ package_memgraph() {
   docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
-copy_memgraph() {
-  local build_container="mgbuild_${toolchain_version}_${os}"
-  case "$1" in
-    --binary)
-      echo "Copying memgraph binary to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
-      local host_output_path="$PROJECT_ROOT/build/memgraph"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path
-      echo "Binary saved to $host_output_path"
-    ;;
-    --build-logs)
-      echo "Copying memgraph build logs to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
-      local host_output_path="$PROJECT_ROOT/build/logs"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path
-      echo "Build logs saved to $host_output_path"
-    ;;
-    --package)
-      echo "Copying memgraph package to host..."
-      local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
-      local host_output_dir="$PROJECT_ROOT/build/output/$os"
-      local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-      mkdir -p "$host_output_dir"
-      docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
-      echo "Package saved to $host_output_dir/$last_package_name"
-    ;;
-    *)
-      echo "Error: Unknown flag '$1'"
+package_docker() {
+  if [[ "$toolchain_version" == "v4" ]]; then
+    if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
       exit 1
-    ;;
-  esac
+    fi
+  else
+    if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
+      exit 1
+    fi
+  fi
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        package_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --src-dir)
+        docker_host_folder="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+  # shellcheck disable=SC2012
+  local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
+  local docker_build_folder="$PROJECT_ROOT/release/docker"
+  cd "$docker_build_folder"
+  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  # shellcheck disable=SC2012
+  local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
+  local docker_host_image_path="$docker_host_folder/$docker_image_name"
+  mkdir -p "$docker_host_folder"
+  cp "$docker_build_folder/$docker_image_name" "$docker_host_folder"
+  echo "Docker images saved to $docker_host_image_path."
+}
+
+copy_memgraph() {
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local artifact="binary"
+  local artifact_name="memgraph"
+  local container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+  local host_dir="$PROJECT_BUILD_DIR"
+  local host_dir_override=""
+  local artifact_name_override=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --binary)#cp -L
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="binary"
+        artifact_name="memgraph"
+        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --build-logs)#cp -L
+        if [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="build logs"
+        artifact_name="logs"
+        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --package)#cp
+        if [[ "$artifact" == "build logs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+          exit 1
+        fi
+        artifact="package"
+        local container_package_dir="$MGBUILD_BUILD_DIR/output"
+        host_dir="$PROJECT_BUILD_DIR/output/$os"
+        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
+        container_artifact_path="$container_package_dir/$artifact_name"
+        shift 1
+      ;;
+      --dest-dir)
+        host_dir_override=$2
+        shift 2
+      ;;
+      --artifact-name)
+        artifact_name_override=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+  if [[ "$host_dir_override" != "" ]]; then
+    host_dir=$host_dir_override
+  fi
+  if [[ "$artifact_name_override" != "" ]]; then
+    artifact_name=$artifact_name_override
+  fi
+  local host_artifact_path="$host_dir/$artifact_name"
+  echo -e "Copying memgraph $artifact from $build_container to host ..."
+  mkdir -p $host_dir
+  if [[ "$artifact" == "package" ]]; then
+    docker cp $build_container:$container_artifact_path $host_artifact_path
+  else
+    docker cp -L $build_container:$container_artifact_path $host_artifact_path
+  fi
+  echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }
 
 
@@ -400,7 +502,6 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  local build_container="mgbuild_${toolchain_version}_${os}"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
@@ -435,7 +536,13 @@ test_memgraph() {
     stress-ssl)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --use-ssl'
     ;;
+    stress-large)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --large-dataset'
+    ;;
     durability)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
+    ;;
+    durability-large)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
     ;;
     gql-behave)
@@ -447,6 +554,12 @@ test_memgraph() {
     ;;
     macro-benchmark)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
+    ;;
+    macro-benchmark-parallel)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QueryParallelSuite MemgraphRunner --groups aggregation_parallel create_parallel bfs_parallel --num-database-workers 9 --num-clients-workers 30 --no-strict'
+    ;;
+    micro-benchmark)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
     ;;
     mgbench)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench "'&& ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*'
@@ -476,19 +589,12 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-      # local kafka_container="kafka_kafka_1"
-      # local kafka_hostname="kafka"
-      # local pulsar_container="pulsar_pulsar_1"
-      # local pulsar_hostname="pulsar"
-      # local setup_hostnames="export KAFKA_HOSTNAME=$kafka_hostname && PULSAR_HOSTNAME=$pulsar_hostname"
-      # local build_container_network=$(docker inspect $build_container --format='{{ .HostConfig.NetworkMode }}')
-      # docker network connect --alias $kafka_hostname $build_container_network $kafka_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
-      # docker network connect --alias $pulsar_hostname $build_container_network $pulsar_container  > /dev/null 2>&1 || echo "Kafka container already inside correct network or something went wrong ..."
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     *)
       echo "Error: Unknown test '$1'"
+      print_help
       exit 1
     ;;
   esac
@@ -510,6 +616,7 @@ os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
 command=""
+build_container=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -547,6 +654,7 @@ while [[ $# -gt 0 ]]; do
     *)
       if [[ "$1" =~ ^--.* ]]; then
         echo -e "Error: Unknown option '$1'"
+        print_help
         exit 1
       else
         command=$1
@@ -556,7 +664,15 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-check_support os_toolchain_combo $os $toolchain_version
+if [[ "$os" != "all" ]]; then
+  if [[ "$arch" == 'arm' ]] && [[ "$os" != *"-arm" ]]; then
+    os="${os}-arm"
+  fi
+  check_support os $os
+  check_support os_toolchain_combo $os $toolchain_version
+fi
+
+build_container="mgbuild_${toolchain_version}_${os}"
 
 if [[ "$command" == "" ]]; then
   echo -e "Error: Command not provided, please provide command"
@@ -580,23 +696,42 @@ echo "Using $docker_compose_cmd"
 case $command in
     build)
       cd $SCRIPT_DIR
+      git_ref_flag=""
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --git-ref)
+              git_ref_flag="--build-arg GIT_REF=$2"
+              shift 2
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $build_container
       fi
     ;;
     run)
       cd $SCRIPT_DIR
       pull=false
-      if [[ "$#" -gt 0 ]]; then
-        if [[ "$1" == "--pull" ]]; then
-          pull=true
-        else
-          echo "Error: Unknown flag '$1'"
-          exit 1
-        fi
-      fi
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --pull)
+              pull=true
+              shift 1
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
@@ -606,30 +741,35 @@ case $command in
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
       else
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
         elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures mgbuild_${toolchain_version}_${os}
+          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures $build_container
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
       fi
     ;;
     stop)
       cd $SCRIPT_DIR
       remove=false
-      if [[ "$#" -gt 0 ]]; then
-        if [[ "$1" == "--remove" ]]; then
-          remove=true
-        else
-          echo "Error: Unknown flag '$1'"
-          exit 1
-        fi
-      fi
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --remove)
+              remove=true
+              shift 1
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
       else
-        docker stop mgbuild_${toolchain_version}_${os}
+        docker stop $build_container
         if [[ "$remove" == "true" ]]; then
-          docker rm mgbuild_${toolchain_version}_${os}
+          docker rm $build_container
         fi
       fi
     ;;
@@ -638,7 +778,7 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
       fi
     ;;
     push)
@@ -647,14 +787,14 @@ case $command in
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push --ignore-push-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push mgbuild_${toolchain_version}_${os}
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push $build_container
       fi
     ;;
     build-memgraph)
       build_memgraph $@
     ;;
     package-memgraph)
-      package_memgraph
+      package_memgraph $@
     ;;
     test-memgraph)
       test_memgraph $@
@@ -662,8 +802,12 @@ case $command in
     copy)
       copy_memgraph $@
     ;;
+    package-docker)
+      package_docker $@
+    ;;
     *)
         echo "Error: Unknown command '$command'"
+        print_help
         exit 1
     ;;
 esac
