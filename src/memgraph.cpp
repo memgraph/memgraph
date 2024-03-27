@@ -332,9 +332,16 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                        .enable_edges_metadata =
+                            FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+  if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
+    spdlog::warn(
+        "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
+        "extra metadata on edges, enable properties on edges as well.");
+  }
   spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
                FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
