@@ -1,0 +1,60 @@
+name: Run a test
+on:
+  workflow_call:
+    inputs:
+      test_name:
+        description: Which test will be run?
+        required: true
+        type: string
+      mgbuilder:
+        description: Which mgbuilder image is needed to perform the test?
+        type: string
+        required: true
+      threads:
+        description: How many threads will be used to build memgraph?
+        default: 24
+        type: number
+      os:
+        description: Base image with which os will be used?
+        default: debian-10
+        type: string
+      toolchain_version:
+        description: Which toolchain version will be used in the build?
+        default: 4
+        type: number
+
+env:
+  OS: ${{ inputs.os }}
+  TOOLCHAIN_VERSION: ${{ inputs.toolchain_version }}
+  THREADS: ${{ inputs.threads }}
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  TEST_CONTAINER: "${{ inputs.test_name }}-${{ github.run_id }}"
+
+jobs:
+  RunTest:
+    name: "Run ${{ inputs.test_name }} test"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    timeout-minutes: 60
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull ${{ inputs.mgbuilder_tag }}
+        run: docker pull ${{ inputs.mgbuilder }}
+
+      - name: Run ${{ inputs.test_name }}
+        run: |
+          docker run --rm \
+          --name $TEST_CONTAINER \
+          --entrypoint /bin/bash \
+          ${{ inputs.mgbuilder }} \
+          -c "./memgraph/docker/ci.bash test ${{ inputs.test_name }}"
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          docker image rm ${{ inputs.mgbuilder }}
