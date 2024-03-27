@@ -15,6 +15,9 @@
 #include "system/include/system/system.hpp"
 namespace memgraph::query {
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+InterpreterContext *InterpreterContext::instance = nullptr;
+
 InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                                        replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
