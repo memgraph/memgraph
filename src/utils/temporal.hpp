@@ -300,11 +300,17 @@ class Timezone {
  public:
   explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
-  explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
+  explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {
+    // TODO antepusic: handle offsets in strings
+  }
 
   const Timezone *operator->() const { return this; }
 
   bool operator==(const Timezone &) const = default;
+
+  // Sole sensible comparison; can’t compare by offset since the same timezone may have varying offsets through the year
+  // (standard vs. daylight saving time)
+  std::strong_ordering operator<=>(const Timezone &other) const { return TimezoneName() <=> other.TimezoneName(); }
 
   template <class DurationT>
   std::chrono::minutes OffsetInMinutes(std::chrono::sys_time<DurationT> time_point) const {
@@ -383,6 +389,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 struct ZonedDateTime {
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
   explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
+  explicit ZonedDateTime(const int64_t microseconds, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
   int64_t MicrosecondsSinceEpoch() const;
@@ -397,6 +404,8 @@ struct ZonedDateTime {
   std::chrono::minutes OffsetInMinutes() const {
     return zoned_time.get_time_zone().OffsetInMinutes(zoned_time.get_sys_time());
   }
+
+  Timezone GetTimezone() const { return zoned_time.get_time_zone(); }
 
   std::string_view TimezoneName() const { return zoned_time.get_time_zone().TimezoneName(); }
 
