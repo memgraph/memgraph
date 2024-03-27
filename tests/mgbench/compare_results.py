@@ -97,7 +97,21 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
     return ret
 
 
-def generate_remarkup(fields, data, results_from=None, results_to=None):
+def _generate_th_tag(others_len):
+    ret = "<th>Reference vendor</th>\n"
+    for i in range(others_len):
+        ret += f"<th>Vendor {i}</th>\n"
+    return ret
+
+
+def _generate_td_tag(reference, others, property):
+    ret = f"<td>{reference[property]}</td>\n"
+    for other in others:
+        ret += f"<td>{other[property]}</td>\n"
+    return ret
+
+
+def generate_remarkup(fields, data, results_reference=None, results_other=None):
     ret = "<html>\n"
     ret += """
         <style>
@@ -107,108 +121,96 @@ def generate_remarkup(fields, data, results_from=None, results_to=None):
         </style>
         """
     ret += "<h1>Benchmark comparison</h1>\n"
-    if results_from and results_to:
+    if results_reference and results_other:
         ret += """
         <h2>Benchmark configuration</h2>
         <table>
             <tr>
                 <th>Configuration</th>
-                <th>Reference vendor</th>
-                <th>Vendor </th>
+                {}
             </tr>
             <tr>
                 <td>Vendor name</td>
-                <td>{}</td>
-                <td>{}</td>
+                {}
             </tr>
             <tr>
                 <td>Vendor condition</td>
-                <td>{}</td>
-                <td>{}</td>
+                {}
             </tr>
             <tr>
                 <td>Number of workers</td>
-                <td>{}</td>
-                <td>{}</td>
+                {}
             </tr>
             <tr>
                 <td>Single threaded runtime</td>
-                <td>{}</td>
-                <td>{}</td>
+                {}
             </tr>
             <tr>
                 <td>Platform</td>
-                <td>{}</td>
-                <td>{}</td>
+                {}
             </tr>
         </table>
         """.format(
-            results_from["vendor"],
-            results_to["vendor"],
-            results_from["condition"],
-            results_to["condition"],
-            results_from["num_workers_for_benchmark"],
-            results_to["num_workers_for_benchmark"],
-            results_from["single_threaded_runtime_sec"],
-            results_to["single_threaded_runtime_sec"],
-            results_from["platform"],
-            results_to["platform"],
+            _generate_th_tag(len(results_other)),
+            _generate_td_tag(results_reference, results_other, "vendor"),
+            _generate_td_tag(results_reference, results_other, "condition"),
+            _generate_td_tag(results_reference, results_other, "num_workers_for_benchmark"),
+            _generate_td_tag(results_reference, results_other, "single_threaded_runtime_sec"),
+            _generate_td_tag(results_reference, results_other, "platform"),
         )
         ret += """
         <h2>How to read benchmark results</h2>
         <b> Throughput and latency values:</b>
-        <p> If vendor <b>  {} </b> is faster than the reference vendor <b>  {} </b>, the result for throughput and latency are show in <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000">red </b>. Percentage difference is visible relative to reference vendor {}. </p>
+        <p> If the given vendor is faster than the reference vendor <b> {}</b>, the result for throughput and latency are show in <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000">red</b>. Percentage difference is visible relative to reference vendor {}. </p>
         <b> Memory usage:</b>
-        <p> If the vendor <b>  {} </b> uses less memory then the reference vendor <b>  {} </b>, the result is shown in  <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000"> red </b>. Percentage difference for memory is visible relative to reference vendor {}.
+        <p> If the given vendor uses less memory then the reference vendor <b> {}</b>, the result is shown in  <b style="color:#008000">green </b>, otherwise <b style="color:#FF0000">red </b>. Percentage difference for memory is visible relative to reference vendor {}.
         """.format(
-            results_to["vendor"],
-            results_from["vendor"],
-            results_from["vendor"],
-            results_to["vendor"],
-            results_from["vendor"],
-            results_from["vendor"],
+            results_reference["vendor"],
+            results_reference["vendor"],
+            results_reference["vendor"],
+            results_reference["vendor"],
         )
-
-    ret += "<h2>Benchmark results</h2>\n"
-    if len(data) > 0:
-        ret += "<table>\n"
-        ret += "  <tr>\n"
-        ret += "    <th>Testcode</th>\n"
-        ret += (
-            "\n".join(
-                map(
-                    lambda x: "    <th>{}</th>".format(x["name"].replace("_", " ").capitalize()),
-                    fields,
-                )
-            )
-            + "\n"
-        )
-        ret += "  </tr>\n"
-        for testcode in sorted(data.keys()):
+    for vendor_id, comparison in enumerate(data):
+        ret += f"<h2>Benchmark results: Reference vendor vs Vendor {vendor_id}</h2>\n"
+        if len(comparison) > 0:
+            ret += "<table>\n"
             ret += "  <tr>\n"
-            ret += "    <td>{}</td>\n".format(testcode)
-            for field in fields:
-                result = data[testcode].get(field["name"])
-                if result != None:
-                    value = result["value"] * field["scaling"]
-                    if "diff" in result:
-                        diff = result["diff"]
-                        arrow = "arrow-up" if diff >= 0 else "arrow-down"
-                        if not (field["positive_diff_better"] ^ (diff >= 0)):
-                            color = "green"
-                        else:
-                            color = "red"
-                        sign = "{{icon {} color={}}}".format(arrow, color)
-                        ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
-                            color, value, field["unit"], diff
-                        )
-                    else:
-                        ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
+            ret += "    <th>Testcode</th>\n"
+            ret += (
+                "\n".join(
+                    map(
+                        lambda x: "    <th>{}</th>".format(x["name"].replace("_", " ").capitalize()),
+                        fields,
+                    )
+                )
+                + "\n"
+            )
             ret += "  </tr>\n"
-        ret += "</table>\n"
-        ret += "</html>\n"
-    else:
-        ret += "No performance change detected.\n"
+            for testcode in sorted(comparison.keys()):
+                ret += "  <tr>\n"
+                ret += "    <td>{}</td>\n".format(testcode)
+                for field in fields:
+                    result = comparison[testcode].get(field["name"])
+                    if result != None:
+                        value = result["value"] * field["scaling"]
+                        if "diff" in result:
+                            diff = result["diff"]
+                            arrow = "arrow-up" if diff >= 0 else "arrow-down"
+                            if not (field["positive_diff_better"] ^ (diff >= 0)):
+                                color = "green"
+                            else:
+                                color = "red"
+                            sign = "{{icon {} color={}}}".format(arrow, color)
+                            ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
+                                color, value, field["unit"], diff
+                            )
+                        else:
+                            ret += '<td bgcolor="blue">{:.3f}{} //(new)// </td>\n'.format(value, field["unit"])
+                ret += "  </tr>\n"
+            ret += "</table>\n"
+            ret += "</html>\n"
+        else:
+            ret += "No performance change detected.\n"
     return ret
 
 
@@ -217,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--compare",
         action="append",
-        nargs=2,
+        nargs="+",
         metavar=("from", "to"),
         help="compare results between `from` and `to` files",
     )
@@ -342,17 +344,26 @@ if __name__ == "__main__":
             if "diff_treshold" in field.keys():
                 field["diff_treshold"] = args.difference_threshold
 
-    data = {}
-    for file_from, file_to in args.compare:
-        results_from = load_results(file_from)
-        results_to = load_results(file_to)
-        data.update(compare_results(results_from, results_to, fields, ignored, args.different_vendors))
+    data = []
+    result_files = args.compare[0]
+    result_reference = load_results(result_files[0])
+    results_other = []
+    for file in result_files[1:]:
+        results_other.append(load_results(file))
+        data.append(compare_results(result_reference, results_other[-1], fields, ignored, args.different_vendors))
 
-    results_from_config = (
-        results_from["__run_configuration__"] if "__run_configuration__" in results_from.keys() else None
+    results_reference_config = (
+        result_reference["__run_configuration__"] if "__run_configuration__" in result_reference.keys() else None
     )
-    results_to_config = results_to["__run_configuration__"] if "__run_configuration__" in results_to.keys() else None
-    remarkup = generate_remarkup(fields, data, results_from=results_from_config, results_to=results_to_config)
+    results_other_config = []
+    for results in results_other:
+        results_other_config.append(
+            results["__run_configuration__"] if "__run_configuration__" in results.keys() else None
+        )
+
+    remarkup = generate_remarkup(
+        fields, data, results_reference=results_reference_config, results_other=results_other_config
+    )
     if args.output:
         with open(args.output, "w") as f:
             f.write(remarkup)
