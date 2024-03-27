@@ -88,6 +88,13 @@ def pars_args():
         help="number of workers used to import the dataset",
     )
 
+    parser.add_argument(
+        "--num-workers-for-benchmark",
+        type=int,
+        default=multiprocessing.cpu_count() // 2,
+        help="number of workers used to execute the benchmark",
+    )
+
     return parser.parse_args()
 
 
@@ -110,6 +117,7 @@ if __name__ == "__main__":
         benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
+        num_workers_for_benchmark=args.num_workers_for_benchmark,
         temporary_directory=args.temporary_directory,
     )
 
@@ -177,6 +185,7 @@ if __name__ == "__main__":
         benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
+        num_workers_for_benchmark=args.num_workers_for_benchmark,
         temporary_directory=args.temporary_directory,
     )
 
