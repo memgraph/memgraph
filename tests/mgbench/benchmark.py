@@ -319,7 +319,7 @@ def realistic_workload(
     queries,
     benchmark_context: BenchmarkContext,
     results,
-    usage_of_imported_data,
+    memory_usage_of_imported_data,
 ):
     log.log("Executing realistic workload...")
     config_distribution, queries_by_type, _, percentage_distribution, num_of_queries = prepare_for_workload(
@@ -345,7 +345,8 @@ def realistic_workload(
         num_workers=benchmark_context.num_workers_for_benchmark,
     )[0]
 
-    usage_workload = vendor.stop_db(rss_db) - usage_of_imported_data
+    usage_workload = vendor.stop_db(rss_db)
+    usage_workload[MEMORY] -= memory_usage_of_imported_data
 
     realistic_workload_res = {
         COUNT: ret[COUNT],
@@ -373,7 +374,7 @@ def mixed_workload(
     queries,
     benchmark_context: BenchmarkContext,
     results,
-    usage_of_imported_data,
+    memory_usage_of_imported_data,
 ):
     log.log("Executing mixed workload...")
     (
@@ -419,7 +420,8 @@ def mixed_workload(
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
 
-        usage_workload = vendor.stop_db(rss_db) - usage_of_imported_data
+        usage_workload = vendor.stop_db(rss_db)
+        usage_workload[MEMORY] -= memory_usage_of_imported_data
 
         ret[DATABASE] = usage_workload
 
@@ -551,7 +553,7 @@ def save_to_results(results, ret, workload, group, query, authorization_mode):
 
 
 def run_isolated_workload_with_authorization(
-    vendor_runner, client, queries, group, workload, results, usage_of_imported_data
+    vendor_runner, client, queries, group, workload, results, memory_usage_of_imported_data
 ):
     log.init("Running isolated workload with authorization")
 
@@ -576,7 +578,8 @@ def run_isolated_workload_with_authorization(
             queries=get_queries(func, count),
             num_workers=benchmark_context.num_workers_for_benchmark,
         )[0]
-        usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION) - usage_of_imported_data
+        usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
+        usage[MEMORY] -= memory_usage_of_imported_data
         time_elapsed = time.time() - start_time
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
 
@@ -593,7 +596,7 @@ def run_isolated_workload_with_authorization(
 
 
 def run_isolated_workload_without_authorization(
-    vendor_runner, client, queries, group, workload, results, usage_of_imported_data
+    vendor_runner, client, queries, group, workload, results, memory_usage_of_imported_data
 ):
     log.init("Running isolated workload without authorization")
     for query, funcname in queries[group]:
@@ -629,7 +632,8 @@ def run_isolated_workload_without_authorization(
         time_elapsed = time.time() - start_time
 
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
-        usage = vendor_runner.stop_db(rss_db) - usage_of_imported_data
+        usage = vendor_runner.stop_db(rss_db)
+        usage[MEMORY] -= memory_usage_of_imported_data
 
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
@@ -680,26 +684,29 @@ def save_memory_usage_of_empty_db(vendor_runner, workload, results):
     usage = vendor_runner.stop_db(rss_db)
     key = [workload.NAME, workload.get_variant(), EMPTY_DB]
     results.set_value(*key, value={DATABASE: usage})
-    return usage
+    return usage[MEMORY]
 
 
-def save_memory_usage_of_imported_data(vendor_runner, workload, results, usage_of_emtpy_db):
+def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_emtpy_db):
     rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
     vendor_runner.start_db(rss_db)
-    usage = vendor_runner.stop_db(rss_db) - usage_of_emtpy_db
+    usage = vendor_runner.stop_db(rss_db)
+    usage[MEMORY] -= memory_usage_of_emtpy_db
     key = [workload.NAME, workload.get_variant(), IMPORTED_DATA]
     results.set_value(*key, value={DATABASE: usage})
-    return usage
+    return usage[MEMORY]
 
 
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
-    usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
+    memory_usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
     import_results, rss_usage = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
     save_import_results(workload, results, import_results, rss_usage)
-    usage_of_imported_data = save_memory_usage_of_imported_data(vendor_runner, workload, results, usage_of_emtpy_db)
+    memory_usage_of_imported_data = save_memory_usage_of_imported_data(
+        vendor_runner, workload, results, memory_usage_of_emtpy_db
+    )
 
     for group in sorted(bench_queries.keys()):
         log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode for {group} group")
@@ -712,7 +719,7 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
                 bench_queries,
                 benchmark_context,
                 results,
-                usage_of_imported_data,
+                memory_usage_of_imported_data,
             )
         elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
             realistic_workload(
@@ -723,16 +730,16 @@ def run_target_workload(benchmark_context, workload, bench_queries, vendor_runne
                 bench_queries,
                 benchmark_context,
                 results,
-                usage_of_imported_data,
+                memory_usage_of_imported_data,
             )
         else:
             run_isolated_workload_without_authorization(
-                vendor_runner, client, bench_queries, group, workload, results, usage_of_imported_data
+                vendor_runner, client, bench_queries, group, workload, results, memory_usage_of_imported_data
             )
 
         if benchmark_context.no_authorization:
             run_isolated_workload_with_authorization(
-                vendor_runner, client, bench_queries, group, workload, results, usage_of_imported_data
+                vendor_runner, client, bench_queries, group, workload, results, memory_usage_of_imported_data
             )
 
 
