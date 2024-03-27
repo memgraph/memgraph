@@ -113,6 +113,21 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
     }
   }
 }
+
+void DumpZonedDateTime(std::ostream &os, const storage::ZonedTemporalData &value) {
+  utils::ZonedDateTime ldt(value.microseconds, value.timezone);
+  os << "ZONEDDATETIME(\"" << ldt << "\")";
+}
+
+void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &value) {
+  switch (value.type) {
+    case storage::ZonedTemporalType::ZonedDateTime: {
+      DumpZonedDateTime(os, value);
+      return;
+    }
+  }
+}
+
 }  // namespace
 
 void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
@@ -151,6 +166,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     }
     case storage::PropertyValue::Type::TemporalData: {
       DumpTemporalData(*os, value.ValueTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      DumpZonedTemporalData(*os, value.ValueZonedTemporalData());
       return;
     }
   }
