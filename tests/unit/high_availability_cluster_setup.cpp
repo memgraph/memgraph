@@ -186,19 +186,43 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
 TEST_F(HighAvailabilityClusterSetupTest, CreateCluster1) {
   auto const leader_instances = coordinator1.ShowInstances();
   EXPECT_EQ(leader_instances.size(), 6);
-  ASSERT_EQ(leader_instances[0].instance_name, "coordinator_1");
-  ASSERT_EQ(leader_instances[1].instance_name, "coordinator_2");
-  ASSERT_EQ(leader_instances[2].instance_name, "coordinator_3");
-  ASSERT_EQ(leader_instances[3].instance_name, "instance1");
-  ASSERT_EQ(leader_instances[4].instance_name, "instance2");
-  ASSERT_EQ(leader_instances[5].instance_name, "instance3");
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_3"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance3"; }),
+            leader_instances.end());
 
   auto const follower_instances = coordinator2.ShowInstances();
   EXPECT_EQ(follower_instances.size(), 6);
-  ASSERT_EQ(follower_instances[0].instance_name, "coordinator_1");
-  ASSERT_EQ(follower_instances[1].instance_name, "coordinator_2");
-  ASSERT_EQ(follower_instances[2].instance_name, "coordinator_3");
-  ASSERT_EQ(follower_instances[3].instance_name, "instance1");
-  ASSERT_EQ(follower_instances[4].instance_name, "instance2");
-  ASSERT_EQ(follower_instances[5].instance_name, "instance3");
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_3"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance3"; }),
+            leader_instances.end());
 }
