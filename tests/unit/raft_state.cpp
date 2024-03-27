@@ -135,6 +135,6 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   auto const &routers = routing_table[2];
   ASSERT_EQ(routers.second, "ROUTE");
-  auto const expected_routers = std::vector<std::string>{"127.0.0.1:7690", "127.0.0.1:7691", "127.0.0.1:7692"};
+  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7690", "127.0.0.1:7691", "127.0.0.1:7692"};
   ASSERT_EQ(routers.first, expected_routers);
 }
