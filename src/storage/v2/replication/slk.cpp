@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::List):
     case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
     case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
       valid = true;
       break;
     default:
@@ -97,6 +98,14 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      // TODO antepusic: ZonedTemporalData
+      // slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+      // const auto temporal_data = value.ValueTemporalData();
+      // slk::Save(temporal_data.type, builder);
+      // slk::Save(temporal_data.microseconds, builder);
       return;
     }
   }
@@ -161,6 +170,15 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
       *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      // TODO antepusic: ZonedTemporalData
+      // storage::TemporalType temporal_type{};
+      // slk::Load(&temporal_type, reader);
+      // int64_t microseconds{0};
+      // slk::Load(&microseconds, reader);
+      // *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
       return;
     }
   }
