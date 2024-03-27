@@ -30,6 +30,16 @@ namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
+struct ReplicationInstanceInitConfig {
+  int management_port{0};
+};
+
+struct CoordinatorInstanceInitConfig {
+  uint32_t coordinator_id{0};
+  int coordinator_port{0};
+  int bolt_port{0};
+};
+
 struct ReplicationClientInfo {
   std::string instance_name{};
   replication_coordination_glue::ReplicationMode replication_mode{};
@@ -66,7 +76,7 @@ struct CoordinatorToReplicaConfig {
 };
 
 struct CoordinatorToCoordinatorConfig {
-  uint32_t coordinator_server_id{0};
+  uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
 

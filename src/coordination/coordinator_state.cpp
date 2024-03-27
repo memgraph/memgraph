@@ -24,21 +24,16 @@
 
 namespace memgraph::coordination {
 
-CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_coordinator_id && FLAGS_management_port),
-            "Instance cannot be a coordinator and have registered coordinator server.");
+CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) {
+  data_.emplace<CoordinatorInstance>(config);
+}
 
-  spdlog::info("Executing coordinator constructor");
-  if (FLAGS_management_port) {
-    spdlog::info("Coordinator server port set");
-    auto const config = ManagementServerConfig{
-        .ip_address = kDefaultReplicationServerIp,
-        .port = static_cast<uint16_t>(FLAGS_management_port),
-    };
-    spdlog::info("Executing coordinator constructor main replica");
-
-    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
-  }
+CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
+  auto const mgmt_config = ManagementServerConfig{
+      .ip_address = kDefaultReplicationServerIp,
+      .port = static_cast<uint16_t>(config.management_port),
+  };
+  data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
@@ -104,10 +99,10 @@ auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordin
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
-auto CoordinatorState::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
+auto CoordinatorState::GetRoutingTable() -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).GetRoutingTable(routing);
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable();
 }
 
 }  // namespace memgraph::coordination

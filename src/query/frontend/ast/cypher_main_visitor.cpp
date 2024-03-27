@@ -447,7 +447,7 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
-  coordinator_query->coordinator_server_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
   coordinator_query->configs_ =
       std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
