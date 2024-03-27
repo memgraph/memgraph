@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 
+#include "storage/v2/id_types.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -118,6 +119,8 @@ struct Transaction {
   std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
   std::map<std::string, std::string> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
+  std::set<LabelId> introduced_new_label_index_;
+  std::set<EdgeTypeId> introduced_new_edge_type_index_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
