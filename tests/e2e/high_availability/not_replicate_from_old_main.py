@@ -203,7 +203,7 @@ def test_not_replicate_old_main_register_new_cluster():
         return sorted(list(execute_and_fetch_all(first_cluster_coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_up_first_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("instance_2", "", "127.0.0.1:10012", "up", "main"),
         ("shared_instance", "", "127.0.0.1:10011", "up", "replica"),
     ]
@@ -259,7 +259,7 @@ def test_not_replicate_old_main_register_new_cluster():
         return sorted(list(execute_and_fetch_all(second_cluster_coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_up_second_cluster = [
-        ("coordinator_1", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
         ("shared_instance", "", "127.0.0.1:10011", "up", "replica"),
     ]

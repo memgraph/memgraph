@@ -414,7 +414,23 @@ int main(int argc, char **argv) {
 
   // singleton coordinator state
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::CoordinatorState coordinator_state;
+  using memgraph::coordination::CoordinatorInstanceInitConfig;
+  using memgraph::coordination::CoordinatorState;
+  using memgraph::coordination::ReplicationInstanceInitConfig;
+  std::optional<CoordinatorState> coordinator_state{std::nullopt};
+  if (FLAGS_management_port && (FLAGS_coordinator_id || FLAGS_coordinator_port)) {
+    throw std::runtime_error(
+        "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
+        "port for coordinator instance and management port for replication instance.");
+  }
+
+  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
+    coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
+                                                            .coordinator_port = FLAGS_coordinator_port,
+                                                            .bolt_port = FLAGS_bolt_port});
+  } else {
+    coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
+  }
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
@@ -437,19 +453,20 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   if (FLAGS_management_port) {
-    memgraph::dbms::CoordinatorHandlers::Register(coordinator_state.GetCoordinatorServer(), replication_handler);
-    MG_ASSERT(coordinator_state.GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+    memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
+    MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }
 #endif
 
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(interp_config, &dbms_handler, &repl_state, system,
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &repl_state, system,
 #ifdef MG_ENTERPRISE
-                                                           &coordinator_state,
+      coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
+                        : std::nullopt,
 #endif
-                                                           auth_handler.get(), auth_checker.get(),
-                                                           &replication_handler);
+      auth_handler.get(), auth_checker.get(), &replication_handler);
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

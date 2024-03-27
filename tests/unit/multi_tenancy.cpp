@@ -108,7 +108,7 @@ class MultiTenantTest : public ::testing::Test {
                               system
 #ifdef MG_ENTERPRISE
                               ,
-                              nullptr
+                              std::nullopt
 #endif
           } {
       memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");

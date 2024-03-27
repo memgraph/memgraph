@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
   memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                            ,
-                                                           nullptr
+                                                           std::nullopt
 #endif
                                                            ,
                                                            &auth_handler, &auth_checker);

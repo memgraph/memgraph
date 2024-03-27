@@ -24,7 +24,8 @@ namespace memgraph::coordination {
 
 class CoordinatorState {
  public:
-  CoordinatorState();
+  explicit CoordinatorState(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorState(ReplicationInstanceInitConfig const &config);
   ~CoordinatorState() = default;
 
   CoordinatorState(CoordinatorState const &) = delete;
@@ -47,14 +48,14 @@ class CoordinatorState {
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
 
-  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
+  auto GetRoutingTable() -> RoutingTable;
 
  private:
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
   };
 
-  std::variant<CoordinatorInstance, CoordinatorMainReplicaData> data_;
+  std::variant<CoordinatorMainReplicaData, CoordinatorInstance> data_;
 };
 
 }  // namespace memgraph::coordination

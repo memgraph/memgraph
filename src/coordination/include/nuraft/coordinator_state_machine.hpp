@@ -93,6 +93,7 @@ class CoordinatorStateMachine : public state_machine {
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
   auto IsLockOpened() const -> bool;
+  auto CoordinatorExists(uint32_t coordinator_id) const -> bool;
 
  private:
   struct SnapshotCtx {
