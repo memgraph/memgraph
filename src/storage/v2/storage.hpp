@@ -179,6 +179,8 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
+
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
