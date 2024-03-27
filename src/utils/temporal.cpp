@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -403,7 +403,7 @@ size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
 
 namespace {
 inline constexpr auto *kSupportedLocalDateTimeFormatsHelpMessage = R"help(
-String representing the LocalDateTime should be in one of the following formats:
+String representing LocalDateTime should be in one of the following formats:
 
 - YYYY-MM-DDThh:mm:ss
 - YYYY-MM-DDThh:mm
@@ -436,6 +436,7 @@ It's important to note that the date and time parts should use both the correspo
 or both parts should be written in their basic forms without the separators.)help";
 
 }  // namespace
+
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string) {
   auto t_position = string.find('T');
   if (t_position == std::string_view::npos) {
@@ -512,6 +513,278 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
   size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
   result = hasher(result, DateHash{}(local_date_time.date));
   return result;
+}
+
+namespace {
+inline constexpr auto *kSupportedZonedDateTimeFormatsHelpMessage = R"help(
+A string representing ZonedDateTime should have the following structure:
+
+- <DateTime><timezone>
+
+The <DateTime> substring should use one of the following formats:
+
+- YYYY-MM-DDThh:mm:ss
+- YYYY-MM-DDThh:mm
+
+or
+
+- YYYYMMDDThhmmss
+- YYYYMMDDThhmm
+- YYYYMMDDThh
+
+The <timezone> substring should use one of the following formats:
+
+- Z
+- ±hh:mm
+- ±hh:mm[ZoneName]
+- ±hhmm
+- ±hhmm[ZoneName]
+- ±hh
+- ±hh[ZoneName]
+- [ZoneName]
+
+Symbol table:
+|---|---------|
+| Y | YEAR    |
+|---|---------|
+| M | MONTH   |
+|---|---------|
+| D | DAY     |
+|---|---------|
+| h | HOURS   |
+|---|---------|
+| m | MINUTES |
+|---|---------|
+| s | SECONDS |
+|---|---------|
+| Z | UTC     |
+|---|---------|
+
+ZoneName is a standardized timezone name from the IANA time zone database, given without quote marks.
+
+Additionally, seconds can be defined as decimal fractions with 3 or 6 digits after the decimal point.
+First 3 digits represent milliseconds, while the second 3 digits represent microseconds.
+
+It's important to note that the date and time parts should use both the corresponding separators
+or both parts should be written in their basic forms without the separators.)help";
+}  // namespace
+
+Timezone ParseTimezoneFromName(std::string_view timezone_string) {
+  auto extract_timezone_name = [](std::string_view string) {
+    if (!string.starts_with('[') || !string.ends_with(']')) {
+      throw temporal::InvalidArgumentException("Timezone name is not enclosed by '[' ']'.");
+    }
+    string.remove_prefix(1);
+    string.remove_suffix(1);
+    return string;
+  };
+
+  const auto *timezone = std::invoke([&]() {
+    try {
+      return std::chrono::locate_zone(extract_timezone_name(timezone_string));
+    } catch (const std::exception &_) {
+      throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
+    }
+    return (const std::chrono::time_zone *)nullptr;
+  });
+
+  return Timezone(timezone);
+}
+
+std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_offset_string) {
+  // Supported formats:
+  //  ±hh:mm
+  //  ±hhmm
+  //  ±hh
+
+  const auto process_optional_colon = [&] {
+    const bool has_colon = timezone_offset_string.starts_with(':');
+    if (has_colon) {
+      timezone_offset_string.remove_prefix(1);
+    }
+
+    if (timezone_offset_string.empty()) {
+      throw temporal::InvalidArgumentException("Invalid format for the timezone offset. {}",
+                                               kSupportedZonedDateTimeFormatsHelpMessage);
+    }
+  };
+
+  auto compute_offset = [](const char sign, const int64_t hours, const int64_t minutes) {
+    return std::chrono::minutes{(sign == '+' ? 1 : -1) * (60 * hours + minutes)};
+  };
+
+  const auto sign = timezone_offset_string.front();
+  if (!(sign == '+' || sign == '-')) {
+    throw temporal::InvalidArgumentException("The timezone offset starts with either a '+' sign or a '-' sign.");
+  }
+
+  timezone_offset_string.remove_prefix(1);
+
+  const auto maybe_hours = ParseNumber<int64_t>(timezone_offset_string, 2);
+  if (!maybe_hours) {
+    throw temporal::InvalidArgumentException("Invalid hour value in the timezone offset. {}",
+                                             kSupportedZonedDateTimeFormatsHelpMessage);
+  }
+  timezone_offset_string.remove_prefix(2);
+
+  if (timezone_offset_string.empty()) {
+    return {Timezone(compute_offset(sign, maybe_hours.value(), 0)), 0};
+  }
+
+  if (timezone_offset_string.starts_with('[')) {
+    return {Timezone(compute_offset(sign, maybe_hours.value(), 0)), timezone_offset_string.length()};
+  }
+
+  process_optional_colon();
+
+  const auto maybe_minutes = ParseNumber<int64_t>(timezone_offset_string, 2);
+  if (!maybe_minutes) {
+    throw temporal::InvalidArgumentException("Invalid minute value in the timezone offset. {}",
+                                             kSupportedZonedDateTimeFormatsHelpMessage);
+  }
+  timezone_offset_string.remove_prefix(2);
+
+  return {Timezone(compute_offset(sign, maybe_hours.value(), maybe_minutes.value())), timezone_offset_string.length()};
+}
+
+ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
+  // https://en.wikipedia.org/wiki/ISO_8601#Time_zone_designators
+
+  auto get_offset_sign = [](std::string_view string) {
+    const auto plus_position = string.find('+');
+    if (plus_position != std::string::npos) {
+      return plus_position;
+    }
+
+    // The '-' is the same as the hyphens in the date substring (YYYY-MM-DD), but the date substring is always
+    // right-delimited by 'T'
+    return string.find('-', string.find('T'));
+  };
+
+  auto get_timezone_designator_start_position = [&get_offset_sign](std::string_view string) {
+    const auto utc_position = string.find('Z');
+    const auto offset_sign_position = get_offset_sign(string);
+    const auto timezone_name_position = string.find('[');  // Timezone names are enclosed by '[' ']'
+
+    return std::min({utc_position, offset_sign_position, timezone_name_position});
+  };
+
+  const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
+
+  if (timezone_designator_start_position == std::string::npos) {
+    throw temporal::InvalidArgumentException("Timezone is not designated.");
+  }
+
+  std::string ldt_substring = {string.data(), timezone_designator_start_position};
+  string.remove_prefix(timezone_designator_start_position);
+
+  auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
+
+  if (string.empty()) {
+    throw temporal::InvalidArgumentException("Timezone is not designated.");
+  }
+
+  if (string.starts_with('Z')) {
+    if (string.length() != 1) {
+      throw temporal::InvalidArgumentException("Invalid timezone format. {}",
+                                               kSupportedZonedDateTimeFormatsHelpMessage);
+    }
+
+    return ZonedDateTimeParameters{
+        .date = date_parameters,
+        .local_time = local_time_parameters,
+        .timezone = Timezone(std::chrono::locate_zone("Etc/UTC")),
+    };
+  }
+
+  if (string.starts_with('[')) {
+    return ZonedDateTimeParameters{
+        .date = date_parameters,
+        .local_time = local_time_parameters,
+        .timezone = ParseTimezoneFromName(string),
+    };
+  }
+
+  auto [timezone_from_offset, maybe_timezone_name_length] = ParseTimezoneFromOffset(string);
+  string.remove_prefix(string.length() - maybe_timezone_name_length);
+
+  if (string.empty()) {
+    return ZonedDateTimeParameters{
+        .date = date_parameters,
+        .local_time = local_time_parameters,
+        .timezone = timezone_from_offset,
+    };
+  }
+
+  auto timezone_from_name = ParseTimezoneFromName(string);
+
+  auto unzoned_date_time = std::chrono::sys_time<std::chrono::microseconds>{
+      std::chrono::microseconds{LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch()}};
+  if (timezone_from_name.OffsetInMinutes(unzoned_date_time) !=
+      timezone_from_offset.OffsetInMinutes(unzoned_date_time)) {
+    throw temporal::InvalidArgumentException("The number offset doesn’t match the timezone offset.");
+  }
+
+  return ZonedDateTimeParameters{
+      .date = date_parameters,
+      .local_time = local_time_parameters,
+      .timezone = timezone_from_name,
+  };
+}
+
+ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
+  auto timezone = zoned_date_time_parameters.timezone;
+  std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
+      LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+}
+
+ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}
+
+ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
+    : zoned_time(zoned_time) {}
+
+int64_t ZonedDateTime::MicrosecondsSinceEpoch() const { return zoned_time.get_sys_time().time_since_epoch().count(); }
+
+int64_t ZonedDateTime::SecondsSinceEpoch() const {
+  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch()).count();
+}
+
+int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
+  const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
+  const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
+
+  return (time_since_epoch - full_seconds).count();
+}
+
+std::string ZonedDateTime::ToString() const {
+  const auto without_timezone_name = std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
+  const auto timezone_name = zoned_time.get_time_zone().TimezoneName();
+
+  if (timezone_name.empty()) {
+    return without_timezone_name;
+  }
+  return std::format("{0}[{1}]", without_timezone_name, timezone_name);
+}
+
+bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
+  return MicrosecondsSinceEpoch() == other.MicrosecondsSinceEpoch() && OffsetInMinutes() == other.OffsetInMinutes() &&
+         TimezoneName() == other.TimezoneName();
+}
+
+std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) const {
+  const auto duration_ordering = MicrosecondsSinceEpoch() <=> other.MicrosecondsSinceEpoch();
+  if (duration_ordering != 0) {
+    return duration_ordering;
+  }
+
+  const auto offset_ordering = OffsetInMinutes() <=> other.OffsetInMinutes();
+  if (offset_ordering != 0) {
+    return offset_ordering;
+  }
+
+  const auto timezone_name_ordering = TimezoneName() <=> other.TimezoneName();
+  return timezone_name_ordering;
 }
 
 namespace {
