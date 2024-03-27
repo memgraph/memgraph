@@ -371,43 +371,10 @@ package_memgraph() {
   docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
-<<<<<<< HEAD
-copy_memgraph() {
-  local build_container="mgbuild_${toolchain_version}_${os}"
-  case "$1" in
-    --binary)
-      echo "Copying memgraph binary to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/memgraph"
-      local host_output_path="$PROJECT_ROOT/build/memgraph"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
-      echo "Binary saved to $host_output_path"
-    ;;
-    --build-logs)
-      echo "Copying memgraph build logs to host..."
-      local container_output_path="$MGBUILD_ROOT_DIR/build/logs"
-      local host_output_path="$PROJECT_ROOT/build/logs"
-      mkdir -p "$PROJECT_ROOT/build"
-      docker cp -L $build_container:$container_output_path $host_output_path 
-      echo "Build logs saved to $host_output_path"
-    ;;
-    --package)
-      echo "Copying memgraph package to host..."
-      local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
-      local host_output_dir="$PROJECT_ROOT/build/output/$os"
-      local last_package_name=$(docker exec -u mg "$build_container" bash -c "cd $container_output_dir && ls -t memgraph* | head -1")
-      mkdir -p "$host_output_dir"
-      docker cp "$build_container:$container_output_dir/$last_package_name" "$host_output_dir/$last_package_name"
-      echo "Package saved to $host_output_dir/$last_package_name"
-    ;;
-    *)
-      echo "Error: Unknown flag '$1'"
-=======
 package_docker() {
   if [[ "$toolchain_version" == "v4" ]]; then
     if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
       echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
->>>>>>> 86b933ca6 (Modify package memgraph workflow to work in mgbuild containers (#1814))
       exit 1
     fi
   else

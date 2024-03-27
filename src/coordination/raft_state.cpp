@@ -118,10 +118,7 @@ auto RaftState::RaftSocketAddress() const -> std::string { return raft_address_ 
 auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address) -> void {
   auto const endpoint = raft_address + ":" + std::to_string(raft_port);
   srv_config const srv_config_to_add(static_cast<int>(raft_server_id), endpoint);
-<<<<<<< HEAD
-  if (!raft_server_->add_srv(srv_config_to_add)->get_accepted()) {
-    throw RaftAddServerException("Failed to add server {} to the cluster", endpoint);
-=======
+
 
   auto cmd_result = raft_server_->add_srv(srv_config_to_add);
 
@@ -150,7 +147,6 @@ auto RaftState::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_po
   if (!added) {
     throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
                                  max_tries * waiting_period);
->>>>>>> b0cdcd348 (Run CI in mgbuilder containers (#1749))
   }
   spdlog::info("Request to add server {} to the cluster accepted", endpoint);
 }
@@ -165,13 +161,6 @@ auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::RequestLeadership() -> bool { return raft_server_->is_leader() || raft_server_->request_leadership(); }
 
-<<<<<<< HEAD
-auto RaftState::AppendRegisterReplicationInstance(std::string const &instance) -> ptr<raft_result> {
-  auto new_log = CoordinatorStateMachine::EncodeRegisterReplicationInstance(instance);
-  return raft_server_->append_entries({new_log});
-}
-
-=======
 auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorClientConfig const &config) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);
   auto const res = raft_server_->append_entries({new_log});
@@ -291,6 +280,5 @@ auto RaftState::GetInstances() const -> std::vector<InstanceState> { return stat
 
 auto RaftState::GetUUID() const -> utils::UUID { return state_machine_->GetUUID(); }
 
->>>>>>> b0cdcd348 (Run CI in mgbuilder containers (#1749))
 }  // namespace memgraph::coordination
 #endif
