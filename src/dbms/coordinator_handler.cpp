@@ -20,28 +20,27 @@ namespace memgraph::dbms {
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterReplicationInstance(memgraph::coordination::CoordinatorClientConfig config)
+auto CoordinatorHandler::RegisterReplicationInstance(coordination::CoordinatorToReplicaConfig const &config)
     -> coordination::RegisterInstanceCoordinatorStatus {
   return coordinator_state_.RegisterReplicationInstance(config);
 }
 
-auto CoordinatorHandler::UnregisterReplicationInstance(std::string instance_name)
+auto CoordinatorHandler::UnregisterReplicationInstance(std::string_view instance_name)
     -> coordination::UnregisterInstanceCoordinatorStatus {
-  return coordinator_state_.UnregisterReplicationInstance(std::move(instance_name));
+  return coordinator_state_.UnregisterReplicationInstance(instance_name);
 }
 
-auto CoordinatorHandler::SetReplicationInstanceToMain(std::string instance_name)
+auto CoordinatorHandler::SetReplicationInstanceToMain(std::string_view instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
-  return coordinator_state_.SetReplicationInstanceToMain(std::move(instance_name));
+  return coordinator_state_.SetReplicationInstanceToMain(instance_name);
 }
 
 auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
   return coordinator_state_.ShowInstances();
 }
 
-auto CoordinatorHandler::AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string raft_address)
-    -> void {
-  coordinator_state_.AddCoordinatorInstance(raft_server_id, raft_port, std::move(raft_address));
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  coordinator_state_.AddCoordinatorInstance(config);
 }
 
 }  // namespace memgraph::dbms

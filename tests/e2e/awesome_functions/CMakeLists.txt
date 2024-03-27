@@ -3,4 +3,5 @@ function(copy_awesome_functions_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_awesome_functions_e2e_python_files(common.py)
-copy_awesome_functions_e2e_python_files(awesome_functions.py)
+copy_awesome_functions_e2e_python_files(property_size.py)
+copy_awesome_functions_e2e_python_files(value_type.py)

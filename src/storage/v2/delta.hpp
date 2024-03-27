@@ -123,6 +123,26 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
+struct opt_str {
+  opt_str(std::optional<std::string> const &other) : str_{other ? new_cstr(*other) : nullptr} {}
+
+  ~opt_str() { delete[] str_; }
+
+  auto as_opt_str() const -> std::optional<std::string> {
+    if (!str_) return std::nullopt;
+    return std::optional<std::string>{std::in_place, str_};
+  }
+
+ private:
+  static auto new_cstr(std::string const &str) -> char const * {
+    auto *mem = new char[str.length() + 1];
+    strcpy(mem, str.c_str());
+    return mem;
+  }
+
+  char const *str_ = nullptr;
+};
+
 struct Delta {
   enum class Action : std::uint8_t {
     /// Use for Vertex and Edge
@@ -160,7 +180,7 @@ struct Delta {
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
   Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
-      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = std::move(old_disk_key)} {}
+      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
@@ -222,7 +242,7 @@ struct Delta {
       case Action::REMOVE_OUT_EDGE:
         break;
       case Action::DELETE_DESERIALIZED_OBJECT:
-        old_disk_key.value.reset();
+        std::destroy_at(&old_disk_key.value);
         delete timestamp;
         timestamp = nullptr;
         break;
@@ -242,7 +262,7 @@ struct Delta {
     Action action;
     struct {
       Action action = Action::DELETE_DESERIALIZED_OBJECT;
-      std::optional<std::string> value;
+      opt_str value;
     } old_disk_key;
     struct {
       Action action;

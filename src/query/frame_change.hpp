@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -126,10 +126,11 @@ class FrameChangeCollector {
   }
 
   bool ResetTrackingValue(const std::string &key) {
-    if (!tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()))) {
+    auto const it = tracked_values_.find(utils::pmr::string(key, utils::NewDeleteResource()));
+    if (it == tracked_values_.cend()) {
       return false;
     }
-    tracked_values_.erase(utils::pmr::string(key, utils::NewDeleteResource()));
+    tracked_values_.erase(it);
     AddTrackingKey(key);
     return true;
   }

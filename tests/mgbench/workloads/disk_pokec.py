@@ -13,7 +13,8 @@ import random
 
 from benchmark_context import BenchmarkContext
 from workloads.base import Workload
-from workloads.importers.disk_importer_pokec import ImporterPokec
+from workloads.importers.disk_importer_pokec import DiskImporterPokec
+from workloads.importers.importer_pokec import ImporterPokec
 
 
 class Pokec(Workload):
@@ -21,6 +22,12 @@ class Pokec(Workload):
     VARIANTS = ["small", "medium", "large"]
     DEFAULT_VARIANT = "small"
     FILE = None
+
+    URL_FILE = {
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_small_import.cypher",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.cypher",
+        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_large.setup.cypher.gz",
+    }
 
     URL_FILE_NODES = {
         "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/pokec_small_import_nodes.cypher",
@@ -42,7 +49,7 @@ class Pokec(Workload):
 
     URL_INDEX_FILE = {
         "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/memgraph.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec_disk/benchmark/neo4j.cypher",
+        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
     }
 
     PROPERTIES_ON_EDGES = False
@@ -51,15 +58,26 @@ class Pokec(Workload):
         super().__init__(variant, benchmark_context=benchmark_context, disk_workload=True)
 
     def custom_import(self) -> bool:
-        importer = ImporterPokec(
-            benchmark_context=self.benchmark_context,
-            dataset_name=self.NAME,
-            index_file=self._file_index,
-            dataset_nodes_file=self._node_file,
-            dataset_edges_file=self._edge_file,
-            variant=self._variant,
-        )
-        return importer.execute_import()
+        if self._vendor == "neo4j":
+            importer = ImporterPokec(
+                benchmark_context=self.benchmark_context,
+                dataset_name=self.NAME,
+                index_file=self._file_index,
+                dataset_file=self._file,
+                variant=self._variant,
+            )
+            return importer.execute_import()
+
+        else:
+            importer = DiskImporterPokec(
+                benchmark_context=self.benchmark_context,
+                dataset_name=self.NAME,
+                index_file=self._file_index,
+                dataset_nodes_file=self._node_file,
+                dataset_edges_file=self._edge_file,
+                variant=self._variant,
+            )
+            return importer.execute_import()
 
     # Helpers used to generate the queries
     def _get_random_vertex(self):
@@ -214,12 +232,22 @@ class Pokec(Workload):
     # OK
     def benchmark__arango__allshortest_paths(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
+        memgraph = (
             "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
             "MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m) "
             "RETURN extract(n in nodes(p) | n.id) AS path",
             {"from": vertex_from, "to": vertex_to},
         )
+        neo4j = (
+            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
+            "MATCH p = allShortestPaths((n)-[*..2]->(m)) "
+            "RETURN [node in nodes(p) | node.id] AS path",
+            {"from": vertex_from, "to": vertex_to},
+        )
+        if self._vendor == "neo4j":
+            return neo4j
+        else:
+            return memgraph
 
     # Our benchmark queries
 

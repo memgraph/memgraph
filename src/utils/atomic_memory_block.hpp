@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,12 +29,10 @@ class [[nodiscard]] AtomicMemoryBlock {
   AtomicMemoryBlock &operator=(AtomicMemoryBlock &&) = delete;
   ~AtomicMemoryBlock() = default;
 
-  void operator()() {
-    {
-      utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-      function_();
-    }
-    total_memory_tracker.DoCheck();
+  auto operator()() -> std::invoke_result_t<Callable> {
+    auto check_on_exit = OnScopeExit{[&] { total_memory_tracker.DoCheck(); }};
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    return function_();
   }
 
  private:

@@ -122,11 +122,11 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
 
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   if (GetQueriesMemoryControl().IsThreadTracked()) [[unlikely]] {
-    bool ok = GetQueriesMemoryControl().TrackAllocOnCurrentThread(length);
+    [[maybe_unused]] bool ok = GetQueriesMemoryControl().TrackAllocOnCurrentThread(length);
     DMG_ASSERT(ok);
   }
 
-  auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  [[maybe_unused]] auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   DMG_ASSERT(ok);
 
   return false;

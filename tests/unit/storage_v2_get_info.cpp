@@ -146,6 +146,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_LT(info.disk_usage, 1000'000);
   ASSERT_EQ(info.label_indices, 1);
   ASSERT_EQ(info.label_property_indices, 1);
+  ASSERT_EQ(info.text_indices, 0);
   ASSERT_EQ(info.existence_constraints, 0);
   ASSERT_EQ(info.unique_constraints, 2);
   ASSERT_EQ(info.storage_mode, this->mode);

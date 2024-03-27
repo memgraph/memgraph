@@ -57,7 +57,7 @@ struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                      replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-                     memgraph::coordination::CoordinatorState *coordinator_state,
+                     std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                      ReplicationQueryHandler *replication_handler = nullptr);
@@ -72,7 +72,7 @@ struct InterpreterContext {
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::CoordinatorState *coordinator_state_;
+  std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
 #endif
 
   AuthQueryHandler *auth;

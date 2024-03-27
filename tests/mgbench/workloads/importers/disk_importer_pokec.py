@@ -17,7 +17,7 @@ from constants import *
 from runners import BaseRunner
 
 
-class ImporterPokec:
+class DiskImporterPokec:
     def __init__(
         self,
         benchmark_context: BenchmarkContext,

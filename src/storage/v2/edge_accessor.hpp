@@ -44,6 +44,10 @@ class EdgeAccessor final {
         transaction_(transaction),
         for_deleted_(for_deleted) {}
 
+  static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
+                                            Storage *storage, Transaction *transaction, View view,
+                                            bool for_deleted = false);
+
   bool IsDeleted() const;
 
   /// @return true if the object is visible from the current transaction

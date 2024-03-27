@@ -66,7 +66,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          nullptr
+                                                          std::nullopt
 #endif
   };
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};

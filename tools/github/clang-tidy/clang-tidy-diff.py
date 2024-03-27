@@ -250,7 +250,6 @@ def main():
         common_clang_tidy_args.append("-extra-arg=%s" % arg)
     for arg in args.extra_arg_before:
         common_clang_tidy_args.append("-extra-arg-before=%s" % arg)
-
     for name in lines_by_file:
         line_filter_json = json.dumps([{"name": name, "lines": lines_by_file[name]}], separators=(",", ":"))
 
@@ -266,7 +265,6 @@ def main():
         command.extend(common_clang_tidy_args)
         command.append(name)
         command.extend(clang_tidy_args)
-
         task_queue.put(command)
 
     # Wait for all threads to be done.

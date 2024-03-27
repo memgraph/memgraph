@@ -300,6 +300,19 @@ endif()
 
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
+option(MG_MEMORY_PROFILE "If build should be setup for memory profiling" OFF)
+if (MG_MEMORY_PROFILE AND ENABLE_JEMALLOC)
+    message(STATUS "Jemalloc has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ENABLE_JEMALLOC OFF)
+endif ()
+if (MG_MEMORY_PROFILE AND ASAN)
+    message(STATUS "ASAN has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ASAN OFF)
+endif ()
+if (MG_MEMORY_PROFILE)
+    add_compile_definitions(MG_MEMORY_PROFILE)
+endif ()
+
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
   set(ENABLE_JEMALLOC OFF)
@@ -324,6 +337,8 @@ if (ASAN)
 endif()
 
 if (TSAN)
+  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
   # lead to false positive race reports, false negative race reports and/or
@@ -339,7 +354,7 @@ if (TSAN)
   # By default ThreadSanitizer uses addr2line utility to symbolize reports.
   # llvm-symbolizer is faster, consumes less memory and produces much better
   # reports. To use it set runtime flag:
-  #   TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
+  # TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
   # For more runtime flags see: https://github.com/google/sanitizers/wiki/ThreadSanitizerFlags
 endif()
 

@@ -11,6 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# import os
 import sys
 import time
 from multiprocessing import Process
@@ -23,7 +24,7 @@ from mg_utils import mg_sleep_and_assert
 TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
 KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT = 60
-
+# KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
 
 @pytest.mark.parametrize("transformation", TRANSFORMATIONS_TO_CHECK_PY)
 def test_simple(kafka_producer, kafka_topics, connection, transformation):
@@ -162,7 +163,7 @@ def test_show_streams(kafka_topics, connection):
     complex_values_stream = "complex_values"
 
     common.create_stream(
-        cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers="'localhost:29092'"
+            cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers="'localhost:29092'"
     )
     common.create_stream(
         cursor,

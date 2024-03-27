@@ -416,7 +416,7 @@ memgraph::storage::PropertyValue StringToValue(const std::string &str, const std
 std::string GetIdSpace(const std::string &type) {
   // The format of this field is as follows:
   // [START_|END_]ID[(<id_space>)]
-  std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)", std::regex::extended);
+  static std::regex format(R"(^(START_|END_)?ID(\(([^\(\)]+)\))?$)", std::regex::extended);
   std::smatch res;
   if (!std::regex_match(type, res, format))
     throw LoadException(
@@ -716,8 +716,7 @@ int main(int argc, char *argv[]) {
                      .recover_on_startup = false,
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
-      .salient = {.items = {.properties_on_edges = FLAGS_storage_properties_on_edges}},
-  };
+      .salient = {.items = {.properties_on_edges = FLAGS_storage_properties_on_edges}}};
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);
 

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -570,7 +570,6 @@ TEST(PropertyValue, MoveConstructor) {
   for (auto &item : data) {
     memgraph::storage::PropertyValue copy(item);
     memgraph::storage::PropertyValue pv(std::move(item));
-    ASSERT_EQ(item.type(), memgraph::storage::PropertyValue::Type::Null);
     ASSERT_EQ(pv.type(), copy.type());
     switch (copy.type()) {
       case memgraph::storage::PropertyValue::Type::Null:
@@ -668,7 +667,6 @@ TEST(PropertyValue, MoveAssignment) {
     memgraph::storage::PropertyValue copy(item);
     memgraph::storage::PropertyValue pv(123);
     pv = std::move(item);
-    ASSERT_EQ(item.type(), memgraph::storage::PropertyValue::Type::Null);
     ASSERT_EQ(pv.type(), copy.type());
     switch (copy.type()) {
       case memgraph::storage::PropertyValue::Type::Null:

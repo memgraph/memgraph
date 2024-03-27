@@ -191,9 +191,9 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
   return trigger_plan_;
 }
 
-void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory,
-                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const {
+void Trigger::Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, const double max_execution_time_sec,
+                      std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
+                      const TriggerContext &context) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -214,22 +214,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution
   ctx.is_shutting_down = is_shutting_down;
   ctx.transaction_status = transaction_status;
   ctx.is_profile_query = false;
-
-  // Set up temporary memory for a single Pull. Initial memory comes from the
-  // stack. 256 KiB should fit on the stack and should be more than enough for a
-  // single `Pull`.
-  static constexpr size_t stack_size = 256UL * 1024UL;
-  char stack_data[stack_size];
-
-  // We can throw on every query because a simple queries for deleting will use only
-  // the stack allocated buffer.
-  // Also, we want to throw only when the query engine requests more memory and not the storage
-  // so we add the exception to the allocator.
-  utils::ResourceWithOutOfMemoryException resource_with_exception;
-  utils::MonotonicBufferResource monotonic_memory(&stack_data[0], stack_size, &resource_with_exception);
-  // TODO (mferencevic): Tune the parameters accordingly.
-  utils::PoolResource pool_memory(128, 1024, &monotonic_memory);
-  ctx.evaluation_context.memory = &pool_memory;
+  ctx.evaluation_context.memory = execution_memory;
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};

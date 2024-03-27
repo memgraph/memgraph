@@ -2,3 +2,6 @@
 
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
+# We use chroot only inside src/auth/module.cpp, but we blacklist it due to security concerns
+# So this filter does not present a security concern
+addFilter("E: missing-call-to-chdir-with-chroot")

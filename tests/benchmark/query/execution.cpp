@@ -55,12 +55,12 @@ class NewDeleteResource final {
 };
 
 class PoolResource final {
-  memgraph::utils::PoolResource memory_{128, 4 * 1024};
+  memgraph::utils::PoolResource memory_{128};
 
  public:
   memgraph::utils::MemoryResource *get() { return &memory_; }
 
-  void Reset() { memory_.Release(); }
+  void Reset() {}
 };
 
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {

@@ -55,6 +55,13 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
       const std::map<std::string, memgraph::communication::bolt::Value> &extra) override;
 
+#ifdef MG_ENTERPRISE
+  auto Route(std::map<std::string, memgraph::communication::bolt::Value> const &routing,
+             std::vector<memgraph::communication::bolt::Value> const &bookmarks,
+             std::map<std::string, memgraph::communication::bolt::Value> const &extra)
+      -> std::map<std::string, memgraph::communication::bolt::Value> override;
+#endif
+
   std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
                                                                    std::optional<int> qid) override;
 

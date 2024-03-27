@@ -153,19 +153,20 @@ struct Expansion {
   ExpansionGroupId expansion_group_id = ExpansionGroupId();
 };
 
+struct PatternComprehensionMatching;
 struct FilterMatching;
 
 enum class PatternFilterType { EXISTS };
 
-/// Collects matchings from filters that include patterns
-class PatternFilterVisitor : public ExpressionVisitor<void> {
+/// Collects matchings that include patterns
+class PatternVisitor : public ExpressionVisitor<void> {
  public:
-  explicit PatternFilterVisitor(SymbolTable &symbol_table, AstStorage &storage);
-  PatternFilterVisitor(const PatternFilterVisitor &);
-  PatternFilterVisitor &operator=(const PatternFilterVisitor &) = delete;
-  PatternFilterVisitor(PatternFilterVisitor &&) noexcept;
-  PatternFilterVisitor &operator=(PatternFilterVisitor &&) noexcept = delete;
-  ~PatternFilterVisitor() override;
+  explicit PatternVisitor(SymbolTable &symbol_table, AstStorage &storage);
+  PatternVisitor(const PatternVisitor &);
+  PatternVisitor &operator=(const PatternVisitor &) = delete;
+  PatternVisitor(PatternVisitor &&) noexcept;
+  PatternVisitor &operator=(PatternVisitor &&) noexcept = delete;
+  ~PatternVisitor() override;
 
   using ExpressionVisitor<void>::Visit;
 
@@ -180,36 +181,81 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(XorOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(AndOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(NotEqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(EqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(InListOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
-  void Visit(SubscriptOperator &op) override{};
+  }
+
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubscriptOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
 
   // Other
   void Visit(ListSlicingOperator &op) override{};
@@ -219,7 +265,13 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(MapProjectionLiteral &op) override{};
   void Visit(LabelsTest &op) override{};
   void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
+
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) {
+      argument->Accept(*this);
+    }
+  }
+
   void Visit(Reduce &op) override{};
   void Visit(Coalesce &op) override{};
   void Visit(Extract &op) override{};
@@ -233,18 +285,22 @@ class PatternFilterVisitor : public ExpressionVisitor<void> {
   void Visit(PropertyLookup &op) override{};
   void Visit(AllPropertiesLookup &op) override{};
   void Visit(ParameterLookup &op) override{};
-  void Visit(NamedExpression &op) override{};
   void Visit(RegexMatch &op) override{};
-  void Visit(PatternComprehension &op) override{};
+  void Visit(NamedExpression &op) override;
+  void Visit(PatternComprehension &op) override;
 
-  std::vector<FilterMatching> getMatchings();
+  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
 
   SymbolTable &symbol_table_;
   AstStorage &storage_;
 
  private:
   /// Collection of matchings in the filter expression being analyzed.
-  std::vector<FilterMatching> matchings_;
+  std::vector<FilterMatching> filter_matchings_;
+
+  /// Collection of matchings in the pattern comprehension being analyzed.
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
@@ -495,6 +551,12 @@ inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<Filter
   return filters;
 }
 
+struct PatternComprehensionMatching : Matching {
+  /// Pattern comprehension result named expression
+  NamedExpression *result_expr = nullptr;
+  Symbol result_symbol;
+};
+
 /// @brief Represents a read (+ write) part of a query. Parts are split on
 /// `WITH` clauses.
 ///
@@ -537,6 +599,14 @@ struct SingleQueryPart {
   /// in the `remaining_clauses` but rather in the `Foreach` itself and are guranteed
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
+
+  /// @brief @c NamedExpression name to @c PatternComprehensionMatching for each pattern comprehension.
+  ///
+  /// Storing the normalized pattern of a @c PatternComprehension does not preclude storing the
+  /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
+  /// need to have access to other parts of the clause, such as pattern, filter clauses.
+  std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
   /// The subqueries vector are all the subqueries in this query part ordered in a list by

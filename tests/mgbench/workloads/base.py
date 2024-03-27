@@ -160,12 +160,7 @@ class Workload(ABC):
             raise ValueError("Vendor does not have INDEX for dataset!")
 
     def _set_local_files(self) -> None:
-        if not self.disk_workload:
-            if self.LOCAL_FILE is not None:
-                self._local_file = self.LOCAL_FILE.get(self._variant, None)
-            else:
-                self._local_file = None
-        else:
+        if self.disk_workload and self._vendor != "neo4j":
             if self.LOCAL_FILE_NODES is not None:
                 self._local_file_nodes = self.LOCAL_FILE_NODES.get(self._variant, None)
             else:
@@ -175,14 +170,14 @@ class Workload(ABC):
                 self._local_file_edges = self.LOCAL_FILE_EDGES.get(self._variant, None)
             else:
                 self._local_file_edges = None
+        else:
+            if self.LOCAL_FILE is not None:
+                self._local_file = self.LOCAL_FILE.get(self._variant, None)
+            else:
+                self._local_file = None
 
     def _set_url_files(self) -> None:
-        if not self.disk_workload:
-            if self.URL_FILE is not None:
-                self._url_file = self.URL_FILE.get(self._variant, None)
-            else:
-                self._url_file = None
-        else:
+        if self.disk_workload and self._vendor != "neo4j":
             if self.URL_FILE_NODES is not None:
                 self._url_file_nodes = self.URL_FILE_NODES.get(self._variant, None)
             else:
@@ -191,6 +186,11 @@ class Workload(ABC):
                 self._url_file_edges = self.URL_FILE_EDGES.get(self._variant, None)
             else:
                 self._url_file_edges = None
+        else:
+            if self.URL_FILE is not None:
+                self._url_file = self.URL_FILE.get(self._variant, None)
+            else:
+                self._url_file = None
 
     def _set_local_index_file(self) -> None:
         if self.LOCAL_INDEX_FILE is not None:
@@ -205,10 +205,10 @@ class Workload(ABC):
             self._url_index = None
 
     def prepare(self, directory):
-        if not self.disk_workload:
-            self._prepare_dataset_for_in_memory_workload(directory)
-        else:
+        if self.disk_workload and self._vendor != "neo4j":
             self._prepare_dataset_for_on_disk_workload(directory)
+        else:
+            self._prepare_dataset_for_in_memory_workload(directory)
 
         if self._local_index is not None:
             print("Using local index file:", self._local_index)

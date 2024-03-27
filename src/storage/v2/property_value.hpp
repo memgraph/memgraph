@@ -92,7 +92,28 @@ class PropertyValue {
   // TODO: Implement copy assignment operators for primitive types.
   // TODO: Implement copy and move assignment operators for non-primitive types.
 
-  ~PropertyValue() { DestroyValue(); }
+  ~PropertyValue() {
+    switch (type_) {
+      // destructor for primitive types does nothing
+      case Type::Null:
+      case Type::Bool:
+      case Type::Int:
+      case Type::Double:
+      case Type::TemporalData:
+        return;
+
+      // destructor for non primitive types since we used placement new
+      case Type::String:
+        std::destroy_at(&string_v.val_);
+        return;
+      case Type::List:
+        std::destroy_at(&list_v.val_);
+        return;
+      case Type::Map:
+        std::destroy_at(&map_v.val_);
+        return;
+    }
+  }
 
   Type type() const { return type_; }
 
@@ -189,8 +210,6 @@ class PropertyValue {
   }
 
  private:
-  void DestroyValue() noexcept;
-
   // NOTE: this may look strange but it is for better data layout
   //       https://eel.is/c++draft/class.union#general-note-1
   union {
@@ -357,13 +376,13 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
       this->double_v.val_ = other.double_v.val_;
       return;
     case Type::String:
-      new (&string_v.val_) std::string(other.string_v.val_);
+      std::construct_at(&string_v.val_, other.string_v.val_);
       return;
     case Type::List:
-      new (&list_v.val_) std::vector<PropertyValue>(other.list_v.val_);
+      std::construct_at(&list_v.val_, other.list_v.val_);
       return;
     case Type::Map:
-      new (&map_v.val_) std::map<std::string, PropertyValue>(other.map_v.val_);
+      std::construct_at(&map_v.val_, other.map_v.val_);
       return;
     case Type::TemporalData:
       this->temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -371,7 +390,7 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
   }
 }
 
-inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(std::exchange(other.type_, Type::Null)) {
+inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(other.type_) {
   switch (type_) {
     case Type::Null:
       break;
@@ -386,15 +405,12 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(std:
       break;
     case Type::String:
       std::construct_at(&string_v.val_, std::move(other.string_v.val_));
-      std::destroy_at(&other.string_v.val_);
       break;
     case Type::List:
       std::construct_at(&list_v.val_, std::move(other.list_v.val_));
-      std::destroy_at(&other.list_v.val_);
       break;
     case Type::Map:
       std::construct_at(&map_v.val_, std::move(other.map_v.val_));
-      std::destroy_at(&other.map_v.val_);
       break;
     case Type::TemporalData:
       temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -403,38 +419,88 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(std:
 }
 
 inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
-  if (this == &other) return *this;
+  if (type_ == other.type_) {
+    if (this == &other) return *this;
+    switch (other.type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        bool_v.val_ = other.bool_v.val_;
+        break;
+      case Type::Int:
+        int_v.val_ = other.int_v.val_;
+        break;
+      case Type::Double:
+        double_v.val_ = other.double_v.val_;
+        break;
+      case Type::String:
+        string_v.val_ = other.string_v.val_;
+        break;
+      case Type::List:
+        list_v.val_ = other.list_v.val_;
+        break;
+      case Type::Map:
+        map_v.val_ = other.map_v.val_;
+        break;
+      case Type::TemporalData:
+        temporal_data_v.val_ = other.temporal_data_v.val_;
+        break;
+    }
+    return *this;
+  } else {
+    // destroy
+    switch (type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        break;
+      case Type::Int:
+        break;
+      case Type::Double:
+        break;
+      case Type::String:
+        std::destroy_at(&string_v.val_);
+        break;
+      case Type::List:
+        std::destroy_at(&list_v.val_);
+        break;
+      case Type::Map:
+        std::destroy_at(&map_v.val_);
+        break;
+      case Type::TemporalData:
+        break;
+    }
+    // construct
+    auto *new_this = std::launder(this);
+    switch (other.type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        new_this->bool_v.val_ = other.bool_v.val_;
+        break;
+      case Type::Int:
+        new_this->int_v.val_ = other.int_v.val_;
+        break;
+      case Type::Double:
+        new_this->double_v.val_ = other.double_v.val_;
+        break;
+      case Type::String:
+        std::construct_at(&new_this->string_v.val_, other.string_v.val_);
+        break;
+      case Type::List:
+        std::construct_at(&new_this->list_v.val_, other.list_v.val_);
+        break;
+      case Type::Map:
+        std::construct_at(&new_this->map_v.val_, other.map_v.val_);
+        break;
+      case Type::TemporalData:
+        new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+        break;
+    }
 
-  DestroyValue();
-  type_ = other.type_;
-
-  switch (other.type_) {
-    case Type::Null:
-      break;
-    case Type::Bool:
-      this->bool_v.val_ = other.bool_v.val_;
-      break;
-    case Type::Int:
-      this->int_v.val_ = other.int_v.val_;
-      break;
-    case Type::Double:
-      this->double_v.val_ = other.double_v.val_;
-      break;
-    case Type::String:
-      new (&string_v.val_) std::string(other.string_v.val_);
-      break;
-    case Type::List:
-      new (&list_v.val_) std::vector<PropertyValue>(other.list_v.val_);
-      break;
-    case Type::Map:
-      new (&map_v.val_) std::map<std::string, PropertyValue>(other.map_v.val_);
-      break;
-    case Type::TemporalData:
-      this->temporal_data_v.val_ = other.temporal_data_v.val_;
-      break;
+    new_this->type_ = other.type_;
+    return *new_this;
   }
-
-  return *this;
 }
 
 inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
@@ -456,48 +522,71 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
         break;
       case Type::String:
         string_v.val_ = std::move(other.string_v.val_);
-        std::destroy_at(&other.string_v.val_);
         break;
       case Type::List:
         list_v.val_ = std::move(other.list_v.val_);
-        std::destroy_at(&other.list_v.val_);
         break;
       case Type::Map:
         map_v.val_ = std::move(other.map_v.val_);
-        std::destroy_at(&other.map_v.val_);
         break;
       case Type::TemporalData:
         temporal_data_v.val_ = other.temporal_data_v.val_;
         break;
     }
-    other.type_ = Type::Null;
     return *this;
   } else {
-    std::destroy_at(this);
-    return *std::construct_at(std::launder(this), std::move(other));
-  }
-}
+    // destroy
+    switch (type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        break;
+      case Type::Int:
+        break;
+      case Type::Double:
+        break;
+      case Type::String:
+        std::destroy_at(&string_v.val_);
+        break;
+      case Type::List:
+        std::destroy_at(&list_v.val_);
+        break;
+      case Type::Map:
+        std::destroy_at(&map_v.val_);
+        break;
+      case Type::TemporalData:
+        break;
+    }
+    // construct (no need to destroy moved from type)
+    auto *new_this = std::launder(this);
+    switch (other.type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        new_this->bool_v.val_ = other.bool_v.val_;
+        break;
+      case Type::Int:
+        new_this->int_v.val_ = other.int_v.val_;
+        break;
+      case Type::Double:
+        new_this->double_v.val_ = other.double_v.val_;
+        break;
+      case Type::String:
+        std::construct_at(&new_this->string_v.val_, std::move(other.string_v.val_));
+        break;
+      case Type::List:
+        std::construct_at(&new_this->list_v.val_, std::move(other.list_v.val_));
+        break;
+      case Type::Map:
+        std::construct_at(&new_this->map_v.val_, std::move(other.map_v.val_));
+        break;
+      case Type::TemporalData:
+        new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+        break;
+    }
 
-inline void PropertyValue::DestroyValue() noexcept {
-  switch (std::exchange(type_, Type::Null)) {
-    // destructor for primitive types does nothing
-    case Type::Null:
-    case Type::Bool:
-    case Type::Int:
-    case Type::Double:
-    case Type::TemporalData:
-      return;
-
-    // destructor for non primitive types since we used placement new
-    case Type::String:
-      std::destroy_at(&string_v.val_);
-      return;
-    case Type::List:
-      std::destroy_at(&list_v.val_);
-      return;
-    case Type::Map:
-      std::destroy_at(&map_v.val_);
-      return;
+    new_this->type_ = other.type_;
+    return *new_this;
   }
 }
 

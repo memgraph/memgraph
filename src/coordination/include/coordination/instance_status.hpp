@@ -26,7 +26,7 @@ struct InstanceStatus {
   std::string raft_socket_address;
   std::string coord_socket_address;
   std::string cluster_role;
-  bool is_alive;
+  std::string health;
 };
 
 }  // namespace memgraph::coordination

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -118,6 +118,8 @@ class Reader {
   bool HasHeader() const;
   auto GetHeader() const -> Header const &;
   auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Row>;
+
+  void Reset();
 
  private:
   // Some implementation issues that need clearing up, but this is mainly because

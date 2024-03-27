@@ -1,0 +1,111 @@
+version: "3"
+services:
+  mgbuild_v5_amzn-2:
+    image: "memgraph/mgbuild:v5_amzn-2"
+    build:
+      context: amzn-2
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_amzn-2"
+
+  mgbuild_v5_centos-7:
+    image: "memgraph/mgbuild:v5_centos-7"
+    build:
+      context: centos-7
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_centos-7"
+
+  mgbuild_v5_centos-9:
+    image: "memgraph/mgbuild:v5_centos-9"
+    build:
+      context: centos-9
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_centos-9"
+
+  mgbuild_v5_debian-11:
+    image: "memgraph/mgbuild:v5_debian-11"
+    build:
+      context: debian-11
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_debian-11"
+
+  mgbuild_v5_debian-12:
+    image: "memgraph/mgbuild:v5_debian-12"
+    build:
+      context: debian-12
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_debian-12"
+
+  mgbuild_v5_fedora-38:
+    image: "memgraph/mgbuild:v5_fedora-38"
+    build:
+      context: fedora-38
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_fedora-38"
+
+  mgbuild_v5_fedora-39:
+    image: "memgraph/mgbuild:v5_fedora-39"
+    build:
+      context: fedora-39
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_fedora-39"
+
+  mgbuild_v5_rocky-9.3:
+    image: "memgraph/mgbuild:v5_rocky-9.3"
+    build:
+      context: rocky-9.3
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_rocky-9.3"
+
+  mgbuild_v5_ubuntu-20.04:
+    image: "memgraph/mgbuild:v5_ubuntu-20.04"
+    build:
+      context: ubuntu-20.04
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_ubuntu-20.04"
+
+  mgbuild_v5_ubuntu-22.04:
+    image: "memgraph/mgbuild:v5_ubuntu-22.04"
+    build:
+      context: ubuntu-22.04
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_ubuntu-22.04"

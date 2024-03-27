@@ -62,34 +62,33 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   ptr<log_entry> clone = MakeClone(entry);
-  uint64_t next_slot{0};
-  {
-    auto lock = std::lock_guard{logs_lock_};
-    next_slot = start_idx_ + logs_.size() - 1;
-    logs_[next_slot] = clone;
-  }
+
+  auto lock = std::lock_guard{logs_lock_};
+  uint64_t next_slot = start_idx_ + logs_.size() - 1;
+  logs_[next_slot] = clone;
+
   return next_slot;
 }
 
+// TODO: (andi) I think this is used for resolving conflicts inside NuRaft, check...
+// different compared to in_memory_log_store.cxx
 void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   ptr<log_entry> clone = MakeClone(entry);
 
   // Discard all logs equal to or greater than `index.
-  {
-    auto lock = std::lock_guard{logs_lock_};
-    auto itr = logs_.lower_bound(index);
-    while (itr != logs_.end()) {
-      itr = logs_.erase(itr);
-    }
-    logs_[index] = clone;
+  auto lock = std::lock_guard{logs_lock_};
+  auto itr = logs_.lower_bound(index);
+  while (itr != logs_.end()) {
+    itr = logs_.erase(itr);
   }
+  logs_[index] = clone;
 }
 
 ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start, uint64_t end) {
   auto ret = cs_new<std::vector<ptr<log_entry>>>();
   ret->resize(end - start);
 
-  for (uint64_t i = start, curr_index = 0; i < end; ++i, ++curr_index) {
+  for (uint64_t i = start, curr_index = 0; i < end; i++, curr_index++) {
     ptr<log_entry> src = nullptr;
     {
       auto lock = std::lock_guard{logs_lock_};
@@ -105,21 +104,14 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
 }
 
 ptr<log_entry> CoordinatorLogStore::entry_at(uint64_t index) {
-  ptr<log_entry> src = nullptr;
-  {
-    auto lock = std::lock_guard{logs_lock_};
-    src = FindOrDefault_(index);
-  }
+  auto lock = std::lock_guard{logs_lock_};
+  ptr<log_entry> src = FindOrDefault_(index);
   return MakeClone(src);
 }
 
 uint64_t CoordinatorLogStore::term_at(uint64_t index) {
-  uint64_t term = 0;
-  {
-    auto lock = std::lock_guard{logs_lock_};
-    term = FindOrDefault_(index)->get_term();
-  }
-  return term;
+  auto lock = std::lock_guard{logs_lock_};
+  return FindOrDefault_(index)->get_term();
 }
 
 ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {

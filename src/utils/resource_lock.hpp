@@ -66,6 +66,17 @@ struct ResourceLock {
     }
     return false;
   }
+
+  template <typename Rep, typename Period>
+  bool try_lock_shared_for(std::chrono::duration<Rep, Period> const &time) {
+    auto lock = std::unique_lock{mtx};
+    // block until available
+    if (!cv.wait_for(lock, time, [this] { return state != UNIQUE; })) return false;
+    state = SHARED;
+    ++count;
+    return true;
+  }
+
   void unlock() {
     auto lock = std::unique_lock{mtx};
     state = UNLOCKED;

@@ -35,17 +35,18 @@ endfunction(import_header_library)
 
 function(import_library name type location include_dir)
   add_library(${name} ${type} IMPORTED GLOBAL)
-
-  if(${ARGN})
+  # https://cmake.org/cmake/help/latest/command/function.html#arguments
+  if(ARGN)
     # Optional argument is the name of the external project that we need to
     # depend on.
-    add_dependencies(${name} ${ARGN0})
+    list(GET ARGN 0 dependency_name)
+    add_dependencies(${name} ${dependency_name})
+    message(STATUS "ADDED DEPENDENCY ${name} -> ${dependency_name}")
   else()
     add_dependencies(${name} ${name}-proj)
+    message(STATUS "ADDED DEPENDENCY ${name} -> ${name}-proj")
   endif()
-
   set_property(TARGET ${name} PROPERTY IMPORTED_LOCATION ${location})
-
   # We need to create the include directory first in order to be able to add it
   # as an include directory. The header files in the include directory will be
   # generated later during the build process.
@@ -60,12 +61,12 @@ endfunction(import_library)
 # done in SOURCE_DIR, which defaults to ${CMAKE_CURRENT_SOURCE_DIR}/${name}.
 # You can pass additional arguments via CMAKE_ARGS. Dependencies and
 # installation can be set as in regular ExternalProject_Add, via DEPENDS and
-# INSTALL_COMMAND arguments.
+# INSTALL_COMMAND arguments. It's also possible to pass BUILD_BYPRODUCTS.
 function(add_external_project name)
   set(options NO_C_COMPILER)
   set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE)
   set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
-    CONFIGURE_COMMAND)
+    CONFIGURE_COMMAND BUILD_BYPRODUCTS)
   cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
   set(source_dir ${CMAKE_CURRENT_SOURCE_DIR}/${name})
 
@@ -92,7 +93,8 @@ function(add_external_project name)
     -DCMAKE_INSTALL_PREFIX=${source_dir}
     ${KW_CMAKE_ARGS}
     INSTALL_COMMAND ${KW_INSTALL_COMMAND}
-    BUILD_COMMAND ${KW_BUILD_COMMAND})
+    BUILD_COMMAND ${KW_BUILD_COMMAND}
+    BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS})
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
@@ -136,7 +138,6 @@ import_external_library(antlr4 STATIC
 import_external_library(benchmark STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-
   # Skip testing. The tests don't compile with Clang 8.
   CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
@@ -150,7 +151,8 @@ mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
 # setup google test
-add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest)
+add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
+  CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
 set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
   CACHE PATH "Path to gtest and gmock include directory" FORCE)
 set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
@@ -301,3 +303,17 @@ import_external_library(nuraft STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
+
+# Setup mgcxx (provides: text search)
+set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+  CACHE PATH "Path to mgcxx include directory" FORCE)
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+add_external_project(mgcxx
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  CMAKE_ARGS -DENABLE_TESTS=OFF)
+mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)

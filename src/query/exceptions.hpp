@@ -433,4 +433,17 @@ class MultiDatabaseQueryInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
 
+class TextSearchException : public QueryException {
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
+};
+
+class TextSearchDisabledException : public TextSearchException {
+ public:
+  TextSearchDisabledException()
+      : TextSearchException(
+            "To use text indices and text search, start Memgraph with the experimental text search feature enabled.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
+};
+
 }  // namespace memgraph::query

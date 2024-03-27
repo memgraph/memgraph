@@ -13,6 +13,8 @@
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -271,6 +273,12 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
   if (maybe_deleted_vertices.HasError()) {
     return maybe_deleted_vertices.GetError();
+  }
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    for (auto *node : nodes_to_delete) {
+      storage_->indices_.text_index_.RemoveNode(node);
+    }
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
@@ -541,6 +549,21 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
     edge->deleted = true;
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
+}
+
+void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating a text index requires unique access to storage!");
+  storage_->indices_.text_index_.CreateIndex(storage_->config_.durability.storage_directory, index_name, label, db);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+}
+
+void Storage::Accessor::DropTextIndex(const std::string &index_name) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping a text index requires unique access to storage!");
+  auto deleted_index_label =
+      storage_->indices_.text_index_.DropIndex(storage_->config_.durability.storage_directory, index_name);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
 }
 
 }  // namespace memgraph::storage

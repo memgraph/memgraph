@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -113,7 +113,6 @@ struct ConsumerTest : public ::testing::Test {
   void SeedTopicWithInt(const std::string &topic_name, int value) {
     std::array<char, sizeof(int)> int_as_char{};
     std::memcpy(int_as_char.data(), &value, int_as_char.size());
-
     cluster.SeedTopic(topic_name, int_as_char);
   }
 

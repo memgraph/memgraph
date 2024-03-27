@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertices_iterable.hpp"
-
 namespace memgraph::storage {
 
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {

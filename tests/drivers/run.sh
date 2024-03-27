@@ -38,6 +38,7 @@ $binary_dir/memgraph \
     --bolt-cert-file="" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid=$!
 wait_for_server 7687

@@ -39,7 +39,7 @@ struct Trigger {
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
-  void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
+  void Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, double max_execution_time_sec,
                std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
                const TriggerContext &context) const;
 

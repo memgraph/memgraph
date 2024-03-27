@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_client.hpp"
 #include "replication_handler/system_replication.hpp"
+#include "utils/functional.hpp"
 
 namespace memgraph::replication {
 
@@ -265,8 +266,24 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.GetRole();
 }
 
+auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
+  replication_coordination_glue::DatabaseHistories results;
+  dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
+
+    std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
+
+    history.emplace_back(std::string(repl_storage_state.epoch_.id()), repl_storage_state.last_commit_timestamp_.load());
+    replication_coordination_glue::DatabaseHistory repl{
+        .db_uuid = utils::UUID{db_acc->storage()->uuid()}, .history = history, .name = std::string(db_acc->name())};
+    results.emplace_back(repl);
+  });
+
+  return results;
+}
+
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica());
+  MG_ASSERT(repl_state_.IsReplica(), "Instance is not replica");
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 
@@ -293,7 +310,7 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
         if (!full_info && storage->name() == dbms::kDefaultDB) return;
-        auto ok =
+        [[maybe_unused]] auto ok =
             storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();

@@ -226,7 +226,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }                                                                                   \
   }
 
-  BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
   BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
   BINARY_OPERATOR_VISITOR(AdditionOperator, +, +);
   BINARY_OPERATOR_VISITOR(SubtractionOperator, -, -);
@@ -258,6 +257,20 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return value1 && value2;
     } catch (const TypedValueException &) {
       throw QueryRuntimeException("Invalid types: {} and {} for AND.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(OrOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    if (value1.IsBool() && value1.ValueBool()) {
+      // If first expression is true, don't evaluate the second one.
+      return value1;
+    }
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return value1 || value2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for OR.", value1.type(), value2.type());
     }
   }
 
@@ -1092,8 +1105,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
-  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
-    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
+  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+    const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    if (!frame_pattern_comprehension_value.IsList()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Pattern Comprehension expected a list, got {}. Please report the problem on GitHub "
+          "issues",
+          frame_pattern_comprehension_value.type());
+    }
+    return frame_pattern_comprehension_value;
   }
 
  private:
@@ -1196,7 +1216,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
+int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);

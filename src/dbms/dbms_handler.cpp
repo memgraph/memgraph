@@ -185,6 +185,16 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
+  if (flags::AreExperimentsEnabled(flags::Experiments::SYSTEM_REPLICATION) && !recovery_on_startup) {
+    // This will result in dropping databases on SystemRecoveryHandler
+    // for MT case, and for single DB case we might not even set replication as commit timestamp is checked
+    spdlog::warn(
+        "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
+  }
+
+  // TODO: Problem is if user doesn't set this up "database" name won't be recovered
+  // but if storage-recover-on-startup is true storage will be recovered which is an issue
+  spdlog::info("Data recovery on startup set to {}", recovery_on_startup);
   if (recovery_on_startup) {
     auto it = durability_->begin(std::string(kDBPrefix));
     auto end = durability_->end(std::string(kDBPrefix));
@@ -410,9 +420,10 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
   if (!durability_) return;
   // Save database in a list of active databases
   const auto &key = Durability::GenKey(config.salient.name);
-  if (rel_dir == std::nullopt)
+  if (rel_dir == std::nullopt) {
     rel_dir =
         std::filesystem::relative(config.durability.storage_directory, default_config_.durability.storage_directory);
+  }
   const auto &val = Durability::GenVal(config.salient.uuid, *rel_dir);
   durability_->Put(key, val);
 }
