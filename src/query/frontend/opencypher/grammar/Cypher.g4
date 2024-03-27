@@ -292,7 +292,11 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
-existsExpression : patternPart ;
+existsExpression : forcePatternPart | .* ;
+
+forcePatternPart : ( variable '=' relationshipsPattern )
+                 | relationshipsPattern
+                 ;
 
 idInColl : variable IN expression ;
 

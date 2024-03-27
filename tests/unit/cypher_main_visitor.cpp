@@ -4567,6 +4567,13 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
                                                "Identifiers are not supported in exists(...).");
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists() RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]) RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
@@ -4615,22 +4622,6 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node2);
     ASSERT_TRUE(edge2);
     ASSERT_TRUE(node3);
-  }
-
-  {
-    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)) RETURN n;"));
-    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
-
-    ASSERT_TRUE(exists);
-
-    const auto pattern = exists->pattern_;
-    ASSERT_TRUE(pattern->atoms_.size() == 1);
-
-    const auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-
-    ASSERT_TRUE(node);
   }
 }
 
