@@ -741,6 +741,11 @@ ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_para
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}
 
+ZonedDateTime::ZonedDateTime(const int64_t microseconds, const Timezone timezone) {
+  std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(microseconds)};
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+}
+
 ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
     : zoned_time(zoned_time) {}
 

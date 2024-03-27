@@ -76,6 +76,7 @@ nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, Propert
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
       case PropertyValue::Type::TemporalData:
+      case PropertyValue::Type::ZonedTemporalData:
       default:
         continue;
     }
@@ -105,6 +106,7 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
       case PropertyValue::Type::TemporalData:
+      case PropertyValue::Type::ZonedTemporalData:
       default:
         continue;
     }

@@ -94,6 +94,16 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       }
       return;
     }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto &zoned_temporal_data = value.ValueZonedTemporalData();
+      switch (zoned_temporal_data.type) {
+        case storage::ZonedTemporalType::ZonedDateTime: {
+          type_ = Type::ZonedDateTime;
+          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          break;
+        }
+      }
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -162,6 +172,16 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
       }
       break;
     }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto &zoned_temporal_data = other.ValueZonedTemporalData();
+      switch (zoned_temporal_data.type) {
+        case storage::ZonedTemporalType::ZonedDateTime: {
+          type_ = Type::ZonedDateTime;
+          new (&zoned_date_time_v) utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          break;
+        }
+      }
+    }
   }
 
   other = storage::PropertyValue();
@@ -211,6 +231,9 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::LocalDateTime:
       new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      return;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
       return;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
@@ -268,6 +291,9 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::LocalDateTime:
       new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
       break;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      break;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       break;
@@ -313,6 +339,10 @@ TypedValue::operator storage::PropertyValue() const {
     case Type::LocalDateTime:
       return storage::PropertyValue(
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
+    case Type::ZonedDateTime:
+      return storage::PropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
+                                                               zoned_date_time_v.MicrosecondsSinceEpoch(),
+                                                               zoned_date_time_v.GetTimezone()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     default:
@@ -360,6 +390,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
@@ -378,6 +409,7 @@ bool TypedValue::ContainsDeleted() const {
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
+    case Type::ZonedDateTime:
     case Type::Duration:
       return false;
     // Reference types
@@ -413,6 +445,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
+    case Type::ZonedDateTime:
     case Type::Duration:
       return true;
     default:
@@ -448,6 +481,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "local_time";
     case TypedValue::Type::LocalDateTime:
       return os << "local_date_time";
+    case TypedValue::Type::ZonedDateTime:
+      return os << "zoned_date_time";
     case TypedValue::Type::Duration:
       return os << "duration";
     case TypedValue::Type::Graph:
@@ -505,6 +540,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Date &, Date, date_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::ZonedDateTime &, ZonedDateTime, zoned_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v)
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
@@ -603,6 +639,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case Type::LocalDateTime:
         new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         return *this;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        return *this;
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
@@ -665,6 +704,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::LocalDateTime:
         new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
         break;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        break;
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
@@ -717,6 +759,7 @@ void TypedValue::DestroyValue() {
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
+    case Type::ZonedDateTime:
     case Type::Duration:
       break;
     case Type::Function:
@@ -758,7 +801,8 @@ double ToDouble(const TypedValue &value) {
 namespace {
 bool IsTemporalType(const TypedValue::Type type) {
   static constexpr std::array temporal_types{TypedValue::Type::Date, TypedValue::Type::LocalTime,
-                                             TypedValue::Type::LocalDateTime, TypedValue::Type::Duration};
+                                             TypedValue::Type::LocalDateTime, TypedValue::Type::ZonedDateTime,
+                                             TypedValue::Type::Duration};
   return std::any_of(temporal_types.begin(), temporal_types.end(),
                      [type](const auto temporal_type) { return temporal_type == type; });
 };
@@ -774,6 +818,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
       case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::ZonedDateTime:
       case TypedValue::Type::Duration:
         return true;
       default:
@@ -811,6 +856,9 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::LocalDateTime:
         // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueLocalDateTime() < b.ValueLocalDateTime(), a.GetMemoryResource());
+      case TypedValue::Type::ZonedDateTime:
+        // NOLINTNEXTLINE(modernize-use-nullptr)
+        return TypedValue(a.ValueZonedDateTime() < b.ValueZonedDateTime(), a.GetMemoryResource());
       case TypedValue::Type::Duration:
         // NOLINTNEXTLINE(modernize-use-nullptr)
         return TypedValue(a.ValueDuration() < b.ValueDuration(), a.GetMemoryResource());
@@ -890,6 +938,8 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return TypedValue(a.ValueLocalTime() == b.ValueLocalTime(), a.GetMemoryResource());
     case TypedValue::Type::LocalDateTime:
       return TypedValue(a.ValueLocalDateTime() == b.ValueLocalDateTime(), a.GetMemoryResource());
+    case TypedValue::Type::ZonedDateTime:
+      return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.GetMemoryResource());
     case TypedValue::Type::Duration:
       return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
     case TypedValue::Type::Graph:
@@ -989,6 +1039,13 @@ std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const
   if (a.IsDuration() && b.IsLocalDateTime()) {
     return TypedValue(a.ValueDuration() + b.ValueLocalDateTime());
   }
+  // ZonedDateTime
+  if (a.IsZonedDateTime() && b.IsDuration()) {
+    return TypedValue(a.ValueZonedDateTime() + b.ValueDuration());
+  }
+  if (a.IsDuration() && b.IsZonedDateTime()) {
+    return TypedValue(a.ValueDuration() + b.ValueZonedDateTime());
+  }
   return std::nullopt;
 }
 
@@ -1017,6 +1074,13 @@ std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, co
   }
   if (a.IsLocalDateTime() && b.IsLocalDateTime()) {
     return TypedValue(a.ValueLocalDateTime() - b.ValueLocalDateTime());
+  }
+  // ZonedDateTime
+  if (a.IsZonedDateTime() && b.IsDuration()) {
+    return TypedValue(a.ValueZonedDateTime() - b.ValueDuration());
+  }
+  if (a.IsZonedDateTime() && b.IsZonedDateTime()) {
+    return TypedValue(a.ValueZonedDateTime() - b.ValueZonedDateTime());
   }
   return std::nullopt;
 }
@@ -1201,6 +1265,9 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::LocalTimeHash{}(value.ValueLocalTime());
     case TypedValue::Type::LocalDateTime:
       return utils::LocalDateTimeHash{}(value.ValueLocalDateTime());
+    case TypedValue::Type::ZonedDateTime:
+      // TODO antepusic: research how to hash ZonedDateTime
+      return 31;
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;

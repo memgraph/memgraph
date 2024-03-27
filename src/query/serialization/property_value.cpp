@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 namespace memgraph::query::serialization {
 
 namespace {
-enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA };
+enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA, ZONED_TEMPORAL_DATA };
 }  // namespace
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
@@ -36,13 +36,21 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       return SerializePropertyValueVector(property_value.ValueList());
     case Type::Map:
       return SerializePropertyValueMap(property_value.ValueMap());
-    case Type::TemporalData:
+    case Type::TemporalData: {
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
       data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
                                                     {"microseconds", temporal_data.microseconds}}));
       return data;
+    }
+    case Type::ZonedTemporalData: {
+      const auto zoned_temporal_data = property_value.ValueZonedTemporalData();
+      auto data = nlohmann::json::object();
+      data.emplace("type", static_cast<uint64_t>(ObjectType::ZONED_TEMPORAL_DATA));
+      // TODO antepusic
+      return data;
+    }
   }
 }
 
@@ -99,6 +107,9 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
     case ObjectType::TEMPORAL_DATA:
       return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
                                                           data["value"]["microseconds"].get<int64_t>()});
+    case ObjectType::ZONED_TEMPORAL_DATA:
+      // TODO antepusic
+      return storage::PropertyValue();
   }
 }
 

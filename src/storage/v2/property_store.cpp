@@ -119,6 +119,7 @@ enum class Type : uint8_t {
   LIST = 0x60,
   MAP = 0x70,
   TEMPORAL_DATA = 0x80,
+  ZONED_TEMPORAL_DATA = 0x90,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -482,6 +483,20 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       // We don't need payload size so we set it to a random value
       return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
+    case PropertyValue::Type::ZonedTemporalData: {
+      auto metadata = writer->WriteMetadata();
+      if (!metadata) return std::nullopt;
+
+      // const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      // auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
+      // if (!type_size) return std::nullopt;
+
+      // auto microseconds_size = writer->WriteInt(temporal_data.microseconds);
+      // if (!microseconds_size) return std::nullopt;
+      // metadata->Set({Type::ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
+
+      return {{Type::ZONED_TEMPORAL_DATA, Size::INT8}};
+    }
   }
 }
 
@@ -519,6 +534,10 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
 
   return temporal_data_size;
 }
+
+// TODO antepusic: DecodeZonedTemporalData
+
+// TODO antepusic: DecodeZonedTemporalDataSize
 
 }  // namespace
 
@@ -595,12 +614,14 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       value = PropertyValue(std::move(map));
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data = DecodeTemporalData(*reader);
       if (!maybe_temporal_data) return false;
       value = PropertyValue(*maybe_temporal_data);
-
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA: {
+      // TODO antepusic: ZONED_TEMPORAL_DATA
       return true;
     }
   }
@@ -681,12 +702,15 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       property_size += map_property_size;
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data_size = DecodeTemporalDataSize(*reader);
       if (!maybe_temporal_data_size) return false;
 
       property_size += *maybe_temporal_data_size;
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA: {
+      // TODO antepusic: ZONED_TEMPORAL_DATA
       return true;
     }
   }
@@ -741,9 +765,12 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       return DecodeTemporalData(*reader).has_value();
+    }
+    case Type::ZONED_TEMPORAL_DATA: {
+      // TODO antepusic: ZONED_TEMPORAL_DATA
+      return true;
     }
   }
 }
@@ -844,6 +871,10 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
 
       return *maybe_temporal_data == value.ValueTemporalData();
+    }
+    case Type::ZONED_TEMPORAL_DATA: {
+      // TODO antepusic: ZONED_TEMPORAL_DATA
+      return true;
     }
   }
 }
