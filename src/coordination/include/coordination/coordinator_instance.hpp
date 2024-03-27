@@ -17,7 +17,7 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "coordination/replication_instance_connector.hpp"
+#include "coordination/replication_instance.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
@@ -25,6 +25,8 @@
 #include <list>
 
 namespace memgraph::coordination {
+
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 struct NewMainRes {
   std::string most_up_to_date_instance;
@@ -35,7 +37,7 @@ using InstanceNameDbHistories = std::pair<std::string, replication_coordination_
 
 class CoordinatorInstance {
  public:
-  explicit CoordinatorInstance(CoordinatorInstanceInitConfig const &config);
+  CoordinatorInstance();
   CoordinatorInstance(CoordinatorInstance const &) = delete;
   CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
   CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;
@@ -54,9 +56,9 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
 
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
@@ -67,7 +69,7 @@ class CoordinatorInstance {
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    auto const get_ts = [](ReplicationInstanceConnector &replica) {
+    auto const get_ts = [](ReplicationInstance &replica) {
       spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
       return replica.GetClient().SendGetInstanceTimestampsRpc();
     };
@@ -103,7 +105,7 @@ class CoordinatorInstance {
     return most_up_to_date_instance;
   }
 
-  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
+  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance &;
 
   void MainFailCallback(std::string_view);
 
@@ -120,10 +122,9 @@ class CoordinatorInstance {
   void ForceResetCluster();
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
-
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
-  std::list<ReplicationInstanceConnector> repl_instances_;
+  std::list<ReplicationInstance> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool

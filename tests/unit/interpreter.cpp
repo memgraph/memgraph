@@ -101,7 +101,7 @@ class InterpreterTest : public ::testing::Test {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          nullptr
 #endif
   };
 
@@ -1166,7 +1166,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                                 system_state
 #ifdef MG_ENTERPRISE
                                                                 ,
-                                                                std::nullopt
+                                                                nullptr
 #endif
     };
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};

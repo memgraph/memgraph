@@ -12,7 +12,7 @@ cd tests/jepsen
 Local run of each test (including setup):
 ```
 cd tests/jepsen
-./run.sh cluster-up --binary ../../build/memgraph
+./run.sh cluster-up
 docker exec -it jepsen-control bash
 cd memgraph
 lein run test --workload bank --node-configs resources/node-config.edn

@@ -97,7 +97,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          nullptr
 #endif
   };
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
