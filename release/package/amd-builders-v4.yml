@@ -6,6 +6,9 @@ services:
       context: amzn-2
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_amzn-2"
 
   mgbuild_v4_centos-7:
@@ -14,6 +17,9 @@ services:
       context: centos-7
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_centos-7"
 
   mgbuild_v4_centos-9:
@@ -22,6 +28,9 @@ services:
       context: centos-9
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_centos-9"
 
   mgbuild_v4_debian-10:
@@ -30,6 +39,9 @@ services:
       context: debian-10
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_debian-10"
 
   mgbuild_v4_debian-11:
@@ -38,6 +50,9 @@ services:
       context: debian-11
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_debian-11"
 
   mgbuild_v4_fedora-36:
@@ -46,6 +61,9 @@ services:
       context: fedora-36
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_fedora-36"
 
   mgbuild_v4_ubuntu-18.04:
@@ -54,6 +72,9 @@ services:
       context: ubuntu-18.04
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_ubuntu-18.04"
 
   mgbuild_v4_ubuntu-20.04:
@@ -62,6 +83,9 @@ services:
       context: ubuntu-20.04
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_ubuntu-20.04"
 
   mgbuild_v4_ubuntu-22.04:
@@ -70,4 +94,7 @@ services:
       context: ubuntu-22.04
       args:
         TOOLCHAIN_VERSION: "v4"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v4_ubuntu-22.04"
