@@ -39,9 +39,9 @@ namespace memgraph::storage {
 PDS *PDS::ptr_ = nullptr;
 
 std::string PDS::ToKey(Gid gid, PropertyId pid) {
-  std::string key(sizeof(gid) + sizeof(pid), '\0');
+  std::string key(16, '\0');
   *(uint64_t *)key.data() = *reinterpret_cast<uint64_t *>(&gid);
-  *(uint32_t *)&key[sizeof(gid)] = *reinterpret_cast<uint32_t *>(&pid);
+  *(uint64_t *)&key[8] = *reinterpret_cast<uint32_t *>(&pid);
   // memcpy(key.data(), &gid, sizeof(gid));
   // memcpy(&key[sizeof(gid)], &pid, sizeof(pid));
   return key;
@@ -90,13 +90,13 @@ Gid PDS::ToGid2(std::string_view sv) {
 
 PropertyId PDS::ToPid(std::string_view sv) {
   // memcpy(&pid, &sv[8], sizeof(pid));
-  return PropertyId::FromUint(*(uint32_t *)&sv[8]);
+  return PropertyId::FromUint(*(uint64_t *)&sv[8]);
 }
 
 // TODO: Move to PDS
 PropertyId ToPid2(auto sv) {
   // return PropertyId::FromUint(*(uint32_t *)&sv[4]);
-  return PropertyId::FromUint(uint32_t(*(uint64_t *)sv.data() & 0xFFFFFFFFUL));
+  return PropertyId::FromUint(*(uint64_t *)sv.data());
 };
 
 std::string PDS::ToStr(const PropertyValue &pv) {
@@ -302,20 +302,21 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
 
     // Possible comparisons: prefix (8b), key1(12b), key2(16b)
 
-    const auto min = std::min(a.size(), b.size());
+    // const auto min = std::min(a.size(), b.size());
 
     const auto a_gid = *(uint64_t *)a.data();
     const auto b_gid = *(uint64_t *)b.data();
     if (a_gid != b_gid) return (1 - 2 * (a_gid < b_gid));
 
-    if (min == 8) return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
+    // if (min == 8)
+    if (a.size() == 8 || b.size() == 8) return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
 
-    if (min == 12) {
-      const auto a_pid = *(uint32_t *)&a.data()[8];
-      const auto b_pid = *(uint32_t *)&b.data()[8];
-      if (a_pid != b_pid) return (1 - 2 * (a_pid < b_pid));
-      return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
-    }
+    // if (min == 12) {
+    //   const auto a_pid = *(uint32_t *)&a.data()[8];
+    //   const auto b_pid = *(uint32_t *)&b.data()[8];
+    //   if (a_pid != b_pid) return (1 - 2 * (a_pid < b_pid));
+    //   return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
+    // }
 
     const auto a_pid = *(uint64_t *)&a.data()[8];
     const auto b_pid = *(uint64_t *)&b.data()[8];
@@ -331,11 +332,13 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
     const auto b_gid = *(uint64_t *)b.data();
     if (a_gid != b_gid) return false;
 
-    if (a.size() == 12) {
-      const auto a_pid = *(uint32_t *)&a.data()[8];
-      const auto b_pid = *(uint32_t *)&b.data()[8];
-      return a_pid == b_pid;
-    }
+    if (a.size() == 8) return true;
+
+    // if (a.size() == 12) {
+    //   const auto a_pid = *(uint32_t *)&a.data()[8];
+    //   const auto b_pid = *(uint32_t *)&b.data()[8];
+    //   return a_pid == b_pid;
+    // }
 
     const auto a_pid = *(uint64_t *)&a.data()[8];
     const auto b_pid = *(uint64_t *)&b.data()[8];
