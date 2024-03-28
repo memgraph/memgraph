@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <json/json.hpp>
 #include <map>
 
@@ -69,8 +70,11 @@ class PDS {
  public:
   static void Init(std::filesystem::path root) {
     if (ptr_ == nullptr) {
-      std::cout << "PDS init " << root << std::endl;
-      ptr_ = new PDS(root);
+      root = root / "pds";
+      // Purge directory <- TODO Use the fact that we have PDS to not restore them from snapshot
+      std::error_code ec;
+      std::filesystem::remove_all(root, ec);
+      ptr_ = new PDS(std::move(root));
     }
   }
 
@@ -122,6 +126,7 @@ class PDS {
 
  private:
   PDS(std::filesystem::path root);
+  std::filesystem::path root_;
   kvstore::KVStore kvstore_;
   rocksdb::ReadOptions r_options{};
   rocksdb::WriteOptions w_options{};

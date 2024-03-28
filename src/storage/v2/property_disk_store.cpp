@@ -258,14 +258,15 @@ std::map<PropertyId, PropertyValue> PDS::Get(Gid gid, PdsItr * /*itr*/) {
   return res;
 }
 
+// TODO Put multiple version
 bool PDS::Set(Gid gid, PropertyId pid, const PropertyValue &pv, PdsItr * /*itr*/) {
   if (pv.IsNull()) {
     const bool res = kvstore_.Delete(ToKey2(gid, pid), w_options);
     return res && kvstore_.Delete(ToKey(gid, pid), w_options);
   }
-  // std::cout << "set " << pid.AsUint() << " - " << gid.AsUint() << std::endl;
-  const bool res = kvstore_.Put(ToKey2(gid, pid), ToStr(pv), w_options);
-  return res && kvstore_.Put(ToKey(gid, pid), ToStr(pv), w_options);
+  const auto str = ToStr(pv);
+  const bool res = kvstore_.Put(ToKey(gid, pid), str, w_options);
+  return res && kvstore_.Put(ToKey2(gid, pid), str, w_options);
 }
 
 void PDS::Clear(Gid gid, PdsItr * /*itr*/) {
@@ -296,49 +297,50 @@ class PdsKeyComparator : public ::rocksdb::Comparator {
   int Compare(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
     // Very specialized to the keys we currently have
 
-    if (a.size() == b.size()) {
-      if (a.size() == 12) {  // Key1
+    // static auto *bc = rocksdb::BytewiseComparator();
+    // return bc->Compare(a, b);
 
-        const auto a_gid = PDS::ToGid(a.ToStringView());
-        const auto b_gid = PDS::ToGid(b.ToStringView());
-        if (a_gid == b_gid) {
-          // Same Gid, check Pid
-          const auto a_pid = PDS::ToPid(a.ToStringView());
-          const auto b_pid = PDS::ToPid(b.ToStringView());
-          return int(a_pid != b_pid) * (1 - 2 * int(a_pid < b_pid));
-          // if (a_pid == b_pid) return 0;
-          // return a_pid < b_pid ? -1 : 1;
-        }
-        // Diff Gid, just check it
-        return (1 - 2 * int(a_gid < b_gid));
-        // return a_gid < b_gid ? -1 : 1;
-      }
-      if (a.size() == 16) {  // Key2
-        const auto a_pid = ToPid2(a.ToStringView());
-        const auto b_pid = ToPid2(b.ToStringView());
-        if (a_pid == b_pid) {
-          // Same Pid, check Gid
-          const auto a_gid = PDS::ToGid2(a.ToStringView());
-          const auto b_gid = PDS::ToGid2(b.ToStringView());
-          return int(a_gid != b_gid) * (1 - 2 * int(a_gid < b_gid));
-          // if (a_gid == b_gid) return 0;
-          // return a_gid < b_gid ? -1 : 1;
-        }
-        // Diff Pid, just check it
-        return (1 - 2 * int(a_pid < b_pid));
-        // return a_pid < b_pid ? -1 : 1;
-      }
-      // Fall back on bytewise comparison
-      static auto *bc = rocksdb::BytewiseComparator();
-      bc->Compare(a, b);
-      // LOG_FATAL("Unknown PDS key.");
+    // Possible comparisons: prefix (8b), key1(12b), key2(16b)
+
+    const auto min = std::min(a.size(), b.size());
+
+    const auto a_gid = *(uint64_t *)a.data();
+    const auto b_gid = *(uint64_t *)b.data();
+    if (a_gid != b_gid) return (1 - 2 * (a_gid < b_gid));
+
+    if (min == 8) return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
+
+    if (min == 12) {
+      const auto a_pid = *(uint32_t *)&a.data()[8];
+      const auto b_pid = *(uint32_t *)&b.data()[8];
+      if (a_pid != b_pid) return (1 - 2 * (a_pid < b_pid));
+      return (a.size() != b.size()) * (1 - 2 * (a.size() < b.size()));
     }
-    // Different keys, just check size
-    return (1 - 2 * int(a.size() < b.size()));
-    // return a.size() < b.size() ? -1 : 1;
+
+    const auto a_pid = *(uint64_t *)&a.data()[8];
+    const auto b_pid = *(uint64_t *)&b.data()[8];
+    return (a_pid != b_pid) * (1 - 2 * (a_pid < b_pid));
   };
 
-  bool Equal(const rocksdb::Slice &a, const rocksdb::Slice &b) const override { return Compare(a, b) == 0; }
+  bool Equal(const rocksdb::Slice &a, const rocksdb::Slice &b) const override {
+    // return Compare(a, b) == 0;
+
+    if (a.size() != b.size()) return false;
+
+    const auto a_gid = *(uint64_t *)a.data();
+    const auto b_gid = *(uint64_t *)b.data();
+    if (a_gid != b_gid) return false;
+
+    if (a.size() == 12) {
+      const auto a_pid = *(uint32_t *)&a.data()[8];
+      const auto b_pid = *(uint32_t *)&b.data()[8];
+      return a_pid == b_pid;
+    }
+
+    const auto a_pid = *(uint64_t *)&a.data()[8];
+    const auto b_pid = *(uint64_t *)&b.data()[8];
+    return a_pid == b_pid;
+  }
 
   // Ignore the following methods for now:
   const char *Name() const override { return "PdsKeyComparator"; };
@@ -354,36 +356,36 @@ const rocksdb::Comparator *pds_cmp() {
 }
 
 PDS::PDS(std::filesystem::path root)
-    : kvstore_{root / "pds", std::invoke([]() {
-                 rocksdb::Options options;
-                 rocksdb::BlockBasedTableOptions table_options;
-                 table_options.block_cache = rocksdb::NewLRUCache(256 * 1024 * 1024);
-                 table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(8));
-                 table_options.optimize_filters_for_memory = false;
-                 table_options.enable_index_compression = false;
-                 //  table_options.prepopulate_block_cache =
-                 //      rocksdb::BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
-                 options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
-                 options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(8));
-                 options.max_background_jobs = 4;
-                 options.enable_pipelined_write = true;
-                 options.avoid_unnecessary_blocking_io = true;
+    : root_{std::move(root)}, kvstore_{root_, std::invoke([]() {
+                                         rocksdb::Options options;
+                                         rocksdb::BlockBasedTableOptions table_options;
+                                         table_options.block_cache = rocksdb::NewLRUCache(256 * 1024 * 1024);
+                                         table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(8));
+                                         table_options.optimize_filters_for_memory = false;
+                                         table_options.enable_index_compression = false;
+                                         //  table_options.prepopulate_block_cache =
+                                         //      rocksdb::BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
+                                         options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
+                                         options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(8));
+                                         options.max_background_jobs = 4;
+                                         options.enable_pipelined_write = true;
+                                         options.avoid_unnecessary_blocking_io = true;
 
-                 options.create_if_missing = true;
+                                         options.create_if_missing = true;
 
-                 options.use_direct_io_for_flush_and_compaction = true;
-                 options.use_direct_reads = true;
+                                         options.use_direct_io_for_flush_and_compaction = true;
+                                         options.use_direct_reads = true;
 
-                 options.max_open_files = 256;
+                                         options.max_open_files = 256;
 
-                 //  options.OptimizeLevelStyleCompaction(128 * 1024 * 1024);
-                 options.allow_concurrent_memtable_write = false;
-                 options.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
+                                         //  options.OptimizeLevelStyleCompaction(128 * 1024 * 1024);
+                                         options.allow_concurrent_memtable_write = false;
+                                         options.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
 
-                 options.comparator = pds_cmp();
+                                         options.comparator = pds_cmp();
 
-                 return options;
-               })} {
+                                         return options;
+                                       })} {
   // Setup read options
   r_options.async_io = true;
   r_options.adaptive_readahead = true;
