@@ -453,9 +453,37 @@ target_link_libraries(${test_prefix}coordinator_cluster_state gflags mg-coordina
 target_include_directories(${test_prefix}coordinator_cluster_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
-# Test Raft log serialization
+# Test coordinator state machine
 if(MG_ENTERPRISE)
-add_unit_test(routing_table.cpp)
-target_link_libraries(${test_prefix}routing_table gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}routing_table PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_state_machine.cpp)
+target_link_libraries(${test_prefix}coordinator_state_machine gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_state_machine PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test RAFT state
+if(MG_ENTERPRISE)
+add_unit_test(raft_state.cpp)
+target_link_libraries(${test_prefix}raft_state gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator instance
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_instance.cpp)
+target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test replication instance connector
+if(MG_ENTERPRISE)
+add_unit_test(replication_instance_connector.cpp)
+target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test HA cluster setup
+if(MG_ENTERPRISE)
+add_unit_test(high_availability_cluster_setup.cpp)
+target_link_libraries(${test_prefix}high_availability_cluster_setup gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}high_availability_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()

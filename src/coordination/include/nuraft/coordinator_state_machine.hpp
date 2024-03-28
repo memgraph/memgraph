@@ -35,7 +35,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine() = default;
+  explicit CoordinatorStateMachine(CoordinatorInstanceInitConfig const &config);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
