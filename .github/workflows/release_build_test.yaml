@@ -72,7 +72,7 @@ jobs:
 
   PackageAndUpload:
     # if: github.ref_type == 'tag'
-    needs: [TestIndividual]
+    # needs: [TestIndividual]
     strategy:
       matrix:
         arch: [amd, arm]
