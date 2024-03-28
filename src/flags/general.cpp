@@ -138,6 +138,9 @@ DEFINE_bool(storage_automatic_label_index_creation_enabled, false,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_automatic_edge_type_index_creation_enabled, false,
             "Controls whether edge-type indexes on relationships should be created automatically.");
+DEFINE_bool(storage_enable_edges_metadata, false,
+            "Controls whether additional metadata should be stored about the edges in order to do faster traversals on "
+            "certain queries.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_delta_on_identical_property_update, true,

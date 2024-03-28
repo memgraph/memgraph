@@ -109,6 +109,8 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     /// Return approximate number of all vertices in the database.
@@ -426,9 +428,12 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
+  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
+  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

@@ -152,7 +152,7 @@ def test_writing_disabled_on_main_restart():
     expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -162,7 +162,7 @@ def test_writing_disabled_on_main_restart():
     expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
@@ -182,7 +182,7 @@ def test_writing_disabled_on_main_restart():
     expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
 

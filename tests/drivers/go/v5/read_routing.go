@@ -47,5 +47,5 @@ func main() {
 	read_messages("neo4j://localhost:7690") // coordinator_1
 	read_messages("neo4j://localhost:7691") // coordinator_2
 	read_messages("neo4j://localhost:7692") // coordinator_3
-	fmt.Println("Successfully finished running coordinator_route.go test")
+	fmt.Println("Successfully finished running read_route.go test")
 }
