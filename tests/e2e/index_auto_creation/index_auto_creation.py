@@ -184,9 +184,7 @@ def test_auto_create_single_edge_type_index(cursor):
     label_from = "LABEL_FROM"
     label_to = "LABEL_TO"
     edge_type = "SOMEEDGETYPE"
-    execute_and_fetch_all(cursor, f"CREATE (n:{label_from})")
-    execute_and_fetch_all(cursor, f"CREATE (n:{label_to})")
-    execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type}]->(m)")
+    execute_and_fetch_all(cursor, f"CREATE (:{label_from})-[:{edge_type}]->(:{label_to})")
 
     index_stats = get_index_stats(cursor)
     assert index_exists(index_stats, label_from)
