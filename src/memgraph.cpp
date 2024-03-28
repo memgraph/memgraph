@@ -346,295 +346,296 @@ int main(int argc, char **argv) {
         "Automatic index creation on edge-types has been set but properties on edges are disabled. This will "
         "implicitly disallow automatic edge-type index creation. If you wish to use automatic edge-type index "
         "creation, enable properties on edges as well.");
-    if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
-      spdlog::warn(
-          "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
-          "extra metadata on edges, enable properties on edges as well.");
-    }
-    spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
-                 FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
-    memgraph::utils::Scheduler jemalloc_purge_scheduler;
-    jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
-                                 [] { memgraph::memory::PurgeUnusedMemory(); });
-
-    if (FLAGS_storage_snapshot_interval_sec == 0) {
-      if (FLAGS_storage_wal_enabled) {
-        LOG_FATAL(
-            "In order to use write-ahead-logging you must enable "
-            "periodic snapshots by setting the snapshot interval to a "
-            "value larger than 0!");
-        db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
-      }
-    } else {
-      if (FLAGS_storage_wal_enabled) {
-        db_config.durability.snapshot_wal_mode =
-            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-      } else {
-        db_config.durability.snapshot_wal_mode =
-            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
-      }
-      db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
-    }
-
-    // Default interpreter configuration
-    memgraph::query::InterpreterConfig interp_config{
-        .query = {.allow_load_csv = FLAGS_allow_load_csv},
-        .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
-#ifdef MG_ENTERPRISE
-        .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
-        .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec),
-        .instance_get_uuid_frequency_sec = std::chrono::seconds(FLAGS_instance_get_uuid_frequency_sec),
-#endif
-        .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
-        .default_pulsar_service_url = FLAGS_pulsar_service_url,
-        .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
-        .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
-
-    auto auth_glue = [](memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
-                        std::unique_ptr<memgraph::query::AuthChecker> &ac) {
-      // Glue high level auth implementations to the query side
-      ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
-      ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
-      // Handle users passed via arguments
-      auto *maybe_username = std::getenv(kMgUser);
-      auto *maybe_password = std::getenv(kMgPassword);
-      auto *maybe_pass_file = std::getenv(kMgPassfile);
-      if (maybe_username && maybe_password) {
-        ah->CreateUser(maybe_username, maybe_password, nullptr);
-      } else if (maybe_pass_file) {
-        const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-        if (!username.empty() && !password.empty()) {
-          ah->CreateUser(username, password, nullptr);
-        }
-      }
-    };
-
-    memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
-                                             FLAGS_auth_password_permit_null};
-    memgraph::auth::SynchedAuth auth_{data_directory / "auth", auth_config};
-    std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
-    std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
-    auth_glue(&auth_, auth_handler, auth_checker);
-
-    auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
-
-    // singleton replication state
-    memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
-
-    // singleton coordinator state
-#ifdef MG_ENTERPRISE
-    using memgraph::coordination::CoordinatorInstanceInitConfig;
-    using memgraph::coordination::CoordinatorState;
-    using memgraph::coordination::ReplicationInstanceInitConfig;
-    std::optional<CoordinatorState> coordinator_state{std::nullopt};
-    if (FLAGS_management_port && (FLAGS_coordinator_id || FLAGS_coordinator_port)) {
-      throw std::runtime_error(
-          "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
-          "port for coordinator instance and management port for replication instance.");
-    }
-
-    if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
-                                                              .coordinator_port = FLAGS_coordinator_port,
-                                                              .bolt_port = FLAGS_bolt_port});
-    } else {
-      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
-    }
-#endif
-
-    memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
-#ifdef MG_ENTERPRISE
-                                             ,
-                                             auth_, FLAGS_data_recovery_on_startup
-#endif
-    );
-
-    // Note: Now that all system's subsystems are initialised (dbms & auth)
-    //       We can now initialise the recovery of replication (which will include those subsystems)
-    //       ReplicationHandler will handle the recovery
-    auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler
-#ifdef MG_ENTERPRISE
-                                                                         ,
-                                                                         system, auth_
-#endif
-    };
-
-#ifdef MG_ENTERPRISE
-    // MAIN or REPLICA instance
-    if (FLAGS_management_port) {
-      memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
-      MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
-    }
-#endif
-
-    auto db_acc = dbms_handler.Get();
-
-    memgraph::query::InterpreterContext interpreter_context_(
-        interp_config, &dbms_handler, &repl_state, system,
-#ifdef MG_ENTERPRISE
-        coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
-                          : std::nullopt,
-#endif
-        auth_handler.get(), auth_checker.get(), &replication_handler);
-    MG_ASSERT(db_acc, "Failed to access the main database");
-
-    memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
-                                                                    FLAGS_data_directory);
-    memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-    memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
-
-    // TODO Make multi-tenant
-    if (!FLAGS_init_file.empty()) {
-      spdlog::info("Running init file...");
-#ifdef MG_ENTERPRISE
-      if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file, &audit_log);
-      } else {
-        InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
-      }
-#else
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
-#endif
-    }
-
-#ifdef MG_ENTERPRISE
-    dbms_handler.RestoreTriggers(&interpreter_context_);
-    dbms_handler.RestoreStreams(&interpreter_context_);
-#else
-    {
-      // Triggers can execute query procedures, so we need to reload the modules first and then
-      // the triggers
-      auto storage_accessor = db_acc->Access();
-      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                               interpreter_context_.auth_checker);
-    }
-
-    // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-    db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
-#endif
-
-    ServerContext context;
-    std::string service_name = "Bolt";
-    if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
-      context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
-      service_name = "BoltS";
-      spdlog::info("Using secure Bolt connection (with SSL)");
-    } else {
-      spdlog::warn(
-          memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
-    }
-    auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
-        boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
-#ifdef MG_ENTERPRISE
-    Context session_context{&interpreter_context_, &auth_, &audit_log};
-#else
-    Context session_context{&interpreter_context_, &auth_};
-#endif
-    memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
-                                   service_name, FLAGS_bolt_num_workers);
-
-    const auto machine_id = memgraph::utils::GetMachineId();
-
-    // Setup telemetry
-    static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
-    std::optional<memgraph::telemetry::Telemetry> telemetry;
-    if (FLAGS_telemetry_enabled) {
-      telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                        service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-      telemetry->AddStorageCollector(dbms_handler, auth_, repl_state);
-#ifdef MG_ENTERPRISE
-      telemetry->AddDatabaseCollector(dbms_handler, repl_state);
-#else
-      telemetry->AddDatabaseCollector();
-#endif
-      telemetry->AddClientCollector();
-      telemetry->AddEventsCollector();
-      telemetry->AddQueryModuleCollector();
-      telemetry->AddExceptionCollector();
-      telemetry->AddReplicationCollector();
-    }
-    memgraph::license::LicenseInfoSender license_info_sender(
-        telemetry_server, memgraph::glue::run_id_, machine_id, memory_limit,
-        memgraph::license::global_license_checker.GetLicenseInfo());
-
-    memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
-    memgraph::communication::websocket::Server websocket_server{
-        {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
-    memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
-
-#ifdef MG_ENTERPRISE
-    // TODO: Make multi-tenant
-    memgraph::glue::MonitoringServerT metrics_server{
-        {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-#endif
-
-    // Handler for regular termination signals
-    auto shutdown = [
-#ifdef MG_ENTERPRISE
-                        &metrics_server,
-#endif
-                        &websocket_server, &server, &interpreter_context_] {
-      // Server needs to be shutdown first and then the database. This prevents
-      // a race condition when a transaction is accepted during server shutdown.
-      server.Shutdown();
-      // After the server is notified to stop accepting and processing
-      // connections we tell the execution engine to stop processing all pending
-      // queries.
-      interpreter_context_.Shutdown();
-      websocket_server.Shutdown();
-#ifdef MG_ENTERPRISE
-      metrics_server.Shutdown();
-#endif
-    };
-
-    InitSignalHandlers(shutdown);
-
-    // Release the temporary database access
-    db_acc.reset();
-
-    // Startup the main server
-    MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
-    websocket_server.Start();
-
-#ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      metrics_server.Start();
-    }
-#endif
-
-    if (!FLAGS_init_data_file.empty()) {
-      spdlog::info("Running init data file.");
-      auto db_acc = dbms_handler.Get();
-      MG_ASSERT(db_acc, "Failed to gain access to the main database");
-#ifdef MG_ENTERPRISE
-      if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
-      } else {
-        InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
-      }
-#else
-      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
-#endif
-    }
-
-    server.AwaitShutdown();
-    websocket_server.AwaitShutdown();
-    memgraph::memory::UnsetHooks();
-#ifdef MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      metrics_server.AwaitShutdown();
-    }
-#endif
-
-    memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
-
-    python_gc_scheduler.Stop();
-    Py_END_ALLOW_THREADS;
-    // Shutdown Python
-    Py_Finalize();
-    PyMem_RawFree(program_name);
-
-    memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
-    return 0;
   }
+  if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
+    spdlog::warn(
+        "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
+        "extra metadata on edges, enable properties on edges as well.");
+  }
+  spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
+               FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
+  memgraph::utils::Scheduler jemalloc_purge_scheduler;
+  jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
+                               [] { memgraph::memory::PurgeUnusedMemory(); });
+
+  if (FLAGS_storage_snapshot_interval_sec == 0) {
+    if (FLAGS_storage_wal_enabled) {
+      LOG_FATAL(
+          "In order to use write-ahead-logging you must enable "
+          "periodic snapshots by setting the snapshot interval to a "
+          "value larger than 0!");
+      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+    }
+  } else {
+    if (FLAGS_storage_wal_enabled) {
+      db_config.durability.snapshot_wal_mode =
+          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    } else {
+      db_config.durability.snapshot_wal_mode =
+          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
+    }
+    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+  }
+
+  // Default interpreter configuration
+  memgraph::query::InterpreterConfig interp_config{
+      .query = {.allow_load_csv = FLAGS_allow_load_csv},
+      .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
+#ifdef MG_ENTERPRISE
+      .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
+      .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec),
+      .instance_get_uuid_frequency_sec = std::chrono::seconds(FLAGS_instance_get_uuid_frequency_sec),
+#endif
+      .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
+      .default_pulsar_service_url = FLAGS_pulsar_service_url,
+      .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
+      .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
+
+  auto auth_glue = [](memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+                      std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+    // Glue high level auth implementations to the query side
+    ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
+    ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+    // Handle users passed via arguments
+    auto *maybe_username = std::getenv(kMgUser);
+    auto *maybe_password = std::getenv(kMgPassword);
+    auto *maybe_pass_file = std::getenv(kMgPassfile);
+    if (maybe_username && maybe_password) {
+      ah->CreateUser(maybe_username, maybe_password, nullptr);
+    } else if (maybe_pass_file) {
+      const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+      if (!username.empty() && !password.empty()) {
+        ah->CreateUser(username, password, nullptr);
+      }
+    }
+  };
+
+  memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
+                                           FLAGS_auth_password_permit_null};
+  memgraph::auth::SynchedAuth auth_{data_directory / "auth", auth_config};
+  std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
+  std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
+  auth_glue(&auth_, auth_handler, auth_checker);
+
+  auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
+
+  // singleton replication state
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
+
+  // singleton coordinator state
+#ifdef MG_ENTERPRISE
+  using memgraph::coordination::CoordinatorInstanceInitConfig;
+  using memgraph::coordination::CoordinatorState;
+  using memgraph::coordination::ReplicationInstanceInitConfig;
+  std::optional<CoordinatorState> coordinator_state{std::nullopt};
+  if (FLAGS_management_port && (FLAGS_coordinator_id || FLAGS_coordinator_port)) {
+    throw std::runtime_error(
+        "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
+        "port for coordinator instance and management port for replication instance.");
+  }
+
+  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
+    coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
+                                                            .coordinator_port = FLAGS_coordinator_port,
+                                                            .bolt_port = FLAGS_bolt_port});
+  } else {
+    coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
+  }
+#endif
+
+  memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
+#ifdef MG_ENTERPRISE
+                                           ,
+                                           auth_, FLAGS_data_recovery_on_startup
+#endif
+  );
+
+  // Note: Now that all system's subsystems are initialised (dbms & auth)
+  //       We can now initialise the recovery of replication (which will include those subsystems)
+  //       ReplicationHandler will handle the recovery
+  auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler
+#ifdef MG_ENTERPRISE
+                                                                       ,
+                                                                       system, auth_
+#endif
+  };
+
+#ifdef MG_ENTERPRISE
+  // MAIN or REPLICA instance
+  if (FLAGS_management_port) {
+    memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
+    MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+  }
+#endif
+
+  auto db_acc = dbms_handler.Get();
+
+  memgraph::query::InterpreterContext interpreter_context_(
+      interp_config, &dbms_handler, &repl_state, system,
+#ifdef MG_ENTERPRISE
+      coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
+                        : std::nullopt,
+#endif
+      auth_handler.get(), auth_checker.get(), &replication_handler);
+  MG_ASSERT(db_acc, "Failed to access the main database");
+
+  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
+                                                                  FLAGS_data_directory);
+  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+
+  // TODO Make multi-tenant
+  if (!FLAGS_init_file.empty()) {
+    spdlog::info("Running init file...");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
+    }
+#else
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
+#endif
+  }
+
+#ifdef MG_ENTERPRISE
+  dbms_handler.RestoreTriggers(&interpreter_context_);
+  dbms_handler.RestoreStreams(&interpreter_context_);
+#else
+  {
+    // Triggers can execute query procedures, so we need to reload the modules first and then
+    // the triggers
+    auto storage_accessor = db_acc->Access();
+    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
+                                             interpreter_context_.auth_checker);
+  }
+
+  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
+  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+#endif
+
+  ServerContext context;
+  std::string service_name = "Bolt";
+  if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
+    context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
+    service_name = "BoltS";
+    spdlog::info("Using secure Bolt connection (with SSL)");
+  } else {
+    spdlog::warn(
+        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
+  }
+  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
+      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+#ifdef MG_ENTERPRISE
+  Context session_context{&interpreter_context_, &auth_, &audit_log};
+#else
+  Context session_context{&interpreter_context_, &auth_};
+#endif
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
+                                 service_name, FLAGS_bolt_num_workers);
+
+  const auto machine_id = memgraph::utils::GetMachineId();
+
+  // Setup telemetry
+  static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
+  std::optional<memgraph::telemetry::Telemetry> telemetry;
+  if (FLAGS_telemetry_enabled) {
+    telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
+    telemetry->AddStorageCollector(dbms_handler, auth_, repl_state);
+#ifdef MG_ENTERPRISE
+    telemetry->AddDatabaseCollector(dbms_handler, repl_state);
+#else
+    telemetry->AddDatabaseCollector();
+#endif
+    telemetry->AddClientCollector();
+    telemetry->AddEventsCollector();
+    telemetry->AddQueryModuleCollector();
+    telemetry->AddExceptionCollector();
+    telemetry->AddReplicationCollector();
+  }
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
+                                                           memory_limit,
+                                                           memgraph::license::global_license_checker.GetLicenseInfo());
+
+  memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
+  memgraph::communication::websocket::Server websocket_server{
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+  memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
+
+#ifdef MG_ENTERPRISE
+  // TODO: Make multi-tenant
+  memgraph::glue::MonitoringServerT metrics_server{
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+#endif
+
+  // Handler for regular termination signals
+  auto shutdown = [
+#ifdef MG_ENTERPRISE
+                      &metrics_server,
+#endif
+                      &websocket_server, &server, &interpreter_context_] {
+    // Server needs to be shutdown first and then the database. This prevents
+    // a race condition when a transaction is accepted during server shutdown.
+    server.Shutdown();
+    // After the server is notified to stop accepting and processing
+    // connections we tell the execution engine to stop processing all pending
+    // queries.
+    interpreter_context_.Shutdown();
+    websocket_server.Shutdown();
+#ifdef MG_ENTERPRISE
+    metrics_server.Shutdown();
+#endif
+  };
+
+  InitSignalHandlers(shutdown);
+
+  // Release the temporary database access
+  db_acc.reset();
+
+  // Startup the main server
+  MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  websocket_server.Start();
+
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.Start();
+  }
+#endif
+
+  if (!FLAGS_init_data_file.empty()) {
+    spdlog::info("Running init data file.");
+    auto db_acc = dbms_handler.Get();
+    MG_ASSERT(db_acc, "Failed to gain access to the main database");
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
+    } else {
+      InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
+    }
+#else
+    InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
+#endif
+  }
+
+  server.AwaitShutdown();
+  websocket_server.AwaitShutdown();
+  memgraph::memory::UnsetHooks();
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    metrics_server.AwaitShutdown();
+  }
+#endif
+
+  memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+
+  python_gc_scheduler.Stop();
+  Py_END_ALLOW_THREADS;
+  // Shutdown Python
+  Py_Finalize();
+  PyMem_RawFree(program_name);
+
+  memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
+  return 0;
+}
