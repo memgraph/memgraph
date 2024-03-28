@@ -323,7 +323,7 @@ Feature: List operators
         Then the result should be:
             | n.name               | years                    |
             | 'Keanu Reeves'       | [2003, 2003, 1999, 2021] |
-            | 'Carrie-Anne Moss'   | [1999,2003]              |
+            | 'Carrie-Anne Moss'   | [1999, 2003]              |
             | 'Laurence Fishburne' | [1999]                   |
 
      Scenario: Multiple list pattern comprehensions in Return
@@ -335,7 +335,12 @@ Feature: List operators
                 [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
                 [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.title] AS titles
             """
-        Then an error should be raised
+        Then the result should be:
+            | n.name               | years                 | titles                                                                                      |
+            | "Keanu Reeves"       | [2021,2003,2003,1999] | ["The Matrix Resurrections", "The Matrix", "The Matrix Reloaded", "The Matrix Revolutions"] |
+            | "Carrie-Anne Moss"   | [2003,1999]           | ["The Matrix Reloaded", "The Matrix"]                                                       |
+            | "Laurence Fishburne" | [1999]                | ["The Matrix"]
+
 
      Scenario: Function inside pattern comprehension's expression
         Given graph "graph_keanu"

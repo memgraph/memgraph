@@ -33,8 +33,11 @@ struct PatternComprehensionData {
   PatternComprehensionData(std::shared_ptr<LogicalOperator> lop, Symbol res_symbol)
       : op(std::move(lop)), result_symbol(res_symbol) {}
 
+  PatternComprehensionData(PatternComprehension *pc, Symbol res_symbol)
+      : pattern_comprehension(pc), result_symbol(res_symbol) {}
+
   PatternComprehension *pattern_comprehension = nullptr;
-  std::shared_ptr<LogicalOperator> op;
+  std::shared_ptr<LogicalOperator> op = nullptr;
   Symbol result_symbol;
 };
 using PatternComprehensionDataMap = std::unordered_map<std::string, PatternComprehensionData>;
@@ -208,9 +211,6 @@ class RuleBasedPlanner {
 
         PatternComprehensionDataMap pattern_comprehension_ops;
 
-        if (single_query_part.pattern_comprehension_matchings.size() > 1) {
-          throw utils::NotYetImplemented("Multiple pattern comprehensions.");
-        }
         for (const auto &matching : single_query_part.pattern_comprehension_matchings) {
           std::unique_ptr<LogicalOperator> new_input;
           MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
