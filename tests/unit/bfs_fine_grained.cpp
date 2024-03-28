@@ -15,13 +15,13 @@
 #include <string>
 #include <unordered_map>
 
-#include <gtest/internal/gtest-param-util-generated.h>
-
 #include "auth/models.hpp"
 #include "disk_test_utils.hpp"
 #include "license/license.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+
+#include <gtest/gtest.h>
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;

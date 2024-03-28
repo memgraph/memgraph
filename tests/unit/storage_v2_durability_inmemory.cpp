@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gmock/gmock-generated-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
@@ -2966,6 +2965,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::SkipList<memgraph::storage::Vertex> vertices;
   memgraph::utils::SkipList<memgraph::storage::Edge> edges;
+  memgraph::utils::SkipList<memgraph::storage::EdgeMetadata> edges_metadata;
   std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
@@ -2979,7 +2979,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edge_count,
+  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
                                          name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
@@ -3042,6 +3042,64 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, EdgeMetadataRecovered) {
+  if (GetParam() == false) {
+    return;
+  }
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
+                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true},
+                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+
+  // Check if data has been loaded correctly.
+  {
+    auto acc = db.Access();
+
+    for (auto i{0U}; i < kNumBaseEdges; ++i) {
+      auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(i), memgraph::storage::View::OLD);
+      ASSERT_TRUE(edge.has_value());
+    }
+
+    auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges), memgraph::storage::View::OLD);
+    ASSERT_FALSE(edge.has_value());
+
+    auto vertex = acc->CreateVertex();
+    auto new_edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(new_edge.HasValue());
+
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+  {
+    auto acc = db.Access();
+
+    auto edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges), memgraph::storage::View::OLD);
+    ASSERT_TRUE(edge.has_value());
+
+    edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges + 1), memgraph::storage::View::OLD);
+    ASSERT_FALSE(edge.has_value());
+
     ASSERT_FALSE(acc->Commit().HasError());
   }
 }

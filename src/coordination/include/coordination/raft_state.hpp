@@ -27,6 +27,7 @@ struct CoordinatorToReplicaConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
+using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 using nuraft::buffer;
 using nuraft::logger;
@@ -40,8 +41,8 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
  private:
-  explicit RaftState(BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb, uint32_t coordinator_id,
-                     uint32_t raft_port, std::string raft_address);
+  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb);
 
   auto InitRaftServer() -> void;
 
@@ -53,44 +54,53 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(BecomeLeaderCb &&become_leader_cb, BecomeFollowerCb &&become_follower_cb) -> RaftState;
+  static auto MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
+                            BecomeFollowerCb &&become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
-  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
-  auto MainExists() const -> bool;
-  auto IsMain(std::string_view instance_name) const -> bool;
-  auto IsReplica(std::string_view instance_name) const -> bool;
-
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
-  auto AppendSetInstanceAsMainLog(std::string_view instance_name) -> bool;
+  auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
-  auto AppendUpdateUUIDLog(utils::UUID const &uuid) -> bool;
+
+  auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
+  auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
+  auto AppendOpenLock() -> bool;
+  auto AppendCloseLock() -> bool;
   auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
+  auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-  // TODO: (andi) Do we need then GetAllCoordinators?
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
+  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
-  auto GetUUID() const -> utils::UUID;
+  auto MainExists() const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
+
+  auto GetCurrentMainUUID() const -> utils::UUID;
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+
+  auto IsLockOpened() const -> bool;
+  auto GetRoutingTable() const -> RoutingTable;
 
  private:
-  // TODO: (andi) I think variables below can be abstracted/clean them.
   io::network::Endpoint raft_endpoint_;
   uint32_t coordinator_id_;
 
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;
-  ptr<raft_server> raft_server_;
   ptr<logger> logger_;
   raft_launcher launcher_;
+  ptr<raft_server> raft_server_;
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;

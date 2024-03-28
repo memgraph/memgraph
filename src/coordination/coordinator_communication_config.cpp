@@ -16,13 +16,13 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
-  j = nlohmann::json{{"coordinator_server_id", config.coordinator_server_id},
+  j = nlohmann::json{{"coordinator_id", config.coordinator_id},
                      {"coordinator_server", config.coordinator_server},
                      {"bolt_server", config.bolt_server}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config) {
-  config.coordinator_server_id = j.at("coordinator_server_id").get<uint32_t>();
+  config.coordinator_id = j.at("coordinator_id").get<uint32_t>();
   config.coordinator_server = j.at("coordinator_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
 }
@@ -58,6 +58,15 @@ void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config) {
   config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
   config.instance_get_uuid_frequency_sec = std::chrono::seconds{j.at("instance_get_uuid_frequency_sec").get<int>()};
   config.replication_client_info = j.at("replication_client_info").get<ReplicationClientInfo>();
+}
+
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_change) {
+  instance_uuid_change.uuid = j.at("uuid").get<utils::UUID>();
+  instance_uuid_change.instance_name = j.at("instance_name").get<std::string>();
+}
+
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &instance_uuid_change) {
+  j = nlohmann::json{{"instance_name", instance_uuid_change.instance_name}, {"uuid", instance_uuid_change.uuid}};
 }
 
 }  // namespace memgraph::coordination

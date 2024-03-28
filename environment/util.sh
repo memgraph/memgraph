@@ -108,3 +108,20 @@ function install_custom_maven() {
   fi
   echo "maven $MVNVERSION installed under $MVNINSTALLDIR"
 }
+
+function install_dotnet_sdk ()
+{
+  DOTNETSDKVERSION="$1"
+  DOTNETSDKINSTALLDIR="/opt/dotnet-sdk-$DOTNETSDKVERSION"
+  if [ ! -d $DOTNETSDKINSTALLDIR ]; then
+    mkdir -p $DOTNETSDKINSTALLDIR
+  fi
+  if [ ! -f "$DOTNETSDKINSTALLDIR/.dotnet/dotnet" ]; then
+    wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+    chmod +x ./dotnet-install.sh
+    ./dotnet-install.sh --channel 8.0 --install-dir $DOTNETSDKINSTALLDIR
+    rm dotnet-install.sh
+    ln -s $DOTNETSDKINSTALLDIR/dotnet /usr/bin/dotnet
+  fi
+  echo "dotnet sdk $DOTNETSDKVERSION installed under $DOTNETSDKINSTALLDIR"
+}

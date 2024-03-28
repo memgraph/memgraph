@@ -407,6 +407,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -469,6 +475,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -487,7 +500,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
@@ -514,6 +527,15 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case SWAP_UUID_FAILED:
         throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't register replica instance because because the last action didn't finish successfully!");
+      case ENABLE_WRITING_FAILED:
+        throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -529,7 +551,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 #endif
 
 /// returns false if the replication role can't be set
-/// @throw QueryRuntimeException if an error ocurred.
+/// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
                          Interpreter &interpreter) {
@@ -1205,7 +1227,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
                      bolt_server = bolt_server_it->second,
@@ -4280,8 +4302,10 @@ void Interpreter::RollbackTransaction() {
 
 #ifdef MG_ENTERPRISE
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
-  // TODO: (andi) Test
-  if (!FLAGS_coordinator_id) {
+  if (!interpreter_context_->coordinator_state_) {
+    throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
+  }
+  if (FLAGS_management_port) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4296,7 +4320,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
 }
 #endif
 

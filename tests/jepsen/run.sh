@@ -45,7 +45,7 @@ if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
     HELP_EXIT
 fi
 
-if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/null 2>&1; then
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
@@ -178,8 +178,16 @@ PROCESS_RESULTS() {
 
 CLUSTER_UP() {
   PRINT_CONTEXT
-  "$script_dir/jepsen/docker/bin/up" --daemon
-  sleep 10
+  local cnt=0
+  while [[ "$cnt" < 5 ]]; do
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
+      cnt=$((cnt + 1))
+      continue
+    else
+      sleep 10
+      break
+    fi
+  done
   # Ensure all SSH connections between Jepsen containers work
   for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
       if [ "$node" == "jepsen-control" ]; then
@@ -208,6 +216,18 @@ CLUSTER_DEALLOC() {
   echo "Cluster dealloc DONE"
 }
 
+CLUSTER_NODES_CLEANUP() {
+  jepsen_control_exec="docker exec jepsen-control bash -c"
+  INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
+  $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
+  for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+      jepsen_node_name="jepsen-n$iter"
+      jepsen_node_exec="docker exec $jepsen_node_name bash -c"
+      INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
+      $jepsen_node_exec "rm -rf /opt/memgraph/*"
+  done
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -220,6 +240,9 @@ case $1 in
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
+        PROCESS_ARGS "$@"
+        PRINT_CONTEXT
+        COPY_BINARIES
         CLUSTER_UP
     ;;
 
@@ -233,15 +256,7 @@ case $1 in
     ;;
 
     cluster-nodes-cleanup)
-        jepsen_control_exec="docker exec jepsen-control bash -c"
-        INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
-        $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
-        for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
-            jepsen_node_name="jepsen-n$iter"
-            jepsen_node_exec="docker exec $jepsen_node_name bash -c"
-            INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
-            $jepsen_node_exec "rm -rf /opt/memgraph/*"
-        done
+        CLUSTER_NODES_CLEANUP
     ;;
 
     mgbuild)

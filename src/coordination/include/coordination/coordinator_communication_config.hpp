@@ -24,10 +24,21 @@
 
 #include <fmt/format.h>
 #include "json/json.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+
+struct ReplicationInstanceInitConfig {
+  int management_port{0};
+};
+
+struct CoordinatorInstanceInitConfig {
+  uint32_t coordinator_id{0};
+  int coordinator_port{0};
+  int bolt_port{0};
+};
 
 struct ReplicationClientInfo {
   std::string instance_name{};
@@ -65,7 +76,7 @@ struct CoordinatorToReplicaConfig {
 };
 
 struct CoordinatorToCoordinatorConfig {
-  uint32_t coordinator_server_id{0};
+  uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
 
@@ -88,6 +99,11 @@ struct ManagementServerConfig {
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
+struct InstanceUUIDUpdate {
+  std::string instance_name;
+  memgraph::utils::UUID uuid;
+};
+
 void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config);
 void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config);
 
@@ -96,6 +112,9 @@ void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
+
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &config);
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &config);
 
 }  // namespace memgraph::coordination
 #endif
