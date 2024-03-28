@@ -71,7 +71,7 @@ jobs:
     secrets: inherit
 
   PackageAndUpload:
-    if: github.ref_type == 'tag'
+    # if: github.ref_type == 'tag'
     needs: [TestIndividual]
     strategy:
       matrix:
