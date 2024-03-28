@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "utils/counter.hpp"
 
@@ -24,39 +25,6 @@ using EdgeRef = memgraph::storage::EdgeRef;
 using EdgeTypeId = memgraph::storage::EdgeTypeId;
 using Transaction = memgraph::storage::Transaction;
 using View = memgraph::storage::View;
-
-bool IsIndexEntryVisible(Edge *edge, const Transaction *transaction, View view) {
-  bool exists = true;
-  bool deleted = true;
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge->lock};
-    deleted = edge->deleted;
-    delta = edge->delta;
-  }
-  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-    }
-  });
-  return exists && !deleted;
-}
 
 using ReturnType = std::optional<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transaction *transaction, View view) {
@@ -242,7 +210,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
-    if (!IsIndexEntryVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
+    if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
         to_vertex->deleted) {
       continue;
     }

@@ -684,9 +684,8 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
 
 static void ParseReturn(query::Return &ret, AstStorage &storage, SymbolTable &symbol_table,
                         std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
-  PatternVisitor visitor(symbol_table, storage);
-
   for (auto *expr : ret.body_.named_expressions) {
+    PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
     auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
     for (auto &matching : pattern_comprehension_matchings) {
@@ -702,6 +701,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
+  matching.result_symbol = symbol_table_.at(op);
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 }

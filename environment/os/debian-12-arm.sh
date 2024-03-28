@@ -46,14 +46,14 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    netcat # tests are using nc to wait for memgraph
+    netcat-traditional # tests are using nc to wait for memgraph
     python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless custom-maven3.9.3 # for driver tests
-    dotnet-sdk-7.0 golang custom-golang1.18.9 nodejs npm
+    dotnet-sdk-8.0 golang custom-golang1.18.9 nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -82,6 +82,12 @@ check() {
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == dotnet-sdk-8.0  ]; then
+            if [ ! -f "/opt/dotnet-sdk-8.0/dotnet" ]; then
               missing="$pkg $missing"
             fi
             continue
@@ -117,13 +123,8 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
-        if [ "$pkg" == dotnet-sdk-7.0  ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-7.0
-            fi
+        if [ "$pkg" == dotnet-sdk-8.0  ]; then
+            install_dotnet_sdk "8.0"
             continue
         fi
         apt install -y "$pkg"

@@ -48,11 +48,26 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+
     return true;
   }
 
-  bool PostVisit(Filter & /*op*/) override {
+  bool PostVisit(Filter &op) override {
     prev_ops_.pop_back();
+
+    ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_);
+    op.expression_ = removal.trimmed_expression;
+    if (op.expression_) {
+      Filters leftover_filters;
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      op.all_filters_ = std::move(leftover_filters);
+    }
+
+    if (!op.expression_) {
+      SetOnParent(op.input());
+    }
+
     return true;
   }
 
@@ -70,7 +85,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAll &op) override {
     prev_ops_.pop_back();
 
-    if (EdgeTypeIndexingPossible()) {
+    if (EdgeTypeIndexingPossible() || maybe_id_lookup_value_) {
       SetOnParent(op.input());
     }
 
@@ -88,6 +103,25 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       edge_type_index_exist = only_one_edge_type ? db_->EdgeTypeIndexExists(op.common_.edge_types.front()) : false;
 
       scanall_under_expand_ = only_one_edge_type && expansion_is_named && expdanded_node_not_named;
+
+      const auto &output_symbol = op.common_.edge_symbol;
+      const auto &modified_symbols = op.ModifiedSymbols(*symbol_table_);
+      std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+      auto are_bound = [&bound_symbols](const auto &used_symbols) {
+        for (const auto &used_symbol : used_symbols) {
+          if (!utils::Contains(bound_symbols, used_symbol)) {
+            return false;
+          }
+        }
+        return true;
+      };
+
+      for (const auto &filter : filters_.IdFilters(output_symbol)) {
+        if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+        maybe_id_lookup_value_ = filter.id_filter->value_;
+        filter_exprs_for_removal_.insert(filter.expression);
+        filters_.EraseFilter(filter);
+      }
     }
 
     return true;
@@ -96,9 +130,10 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Expand &op) override {
     prev_ops_.pop_back();
 
-    if (EdgeTypeIndexingPossible()) {
+    if (EdgeTypeIndexingPossible() || maybe_id_lookup_value_) {
       auto indexed_scan = GenEdgeTypeScan(op);
       SetOnParent(std::move(indexed_scan));
+      return true;
     }
 
     return true;
@@ -250,6 +285,15 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
   bool PostVisit(ScanAllByEdgeType &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PostVisit(ScanAllByEdgeId &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -491,9 +535,12 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
 
+  memgraph::query::Expression *maybe_id_lookup_value_ = nullptr;
+
   bool EdgeTypeIndexingPossible() const {
     return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist;
   }
+
   bool expand_under_produce_ = false;
   bool scanall_under_expand_ = false;
   bool once_under_scanall_ = false;
@@ -503,14 +550,21 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
   }
 
-  std::unique_ptr<ScanAllByEdgeType> GenEdgeTypeScan(const Expand &expand) {
+  std::unique_ptr<ScanAll> GenEdgeTypeScan(const Expand &expand) {
     const auto &input = expand.input();
     const auto &output_symbol = expand.common_.edge_symbol;
     const auto &view = expand.view_;
 
-    // Extract edge_type from symbol
-    auto edge_type = expand.common_.edge_types.front();
-    return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type, view);
+    if (EdgeTypeIndexingPossible()) {
+      auto edge_type = expand.common_.edge_types.front();
+      return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type, view);
+    }
+
+    if (maybe_id_lookup_value_) {
+      return std::make_unique<ScanAllByEdgeId>(input, output_symbol, maybe_id_lookup_value_, view);
+    }
+
+    LOG_FATAL("Fatal error while rewriting query plan.");
   }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {

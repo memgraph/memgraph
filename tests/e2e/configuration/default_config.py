@@ -124,6 +124,11 @@ startup_config_dict = {
         "false",
         "Controls whether metadata should be collected about the resident labels and edge types.",
     ),
+    "storage_enable_edges_metadata": (
+        "false",
+        "false",
+        "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (

@@ -110,6 +110,7 @@ extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeTypeOperator;
+extern const Event ScanAllByEdgeIdOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -140,6 +141,7 @@ extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
 extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
+extern const Event RollUpApplyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -544,7 +546,7 @@ class ScanAllCursor : public Cursor {
 template <typename TEdgesFun>
 class ScanAllByEdgeTypeCursor : public Cursor {
  public:
-  explicit ScanAllByEdgeTypeCursor(const ScanAllByEdgeType &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+  explicit ScanAllByEdgeTypeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
                                    storage::View view, TEdgesFun get_edges, const char *op_name)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
@@ -584,7 +586,7 @@ class ScanAllByEdgeTypeCursor : public Cursor {
   }
 
  private:
-  const ScanAllByEdgeType &self_;
+  const ScanAll &self_;
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
@@ -636,10 +638,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                      storage::EdgeTypeId edge_type, storage::View view)
-    : input_(input ? input : std::make_shared<Once>()),
-      output_symbol_(std::move(output_symbol)),
-      view_(view),
-      edge_type_(edge_type) {}
+    : ScanAll(input, output_symbol, view), edge_type_(edge_type) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeType)
 
@@ -803,6 +802,38 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllById");
+}
+
+ScanAllByEdgeId::ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                 Expression *expression, storage::View view)
+    : ScanAll(input, output_symbol, view), expression_(expression) {
+  MG_ASSERT(expression);
+}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeId)
+
+UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeIdOperator);
+
+  auto edges = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<EdgeAccessor>> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (!value.IsNumeric()) return std::nullopt;
+    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(id), view_);
+    if (!maybe_edge) return std::nullopt;
+    return std::vector<EdgeAccessor>{*maybe_edge};
+  };
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeId");
+}
+
+std::vector<Symbol> ScanAllByEdgeId::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
 }
 
 namespace {
@@ -5770,16 +5801,23 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
-RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
-                         std::shared_ptr<LogicalOperator> &&second_branch)
-    : input_(input), list_collection_branch_(second_branch) {}
-
-std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
-  std::vector<Symbol> symbols;
-  return symbols;
+RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
+                         std::shared_ptr<LogicalOperator> &&list_collection_branch,
+                         const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
+    : input_(std::move(input)),
+      list_collection_branch_(std::move(list_collection_branch)),
+      result_symbol_(std::move(result_symbol)) {
+  if (list_collection_symbols.size() != 1) {
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Contact support.");
+  }
+  list_collection_symbol_ = list_collection_symbols[0];
 }
 
-std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.push_back(result_symbol_);
+  return symbols;
+}
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -5789,6 +5827,68 @@ bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+namespace {
+
+class RollUpApplyCursor : public Cursor {
+ public:
+  RollUpApplyCursor(const RollUpApply &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem)) {
+    MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
+    MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+    if (input_cursor_->Pull(frame, context)) {
+      while (list_collection_cursor_->Pull(frame, context)) {
+        // collect values from the list collection branch
+        result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
+      }
+
+      // Clear frame change collector
+      if (context.frame_change_collector &&
+          context.frame_change_collector->IsKeyTracked(self_.list_collection_symbol_.name())) {
+        context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_.name());
+      }
+
+      frame[self_.result_symbol_] = result;
+      // After a successful input from the list_collection_cursor_
+      // reset state of cursor because it has to a Once at the beginning
+      list_collection_cursor_->Reset();
+    } else {
+      return false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    list_collection_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    list_collection_cursor_->Reset();
+  }
+
+ private:
+  const RollUpApply &self_;
+  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr list_collection_cursor_;
+};
+}  // namespace
+
+UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
+  return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan
