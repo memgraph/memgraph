@@ -323,7 +323,11 @@ Feature: List operators
         Then the result should be:
             | n.name               | years                    |
             | 'Keanu Reeves'       | [2003, 2003, 1999, 2021] |
+<<<<<<< HEAD
             | 'Carrie-Anne Moss'   | [1999, 2003]             |
+=======
+            | 'Carrie-Anne Moss'   | [1999, 2003]              |
+>>>>>>> 971cb7296 (Add multiple pattern comprehensions handling in Return clause.)
             | 'Laurence Fishburne' | [1999]                   |
 
      Scenario: Multiple list pattern comprehensions in Return

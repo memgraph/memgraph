@@ -37,7 +37,7 @@ struct PatternComprehensionData {
       : pattern_comprehension(pc), result_symbol(res_symbol) {}
 
   PatternComprehension *pattern_comprehension = nullptr;
-  std::shared_ptr<LogicalOperator> op;
+  std::shared_ptr<LogicalOperator> op = nullptr;
   Symbol result_symbol;
 };
 using PatternComprehensionDataMap = std::unordered_map<std::string, PatternComprehensionData>;
