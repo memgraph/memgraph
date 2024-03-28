@@ -302,7 +302,7 @@ class Timezone {
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
-  // const Timezone *operator->() const { return this; }
+  const Timezone *operator->() const { return this; }
 
   bool operator==(const Timezone &) const = default;
 

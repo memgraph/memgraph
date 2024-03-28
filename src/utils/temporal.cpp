@@ -747,10 +747,9 @@ int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
 std::string ZonedDateTime::ToString() const {
   const auto &timezone = zoned_time.get_time_zone();
   if (timezone.InTzDatabase()) {
-    // return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zoned_time, timezone.TimezoneName());
+    return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zoned_time, timezone.TimezoneName());
   }
-  // return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
-  return "";
+  return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
 }
 
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
