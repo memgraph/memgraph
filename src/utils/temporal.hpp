@@ -302,7 +302,7 @@ class Timezone {
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
-  const Timezone *operator->() const { return this; }
+  // const Timezone *operator->() const { return this; }
 
   bool operator==(const Timezone &) const = default;
 
@@ -350,8 +350,10 @@ class Timezone {
     return std::get<const std::chrono::time_zone *>(offset_)->to_sys(time_point, choice);
   }
 
+  bool InTzDatabase() const { return std::holds_alternative<const std::chrono::time_zone *>(offset_); }
+
   std::string_view TimezoneName() const {
-    if (std::holds_alternative<std::chrono::minutes>(offset_)) {
+    if (!InTzDatabase()) {
       return "";
     }
     return std::get<const std::chrono::time_zone *>(offset_)->name();

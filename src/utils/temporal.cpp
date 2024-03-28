@@ -570,25 +570,16 @@ or both parts should be written in their basic forms without the separators.)hel
 }  // namespace
 
 Timezone ParseTimezoneFromName(std::string_view timezone_string) {
-  auto extract_timezone_name = [](std::string_view string) {
-    if (!string.starts_with('[') || !string.ends_with(']')) {
-      throw temporal::InvalidArgumentException("Timezone name is not enclosed by '[' ']'.");
-    }
-    string.remove_prefix(1);
-    string.remove_suffix(1);
-    return string;
-  };
+  if (!timezone_string.starts_with('[') || !timezone_string.ends_with(']')) {
+    throw temporal::InvalidArgumentException("Timezone name is not enclosed by '[' ']'.");
+  }
 
-  const auto *timezone = std::invoke([&]() {
-    try {
-      return std::chrono::locate_zone(extract_timezone_name(timezone_string));
-    } catch (const std::exception &_) {
-      throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
-    }
-    return (const std::chrono::time_zone *)nullptr;
-  });
-
-  return Timezone(timezone);
+  auto timezone_name = timezone_string.substr(1, timezone_string.size() - 2);
+  try {
+    return Timezone{std::chrono::locate_zone(timezone_name)};
+  } catch (...) {
+    throw temporal::InvalidArgumentException("Timezone name is not in the IANA time zone database.");
+  }
 }
 
 std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_offset_string) {
@@ -596,18 +587,6 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   //  ±hh:mm
   //  ±hhmm
   //  ±hh
-
-  const auto process_optional_colon = [&] {
-    const bool has_colon = timezone_offset_string.starts_with(':');
-    if (has_colon) {
-      timezone_offset_string.remove_prefix(1);
-    }
-
-    if (timezone_offset_string.empty()) {
-      throw temporal::InvalidArgumentException("Invalid format for the timezone offset. {}",
-                                               kSupportedZonedDateTimeFormatsHelpMessage);
-    }
-  };
 
   auto compute_offset = [](const char sign, const int64_t hours, const int64_t minutes) {
     return std::chrono::minutes{(sign == '+' ? 1 : -1) * (60 * hours + minutes)};
@@ -635,7 +614,15 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
     return {Timezone(compute_offset(sign, maybe_hours.value(), 0)), timezone_offset_string.length()};
   }
 
-  process_optional_colon();
+  const bool has_colon = timezone_offset_string.starts_with(':');
+  if (has_colon) {
+    timezone_offset_string.remove_prefix(1);
+  }
+
+  if (timezone_offset_string.empty()) {
+    throw temporal::InvalidArgumentException("Invalid format for the timezone offset. {}",
+                                             kSupportedZonedDateTimeFormatsHelpMessage);
+  }
 
   const auto maybe_minutes = ParseNumber<int64_t>(timezone_offset_string, 2);
   if (!maybe_minutes) {
@@ -758,13 +745,12 @@ int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
 }
 
 std::string ZonedDateTime::ToString() const {
-  const auto without_timezone_name = std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
-  const auto timezone_name = zoned_time.get_time_zone().TimezoneName();
-
-  if (timezone_name.empty()) {
-    return without_timezone_name;
+  const auto &timezone = zoned_time.get_time_zone();
+  if (timezone.InTzDatabase()) {
+    // return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zoned_time, timezone.TimezoneName());
   }
-  return std::format("{0}[{1}]", without_timezone_name, timezone_name);
+  // return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
+  return "";
 }
 
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
