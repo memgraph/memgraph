@@ -15,15 +15,18 @@ declare -A TOOLCHAIN_URLS=(
     [centos-7]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-centos-7-x86_64.tar.gz"
     [centos-8]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-centos-8-x86_64.tar.gz"
     [centos-9]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-centos-9-x86_64.tar.gz"
+    [fedora-38]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-fedora-38-amd64.tar.gz"
     [fedora-39]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-fedora-39-amd64.tar.gz"
     [debian-10]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v4/toolchain-v4-binaries-debian-10-amd64.tar.gz" # Note v4 for Debian 10
     [debian-11]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-11-amd64.tar.gz"
     [debian-12]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-12-amd64.tar.gz"
     [debian-11-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-11-arm64.tar.gz"
+    [debian-12-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-12-arm64.tar.gz"
     [ubuntu-18.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v4/toolchain-v4-binaries-ubuntu-18.04-amd64.tar.gz" # Note v4 for Ubuntu 18.04
     [ubuntu-20.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-20.04-amd64.tar.gz"
     [ubuntu-22.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-22.04-amd64.tar.gz"
     [ubuntu-22.04-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-22.04-arm64.tar.gz"
+    [rocky-9.3]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-rocky-9.3-amd64.tar.gz"
 )
 
 # Check for help argument before processing others
@@ -33,6 +36,7 @@ Usage:
     ./install_deps.sh [command] [dependency_set]
 
 Commands:
+    prepare       Downloads and extracts specified dependencies.
     install       Install the specified dependencies.
     check         Check the specified dependencies.
 
