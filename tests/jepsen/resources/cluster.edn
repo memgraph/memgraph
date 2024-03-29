@@ -1,7 +1,7 @@
-[{"n1" {:bolt-port 7687 :management-port 10011 :replication-port 10001}
-  "n2" {:bolt-port 7688 :management-port 10012 :replication-port 10002}
-  "n3" {:bolt-port 7689 :management-port 10013 :replication-port 10003}
-  "n4" {:bolt-port 7690 :coordinator-port 10111 :coordinator-id 1}
-  "n5" {:bolt-port 7691 :coordinator-port 10112 :coordinator-id 2}
-  "n6" {:bolt-port 7692 :coordinator-port 10113 :coordinator-id 3}
+[{"n1" {:management-port 10011 :replication-port 10001}
+  "n2" {:management-port 10012 :replication-port 10002}
+  "n3" {:management-port 10013 :replication-port 10003}
+  "n4" {:coordinator-port 10111 :coordinator-id 1}
+  "n5" {:coordinator-port 10112 :coordinator-id 2}
+  "n6" {:coordinator-port 10113 :coordinator-id 3}
 }]

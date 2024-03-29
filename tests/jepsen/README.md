@@ -17,7 +17,7 @@ docker exec -it jepsen-control bash
 cd memgraph
 lein run test --workload bank --node-configs resources/node-config.edn
 lein run test --workload large --node-configs resources/node-config.edn
-lein run test --workload high-availability --node-configs resources/cluster.edn
+lein run test --workload high_availability --node-configs resources/cluster.edn
 ```
 
 Logs are located under `jepsen-control:/jepsen/memgraph/store`.
