@@ -1,22 +1,31 @@
 (ns jepsen.memgraph.core
   (:gen-class)
-  (:require [clojure.tools.logging :refer :all]
-            [clojure.java.shell :refer [sh]]
-            [jepsen [cli :as cli]
-                    [checker :as checker]
-                    [client :as client]
-                    [generator :as gen]
-                    [tests :as tests]]
-            [jepsen.memgraph
-             [bank :as bank]
-             [large :as large]
-             [support :as support]
-             [nemesis :as nemesis]
-             [edn :as e]]))
+  (:import (java.net URI))
+  (:require
+   [neo4j-clj.core :as dbclient]
+   [clojure.tools.logging :refer :all]
+   [clojure.java.shell :refer [sh]]
+   [jepsen [cli :as cli]
+    [checker :as checker]
+    [client :as client]
+    [generator :as gen]
+    [tests :as tests]]
+   [jepsen.memgraph
+    [utils :as utils]
+    [bank :as bank]
+    [large :as large]
+    [support :as support]
+    [nemesis :as nemesis]
+    [edn :as e]]))
+
+(defn r   [_ _] {:type :invoke, :f :read, :value nil})
+(defn w   [_ _] {:type :invoke, :f :write, :value (rand-int 5)})
+(defn cas [_ _] {:type :invoke, :f :cas, :value [(rand-int 5) (rand-int 5)]})
 
 (defrecord HAClient [conn]
   client/Client
   (open! [this test node]
+    (dbclient/connect (URI. (utils/get-instance-url node 7687)) "" "")
     this)
 
   (setup! [this test])
@@ -26,7 +35,6 @@
   (teardown! [this test])
 
   (close! [_ test]))
-
 
 (def workloads
   "A map of workload names to functions that can take opts and construct

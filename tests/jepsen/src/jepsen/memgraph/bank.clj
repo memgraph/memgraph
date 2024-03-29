@@ -7,9 +7,9 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as string]
-            [jepsen [client :as client]
-                    [checker :as checker]
-                    [generator :as gen]]
+            [jepsen
+             [checker :as checker]
+             [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.memgraph.client :as c]))
 
@@ -49,55 +49,52 @@
         (update-balance tx {:id from :amount (- amount)})
         (update-balance tx {:id to :amount amount})))))
 
-
 (c/replication-client Client []
-  (open! [this test node]
-    (c/replication-open-connection this node node-config))
-  (setup! [this test]
-    (when (= replication-role :main)
-      (c/with-session conn session
-        (do
-          (c/detach-delete-all session)
-          (dotimes [i account-num]
-            (info "Creating account:" i)
-            (create-account session {:id i :balance starting-balance}))))))
-  (invoke! [this test op]
-    (c/replication-invoke-case (:f op)
-      :read (c/with-session conn session
-              (assoc op
-                     :type :ok
-                     :value {:accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
-                             :node node}))
-      :transfer (if (= replication-role :main)
-                  (try
-                    (let [value (:value op)]
-                      (assoc op
-                             :type (if
-                                     (transfer-money
-                                       conn
-                                       (:from value)
-                                       (:to value)
-                                       (:amount value))
-                                     :ok
-                                     :fail)))
-                    (catch Exception e
-                        (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                          (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
-                          (assoc op :type :fail :info (str e)))
-                      ))
-                  (assoc op :type :fail))))
-  (teardown! [this test]
-    (when (= replication-role :main)
-      (c/with-session conn session
-        (try
-          (c/detach-delete-all session)
-          (catch Exception e
-                        (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                          (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
-                      )
-          ))))
-  (close! [_ est]
-    (dbclient/disconnect conn)))
+                      (open! [this test node]
+                             (c/replication-open-connection this node node-config))
+                      (setup! [this test]
+                              (when (= replication-role :main)
+                                (c/with-session conn session
+                                  (do
+                                    (c/detach-delete-all session)
+                                    (dotimes [i account-num]
+                                      (info "Creating account:" i)
+                                      (create-account session {:id i :balance starting-balance}))))))
+                      (invoke! [this test op]
+                               (c/replication-invoke-case (:f op)
+                                                          :read (c/with-session conn session
+                                                                  (assoc op
+                                                                         :type :ok
+                                                                         :value {:accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                                                                                 :node node}))
+                                                          :transfer (if (= replication-role :main)
+                                                                      (try
+                                                                        (let [value (:value op)]
+                                                                          (assoc op
+                                                                                 :type (if
+                                                                                        (transfer-money
+                                                                                         conn
+                                                                                         (:from value)
+                                                                                         (:to value)
+                                                                                         (:amount value))
+                                                                                         :ok
+                                                                                         :fail)))
+                                                                        (catch Exception e
+                                                                          (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                                                                            (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
+                                                                            (assoc op :type :fail :info (str e)))))
+                                                                      (assoc op :type :fail))))
+                      (teardown! [this test]
+                                 (when (= replication-role :main)
+                                   (c/with-session conn session
+                                     (try
+                                       (c/detach-delete-all session)
+                                       (catch Exception e
+                                         (if-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                                           (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
+                                         )))))
+                      (close! [_ est]
+                              (dbclient/disconnect conn)))
 
 (defn read-balances
   "Read the current state of all accounts"
@@ -133,10 +130,10 @@
                                   (let [balances       (map :balance op)
                                         expected-total (* account-num starting-balance)]
                                     (cond (and
-                                             (not-empty balances)
-                                             (not=
-                                               expected-total
-                                               (reduce + balances)))
+                                           (not-empty balances)
+                                           (not=
+                                            expected-total
+                                            (reduce + balances)))
                                           {:type :wrong-total
                                            :expected expected-total
                                            :found (reduce + balances)
@@ -153,7 +150,7 @@
                                              (reduce conj #{}))]
                           (->> all-nodes
                                (filter (fn [node]
-                                        (every?
+                                         (every?
                                           empty?
                                           (->> ok-reads
                                                (map :value)
@@ -162,8 +159,8 @@
                                (filter identity)
                                (into [])))]
         {:valid? (and
-                   (empty? bad-reads)
-                   (empty? empty-nodes))
+                  (empty? bad-reads)
+                  (empty? empty-nodes))
          :empty-nodes empty-nodes
          :bad-reads bad-reads}))))
 
@@ -172,7 +169,7 @@
   [opts]
   {:client    (Client. nil nil nil (:node-config opts))
    :checker   (checker/compose
-                {:bank     (bank-checker)
-                 :timeline (timeline/html)})
+               {:bank     (bank-checker)
+                :timeline (timeline/html)})
    :generator (c/replication-gen (gen/mix [read-balances valid-transfer]))
    :final-generator {:gen (gen/once read-balances) :recovery-time 20}})
