@@ -55,11 +55,12 @@ struct QueryUserOrRole;
  *
  */
 struct InterpreterContext {
-  static InterpreterContext *instance;
+  // singleton interpreter context
+  static std::unique_ptr<InterpreterContext> instance;
 
   static InterpreterContext *getInstance() {
     MG_ASSERT(instance != nullptr, "Interpreter context has not been initialized!");
-    return instance;
+    return instance.get();
   }
 
   static InterpreterContext *getInstance(
@@ -71,14 +72,14 @@ struct InterpreterContext {
       AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
       ReplicationQueryHandler *replication_handler = nullptr) {
     if (instance == nullptr) {
-      instance = new InterpreterContext(interpreter_config, dbms_handler, rs, system,
+      instance = std::make_unique<InterpreterContext>(interpreter_config, dbms_handler, rs, system,
 #ifdef MG_ENTERPRISE
-                                        coordinator_state,
+                                                      coordinator_state,
 #endif
-                                        ah, ac, replication_handler);
+                                                      ah, ac, replication_handler);
     }
 
-    return instance;
+    return instance.get();
   }
 
   memgraph::dbms::DbmsHandler *dbms_handler;
