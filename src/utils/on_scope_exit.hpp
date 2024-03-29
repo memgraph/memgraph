@@ -45,7 +45,7 @@ class [[nodiscard]] OnScopeExit {
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;
   OnScopeExit &operator=(OnScopeExit &&) = delete;
-  ~OnScopeExit() {
+  ~OnScopeExit() noexcept(std::is_nothrow_invocable_v<Callable>) {
     if (doCall_) std::invoke(std::move(function_));
   }
 

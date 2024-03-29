@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          nullptr
+                                                          std::nullopt
 #endif
   );
   memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};

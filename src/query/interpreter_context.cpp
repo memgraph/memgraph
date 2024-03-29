@@ -18,18 +18,18 @@ namespace memgraph::query {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 InterpreterContext *InterpreterContext::instance = nullptr;
 
-InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                                       replication::ReplicationState *rs, memgraph::system::System &system,
+InterpreterContext::InterpreterContext(
+    InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
+    memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-                                       memgraph::coordination::CoordinatorState *coordinator_state,
+    std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
 #endif
-                                       AuthQueryHandler *ah, AuthChecker *ac,
-                                       ReplicationQueryHandler *replication_handler)
+    AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
     : dbms_handler(dbms_handler),
       config(interpreter_config),
       repl_state(rs),
 #ifdef MG_ENTERPRISE
-      coordinator_state_{coordinator_state},
+      coordinator_state_(coordinator_state),
 #endif
       auth(ah),
       auth_checker(ac),

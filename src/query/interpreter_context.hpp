@@ -62,13 +62,14 @@ struct InterpreterContext {
     return instance;
   }
 
-  static InterpreterContext *getInstance(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                                         replication::ReplicationState *rs, memgraph::system::System &system,
+  static InterpreterContext *getInstance(
+      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
+      memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-                                         memgraph::coordination::CoordinatorState *coordinator_state,
+      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
-                                         AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-                                         ReplicationQueryHandler *replication_handler = nullptr) {
+      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+      ReplicationQueryHandler *replication_handler = nullptr) {
     if (instance == nullptr) {
       instance = new InterpreterContext(interpreter_config, dbms_handler, rs, system,
 #ifdef MG_ENTERPRISE
@@ -90,7 +91,7 @@ struct InterpreterContext {
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::CoordinatorState *coordinator_state_;
+  std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
 #endif
 
   AuthQueryHandler *auth;
@@ -121,7 +122,7 @@ struct InterpreterContext {
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
                      replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-                     memgraph::coordination::CoordinatorState *coordinator_state,
+                     std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                      ReplicationQueryHandler *replication_handler = nullptr);
