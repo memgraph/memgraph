@@ -30,7 +30,7 @@ BuildRequires: systemd
 # This is needed to prevent Python compilation errors when building the RPM
 # package
 # https://github.com/scylladb/scylla/issues/2235
-%if 0%{?rhel} < 8
+%if 0%{?rhel} && 0%{?rhel} < 8
 %global __os_install_post    \
     /usr/lib/rpm/redhat/brp-compress \
     %{!?__debug_package:\
@@ -40,7 +40,9 @@ BuildRequires: systemd
     /usr/lib/rpm/redhat/brp-strip-static-archive %{__strip} \
     %{!?__jar_repack:/usr/lib/rpm/redhat/brp-java-repack-jars} \
 %{nil}
-%else
+%endif
+
+%if 0%{?fedora} && 0%{?fedora} < 35
 %global __os_install_post    \
     /usr/lib/rpm/brp-compress \
     %{!?__debug_package:\
@@ -130,6 +132,7 @@ echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
 # Override CPACK_RPM_ABSOLUTE_INSTALL_FILES with our %config(noreplace), cpack
 # uses plain %config.
 %config(noreplace) "/etc/memgraph/memgraph.conf"
+%config(noreplace) "/etc/memgraph/apoc_compatibility_mappings.json"
 %config(noreplace) "/etc/memgraph/auth_module/ldap.example.yaml"
 %config(noreplace) "/etc/logrotate.d/memgraph"
 

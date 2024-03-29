@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <optional>
 
@@ -18,6 +19,8 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "communication/metrics.hpp"
+#include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
@@ -27,17 +30,25 @@ namespace details {
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
+  // From neo4j driver v4.4, fields that have a default value are not sent.
+  // In order to have back-compatibility, the missing fields will be added.
+
   auto &data = metadata.ValueMap();
-  if (!data.count("scheme")) {
-    spdlog::warn("The client didn't supply authentication information!");
-    return State::Close;
+  if (data.empty()) {  // Special case auth=None
+    spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
+    data["scheme"] = "none";
   }
+
   std::string username;
   std::string password;
   if (data["scheme"].ValueString() == "basic") {
-    if (!data.count("principal") || !data.count("credentials")) {
-      spdlog::warn("The client didn't supply authentication information!");
-      return State::Close;
+    if (!data.contains("principal")) {  // Special case principal = ""
+      spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
+      data["principal"] = "";
+    }
+    if (!data.contains("credentials")) {  // Special case credentials = ""
+      spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
+      data["credentials"] = "";
     }
     username = data["principal"].ValueString();
     password = data["credentials"].ValueString();
@@ -106,13 +117,53 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
     return std::nullopt;
   }
 
-  const auto &data = metadata.ValueMap();
-  if (!data.count("user_agent")) {
+  auto &data = metadata.ValueMap();
+  if (!data.contains("user_agent")) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
 
   spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+
+  return metadata;
+}
+
+template <typename TSession>
+std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
+  if (marker != Marker::TinyStruct1) [[unlikely]] {
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    return std::nullopt;
+  }
+
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
+    spdlog::trace("Couldn't read metadata!");
+    return std::nullopt;
+  }
+
+  const auto &data = metadata.ValueMap();
+  if (!data.contains("user_agent")) {
+    spdlog::warn("The client didn't supply the user agent!");
+    return std::nullopt;
+  }
+
+  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+
+  return metadata;
+}
+
+template <typename TSession>
+std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
+  if (marker != Marker::TinyStruct1) [[unlikely]] {
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    return std::nullopt;
+  }
+
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
+    spdlog::trace("Couldn't read metadata!");
+    return std::nullopt;
+  }
 
   return metadata;
 }
@@ -125,7 +176,7 @@ State SendSuccessMessage(TSession &session) {
   // we send a hardcoded value for now.
   std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
-    metadata.insert({"server", *server_name});
+    metadata.insert({"server", std::move(*server_name)});
   }
   bool success_sent = session.encoder_.MessageSuccess(metadata);
   if (!success_sent) {
@@ -151,6 +202,9 @@ State StateInitRunV1(TSession &session, const Marker marker, const Signature sig
   if (auto result = AuthenticateUser(session, *maybeMetadata)) {
     return result.value();
   }
+
+  // Register session to metrics
+  RegisterNewSession(session, *maybeMetadata);
 
   return SendSuccessMessage(session);
 }
@@ -178,7 +232,69 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
     return result.value();
   }
 
+  // Register session to metrics
+  RegisterNewSession(session, *maybeMetadata);
+
   return SendSuccessMessage(session);
+}
+
+template <typename TSession>
+State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
+  if (signature == Signature::Noop) [[unlikely]] {
+    SPDLOG_DEBUG("Received NOOP message");
+    return State::Init;
+  }
+
+  if (signature == Signature::Init) {
+    auto maybeMetadata = GetInitDataV5(session, marker);
+
+    if (!maybeMetadata) {
+      return State::Close;
+    }
+
+    if (SendSuccessMessage(session) == State::Close) {
+      return State::Close;
+    }
+
+    // Register session to metrics
+    TouchNewSession(session, *maybeMetadata);
+
+    // Stay in Init
+    return State::Init;
+  }
+
+  if (signature == Signature::LogOn) {
+    if (marker != Marker::TinyStruct1) [[unlikely]] {
+      spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+      spdlog::trace(
+          "The client sent malformed data, but we are continuing "
+          "because the official Neo4j Java driver sends malformed "
+          "data. D'oh!");
+      return State::Close;
+    }
+
+    auto maybeMetadata = GetAuthDataV5(session, marker);
+    if (!maybeMetadata) {
+      return State::Close;
+    }
+    auto result = AuthenticateUser(session, *maybeMetadata);
+    if (result) {
+      spdlog::trace("Failed to authenticate, closing connection...");
+      return State::Close;
+    }
+
+    if (SendSuccessMessage(session) == State::Close) {
+      return State::Close;
+    }
+
+    // Register session to metrics
+    UpdateNewSession(session, *maybeMetadata);
+
+    return State::Idle;
+  }
+
+  spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+  return State::Close;
 }
 }  // namespace details
 
@@ -207,6 +323,9 @@ State StateInitRun(TSession &session) {
         return details::StateInitRunV4<TSession, 1>(session, marker, signature);
       }
       return details::StateInitRunV4<TSession>(session, marker, signature);
+    }
+    case 5: {
+      return details::StateInitRunV5<TSession>(session, marker, signature);
     }
   }
   spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);

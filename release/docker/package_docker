@@ -13,17 +13,40 @@ working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 latest_image=""
 tag_latest=""
-if [[ $# -eq 2 && "$1" == "--latest" ]]; then
-  latest_image="memgraph:latest"
-  tag_latest="-t memgraph:latest"
-  shift
-elif [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
-  print_help
-  exit 1
-fi
+toolchain_version="v5"
+package_path=""
+arch=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --latest)
+        latest_image="memgraph:latest"
+        tag_latest="-t memgraph:latest"
+        shift
+    ;;
+    --package-path)
+        package_path=$2
+        shift 2
+    ;;
+    --toolchain)
+        toolchain_version=$2
+        shift 2
+    ;;
+    --arch)
+        arch=$2
+        shift 2
+    ;;
+    -h|--help)
+        print_help
+        exit 0
+    ;;
+    *)
+        echo -e "Error: Unknown option '$1'"
+        exit 1
+    ;;
+  esac
+done
 
-package_path="$1"
-if [[ ! -f "$package_path" ]]; then
+if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   echo "File '$package_path' does not exist!"
   exit 1
 fi
@@ -38,13 +61,13 @@ if [[ "$extension" == "deb" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.deb$//'`
   version=`echo ${package_name} | cut -d '_' -f 2 | rev | cut -d '-' -f 2- | rev | tr '+~' '__'`
-  dockerfile_path="${working_dir}/memgraph_deb.dockerfile"
+  dockerfile_path="${working_dir}/${toolchain_version}_deb.dockerfile"
 elif [[ "$extension" == "rpm" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.rpm$//'`
   version=`echo ${package_name} | cut -d '-' -f 2 | rev | cut -d '-' -f 2- | rev`
   version=${version%_1}
-  dockerfile_path="${working_dir}/memgraph_rpm.dockerfile"
+  dockerfile_path="${working_dir}/${toolchain_version}_rpm.dockerfile"
 else
   echo "Invalid file sent as the package"
   print_help
@@ -55,10 +78,12 @@ image_name="memgraph:${version}"
 image_package_name="memgraph-${version}-docker.tar.gz"
 
 # Build docker image.
-docker build -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
+# NOTE: --pull is here to always pull that latest base image because of security patches.
+docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${package_name}.${extension}"
+docker image rm $image_name
 echo "Built Docker image at '${working_dir}/${image_package_name}'"

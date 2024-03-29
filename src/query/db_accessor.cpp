@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,11 +15,16 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "storage/v2/storage_mode.hpp"
 #include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
     : db_accessor_(db_accessor), graph_(graph) {}
+
+void SubgraphDbAccessor::TrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
+
+void SubgraphDbAccessor::UntrackCurrentThreadAllocations() { return db_accessor_.TrackCurrentThreadAllocations(); }
 
 storage::PropertyId SubgraphDbAccessor::NameToProperty(const std::string_view name) {
   return db_accessor_.NameToProperty(name);
@@ -76,6 +81,32 @@ SubgraphDbAccessor::DetachRemoveVertex(  // NOLINT(readability-convert-member-fu
       "Vertex holds only partial information about edges. Cannot detach delete safely while using projected graph."};
 }
 
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from) {
+  VertexAccessor *new_from_impl = &new_from->impl_;
+  if (!this->graph_->ContainsVertex(*new_from_impl)) {
+    throw std::logic_error{"Projected graph must contain the new `from` vertex!"};
+  }
+  auto result = db_accessor_.EdgeSetFrom(edge, new_from_impl);
+  return result;
+}
+
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to) {
+  VertexAccessor *new_to_impl = &new_to->impl_;
+  if (!this->graph_->ContainsVertex(*new_to_impl)) {
+    throw std::logic_error{"Projected graph must contain the new `to` vertex!"};
+  }
+  auto result = db_accessor_.EdgeSetTo(edge, new_to_impl);
+  return result;
+}
+
+storage::Result<EdgeAccessor> SubgraphDbAccessor::EdgeChangeType(EdgeAccessor *edge,
+                                                                 storage::EdgeTypeId new_edge_type) {
+  if (!this->graph_->ContainsEdge(*edge)) {
+    throw std::logic_error{"Projected graph must contain edge!"};
+  }
+  return db_accessor_.EdgeChangeType(edge, new_edge_type);
+}
+
 storage::Result<std::optional<VertexAccessor>> SubgraphDbAccessor::RemoveVertex(
     SubgraphVertexAccessor *subgraphvertex_accessor) {
   VertexAccessor *vertex_accessor = &subgraphvertex_accessor->impl_;
@@ -109,13 +140,17 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
 
 query::Graph *SubgraphDbAccessor::getGraph() { return graph_; }
 
+storage::StorageMode SubgraphDbAccessor::GetStorageMode() const noexcept { return db_accessor_.GetStorageMode(); }
+
+DbAccessor *SubgraphDbAccessor::GetAccessor() { return &db_accessor_; }
+
 VertexAccessor SubgraphVertexAccessor::GetVertexAccessor() const { return impl_; }
 
-auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl_.OutEdges(view)) {
+storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::OutEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.OutEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
-  auto edges = std::move(*maybe_edges);
-  auto graph_edges = graph_->edges();
+  auto edges = std::move(maybe_edges->edges);
+  const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
@@ -125,14 +160,19 @@ auto SubgraphVertexAccessor::OutEdges(storage::View view) const -> decltype(impl
     }
   }
 
-  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+  std::vector<EdgeAccessor> resulting_edges;
+  resulting_edges.reserve(filteredOutEdges.size());
+  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+                         [](auto const &edge) { return VertexAccessor::MakeEdgeAccessor(edge); });
+
+  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
-auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_.InEdges(view)) {
+storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storage::View view) const {
   auto maybe_edges = impl_.impl_.InEdges(view, {});
   if (maybe_edges.HasError()) return maybe_edges.GetError();
-  auto edges = std::move(*maybe_edges);
-  auto graph_edges = graph_->edges();
+  auto edges = std::move(maybe_edges->edges);
+  const auto &graph_edges = graph_->edges();
 
   std::vector<storage::EdgeAccessor> filteredOutEdges;
   for (auto &edge : edges) {
@@ -142,7 +182,12 @@ auto SubgraphVertexAccessor::InEdges(storage::View view) const -> decltype(impl_
     }
   }
 
-  return iter::imap(VertexAccessor::MakeEdgeAccessor, std::move(filteredOutEdges));
+  std::vector<EdgeAccessor> resulting_edges;
+  resulting_edges.reserve(filteredOutEdges.size());
+  std::ranges::transform(filteredOutEdges, std::back_inserter(resulting_edges),
+                         [](auto const &edge) { return VertexAccessor::MakeEdgeAccessor(edge); });
+
+  return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
 }  // namespace memgraph::query

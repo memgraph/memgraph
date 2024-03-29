@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -141,9 +141,9 @@ struct ScopedProfile {
     }
   }
 
-  Context *context;
-  ProfilingStats *stats;
-  unsigned long long start_time;
+  Context *context = nullptr;
+  ProfilingStats *stats = nullptr;
+  unsigned long long start_time{};
 };
 
 //////////////////////////////////////////////////////////////////////////////
@@ -233,9 +233,9 @@ struct ScopedProfile {
         stats = nullptr;
 
         // Was this logical operator already hit on one of the previous pulls?
-        for (size_t i = 0; i < root->children.size(); ++i) {
-          if (root->children[i].key == key) {
-            stats = &root->children[i];
+        for (auto &child : root->children) {
+          if (child.key == key) {
+            stats = &child;
             break;
           }
         }
@@ -345,9 +345,9 @@ struct ScopedProfile {
         stats = nullptr;
 
         // Was this logical operator already hit on one of the previous pulls?
-        for (size_t i = 0; i < root->children.size(); ++i) {
-          if (root->children[i].key == key) {
-            stats = &root->children[i];
+        for (auto &child : root->children) {
+          if (child.key == key) {
+            stats = &child;
             break;
           }
         }

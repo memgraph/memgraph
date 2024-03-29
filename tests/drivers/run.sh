@@ -1,5 +1,9 @@
 #!/bin/bash
 
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+# New tests
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
 
@@ -11,8 +15,9 @@ function wait_for_server {
     sleep 1
 }
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR"
+# Old v1 tests
+tests_v1="$DIR/run_v1.sh"
+$tests_v1
 
 # Create a temporary directory.
 tmpdir=/tmp/memgraph_drivers
@@ -26,13 +31,14 @@ binary_dir="$DIR/../../build"
 
 # Start memgraph.
 $binary_dir/memgraph \
+    --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
     --bolt-session-inactivity-timeout=10 \
     --bolt-cert-file="" \
-    --bolt-server-name-for-init="Neo4j/1.1" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid=$!
 wait_for_server 7687
@@ -45,7 +51,8 @@ for i in *; do
     echo "Running: $i"
     # run all versions
     for v in *; do
-        if [ ! -d $v ]; then continue; fi
+        #skip v1 (needs different server name)
+        if [[ "$v" == "v1" || ! -d "$v" ]]; then continue; fi
         pushd $v
         echo "Running version: $v"
         ./run.sh

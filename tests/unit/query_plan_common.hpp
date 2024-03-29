@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,7 @@ using Bound = ScanAllByLabelPropertyRange::Bound;
 
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
-  ExecutionContext context{dba};
+  ExecutionContext context{.db_accessor = dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
@@ -45,7 +45,7 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
 ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, const SymbolTable &symbol_table,
                                                    memgraph::query::DbAccessor *dba,
                                                    memgraph::glue::FineGrainedAuthChecker *auth_checker) {
-  ExecutionContext context{dba};
+  ExecutionContext context{.db_accessor = dba};
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
@@ -64,7 +64,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
-  for (auto named_expression : produce.named_expressions_)
+  for (auto *named_expression : produce.named_expressions_)
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
@@ -83,7 +83,9 @@ int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
   auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
   int count = 0;
-  while (cursor->Pull(frame, *context)) count++;
+  while (cursor->Pull(frame, *context)) {
+    count++;
+  }
   return count;
 }
 
@@ -107,7 +109,7 @@ struct ScanAllTuple {
 ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
                          std::shared_ptr<LogicalOperator> input = {nullptr},
                          memgraph::storage::View view = memgraph::storage::View::OLD) {
-  auto node = NODE(identifier);
+  auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAll>(input, symbol, view);
@@ -123,7 +125,7 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table, const s
 ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, const std::string &identifier,
                                 memgraph::storage::LabelId label, std::shared_ptr<LogicalOperator> input = {nullptr},
                                 memgraph::storage::View view = memgraph::storage::View::OLD) {
-  auto node = NODE(identifier);
+  auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAllByLabel>(input, symbol, label, view);
@@ -142,7 +144,7 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
                                              std::optional<Bound> upper_bound,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
-  auto node = NODE(identifier);
+  auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, property_name,
@@ -161,7 +163,7 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &s
                                              const std::string &property_name, Expression *value,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
-  auto node = NODE(identifier);
+  auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
   auto logical_op =
@@ -181,11 +183,11 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table, std::shar
                        Symbol input_symbol, const std::string &edge_identifier, EdgeAtom::Direction direction,
                        const std::vector<memgraph::storage::EdgeTypeId> &edge_types, const std::string &node_identifier,
                        bool existing_node, memgraph::storage::View view) {
-  auto edge = EDGE(edge_identifier, direction);
+  auto *edge = memgraph::query::test_common::GetEdge(storage, edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
   edge->identifier_->MapTo(edge_sym);
 
-  auto node = NODE(node_identifier);
+  auto *node = memgraph::query::test_common::GetNode(storage, node_identifier);
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   node->identifier_->MapTo(node_sym);
 
@@ -221,7 +223,7 @@ inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::
   for (auto vertex : dba->Vertices(view)) {
     auto maybe_edges = vertex.OutEdges(view);
     MG_ASSERT(maybe_edges.HasValue());
-    count += CountIterable(*maybe_edges);
+    count += CountIterable(maybe_edges->edges);
   }
   return count;
 }

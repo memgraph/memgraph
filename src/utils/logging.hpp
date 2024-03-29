@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,11 @@
 #include <optional>
 
 #include <fmt/format.h>
+// NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
+// the guard is here because of fmt 8 compatibility.
+#if FMT_VERSION > 90000
+#include <fmt/std.h>
+#endif
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -47,13 +52,21 @@ inline void AssertFailed(const char *file_name, int line_num, const char *expr, 
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
-#define MG_ASSERT(expr, ...) \
-  [[likely]] !!(expr) ? (void)0 : ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__))
+#define MG_ASSERT(expr, ...)                                                                  \
+  do {                                                                                        \
+    if (expr) [[likely]] {                                                                    \
+      (void)0;                                                                                \
+    } else {                                                                                  \
+      ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
+    }                                                                                         \
+  } while (false)
 
 #ifndef NDEBUG
 #define DMG_ASSERT(expr, ...) MG_ASSERT(expr, __VA_ARGS__)
 #else
-#define DMG_ASSERT(...)
+#define DMG_ASSERT(...) \
+  do {                  \
+  } while (false)
 #endif
 
 template <typename... Args>
@@ -71,8 +84,21 @@ void Fatal(const char *msg, const Args &...msg_args) {
 #ifndef NDEBUG
 #define DLOG_FATAL(...) LOG_FATAL(__VA_ARGS__)
 #else
-#define DLOG_FATAL(...)
+#define DLOG_FATAL(...) \
+  do {                  \
+  } while (false)
 #endif
 
 inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
+
+// /// Use it for operations that must successfully finish.
+inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
+
+inline bool CheckRocksDBStatus(const auto &status) {
+  if (!status.ok()) [[unlikely]] {
+    spdlog::error("rocksdb: {}", status.ToString());
+  }
+  return status.ok();
+}
+
 }  // namespace memgraph::logging

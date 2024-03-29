@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,7 @@ ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
 }
 
 ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file) : ClientContext(true) {
-  if (key_file != "" && cert_file != "") {
+  if (!key_file.empty() && !cert_file.empty()) {
     MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
               "Couldn't load client certificate from file: {}", cert_file);
     MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
@@ -124,7 +124,7 @@ ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
   return *this;
 }
 
-ServerContext::~ServerContext() {}
+ServerContext::~ServerContext() = default;
 
 SSL_CTX *ServerContext::context() {
   MG_ASSERT(ctx_);

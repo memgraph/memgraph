@@ -1,0 +1,13 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 598c728..816c705 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1242,7 +1242,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+
+   if(ROCKSDB_BUILD_SHARED)
+     install(
+-      TARGETS ${ROCKSDB_SHARED_LIB}
++      TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL
+       EXPORT RocksDBTargets
+       COMPONENT runtime
+       ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"

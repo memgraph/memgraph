@@ -8,6 +8,24 @@ template_validation_queries: &template_validation_queries
   validation_queries:
     - <<: *template_test_nodes_query
     - <<: *template_test_edges_query
+template_simple_cluster: &template_simple_cluster
+  cluster:
+    replica_1:
+      args: [ "--bolt-port", "7688", "--log-level=TRACE"]
+      log_file: "replication-e2e-replica1.log"
+      setup_queries: [ "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;" ]
+    replica_2:
+      args: ["--bolt-port", "7689", "--log-level=TRACE"]
+      log_file: "replication-e2e-replica2.log"
+      setup_queries: ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"]
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "replication-e2e-main.log"
+      setup_queries: [
+        "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001'",
+        "REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:10002'",
+      ]
+
 template_cluster: &template_cluster
   cluster:
     replica_1:
@@ -33,11 +51,15 @@ template_cluster: &template_cluster
         "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002'",
         "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003'"
       ]
-      <<: *template_validation_queries
 
 workloads:
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
+    args: []
+    <<: *template_cluster
+
+  - name: "Index replication"
+    binary: "tests/e2e/replication/memgraph__e2e__replication__indices"
     args: []
     <<: *template_cluster
 
@@ -78,3 +100,8 @@ workloads:
   - name: "Show while creating invalid state"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/show_while_creating_invalid_state.py"]
+
+  - name: "Delete edge replication"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/edge_delete.py"]
+    <<: *template_simple_cluster

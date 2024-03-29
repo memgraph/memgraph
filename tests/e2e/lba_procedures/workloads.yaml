@@ -1,98 +1,91 @@
-read_query_modules_cluster: &read_query_modules_cluster
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+query_modules_setup_queries: &query_modules_setup_queries
+  - "CREATE USER admin IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO admin"
+  - "GRANT DATABASE * TO admin"
+  - "CREATE USER user IDENTIFIED BY 'test';"
+  - "GRANT ALL PRIVILEGES TO user"
+  - "GRANT DATABASE * TO user"
+
+show_privileges_setup_queries: &show_privileges_setup_queries
+  - "Create User Josip;"
+  - "Grant Read On Labels :Label1 to Josip;"
+  - "Grant Nothing On Labels :Label2 to Josip;"
+  - "Grant Update On Labels :Label3 to Josip;"
+  - "Grant Read On Labels :Label4 to Josip;"
+  - "Grant Create_Delete On Labels :Label5 to Josip;"
+  - "Grant Update On Labels :Label6 to Josip;"
+  - "Grant Create_Delete On Labels :Label7 to Josip;"
+  - "Grant Nothing On Labels :Label7 to Josip;"
+  - "Create User Boris;"
+  - "Grant Auth to Boris;"
+  - "Grant Read On Labels :Label1 to Boris;"
+  - "Grant Nothing On Labels :Label2 to Boris;"
+  - "Grant Update On Labels :Label3 to Boris;"
+  - "Grant Read On Labels :Label4 to Boris;"
+  - "Grant Create_Delete On Labels :Label5 to Boris;"
+  - "Grant Update On Labels :Label6 to Boris;"
+  - "Grant Create_Delete On Labels :Label7 to Boris;"
+  - "Grant Nothing On Labels :Label7 to Boris;"
+  - "Create User Niko;"
+  - "Grant Auth to Niko;"
+  - "Grant Create_Delete On Labels * to Niko;"
+  - "Grant Read On Labels * to Niko;"
+  - "Create User Bruno;"
+  - "Grant Auth to Bruno;"
+  - "Grant Update On Labels * to Bruno;"
+
+
+read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "CREATE USER admin IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO admin"
-        - "CREATE USER user IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO user"
+      setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-update_query_modules_cluster: &update_query_modules_cluster
+update_query_modules_in_memory_cluster: &update_query_modules_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "CREATE USER admin IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO admin"
-        - "CREATE USER user IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO user"
+      setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-show_privileges_cluster: &show_privileges_cluster
+show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "Create User Josip;"
-        - "Grant Read On Labels :Label1 to Josip;"
-        - "Grant Nothing On Labels :Label2 to Josip;"
-        - "Grant Update On Labels :Label3 to Josip;"
-        - "Grant Read On Labels :Label4 to Josip;"
-        - "Grant Create_Delete On Labels :Label5 to Josip;"
-        - "Grant Update On Labels :Label6 to Josip;"
-        - "Grant Create_Delete On Labels :Label7 to Josip;"
-        - "Grant Nothing On Labels :Label7 to Josip;"
-
-        - "Create User Boris;"
-        - "Grant Auth to Boris;"
-        - "Grant Read On Labels :Label1 to Boris;"
-        - "Grant Nothing On Labels :Label2 to Boris;"
-        - "Grant Update On Labels :Label3 to Boris;"
-        - "Grant Read On Labels :Label4 to Boris;"
-        - "Grant Create_Delete On Labels :Label5 to Boris;"
-        - "Grant Update On Labels :Label6 to Boris;"
-        - "Grant Create_Delete On Labels :Label7 to Boris;"
-        - "Grant Nothing On Labels :Label7 to Boris;"
-
-        - "Create User Niko;"
-        - "Grant Auth to Niko;"
-        - "Grant Create_Delete On Labels * to Niko"
-        - "Grant Read On Labels * to Niko"
-
-        - "Create User Bruno;"
-        - "Grant Auth to Bruno;"
-        - "Grant Update On Labels * to Bruno"
+      setup_queries: *show_privileges_setup_queries
       validation_queries: []
 
-read_permission_queries: &read_permission_queries
+read_permission_in_memory_queries: &read_permission_in_memory_queries
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "CREATE USER admin IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO admin"
-        - "CREATE USER user IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO user"
+      setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-create_delete_query_modules_cluster: &create_delete_query_modules_cluster
+create_delete_query_modules_in_memory_cluster: &create_delete_query_modules_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "CREATE USER admin IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO admin;"
-        - "CREATE USER user IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO user;"
+      setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-update_permission_queries_cluster: &update_permission_queries_cluster
+update_permission_queries_in_memory_cluster: &update_permission_queries_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: *args
       log_file: "lba-e2e.log"
-      setup_queries:
-        - "CREATE USER admin IDENTIFIED BY 'test';"
-        - "GRANT ALL PRIVILEGES TO admin;"
-        - "CREATE USER user IDENTIFIED BY 'test'"
-        - "GRANT ALL PRIVILEGES TO user;"
+      setup_queries: *query_modules_setup_queries
       validation_queries: []
 
 workloads:
@@ -100,34 +93,34 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/read_query_modules.py"]
-    <<: *read_query_modules_cluster
+    <<: *read_query_modules_in_memory_cluster
 
   - name: "update-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_query_modules.py"]
-    <<: *update_query_modules_cluster
+    <<: *update_query_modules_in_memory_cluster
 
   - name: "create-delete-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/create_delete_query_modules.py"]
-    <<: *create_delete_query_modules_cluster
+    <<: *create_delete_query_modules_in_memory_cluster
 
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
-    <<: *show_privileges_cluster
+    <<: *show_privileges_in_memory_cluster
 
   - name: "read-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/read_permission_queries.py"]
-    <<: *read_permission_queries
+    <<: *read_permission_in_memory_queries
 
   - name: "update-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_permission_queries.py"]
-    <<: *update_permission_queries_cluster
+    <<: *update_permission_queries_in_memory_cluster

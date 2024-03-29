@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include <limits>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -418,9 +419,9 @@ TEST(PropertyStore, IntEncoding) {
       {memgraph::storage::PropertyId::FromUint(1048576UL), memgraph::storage::PropertyValue(1048576L)},
       {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int32_t>::max())},
-      {memgraph::storage::PropertyId::FromUint(4294967296UL), memgraph::storage::PropertyValue(4294967296L)},
-      {memgraph::storage::PropertyId::FromUint(137438953472UL), memgraph::storage::PropertyValue(137438953472L)},
-      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint64_t>::max()),
+      {memgraph::storage::PropertyId::FromUint(1048577UL), memgraph::storage::PropertyValue(4294967296L)},
+      {memgraph::storage::PropertyId::FromUint(1048578UL), memgraph::storage::PropertyValue(137438953472L)},
+      {memgraph::storage::PropertyId::FromUint(std::numeric_limits<uint32_t>::max()),
        memgraph::storage::PropertyValue(std::numeric_limits<int64_t>::max())}};
 
   memgraph::storage::PropertyStore props;
@@ -648,4 +649,81 @@ TEST(PropertyStore, IsPropertyEqualTemporalData) {
   // Same type, different value.
   ASSERT_FALSE(props.IsPropertyEqual(prop, memgraph::storage::PropertyValue(memgraph::storage::TemporalData{
                                                memgraph::storage::TemporalType::Date, 30})));
+}
+
+TEST(PropertyStore, SetMultipleProperties) {
+  std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
+                                                    memgraph::storage::PropertyValue(123),
+                                                    memgraph::storage::PropertyValue()};
+  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
+  // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(10), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue(123.5)},
+      {memgraph::storage::PropertyId::FromInt(4), memgraph::storage::PropertyValue("nandare")},
+      {memgraph::storage::PropertyId::FromInt(12), memgraph::storage::PropertyValue(vec)},
+      {memgraph::storage::PropertyId::FromInt(6), memgraph::storage::PropertyValue(map)},
+      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)}};
+
+  const std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data_in_map{data.begin(), data.end()};
+
+  auto check_store = [data](const memgraph::storage::PropertyStore &store) {
+    for (const auto &[key, value] : data) {
+      ASSERT_TRUE(store.IsPropertyEqual(key, value));
+    }
+  };
+  {
+    memgraph::storage::PropertyStore store;
+    EXPECT_TRUE(store.InitProperties(data));
+    check_store(store);
+    EXPECT_FALSE(store.InitProperties(data));
+    EXPECT_FALSE(store.InitProperties(data_in_map));
+  }
+  {
+    memgraph::storage::PropertyStore store;
+    EXPECT_TRUE(store.InitProperties(data_in_map));
+    check_store(store);
+    EXPECT_FALSE(store.InitProperties(data_in_map));
+    EXPECT_FALSE(store.InitProperties(data));
+  }
+}
+
+TEST(PropertyStore, HasAllProperties) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue("0.0")}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_TRUE(
+      store.HasAllProperties({memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyId::FromInt(2),
+                              memgraph::storage::PropertyId::FromInt(3)}));
+}
+
+TEST(PropertyStore, HasAllPropertyValues) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
+      {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue(0.0)}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_TRUE(store.HasAllPropertyValues({memgraph::storage::PropertyValue(0.0), memgraph::storage::PropertyValue(123),
+                                          memgraph::storage::PropertyValue("three")}));
+}
+
+TEST(PropertyStore, HasAnyProperties) {
+  const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
+      {memgraph::storage::PropertyId::FromInt(3), memgraph::storage::PropertyValue("three")},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue("0.0")}};
+
+  memgraph::storage::PropertyStore store;
+  EXPECT_TRUE(store.InitProperties(data));
+  EXPECT_FALSE(store.HasAllPropertyValues({memgraph::storage::PropertyValue(0.0), memgraph::storage::PropertyValue(123),
+                                           memgraph::storage::PropertyValue("three")}));
 }

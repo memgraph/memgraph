@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,8 @@
 
 namespace memgraph::rpc {
 
-Client::Client(const io::network::Endpoint &endpoint, communication::ClientContext *context)
-    : endpoint_(endpoint), context_(context) {}
+Client::Client(io::network::Endpoint endpoint, communication::ClientContext *context)
+    : endpoint_(std::move(endpoint)), context_(context) {}
 
 void Client::Abort() {
   if (!client_) return;

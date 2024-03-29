@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ inline constexpr int64_t kDefaultBatchSize{1000};
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
-  ConsumerTest() {}
+  ConsumerTest() = default;
 
   ConsumerInfo CreateDefaultConsumerInfo() const {
     const auto test_name = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
@@ -113,7 +113,6 @@ struct ConsumerTest : public ::testing::Test {
   void SeedTopicWithInt(const std::string &topic_name, int value) {
     std::array<char, sizeof(int)> int_as_char{};
     std::memcpy(int_as_char.data(), &value, int_as_char.size());
-
     cluster.SeedTopic(topic_name, int_as_char);
   }
 
@@ -132,7 +131,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   info.batch_interval = kBatchInterval;
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
+    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }
@@ -147,6 +146,8 @@ TEST_F(ConsumerTest, BatchInterval) {
     cluster.SeedTopic(kTopicName, kMessage);
     std::this_thread::sleep_for(kBatchInterval * 0.5);
   }
+  // Wait for all messages to be delivered
+  std::this_thread::sleep_for(kBatchInterval);
 
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
@@ -170,9 +171,13 @@ TEST_F(ConsumerTest, BatchInterval) {
   EXPECT_TRUE(1 <= received_timestamps[0].first && received_timestamps[0].first <= 2);
 
   EXPECT_LE(3, received_timestamps.size());
+
+  int msgsCnt = received_timestamps[0].first;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
+    msgsCnt += received_timestamps[i].first;
     check_received_timestamp(i);
   }
+  EXPECT_EQ(kMessageCount, msgsCnt);
 }
 
 TEST_F(ConsumerTest, StartStop) {
@@ -221,7 +226,7 @@ TEST_F(ConsumerTest, BatchSize) {
   static constexpr std::string_view kMessage = "BatchSizeTestMessage";
   auto expected_messages_received = true;
   auto consumer_function = [&](const std::vector<Message> &messages) mutable {
-    received_timestamps.push_back({messages.size(), std::chrono::steady_clock::now()});
+    received_timestamps.emplace_back(messages.size(), std::chrono::steady_clock::now());
     for (const auto &message : messages) {
       expected_messages_received &= (kMessage == std::string_view(message.Payload().data(), message.Payload().size()));
     }

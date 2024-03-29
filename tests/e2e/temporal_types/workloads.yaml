@@ -1,14 +1,34 @@
 bolt_port: &bolt_port "7687"
+args: &args
+  - "--bolt_port"
+  - *bolt_port
+  - "--log-level=TRACE"
+
 template_cluster: &template_cluster
   cluster:
     main:
-      args: ["--bolt_port", *bolt_port, "--log-level=TRACE"]
+      args: *args
       log_file: "temporal-types-e2e.log"
       setup_queries: []
       validation_queries: []
+
+disk_template_cluster: &disk_template_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "temporal-types-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
 
 workloads:
   - name: "Temporal"
     binary: "tests/e2e/temporal_types/memgraph__e2e__temporal_roundtrip"
     args: ["--bolt_port", *bolt_port]
     <<: *template_cluster
+
+  - name: "Temporal on disk"
+    binary: "tests/e2e/temporal_types/memgraph__e2e__temporal_roundtrip"
+    args: ["--bolt_port", *bolt_port]
+    <<: *disk_template_cluster

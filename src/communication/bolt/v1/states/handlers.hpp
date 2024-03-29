@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,17 +11,21 @@
 
 #pragma once
 
+#include <exception>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "communication/bolt/metrics.hpp"
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
@@ -73,40 +77,6 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 
 namespace details {
 
-template <typename TSession>
-State HandleRun(TSession &session, const State state, const Value &query, const Value &params) {
-  if (state != State::Idle) {
-    // Client could potentially recover if we move to error state, but there is
-    // no legitimate situation in which well working client would end up in this
-    // situation.
-    spdlog::trace("Unexpected RUN command!");
-    return State::Close;
-  }
-
-  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
-
-  spdlog::debug("[Run] '{}'", query.ValueString());
-
-  try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap());
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    std::map<std::string, Value> data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
-  } catch (const std::exception &e) {
-    return HandleFailure(session, e);
-  }
-}
-
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
@@ -123,7 +93,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       return State::Close;
     }
 
-    if (summary.count("has_more") && summary.at("has_more").ValueBool()) {
+    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
       return State::Result;
     }
 
@@ -178,13 +148,13 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     spdlog::trace("Couldn't read extra field!");
   }
   const auto &extra_map = extra.ValueMap();
-  if (extra_map.count("n")) {
+  if (extra_map.contains("n")) {
     if (const auto n_value = extra_map.at("n").ValueInt(); n_value != kPullAll) {
       n = n_value;
     }
   }
 
-  if (extra_map.count("qid")) {
+  if (extra_map.contains("qid")) {
     if (const auto qid_value = extra_map.at("qid").ValueInt(); qid_value != kPullLast) {
       qid = qid_value;
     }
@@ -200,6 +170,7 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
     spdlog::trace("Error trace: {}", p->trace());
   }
   session.encoder_buffer_.Clear();
+
   auto code_message = ExceptionToErrorMessage(e);
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
   if (!fail_sent) {
@@ -229,7 +200,43 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
     return State::Close;
   }
 
-  return details::HandleRun(session, state, query, params);
+  if (state != State::Idle) {
+    // Client could potentially recover if we move to error state, but there is
+    // no legitimate situation in which well working client would end up in this
+    // situation.
+    spdlog::trace("Unexpected RUN command!");
+    return State::Close;
+  }
+
+  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
+
+#if MG_ENTERPRISE
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+#else
+  spdlog::debug("[Run] '{}'", query.ValueString());
+#endif
+
+  // Increment number of queries in the metrics
+  IncrementQueryMetrics(session);
+
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    std::map<std::string, Value> data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 
 template <typename TSession>
@@ -255,9 +262,62 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   // Even though this part seems unnecessary it is needed to move the buffer
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
     spdlog::trace("Couldn't read extra field!");
+    return State::Close;
   }
 
-  return details::HandleRun(session, state, query, params);
+  if (state != State::Idle) {
+    // Client could potentially recover if we move to error state, but there is
+    // no legitimate situation in which well working client would end up in this
+    // situation.
+    spdlog::trace("Unexpected RUN command!");
+    return State::Close;
+  }
+
+  DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
+
+  try {
+    session.Configure(extra.ValueMap());
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+#if MG_ENTERPRISE
+  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+#else
+  spdlog::debug("[Run] '{}'", query.ValueString());
+#endif
+
+  // Increment number of queries in the metrics
+  IncrementQueryMetrics(session);
+
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    std::map<std::string, Value> data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    if (qid.has_value()) {
+      data.emplace("qid", Value{*qid});
+    }
+
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename TSession>
+State HandleRunV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleRunV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
@@ -271,6 +331,12 @@ State HandlePullV4(TSession &session, const State state, const Marker marker) {
 }
 
 template <typename TSession>
+State HandlePullV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandlePullV4<TSession>(session, state, marker);
+}
+
+template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
@@ -278,6 +344,12 @@ State HandleDiscardV1(TSession &session, const State state, const Marker marker)
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
   return details::HandlePullDiscardV4<false>(session, state, marker);
+}
+
+template <typename TSession>
+State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  // Using V4 on purpose
+  return HandleDiscardV4<TSession>(session, state, marker);
 }
 
 template <typename TSession>
@@ -296,14 +368,16 @@ State HandleReset(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  if (!session.encoder_.MessageSuccess()) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
+  try {
+    session.Abort();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-
-  session.Abort();
-
-  return State::Idle;
 }
 
 template <typename TSession>
@@ -326,18 +400,17 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-  if (!session.encoder_.MessageSuccess({})) {
-    spdlog::trace("Couldn't send success message!");
-    return State::Close;
-  }
-
   try {
-    session.BeginTransaction();
+    session.Configure(extra.ValueMap());
+    session.BeginTransaction(extra.ValueMap());
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
-
-  return State::Idle;
 }
 
 template <typename TSession>
@@ -355,11 +428,11 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.CommitTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.CommitTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -381,11 +454,11 @@ State HandleRollback(TSession &session, const State state, const Marker marker) 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
+    session.RollbackTransaction();
     if (!session.encoder_.MessageSuccess({})) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
-    session.RollbackTransaction();
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -405,9 +478,6 @@ State HandleGoodbye() {
 
 template <typename TSession>
 State HandleRoute(TSession &session, const Marker marker) {
-  // Route message is not implemented since it is Neo4j specific, therefore we will receive it and inform user that
-  // there is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean
-  // state.
   if (marker != Marker::TinyStruct3) {
     spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -423,11 +493,27 @@ State HandleRoute(TSession &session, const Marker marker) {
     spdlog::trace("Couldn't read bookmarks field!");
     return State::Close;
   }
+
+  // TODO: (andi) Fix Bolt versions
   Value db;
   if (!session.decoder_.ReadValue(&db)) {
     spdlog::trace("Couldn't read db field!");
     return State::Close;
   }
+
+#ifdef MG_ENTERPRISE
+  try {
+    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+    if (!session.encoder_.MessageSuccess(std::move(res))) {
+      spdlog::trace("Couldn't send result of routing!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+
+#else
   session.encoder_buffer_.Clear();
   bool fail_sent =
       session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
@@ -436,5 +522,12 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+#endif
+}
+
+template <typename TSession>
+State HandleLogOff() {
+  // No arguments sent, the user just needs to reauthenticate
+  return State::Init;
 }
 }  // namespace memgraph::communication::bolt

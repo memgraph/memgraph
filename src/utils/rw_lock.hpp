@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -124,6 +124,11 @@ class RWLock {
 class WritePrioritizedRWLock final : public RWLock {
  public:
   WritePrioritizedRWLock() : RWLock{Priority::WRITE} {};
+};
+
+class ReadPrioritizedRWLock final : public RWLock {
+ public:
+  ReadPrioritizedRWLock() : RWLock{Priority::READ} {};
 };
 
 }  // namespace memgraph::utils

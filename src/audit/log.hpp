@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -32,10 +32,11 @@ class Log {
     std::string username;
     std::string query;
     storage::PropertyValue params;
+    std::string db;
   };
 
  public:
-  Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
+  Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis);
 
   ~Log();
 
@@ -51,7 +52,7 @@ class Log {
 
   /// Adds an entry to the audit log. Thread-safe.
   void Record(const std::string &address, const std::string &username, const std::string &query,
-              const storage::PropertyValue &params);
+              const storage::PropertyValue &params, const std::string &db);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   void ReopenLog();

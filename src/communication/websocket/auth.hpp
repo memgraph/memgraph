@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,8 +14,6 @@
 #include <string>
 
 #include "auth/auth.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::communication::websocket {
 
@@ -23,22 +21,24 @@ class AuthenticationInterface {
  public:
   virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
 
-  virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
+  virtual bool HasPermission(auth::Permission permission) const = 0;
 
-  virtual bool HasAnyUsers() const = 0;
+  virtual bool AccessControlled() const = 0;
 };
 
 class SafeAuth : public AuthenticationInterface {
  public:
-  explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
+  explicit SafeAuth(auth::SynchedAuth *auth) : auth_{auth} {}
 
   bool Authenticate(const std::string &username, const std::string &password) const override;
 
-  bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
+  bool HasPermission(auth::Permission permission) const override;
 
-  bool HasAnyUsers() const override;
+  bool AccessControlled() const override;
 
  private:
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
+  auth::SynchedAuth *auth_;
+  mutable std::optional<auth::UserOrRole> user_or_role_;
+  mutable auth::Auth::Epoch auth_epoch_{};
 };
 }  // namespace memgraph::communication::websocket

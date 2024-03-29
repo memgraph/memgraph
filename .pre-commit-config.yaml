@@ -1,24 +1,35 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: v4.4.0
     hooks:
       - id: check-yaml
+        args: [--allow-multiple-documents]
       - id: end-of-file-fixer
       - id: trailing-whitespace
   - repo: https://github.com/psf/black
-    rev: 22.3.0
+    rev: 23.1.0
     hooks:
       - id: black
-        args: # arguments to configure black
-          - --line-length=120
-          - --include='\.pyi?$'
-          # these folders wont be formatted by black
-          - --exclude="""\.git |
-            \.__pycache__|
-            build|
-            libs|
-            .cache"""
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+        name: isort (python)
+        args: ["--profile", "black"]
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v13.0.0
     hooks:
       - id: clang-format
+#  - repo: local
+#    hooks:
+#      - id: clang-tidy
+#        name: clang-tidy
+#        description: Runs clang-tidy and checks for errors
+#        entry: python ./tools/pre-commit/clang-tidy.py
+#        language: python
+#        files: ^src/
+#        types: [c++, text]
+#        fail_fast: true
+#        require_serial: true
+#        args: [--compile_commands_path=build]
+#        pass_filenames: false

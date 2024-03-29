@@ -10,4 +10,4 @@
 
 #pragma once
 
-static const char *version_string = "@VERSION_STRING@";
+static const char * const version_string = "@VERSION_STRING@";

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,19 +15,36 @@
 #include <string>
 #include <unordered_map>
 
-#include <gtest/internal/gtest-param-util-generated.h>
-
 #include "auth/models.hpp"
-#include "utils/license.hpp"
+#include "disk_test_utils.hpp"
+#include "license/license.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+
+#include <gtest/gtest.h>
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
+template <typename StorageType>
 class VertexDb : public Database {
  public:
-  VertexDb() : db_() {}
+  const std::string testSuite = "bfs_fine_grained";
 
-  memgraph::storage::Storage::Accessor Access() override { return db_.Access(); }
+  VertexDb() {
+    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    db_ = std::make_unique<StorageType>(config_);
+  }
+
+  ~VertexDb() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
+    return db_->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,
@@ -71,25 +88,27 @@ class VertexDb : public Database {
   }
 
  protected:
-  memgraph::storage::Storage db_;
+  memgraph::storage::Config config_;
+  std::unique_ptr<memgraph::storage::Storage> db_;
 };
 
 #ifdef MG_ENTERPRISE
-class FineGrainedBfsTest
+class FineGrainedBfsTestInMemory
     : public ::testing::TestWithParam<
           std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
  public:
+  using StorageType = memgraph::storage::InMemoryStorage;
   static void SetUpTestCase() {
-    memgraph::utils::license::global_license_checker.EnableTesting();
-    db_ = std::make_unique<VertexDb>();
+    memgraph::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb<StorageType>>();
   }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
-  static std::unique_ptr<VertexDb> db_;
+  static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedBfsTest, All) {
+TEST_P(FineGrainedBfsTestInMemory, All) {
   int lower_bound;
   int upper_bound;
   EdgeAtom::Direction direction;
@@ -99,13 +118,54 @@ TEST_P(FineGrainedBfsTest, All) {
 
   std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
 
-  BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
-                                  fine_grained_test_type);
+  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
+                                             fine_grained_test_type);
 }
 
-std::unique_ptr<VertexDb> FineGrainedBfsTest::db_{nullptr};
+std::unique_ptr<VertexDb<FineGrainedBfsTestInMemory::StorageType>> FineGrainedBfsTestInMemory::db_{nullptr};
+
 INSTANTIATE_TEST_CASE_P(
-    FineGrained, FineGrainedBfsTest,
+    FineGrained, FineGrainedBfsTestInMemory,
+    testing::Combine(testing::Values(3), testing::Values(-1),
+                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
+                     testing::Values(std::vector<std::string>{}), testing::Bool(),
+                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
+                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
+                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+
+class FineGrainedBfsTestOnDisk
+    : public ::testing::TestWithParam<
+          std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
+ public:
+  using StorageType = memgraph::storage::DiskStorage;
+  static void SetUpTestCase() {
+    memgraph::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb<StorageType>>();
+  }
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+TEST_P(FineGrainedBfsTestOnDisk, All) {
+  int lower_bound;
+  int upper_bound;
+  EdgeAtom::Direction direction;
+  std::vector<std::string> edge_types;
+  bool known_sink;
+  FineGrainedTestType fine_grained_test_type;
+
+  std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
+
+  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
+                                             fine_grained_test_type);
+}
+
+std::unique_ptr<VertexDb<FineGrainedBfsTestOnDisk::StorageType>> FineGrainedBfsTestOnDisk::db_{nullptr};
+
+INSTANTIATE_TEST_CASE_P(
+    FineGrained, FineGrainedBfsTestOnDisk,
     testing::Combine(testing::Values(3), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
                      testing::Values(std::vector<std::string>{}), testing::Bool(),

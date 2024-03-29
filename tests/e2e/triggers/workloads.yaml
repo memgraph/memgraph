@@ -1,31 +1,83 @@
 bolt_port: &bolt_port "7687"
-template_cluster: &template_cluster
+args_properties_false: &args_properties_false
+  - "--bolt-port"
+  - *bolt_port
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=False"
+
+args_properties_true: &args_properties_true
+  - "--bolt-port"
+  - *bolt_port
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=True"
+
+storage_properties_edges_true_in_memory_cluster: &storage_properties_edges_true_in_memory_cluster
   cluster:
     main:
-      args: ["--bolt-port", *bolt_port, "--log-level=TRACE"]
+      args: *args_properties_true
       log_file: "triggers-e2e.log"
       setup_queries: []
       validation_queries: []
+
+storage_properties_edges_false_in_memory_cluster: &storage_properties_edges_false_in_memory_cluster
+  cluster:
+    main:
+      args: *args_properties_false
+      log_file: "triggers-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+storage_properties_edges_true_disk_cluster: &storage_properties_edges_true_disk_cluster
+  cluster:
+    main:
+      args: *args_properties_true
+      log_file: "triggers-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
+storage_properties_edges_false_disk_cluster: &storage_properties_edges_false_disk_cluster
+  cluster:
+    main:
+      args: *args_properties_false
+      log_file: "triggers-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
 
 workloads:
   - name: "ON CREATE Triggers"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
-    <<: *template_cluster
+    <<: *storage_properties_edges_true_in_memory_cluster
+
   - name: "ON UPDATE Triggers"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_update"
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
-    <<: *template_cluster
-  - name: "ON DELETE Triggers"
+    <<: *storage_properties_edges_true_in_memory_cluster
+
+  - name: "ON DELETE Triggers Storage Properties On Edges True"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_delete"
     args: ["--bolt-port", *bolt_port]
     proc: "tests/e2e/triggers/procedures/"
-    <<: *template_cluster
+    <<: *storage_properties_edges_true_in_memory_cluster
+
   - name: "Triggers privilege check"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__privileges"
     args: ["--bolt-port", *bolt_port]
-    <<: *template_cluster
+    <<: *storage_properties_edges_true_in_memory_cluster
 
+  - name: "ON DELETE Triggers Storage Properties On Edges False"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/triggers/procedures/"
+    args: ["triggers/triggers_properties_false.py"]
+    <<: *storage_properties_edges_false_in_memory_cluster
 
+  - name: "ON CREATE Triggers for disk storage"
+    binary: "tests/e2e/triggers/memgraph__e2e__triggers__on_create"
+    args: ["--bolt-port", *bolt_port]
+    proc: "tests/e2e/triggers/procedures/"
+    <<: *storage_properties_edges_true_disk_cluster

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 namespace mgp {
 
 namespace {
-void MgExceptionHandle(mgp_error result_code) {
+inline void MgExceptionHandle(mgp_error result_code) {
   switch (result_code) {
     case mgp_error::MGP_ERROR_UNKNOWN_ERROR:
       throw mg_exception::UnknownException();
@@ -62,7 +62,7 @@ TResult MgInvoke(TFunc func, TArgs... args) {
 }
 
 template <typename TFunc, typename... TArgs>
-void MgInvokeVoid(TFunc func, TArgs... args) {
+inline void MgInvokeVoid(TFunc func, TArgs... args) {
   auto result_code = func(args...);
   MgExceptionHandle(result_code);
 }
@@ -72,211 +72,310 @@ void MgInvokeVoid(TFunc func, TArgs... args) {
 
 // Make value
 
-mgp_value *value_make_null(mgp_memory *memory) { return MgInvoke<mgp_value *>(mgp_value_make_null, memory); }
+inline mgp_value *value_make_null(mgp_memory *memory) { return MgInvoke<mgp_value *>(mgp_value_make_null, memory); }
 
-mgp_value *value_make_bool(int val, mgp_memory *memory) {
+inline mgp_value *value_make_bool(int val, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_value_make_bool, val, memory);
 }
 
-mgp_value *value_make_int(int64_t val, mgp_memory *memory) {
+inline mgp_value *value_make_int(int64_t val, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_value_make_int, val, memory);
 }
 
-mgp_value *value_make_double(double val, mgp_memory *memory) {
+inline mgp_value *value_make_double(double val, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_value_make_double, val, memory);
 }
 
-mgp_value *value_make_string(const char *val, mgp_memory *memory) {
+inline mgp_value *value_make_string(const char *val, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_value_make_string, val, memory);
 }
 
-mgp_value *value_make_list(mgp_list *val) { return MgInvoke<mgp_value *>(mgp_value_make_list, val); }
+inline mgp_value *value_make_list(mgp_list *val) { return MgInvoke<mgp_value *>(mgp_value_make_list, val); }
 
-mgp_value *value_make_map(mgp_map *val) { return MgInvoke<mgp_value *>(mgp_value_make_map, val); }
+inline mgp_value *value_make_map(mgp_map *val) { return MgInvoke<mgp_value *>(mgp_value_make_map, val); }
 
-mgp_value *value_make_vertex(mgp_vertex *val) { return MgInvoke<mgp_value *>(mgp_value_make_vertex, val); }
+inline mgp_value *value_make_vertex(mgp_vertex *val) { return MgInvoke<mgp_value *>(mgp_value_make_vertex, val); }
 
-mgp_value *value_make_edge(mgp_edge *val) { return MgInvoke<mgp_value *>(mgp_value_make_edge, val); }
+inline mgp_value *value_make_edge(mgp_edge *val) { return MgInvoke<mgp_value *>(mgp_value_make_edge, val); }
 
-mgp_value *value_make_path(mgp_path *val) { return MgInvoke<mgp_value *>(mgp_value_make_path, val); }
+inline mgp_value *value_make_path(mgp_path *val) { return MgInvoke<mgp_value *>(mgp_value_make_path, val); }
 
-mgp_value *value_make_date(mgp_date *val) { return MgInvoke<mgp_value *>(mgp_value_make_date, val); }
+inline mgp_value *value_make_date(mgp_date *val) { return MgInvoke<mgp_value *>(mgp_value_make_date, val); }
 
-mgp_value *value_make_local_time(mgp_local_time *val) { return MgInvoke<mgp_value *>(mgp_value_make_local_time, val); }
+inline mgp_value *value_make_local_time(mgp_local_time *val) {
+  return MgInvoke<mgp_value *>(mgp_value_make_local_time, val);
+}
 
-mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
+inline mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
   return MgInvoke<mgp_value *>(mgp_value_make_local_date_time, val);
 }
 
-mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
+inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
 
 // Copy value
 
 // TODO: implement within MGP API
 // with primitive types ({bool, int, double, string}), create a new identical value
 // otherwise call mgp_##TYPE_copy and convert tpye
-mgp_value *value_copy(mgp_value *val, mgp_memory *memory) { return MgInvoke<mgp_value *>(mgp_value_copy, val, memory); }
+inline mgp_value *value_copy(mgp_value *val, mgp_memory *memory) {
+  return MgInvoke<mgp_value *>(mgp_value_copy, val, memory);
+}
 
 // Destroy value
 
-void value_destroy(mgp_value *val) { mgp_value_destroy(val); }
+inline void value_destroy(mgp_value *val) { mgp_value_destroy(val); }
 
 // Get value of type
 
-mgp_value_type value_get_type(mgp_value *val) { return MgInvoke<mgp_value_type>(mgp_value_get_type, val); }
+inline mgp_value_type value_get_type(mgp_value *val) { return MgInvoke<mgp_value_type>(mgp_value_get_type, val); }
 
-bool value_get_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_get_bool, val); }
+inline bool value_get_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_get_bool, val); }
 
-int64_t value_get_int(mgp_value *val) { return MgInvoke<int64_t>(mgp_value_get_int, val); }
+inline int64_t value_get_int(mgp_value *val) { return MgInvoke<int64_t>(mgp_value_get_int, val); }
 
-double value_get_double(mgp_value *val) { return MgInvoke<double>(mgp_value_get_double, val); }
+inline double value_get_double(mgp_value *val) { return MgInvoke<double>(mgp_value_get_double, val); }
 
-const char *value_get_string(mgp_value *val) { return MgInvoke<const char *>(mgp_value_get_string, val); }
+inline double value_get_numeric(mgp_value *val) {
+  if (MgInvoke<int>(mgp_value_is_int, val)) {
+    return static_cast<double>(value_get_int(val));
+  }
+  return value_get_double(val);
+}
 
-mgp_list *value_get_list(mgp_value *val) { return MgInvoke<mgp_list *>(mgp_value_get_list, val); }
+inline const char *value_get_string(mgp_value *val) { return MgInvoke<const char *>(mgp_value_get_string, val); }
 
-mgp_map *value_get_map(mgp_value *val) { return MgInvoke<mgp_map *>(mgp_value_get_map, val); }
+inline mgp_list *value_get_list(mgp_value *val) { return MgInvoke<mgp_list *>(mgp_value_get_list, val); }
 
-mgp_vertex *value_get_vertex(mgp_value *val) { return MgInvoke<mgp_vertex *>(mgp_value_get_vertex, val); }
+inline mgp_map *value_get_map(mgp_value *val) { return MgInvoke<mgp_map *>(mgp_value_get_map, val); }
 
-mgp_edge *value_get_edge(mgp_value *val) { return MgInvoke<mgp_edge *>(mgp_value_get_edge, val); }
+inline mgp_vertex *value_get_vertex(mgp_value *val) { return MgInvoke<mgp_vertex *>(mgp_value_get_vertex, val); }
 
-mgp_path *value_get_path(mgp_value *val) { return MgInvoke<mgp_path *>(mgp_value_get_path, val); }
+inline mgp_edge *value_get_edge(mgp_value *val) { return MgInvoke<mgp_edge *>(mgp_value_get_edge, val); }
 
-mgp_date *value_get_date(mgp_value *val) { return MgInvoke<mgp_date *>(mgp_value_get_date, val); }
+inline mgp_path *value_get_path(mgp_value *val) { return MgInvoke<mgp_path *>(mgp_value_get_path, val); }
 
-mgp_local_time *value_get_local_time(mgp_value *val) {
+inline mgp_date *value_get_date(mgp_value *val) { return MgInvoke<mgp_date *>(mgp_value_get_date, val); }
+
+inline mgp_local_time *value_get_local_time(mgp_value *val) {
   return MgInvoke<mgp_local_time *>(mgp_value_get_local_time, val);
 }
 
-mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
+inline mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
   return MgInvoke<mgp_local_date_time *>(mgp_value_get_local_date_time, val);
 }
 
-mgp_duration *value_get_duration(mgp_value *val) { return MgInvoke<mgp_duration *>(mgp_value_get_duration, val); }
+inline mgp_duration *value_get_duration(mgp_value *val) {
+  return MgInvoke<mgp_duration *>(mgp_value_get_duration, val);
+}
 
 // Check type of value
 
-bool value_is_null(mgp_value *val) { return MgInvoke<int>(mgp_value_is_null, val); }
+inline bool value_is_null(mgp_value *val) { return MgInvoke<int>(mgp_value_is_null, val); }
 
-bool value_is_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_is_bool, val); }
+inline bool value_is_bool(mgp_value *val) { return MgInvoke<int>(mgp_value_is_bool, val); }
 
-bool value_is_int(mgp_value *val) { return MgInvoke<int>(mgp_value_is_int, val); }
+inline bool value_is_int(mgp_value *val) { return MgInvoke<int>(mgp_value_is_int, val); }
 
-bool value_is_double(mgp_value *val) { return MgInvoke<int>(mgp_value_is_double, val); }
+inline bool value_is_double(mgp_value *val) { return MgInvoke<int>(mgp_value_is_double, val); }
 
-bool value_is_string(mgp_value *val) { return MgInvoke<int>(mgp_value_is_string, val); }
+inline bool value_is_numeric(mgp_value *val) { return value_is_int(val) || value_is_double(val); }
 
-bool value_is_list(mgp_value *val) { return MgInvoke<int>(mgp_value_is_list, val); }
+inline bool value_is_string(mgp_value *val) { return MgInvoke<int>(mgp_value_is_string, val); }
 
-bool value_is_map(mgp_value *val) { return MgInvoke<int>(mgp_value_is_map, val); }
+inline bool value_is_list(mgp_value *val) { return MgInvoke<int>(mgp_value_is_list, val); }
 
-bool value_is_vertex(mgp_value *val) { return MgInvoke<int>(mgp_value_is_vertex, val); }
+inline bool value_is_map(mgp_value *val) { return MgInvoke<int>(mgp_value_is_map, val); }
 
-bool value_is_edge(mgp_value *val) { return MgInvoke<int>(mgp_value_is_edge, val); }
+inline bool value_is_vertex(mgp_value *val) { return MgInvoke<int>(mgp_value_is_vertex, val); }
 
-bool value_is_path(mgp_value *val) { return MgInvoke<int>(mgp_value_is_path, val); }
+inline bool value_is_edge(mgp_value *val) { return MgInvoke<int>(mgp_value_is_edge, val); }
 
-bool value_is_date(mgp_value *val) { return MgInvoke<int>(mgp_value_is_date, val); }
+inline bool value_is_path(mgp_value *val) { return MgInvoke<int>(mgp_value_is_path, val); }
 
-bool value_is_local_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_local_time, val); }
+inline bool value_is_date(mgp_value *val) { return MgInvoke<int>(mgp_value_is_date, val); }
 
-bool value_is_local_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_local_date_time, val); }
+inline bool value_is_local_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_local_time, val); }
 
-bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_is_duration, val); }
+inline bool value_is_local_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_local_date_time, val); }
+
+inline bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_is_duration, val); }
 
 // Get type
 
-mgp_type *type_any() { return MgInvoke<mgp_type *>(mgp_type_any); }
+inline mgp_type *type_any() { return MgInvoke<mgp_type *>(mgp_type_any); }
 
-mgp_type *type_bool() { return MgInvoke<mgp_type *>(mgp_type_bool); }
+inline mgp_type *type_bool() { return MgInvoke<mgp_type *>(mgp_type_bool); }
 
-mgp_type *type_string() { return MgInvoke<mgp_type *>(mgp_type_string); }
+inline mgp_type *type_string() { return MgInvoke<mgp_type *>(mgp_type_string); }
 
-mgp_type *type_int() { return MgInvoke<mgp_type *>(mgp_type_int); }
+inline mgp_type *type_int() { return MgInvoke<mgp_type *>(mgp_type_int); }
 
-mgp_type *type_float() { return MgInvoke<mgp_type *>(mgp_type_float); }
+inline mgp_type *type_float() { return MgInvoke<mgp_type *>(mgp_type_float); }
 
-mgp_type *type_number() { return MgInvoke<mgp_type *>(mgp_type_number); }
+inline mgp_type *type_number() { return MgInvoke<mgp_type *>(mgp_type_number); }
 
-mgp_type *type_list(mgp_type *element_type) { return MgInvoke<mgp_type *>(mgp_type_list, element_type); }
+inline mgp_type *type_list(mgp_type *element_type) { return MgInvoke<mgp_type *>(mgp_type_list, element_type); }
 
-mgp_type *type_map() { return MgInvoke<mgp_type *>(mgp_type_map); }
+inline mgp_type *type_map() { return MgInvoke<mgp_type *>(mgp_type_map); }
 
-mgp_type *type_node() { return MgInvoke<mgp_type *>(mgp_type_node); }
+inline mgp_type *type_node() { return MgInvoke<mgp_type *>(mgp_type_node); }
 
-mgp_type *type_relationship() { return MgInvoke<mgp_type *>(mgp_type_relationship); }
+inline mgp_type *type_relationship() { return MgInvoke<mgp_type *>(mgp_type_relationship); }
 
-mgp_type *type_path() { return MgInvoke<mgp_type *>(mgp_type_path); }
+inline mgp_type *type_path() { return MgInvoke<mgp_type *>(mgp_type_path); }
 
-mgp_type *type_date() { return MgInvoke<mgp_type *>(mgp_type_date); }
+inline mgp_type *type_date() { return MgInvoke<mgp_type *>(mgp_type_date); }
 
-mgp_type *type_local_time() { return MgInvoke<mgp_type *>(mgp_type_local_time); }
+inline mgp_type *type_local_time() { return MgInvoke<mgp_type *>(mgp_type_local_time); }
 
-mgp_type *type_local_date_time() { return MgInvoke<mgp_type *>(mgp_type_local_date_time); }
+inline mgp_type *type_local_date_time() { return MgInvoke<mgp_type *>(mgp_type_local_date_time); }
 
-mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration); }
+inline mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration); }
 
-mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp_type_nullable, type); }
+inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp_type_nullable, type); }
+
+inline bool create_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_create_label_index, graph, label);
+}
+
+inline bool drop_label_index(mgp_graph *graph, const char *label) {
+  return MgInvoke<int>(mgp_drop_label_index, graph, label);
+}
+
+inline mgp_list *list_all_label_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_indices, graph, memory);
+}
+
+inline bool create_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_label_property_index, graph, label, property);
+}
+
+inline bool drop_label_property_index(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_label_property_index, graph, label, property);
+}
+
+inline mgp_list *list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_label_property_indices, graph, memory);
+}
+
+inline bool create_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_create_existence_constraint, graph, label, property);
+}
+
+inline bool drop_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
+  return MgInvoke<int>(mgp_drop_existence_constraint, graph, label, property);
+}
+
+inline mgp_list *list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_existence_constraints, graph, memory);
+}
+
+inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+  return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, label, properties);
+}
+
+inline mgp_list *list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_unique_constraints, graph, memory);
+}
 
 // mgp_graph
 
-bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
+inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_transactional, graph); }
 
-mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
+inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
+
+inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex, graph, memory);
 }
 
-void graph_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) { MgInvokeVoid(mgp_graph_delete_vertex, graph, vertex); }
+inline void graph_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
+  MgInvokeVoid(mgp_graph_delete_vertex, graph, vertex);
+}
 
-void graph_detach_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
+inline void graph_detach_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
   MgInvokeVoid(mgp_graph_detach_delete_vertex, graph, vertex);
 }
 
-mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
-                            mgp_memory *memory) {
+inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
+                                   mgp_memory *memory) {
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
-void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
+inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                     mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
+}
 
-mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
+inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                   mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
+}
+
+inline mgp_edge *graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                        mgp_memory *memory) {
+  return MgInvoke<mgp_edge *>(mgp_graph_edge_change_type, graph, e, new_type, memory);
+}
+
+inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
+
+inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_get_vertex_by_id, g, id, memory);
 }
 
-mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
+inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
+  return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
+}
+
+inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                        text_search_mode search_mode, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, memory);
+}
+
+inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                                const char *aggregation_query, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query,
+                             memory);
+}
+
+inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
   return MgInvoke<mgp_vertices_iterator *>(mgp_graph_iter_vertices, g, memory);
 }
 
 // mgp_vertices_iterator
 
-void vertices_iterator_destroy(mgp_vertices_iterator *it) { mgp_vertices_iterator_destroy(it); }
+inline void vertices_iterator_destroy(mgp_vertices_iterator *it) { mgp_vertices_iterator_destroy(it); }
 
-mgp_vertex *vertices_iterator_get(mgp_vertices_iterator *it) {
+inline mgp_vertex *vertices_iterator_get(mgp_vertices_iterator *it) {
   return MgInvoke<mgp_vertex *>(mgp_vertices_iterator_get, it);
 }
 
-mgp_vertex *vertices_iterator_next(mgp_vertices_iterator *it) {
+inline mgp_vertex *vertices_iterator_next(mgp_vertices_iterator *it) {
   return MgInvoke<mgp_vertex *>(mgp_vertices_iterator_next, it);
 }
 
 // mgp_edges_iterator
 
-void edges_iterator_destroy(mgp_edges_iterator *it) { mgp_edges_iterator_destroy(it); }
+inline void edges_iterator_destroy(mgp_edges_iterator *it) { mgp_edges_iterator_destroy(it); }
 
-mgp_edge *edges_iterator_get(mgp_edges_iterator *it) { return MgInvoke<mgp_edge *>(mgp_edges_iterator_get, it); }
+inline mgp_edge *edges_iterator_get(mgp_edges_iterator *it) { return MgInvoke<mgp_edge *>(mgp_edges_iterator_get, it); }
 
-mgp_edge *edges_iterator_next(mgp_edges_iterator *it) { return MgInvoke<mgp_edge *>(mgp_edges_iterator_next, it); }
+inline mgp_edge *edges_iterator_next(mgp_edges_iterator *it) {
+  return MgInvoke<mgp_edge *>(mgp_edges_iterator_next, it);
+}
 
 // mgp_properties_iterator
 
-void properties_iterator_destroy(mgp_properties_iterator *it) { mgp_properties_iterator_destroy(it); }
+inline void properties_iterator_destroy(mgp_properties_iterator *it) { mgp_properties_iterator_destroy(it); }
 
-mgp_property *properties_iterator_get(mgp_properties_iterator *it) {
+inline mgp_property *properties_iterator_get(mgp_properties_iterator *it) {
   return MgInvoke<mgp_property *>(mgp_properties_iterator_get, it);
 }
 
-mgp_property *properties_iterator_next(mgp_properties_iterator *it) {
+inline mgp_property *properties_iterator_next(mgp_properties_iterator *it) {
   return MgInvoke<mgp_property *>(mgp_properties_iterator_next, it);
 }
 
@@ -284,409 +383,486 @@ mgp_property *properties_iterator_next(mgp_properties_iterator *it) {
 
 // mgp_list
 
-mgp_list *list_make_empty(size_t capacity, mgp_memory *memory) {
+inline mgp_list *list_make_empty(size_t capacity, mgp_memory *memory) {
   return MgInvoke<mgp_list *>(mgp_list_make_empty, capacity, memory);
 }
 
-mgp_list *list_copy(mgp_list *list, mgp_memory *memory) { return MgInvoke<mgp_list *>(mgp_list_copy, list, memory); }
+inline mgp_list *list_copy(mgp_list *list, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_copy, list, memory);
+}
 
-void list_destroy(mgp_list *list) { mgp_list_destroy(list); }
+inline void list_destroy(mgp_list *list) { mgp_list_destroy(list); }
 
-void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
+inline bool list_contains_deleted(mgp_list *list) { return MgInvoke<int>(mgp_list_contains_deleted, list); }
 
-void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
+inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
 
-size_t list_size(mgp_list *list) { return MgInvoke<size_t>(mgp_list_size, list); }
+inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
 
-size_t list_capacity(mgp_list *list) { return MgInvoke<size_t>(mgp_list_capacity, list); }
+inline size_t list_size(mgp_list *list) { return MgInvoke<size_t>(mgp_list_size, list); }
 
-mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_value *>(mgp_list_at, list, index); }
+inline size_t list_capacity(mgp_list *list) { return MgInvoke<size_t>(mgp_list_capacity, list); }
+
+inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_value *>(mgp_list_at, list, index); }
 
 // mgp_map
 
-mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
 
-mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
+inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
 
-void map_destroy(mgp_map *map) { mgp_map_destroy(map); }
+inline void map_destroy(mgp_map *map) { mgp_map_destroy(map); }
 
-void map_insert(mgp_map *map, const char *key, mgp_value *value) { MgInvokeVoid(mgp_map_insert, map, key, value); }
+inline bool map_contains_deleted(mgp_map *map) { return MgInvoke<int>(mgp_map_contains_deleted, map); }
 
-size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
+inline void map_insert(mgp_map *map, const char *key, mgp_value *value) {
+  MgInvokeVoid(mgp_map_insert, map, key, value);
+}
 
-mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
+inline void map_update(mgp_map *map, const char *key, mgp_value *value) {
+  MgInvokeVoid(mgp_map_update, map, key, value);
+}
 
-const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
+inline void map_erase(mgp_map *map, const char *key) { MgInvokeVoid(mgp_map_erase, map, key); }
 
-mgp_value *map_item_value(mgp_map_item *item) { return MgInvoke<mgp_value *>(mgp_map_item_value, item); }
+inline size_t map_size(mgp_map *map) { return MgInvoke<size_t>(mgp_map_size, map); }
 
-mgp_map_items_iterator *map_iter_items(mgp_map *map, mgp_memory *memory) {
+inline mgp_value *map_at(mgp_map *map, const char *key) { return MgInvoke<mgp_value *>(mgp_map_at, map, key); }
+
+inline bool key_exists(mgp_map *map, const char *key) { return MgInvoke<int>(mgp_key_exists, map, key); }
+
+inline const char *map_item_key(mgp_map_item *item) { return MgInvoke<const char *>(mgp_map_item_key, item); }
+
+inline mgp_value *map_item_value(mgp_map_item *item) { return MgInvoke<mgp_value *>(mgp_map_item_value, item); }
+
+inline mgp_map_items_iterator *map_iter_items(mgp_map *map, mgp_memory *memory) {
   return MgInvoke<mgp_map_items_iterator *>(mgp_map_iter_items, map, memory);
 }
 
-void map_items_iterator_destroy(mgp_map_items_iterator *it) { mgp_map_items_iterator_destroy(it); }
+inline void map_items_iterator_destroy(mgp_map_items_iterator *it) { mgp_map_items_iterator_destroy(it); }
 
-mgp_map_item *map_items_iterator_get(mgp_map_items_iterator *it) {
+inline mgp_map_item *map_items_iterator_get(mgp_map_items_iterator *it) {
   return MgInvoke<mgp_map_item *>(mgp_map_items_iterator_get, it);
 }
 
-mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
+inline mgp_map_item *map_items_iterator_next(mgp_map_items_iterator *it) {
   return MgInvoke<mgp_map_item *>(mgp_map_items_iterator_next, it);
 }
 
 // mgp_vertex
 
-mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
+inline mgp_vertex_id vertex_get_id(mgp_vertex *v) { return MgInvoke<mgp_vertex_id>(mgp_vertex_get_id, v); }
 
-mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
+inline size_t vertex_get_in_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_in_degree, v); }
+
+inline size_t vertex_get_out_degree(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_get_out_degree, v); }
+
+inline mgp_vertex *vertex_copy(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_vertex_copy, v, memory);
 }
 
-void vertex_destroy(mgp_vertex *v) { mgp_vertex_destroy(v); }
+inline void vertex_destroy(mgp_vertex *v) { mgp_vertex_destroy(v); }
 
-bool vertex_equal(mgp_vertex *v1, mgp_vertex *v2) { return MgInvoke<int>(mgp_vertex_equal, v1, v2); }
+inline bool vertex_is_deleted(mgp_vertex *v) { return MgInvoke<int>(mgp_vertex_is_deleted, v); }
 
-size_t vertex_labels_count(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_labels_count, v); }
+inline bool vertex_equal(mgp_vertex *v1, mgp_vertex *v2) { return MgInvoke<int>(mgp_vertex_equal, v1, v2); }
 
-mgp_label vertex_label_at(mgp_vertex *v, size_t index) { return MgInvoke<mgp_label>(mgp_vertex_label_at, v, index); }
+inline size_t vertex_labels_count(mgp_vertex *v) { return MgInvoke<size_t>(mgp_vertex_labels_count, v); }
 
-bool vertex_has_label(mgp_vertex *v, mgp_label label) { return MgInvoke<int>(mgp_vertex_has_label, v, label); }
+inline mgp_label vertex_label_at(mgp_vertex *v, size_t index) {
+  return MgInvoke<mgp_label>(mgp_vertex_label_at, v, index);
+}
 
-bool vertex_has_label_named(mgp_vertex *v, const char *label_name) {
+inline bool vertex_has_label(mgp_vertex *v, mgp_label label) { return MgInvoke<int>(mgp_vertex_has_label, v, label); }
+
+inline bool vertex_has_label_named(mgp_vertex *v, const char *label_name) {
   return MgInvoke<int>(mgp_vertex_has_label_named, v, label_name);
 }
 
-void vertex_add_label(mgp_vertex *vertex, mgp_label label) { MgInvokeVoid(mgp_vertex_add_label, vertex, label); }
+inline void vertex_add_label(mgp_vertex *vertex, mgp_label label) { MgInvokeVoid(mgp_vertex_add_label, vertex, label); }
 
-mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, mgp_memory *memory) {
+inline void vertex_remove_label(mgp_vertex *vertex, mgp_label label) {
+  MgInvokeVoid(mgp_vertex_remove_label, vertex, label);
+}
+
+inline mgp_value *vertex_get_property(mgp_vertex *v, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_vertex_get_property, v, property_name, memory);
 }
 
-mgp_properties_iterator *vertex_iter_properties(mgp_vertex *v, mgp_memory *memory) {
+inline void vertex_set_property(mgp_vertex *v, const char *property_name, mgp_value *property_value) {
+  MgInvokeVoid(mgp_vertex_set_property, v, property_name, property_value);
+}
+
+inline void vertex_set_properties(mgp_vertex *v, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_vertex_set_properties, v, properties);
+}
+
+inline mgp_properties_iterator *vertex_iter_properties(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_properties_iterator *>(mgp_vertex_iter_properties, v, memory);
 }
 
-mgp_edges_iterator *vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory) {
+inline mgp_edges_iterator *vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_edges_iterator *>(mgp_vertex_iter_in_edges, v, memory);
 }
 
-mgp_edges_iterator *vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory) {
+inline mgp_edges_iterator *vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory) {
   return MgInvoke<mgp_edges_iterator *>(mgp_vertex_iter_out_edges, v, memory);
 }
 
 // mgp_edge
 
-mgp_edge_id edge_get_id(mgp_edge *e) { return MgInvoke<mgp_edge_id>(mgp_edge_get_id, e); }
+inline mgp_edge_id edge_get_id(mgp_edge *e) { return MgInvoke<mgp_edge_id>(mgp_edge_get_id, e); }
 
-mgp_edge *edge_copy(mgp_edge *e, mgp_memory *memory) { return MgInvoke<mgp_edge *>(mgp_edge_copy, e, memory); }
+inline mgp_edge *edge_copy(mgp_edge *e, mgp_memory *memory) { return MgInvoke<mgp_edge *>(mgp_edge_copy, e, memory); }
 
-void edge_destroy(mgp_edge *e) { mgp_edge_destroy(e); }
+inline void edge_destroy(mgp_edge *e) { mgp_edge_destroy(e); }
 
-bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_edge_equal, e1, e2); }
+inline bool edge_is_deleted(mgp_edge *e) { return MgInvoke<int>(mgp_edge_is_deleted, e); }
 
-mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>(mgp_edge_get_type, e); }
+inline bool edge_equal(mgp_edge *e1, mgp_edge *e2) { return MgInvoke<int>(mgp_edge_equal, e1, e2); }
 
-mgp_vertex *edge_get_from(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_from, e); }
+inline mgp_edge_type edge_get_type(mgp_edge *e) { return MgInvoke<mgp_edge_type>(mgp_edge_get_type, e); }
 
-mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_to, e); }
+inline mgp_vertex *edge_get_from(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_from, e); }
 
-mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_memory *memory) {
+inline mgp_vertex *edge_get_to(mgp_edge *e) { return MgInvoke<mgp_vertex *>(mgp_edge_get_to, e); }
+
+inline mgp_value *edge_get_property(mgp_edge *e, const char *property_name, mgp_memory *memory) {
   return MgInvoke<mgp_value *>(mgp_edge_get_property, e, property_name, memory);
 }
 
-mgp_properties_iterator *edge_iter_properties(mgp_edge *e, mgp_memory *memory) {
+inline void edge_set_property(mgp_edge *e, const char *property_name, mgp_value *property_value) {
+  MgInvokeVoid(mgp_edge_set_property, e, property_name, property_value);
+}
+
+inline void edge_set_properties(mgp_edge *e, struct mgp_map *properties) {
+  MgInvokeVoid(mgp_edge_set_properties, e, properties);
+}
+
+inline mgp_properties_iterator *edge_iter_properties(mgp_edge *e, mgp_memory *memory) {
   return MgInvoke<mgp_properties_iterator *>(mgp_edge_iter_properties, e, memory);
 }
 
 // mgp_path
 
-mgp_path *path_make_with_start(mgp_vertex *vertex, mgp_memory *memory) {
+inline mgp_path *path_make_with_start(mgp_vertex *vertex, mgp_memory *memory) {
   return MgInvoke<mgp_path *>(mgp_path_make_with_start, vertex, memory);
 }
 
-mgp_path *path_copy(mgp_path *path, mgp_memory *memory) { return MgInvoke<mgp_path *>(mgp_path_copy, path, memory); }
+inline mgp_path *path_copy(mgp_path *path, mgp_memory *memory) {
+  return MgInvoke<mgp_path *>(mgp_path_copy, path, memory);
+}
 
-void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
+inline void path_destroy(mgp_path *path) { mgp_path_destroy(path); }
 
-void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
+inline bool path_contains_deleted(mgp_path *path) { return MgInvoke<int>(mgp_path_contains_deleted, path); }
 
-size_t path_size(mgp_path *path) { return MgInvoke<size_t>(mgp_path_size, path); }
+inline void path_expand(mgp_path *path, mgp_edge *edge) { MgInvokeVoid(mgp_path_expand, path, edge); }
 
-mgp_vertex *path_vertex_at(mgp_path *path, size_t index) {
+inline void path_pop(mgp_path *path) { MgInvokeVoid(mgp_path_pop, path); }
+
+inline size_t path_size(mgp_path *path) { return MgInvoke<size_t>(mgp_path_size, path); }
+
+inline mgp_vertex *path_vertex_at(mgp_path *path, size_t index) {
   return MgInvoke<mgp_vertex *>(mgp_path_vertex_at, path, index);
 }
 
-mgp_edge *path_edge_at(mgp_path *path, size_t index) { return MgInvoke<mgp_edge *>(mgp_path_edge_at, path, index); }
+inline mgp_edge *path_edge_at(mgp_path *path, size_t index) {
+  return MgInvoke<mgp_edge *>(mgp_path_edge_at, path, index);
+}
 
-bool path_equal(mgp_path *p1, mgp_path *p2) { return MgInvoke<int>(mgp_path_equal, p1, p2); }
+inline bool path_equal(mgp_path *p1, mgp_path *p2) { return MgInvoke<int>(mgp_path_equal, p1, p2); }
 
 // Temporal type {mgp_date, mgp_local_time, mgp_local_date_time, mgp_duration} methods
 
 // mgp_date
 
-mgp_date *date_from_string(const char *string, mgp_memory *memory) {
+inline mgp_date *date_from_string(const char *string, mgp_memory *memory) {
   return MgInvoke<mgp_date *>(mgp_date_from_string, string, memory);
 }
 
-mgp_date *date_from_parameters(mgp_date_parameters *parameters, mgp_memory *memory) {
+inline mgp_date *date_from_parameters(mgp_date_parameters *parameters, mgp_memory *memory) {
   return MgInvoke<mgp_date *>(mgp_date_from_parameters, parameters, memory);
 }
 
-mgp_date *date_copy(mgp_date *date, mgp_memory *memory) { return MgInvoke<mgp_date *>(mgp_date_copy, date, memory); }
+inline mgp_date *date_copy(mgp_date *date, mgp_memory *memory) {
+  return MgInvoke<mgp_date *>(mgp_date_copy, date, memory);
+}
 
-void date_destroy(mgp_date *date) { mgp_date_destroy(date); }
+inline void date_destroy(mgp_date *date) { mgp_date_destroy(date); }
 
-bool date_equal(mgp_date *first, mgp_date *second) { return MgInvoke<int>(mgp_date_equal, first, second); }
+inline bool date_equal(mgp_date *first, mgp_date *second) { return MgInvoke<int>(mgp_date_equal, first, second); }
 
-int date_get_year(mgp_date *date) { return MgInvoke<int>(mgp_date_get_year, date); }
+inline int date_get_year(mgp_date *date) { return MgInvoke<int>(mgp_date_get_year, date); }
 
-int date_get_month(mgp_date *date) { return MgInvoke<int>(mgp_date_get_month, date); }
+inline int date_get_month(mgp_date *date) { return MgInvoke<int>(mgp_date_get_month, date); }
 
-int date_get_day(mgp_date *date) { return MgInvoke<int>(mgp_date_get_day, date); }
+inline int date_get_day(mgp_date *date) { return MgInvoke<int>(mgp_date_get_day, date); }
 
-int64_t date_timestamp(mgp_date *date) { return MgInvoke<int64_t>(mgp_date_timestamp, date); }
+inline int64_t date_timestamp(mgp_date *date) { return MgInvoke<int64_t>(mgp_date_timestamp, date); }
 
-mgp_date *date_now(mgp_memory *memory) { return MgInvoke<mgp_date *>(mgp_date_now, memory); }
+inline mgp_date *date_now(mgp_memory *memory) { return MgInvoke<mgp_date *>(mgp_date_now, memory); }
 
-mgp_date *date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory) {
+inline mgp_date *date_add_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory) {
   return MgInvoke<mgp_date *>(mgp_date_add_duration, date, dur, memory);
 }
 
-mgp_date *date_sub_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory) {
+inline mgp_date *date_sub_duration(mgp_date *date, mgp_duration *dur, mgp_memory *memory) {
   return MgInvoke<mgp_date *>(mgp_date_sub_duration, date, dur, memory);
 }
 
-mgp_duration *date_diff(mgp_date *first, mgp_date *second, mgp_memory *memory) {
+inline mgp_duration *date_diff(mgp_date *first, mgp_date *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_date_diff, first, second, memory);
 }
 
 // mgp_local_time
 
-mgp_local_time *local_time_from_string(const char *string, mgp_memory *memory) {
+inline mgp_local_time *local_time_from_string(const char *string, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_from_string, string, memory);
 }
 
-mgp_local_time *local_time_from_parameters(mgp_local_time_parameters *parameters, mgp_memory *memory) {
+inline mgp_local_time *local_time_from_parameters(mgp_local_time_parameters *parameters, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_from_parameters, parameters, memory);
 }
 
-mgp_local_time *local_time_copy(mgp_local_time *local_time, mgp_memory *memory) {
+inline mgp_local_time *local_time_copy(mgp_local_time *local_time, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_copy, local_time, memory);
 }
 
-void local_time_destroy(mgp_local_time *local_time) { mgp_local_time_destroy(local_time); }
+inline void local_time_destroy(mgp_local_time *local_time) { mgp_local_time_destroy(local_time); }
 
-bool local_time_equal(mgp_local_time *first, mgp_local_time *second) {
+inline bool local_time_equal(mgp_local_time *first, mgp_local_time *second) {
   return MgInvoke<int>(mgp_local_time_equal, first, second);
 }
 
-int local_time_get_hour(mgp_local_time *local_time) { return MgInvoke<int>(mgp_local_time_get_hour, local_time); }
+inline int local_time_get_hour(mgp_local_time *local_time) {
+  return MgInvoke<int>(mgp_local_time_get_hour, local_time);
+}
 
-int local_time_get_minute(mgp_local_time *local_time) { return MgInvoke<int>(mgp_local_time_get_minute, local_time); }
+inline int local_time_get_minute(mgp_local_time *local_time) {
+  return MgInvoke<int>(mgp_local_time_get_minute, local_time);
+}
 
-int local_time_get_second(mgp_local_time *local_time) { return MgInvoke<int>(mgp_local_time_get_second, local_time); }
+inline int local_time_get_second(mgp_local_time *local_time) {
+  return MgInvoke<int>(mgp_local_time_get_second, local_time);
+}
 
-int local_time_get_millisecond(mgp_local_time *local_time) {
+inline int local_time_get_millisecond(mgp_local_time *local_time) {
   return MgInvoke<int>(mgp_local_time_get_millisecond, local_time);
 }
 
-int local_time_get_microsecond(mgp_local_time *local_time) {
+inline int local_time_get_microsecond(mgp_local_time *local_time) {
   return MgInvoke<int>(mgp_local_time_get_microsecond, local_time);
 }
 
-int64_t local_time_timestamp(mgp_local_time *local_time) {
+inline int64_t local_time_timestamp(mgp_local_time *local_time) {
   return MgInvoke<int64_t>(mgp_local_time_timestamp, local_time);
 }
 
-mgp_local_time *local_time_now(mgp_memory *memory) { return MgInvoke<mgp_local_time *>(mgp_local_time_now, memory); }
+inline mgp_local_time *local_time_now(mgp_memory *memory) {
+  return MgInvoke<mgp_local_time *>(mgp_local_time_now, memory);
+}
 
-mgp_local_time *local_time_add_duration(mgp_local_time *local_time, mgp_duration *dur, mgp_memory *memory) {
+inline mgp_local_time *local_time_add_duration(mgp_local_time *local_time, mgp_duration *dur, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_add_duration, local_time, dur, memory);
 }
 
-mgp_local_time *local_time_sub_duration(mgp_local_time *local_time, mgp_duration *dur, mgp_memory *memory) {
+inline mgp_local_time *local_time_sub_duration(mgp_local_time *local_time, mgp_duration *dur, mgp_memory *memory) {
   return MgInvoke<mgp_local_time *>(mgp_local_time_sub_duration, local_time, dur, memory);
 }
 
-mgp_duration *local_time_diff(mgp_local_time *first, mgp_local_time *second, mgp_memory *memory) {
+inline mgp_duration *local_time_diff(mgp_local_time *first, mgp_local_time *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_local_time_diff, first, second, memory);
 }
 
 // mgp_local_date_time
 
-mgp_local_date_time *local_date_time_from_string(const char *string, mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_from_string(const char *string, mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_from_string, string, memory);
 }
 
-mgp_local_date_time *local_date_time_from_parameters(mgp_local_date_time_parameters *parameters, mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_from_parameters(mgp_local_date_time_parameters *parameters,
+                                                            mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_from_parameters, parameters, memory);
 }
 
-mgp_local_date_time *local_date_time_copy(mgp_local_date_time *local_date_time, mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_copy(mgp_local_date_time *local_date_time, mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_copy, local_date_time, memory);
 }
 
-void local_date_time_destroy(mgp_local_date_time *local_date_time) { mgp_local_date_time_destroy(local_date_time); }
+inline void local_date_time_destroy(mgp_local_date_time *local_date_time) {
+  mgp_local_date_time_destroy(local_date_time);
+}
 
-bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
+inline bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
   return MgInvoke<int>(mgp_local_date_time_equal, first, second);
 }
 
-int local_date_time_get_year(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_year(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_year, local_date_time);
 }
 
-int local_date_time_get_month(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_month(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_month, local_date_time);
 }
 
-int local_date_time_get_day(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_day(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_day, local_date_time);
 }
 
-int local_date_time_get_hour(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_hour(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_hour, local_date_time);
 }
 
-int local_date_time_get_minute(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_minute(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_minute, local_date_time);
 }
 
-int local_date_time_get_second(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_second(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_second, local_date_time);
 }
 
-int local_date_time_get_millisecond(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_millisecond(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_millisecond, local_date_time);
 }
 
-int local_date_time_get_microsecond(mgp_local_date_time *local_date_time) {
+inline int local_date_time_get_microsecond(mgp_local_date_time *local_date_time) {
   return MgInvoke<int>(mgp_local_date_time_get_microsecond, local_date_time);
 }
 
-int64_t local_date_time_timestamp(mgp_local_date_time *local_date_time) {
+inline int64_t local_date_time_timestamp(mgp_local_date_time *local_date_time) {
   return MgInvoke<int64_t>(mgp_local_date_time_timestamp, local_date_time);
 }
 
-mgp_local_date_time *local_date_time_now(mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_now(mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_now, memory);
 }
 
-mgp_local_date_time *local_date_time_add_duration(mgp_local_date_time *local_date_time, mgp_duration *dur,
-                                                  mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_add_duration(mgp_local_date_time *local_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_add_duration, local_date_time, dur, memory);
 }
 
-mgp_local_date_time *local_date_time_sub_duration(mgp_local_date_time *local_date_time, mgp_duration *dur,
-                                                  mgp_memory *memory) {
+inline mgp_local_date_time *local_date_time_sub_duration(mgp_local_date_time *local_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
   return MgInvoke<mgp_local_date_time *>(mgp_local_date_time_sub_duration, local_date_time, dur, memory);
 }
 
-mgp_duration *local_date_time_diff(mgp_local_date_time *first, mgp_local_date_time *second, mgp_memory *memory) {
+inline mgp_duration *local_date_time_diff(mgp_local_date_time *first, mgp_local_date_time *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_local_date_time_diff, first, second, memory);
 }
 
 // mgp_duration
 
-mgp_duration *duration_from_string(const char *string, mgp_memory *memory) {
+inline mgp_duration *duration_from_string(const char *string, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_from_string, string, memory);
 }
 
-mgp_duration *duration_from_parameters(mgp_duration_parameters *parameters, mgp_memory *memory) {
+inline mgp_duration *duration_from_parameters(mgp_duration_parameters *parameters, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_from_parameters, parameters, memory);
 }
 
-mgp_duration *duration_from_microseconds(int64_t microseconds, mgp_memory *memory) {
+inline mgp_duration *duration_from_microseconds(int64_t microseconds, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_from_microseconds, microseconds, memory);
 }
 
-mgp_duration *duration_copy(mgp_duration *duration, mgp_memory *memory) {
+inline mgp_duration *duration_copy(mgp_duration *duration, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_copy, duration, memory);
 }
 
-void duration_destroy(mgp_duration *duration) { mgp_duration_destroy(duration); }
+inline void duration_destroy(mgp_duration *duration) { mgp_duration_destroy(duration); }
 
-int64_t duration_get_microseconds(mgp_duration *duration) {
+inline int64_t duration_get_microseconds(mgp_duration *duration) {
   return MgInvoke<int64_t>(mgp_duration_get_microseconds, duration);
 }
 
-bool duration_equal(mgp_duration *first, mgp_duration *second) {
+inline bool duration_equal(mgp_duration *first, mgp_duration *second) {
   return MgInvoke<int>(mgp_duration_equal, first, second);
 }
 
-mgp_duration *duration_neg(mgp_duration *duration, mgp_memory *memory) {
+inline mgp_duration *duration_neg(mgp_duration *duration, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_neg, duration, memory);
 }
 
-mgp_duration *duration_add(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
+inline mgp_duration *duration_add(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_add, first, second, memory);
 }
 
-mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
+inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_sub, first, second, memory);
 }
 
 // Procedure
 
-mgp_proc *module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
+inline mgp_proc *module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
   return MgInvoke<mgp_proc *>(mgp_module_add_read_procedure, module, name, cb);
 }
 
-mgp_proc *module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
+inline mgp_proc *module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
   return MgInvoke<mgp_proc *>(mgp_module_add_write_procedure, module, name, cb);
 }
 
-void proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
+inline mgp_proc *module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                 mgp_proc_initializer initializer, mgp_proc_cleanup cleanup) {
+  return MgInvoke<mgp_proc *>(mgp_module_add_batch_read_procedure, module, name, cb, initializer, cleanup);
+}
+
+inline mgp_proc *module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                  mgp_proc_initializer initializer, mgp_proc_cleanup cleanup) {
+  return MgInvoke<mgp_proc *>(mgp_module_add_batch_write_procedure, module, name, cb, initializer, cleanup);
+}
+
+inline void proc_add_arg(mgp_proc *proc, const char *name, mgp_type *type) {
   MgInvokeVoid(mgp_proc_add_arg, proc, name, type);
 }
 
-void proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
+inline void proc_add_opt_arg(mgp_proc *proc, const char *name, mgp_type *type, mgp_value *default_value) {
   MgInvokeVoid(mgp_proc_add_opt_arg, proc, name, type, default_value);
 }
 
-void proc_add_result(mgp_proc *proc, const char *name, mgp_type *type) {
+inline void proc_add_result(mgp_proc *proc, const char *name, mgp_type *type) {
   MgInvokeVoid(mgp_proc_add_result, proc, name, type);
 }
 
-void proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_type *type) {
+inline void proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_type *type) {
   MgInvokeVoid(mgp_proc_add_deprecated_result, proc, name, type);
 }
 
-bool must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
+inline int must_abort(mgp_graph *graph) { return mgp_must_abort(graph); }
 
 // mgp_result
 
-void result_set_error_msg(mgp_result *res, const char *error_msg) {
+inline void result_set_error_msg(mgp_result *res, const char *error_msg) {
   MgInvokeVoid(mgp_result_set_error_msg, res, error_msg);
 }
 
-mgp_result_record *result_new_record(mgp_result *res) {
+inline mgp_result_record *result_new_record(mgp_result *res) {
   return MgInvoke<mgp_result_record *>(mgp_result_new_record, res);
 }
 
-void result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
+inline void result_record_insert(mgp_result_record *record, const char *field_name, mgp_value *val) {
   MgInvokeVoid(mgp_result_record_insert, record, field_name, val);
 }
 
 // Function
 
-mgp_func *module_add_function(mgp_module *module, const char *name, mgp_func_cb cb) {
+inline mgp_func *module_add_function(mgp_module *module, const char *name, mgp_func_cb cb) {
   return MgInvoke<mgp_func *>(mgp_module_add_function, module, name, cb);
 }
 
-void func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
+inline void func_add_arg(mgp_func *func, const char *name, mgp_type *type) {
   MgInvokeVoid(mgp_func_add_arg, func, name, type);
 }
 
-void func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
+inline void func_add_opt_arg(mgp_func *func, const char *name, mgp_type *type, mgp_value *default_value) {
   MgInvokeVoid(mgp_func_add_opt_arg, func, name, type, default_value);
 }
 
-void func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
+inline void func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
   MgInvokeVoid(mgp_func_result_set_error_msg, res, msg, memory);
 }
 
-void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
+inline void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
   MgInvokeVoid(mgp_func_result_set_value, res, value, memory);
 }
 

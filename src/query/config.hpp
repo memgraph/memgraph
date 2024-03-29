@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,12 @@ struct InterpreterConfig {
     bool allow_load_csv{true};
   } query;
 
-  // The default execution timeout is 10 minutes.
-  double execution_timeout_sec{600.0};
-  // The same as \ref memgraph::storage::replication::ReplicationClientConfig
+  // The same as \ref memgraph::replication::ReplicationClientConfig
   std::chrono::seconds replication_replica_check_frequency{1};
+
+  std::chrono::seconds instance_down_timeout_sec{5};
+  std::chrono::seconds instance_health_check_frequency_sec{1};
+  std::chrono::seconds instance_get_uuid_frequency_sec{10};
 
   std::string default_kafka_bootstrap_servers;
   std::string default_pulsar_service_url;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,9 @@
 
 namespace memgraph::utils {
 
+#define SPECIALIZE_GET_EXCEPTION_NAME(exep) \
+  std::string name() const override { return #exep; }
+
 /**
  * @brief Base class for all regular exceptions.
  *
@@ -40,11 +43,25 @@ namespace memgraph::utils {
 class BasicException : public std::exception {
  public:
   /**
+   * @brief Constructor (C++ STL strings_view).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(std::string_view message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (string literal).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(const char *message) noexcept : msg_(message) {}
+
+  /**
    * @brief Constructor (C++ STL strings).
    *
    * @param message The error message.
    */
-  explicit BasicException(const std::string_view message) noexcept : msg_(message) {}
+  explicit BasicException(std::string message) noexcept : msg_(std::move(message)) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -59,7 +76,7 @@ class BasicException : public std::exception {
   /**
    * @brief Virtual destructor to allow for subclassing.
    */
-  virtual ~BasicException() {}
+  ~BasicException() override = default;
 
   /**
    * @brief Returns a pointer to the (constant) error description.
@@ -69,6 +86,8 @@ class BasicException : public std::exception {
    *         not attempt to free the memory.
    */
   const char *what() const noexcept override { return msg_.c_str(); }
+
+  virtual std::string name() const { return "BasicException"; }
 
  protected:
   /**
@@ -112,7 +131,7 @@ class StacktraceException : public std::exception {
   /**
    * @brief Virtual destructor to allow for subclassing.
    */
-  virtual ~StacktraceException() {}
+  ~StacktraceException() override = default;
 
   /**
    * @brief Returns a pointer to the (constant) error description.
@@ -147,6 +166,23 @@ class NotYetImplemented final : public BasicException {
   template <class... Args>
   explicit NotYetImplemented(fmt::format_string<Args...> fmt, Args &&...args) noexcept
       : NotYetImplemented(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(NotYetImplemented)
 };
+
+class ParseException final : public BasicException {
+ public:
+  explicit ParseException(const std::string_view what) noexcept
+      : BasicException("Parsing failed for string: " + std::string(what)) {}
+
+  template <class... Args>
+  explicit ParseException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : ParseException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(ParseException)
+};
+
+inline std::string GetExceptionName(const std::exception &e) { return typeid(e).name(); }
+inline std::string GetExceptionName(const utils::BasicException &be) { return be.name(); }
 
 }  // namespace memgraph::utils

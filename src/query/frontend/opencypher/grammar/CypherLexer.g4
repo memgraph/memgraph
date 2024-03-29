@@ -102,6 +102,7 @@ FILTER         : F I L T E R ;
 IN             : I N ;
 INDEX          : I N D E X ;
 INFO           : I N F O ;
+INSTANCE       : I N S T A N C E ;
 IS             : I S ;
 KB             : K B ;
 KEY            : K E Y ;
@@ -122,6 +123,7 @@ PROCEDURE      : P R O C E D U R E ;
 PROFILE        : P R O F I L E ;
 QUERY          : Q U E R Y ;
 REDUCE         : R E D U C E ;
+REGISTER       : R E G I S T E R;
 REMOVE         : R E M O V E ;
 RETURN         : R E T U R N ;
 SET            : S E T ;
@@ -129,6 +131,7 @@ SHOW           : S H O W ;
 SINGLE         : S I N G L E ;
 STARTS         : S T A R T S ;
 STORAGE        : S T O R A G E ;
+TEXT           : T E X T ;
 THEN           : T H E N ;
 TRUE           : T R U E ;
 UNION          : U N I O N ;
@@ -179,6 +182,7 @@ EscapedSymbolicName   : ( '`' ~[`]* '`' )+ ;
  */
 IdentifierStart : ID_Start    | Pc ;
 IdentifierPart  : ID_Continue | Sc ;
+UNDERSCORE : '_' ;
 
 /* Hack for case-insensitive reserved words */
 fragment A : 'A' | 'a' ;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -448,7 +448,7 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
     // https://en.wikipedia.org/wiki/ISO_8601#Combined_date_and_time_representations
     // ISO8601 specifies that you cannot mix extended and basic format of date and time
     // If the date is in the extended format, same must be true for the time, so we don't send T
-    // which denotes the basic format. The opposite case also aplies.
+    // which denotes the basic format. The opposite case also applies.
     auto local_time_substring = string.substr(t_position + 1);
     if (local_time_substring.empty()) {
       throw temporal::InvalidArgumentException("Invalid LocalDateTime format. {}",

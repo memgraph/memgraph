@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,14 @@ namespace memgraph::communication::bolt {
 template <typename Buffer>
 class BaseEncoder {
  public:
-  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer), major_v_(0) {}
+
+  /**
+   * Lets the user update the version.
+   * This is all single thread for now. TODO: Update if ever multithreaded.
+   * @param major_v the major version of the Bolt protocol used.
+   */
+  void UpdateVersion(int major_v) { major_v_ = major_v; }
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
@@ -104,19 +111,20 @@ class BaseEncoder {
 
   void WriteList(const std::vector<Value> &value) {
     WriteTypeSize(value.size(), MarkerList);
-    for (auto &x : value) WriteValue(x);
+    for (const auto &x : value) WriteValue(x);
   }
 
   void WriteMap(const std::map<std::string, Value> &value) {
     WriteTypeSize(value.size(), MarkerMap);
-    for (auto &x : value) {
+    for (const auto &x : value) {
       WriteString(x.first);
       WriteValue(x.second);
     }
   }
 
   void WriteVertex(const Vertex &vertex) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::Node));
     WriteInt(vertex.id.AsInt());
 
@@ -132,10 +140,16 @@ class BaseEncoder {
       WriteString(prop.first);
       WriteValue(prop.second);
     }
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      WriteString(vertex.element_id);
+    }
   }
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + (unbound ? 3 : 5));
+    int struct_n = (unbound ? 3 + 1 * int(major_v_ > 4) : 5 + 3 * int(major_v_ > 4));  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
     WriteInt(edge.id.AsInt());
@@ -152,10 +166,22 @@ class BaseEncoder {
       WriteString(prop.first);
       WriteValue(prop.second);
     }
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      WriteString(edge.element_id);
+      if (!unbound) {
+        // from_element_id introduced in v5.0
+        WriteString(edge.from_element_id);
+        // to_element_id introduced in v5.0
+        WriteString(edge.to_element_id);
+      }
+    }
   }
 
   void WriteEdge(const UnboundedEdge &edge) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    const int struct_n = 3 + 1 * int(major_v_ > 4);  // element_id introduced from v5
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + struct_n);
     WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
 
     WriteInt(edge.id.AsInt());
@@ -168,17 +194,22 @@ class BaseEncoder {
       WriteString(prop.first);
       WriteValue(prop.second);
     }
+
+    if (major_v_ > 4) {
+      // element_id introduced in v5.0
+      WriteString(edge.element_id);
+    }
   }
 
   void WritePath(const Path &path) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
     WriteRAW(utils::UnderlyingCast(Signature::Path));
     WriteTypeSize(path.vertices.size(), MarkerList);
-    for (auto &v : path.vertices) WriteVertex(v);
+    for (const auto &v : path.vertices) WriteVertex(v);
     WriteTypeSize(path.edges.size(), MarkerList);
-    for (auto &e : path.edges) WriteEdge(e);
+    for (const auto &e : path.edges) WriteEdge(e);
     WriteTypeSize(path.indices.size(), MarkerList);
-    for (auto &i : path.indices) WriteInt(i);
+    for (const auto &i : path.indices) WriteInt(i);
   }
 
   void WriteDate(const utils::Date &date) {
@@ -264,6 +295,7 @@ class BaseEncoder {
 
  protected:
   Buffer &buffer_;
+  int major_v_;  //!< Major version of the underlying Bolt protocol (TODO: Think about reimplementing the versioning)
 
  private:
   template <class T>

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/fmt.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -211,6 +212,17 @@ class InteractiveDbAccessor {
       label_property_index_[key] = resp;
     }
     return label_property_index_.at(key);
+  }
+
+  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) { return true; }
+
+  std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
+    return dba_->GetIndexStats(label);
+  }
+
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
+    return dba_->GetIndexStats(label, property);
   }
 
   // Save the cached vertex counts to a stream.
@@ -425,11 +437,12 @@ void ExaminePlans(memgraph::query::DbAccessor *dba, const memgraph::query::Symbo
 
 memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstStorage *storage) {
   memgraph::query::frontend::ParsingContext parsing_context;
+  memgraph::query::Parameters parameters;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<memgraph::query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage);
+  memgraph::query::frontend::CypherMainVisitor visitor(parsing_context, storage, &parameters);
   visitor.visit(parser->tree());
   return visitor.query();
 }
@@ -448,12 +461,12 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
   memgraph::query::Parameters parameters;
   memgraph::query::plan::PostProcessor post_process(parameters);
   auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-      query_parts.query_parts.at(0).single_query_parts, &ctx);
+      query_parts, &ctx);
   for (auto plan : plans) {
     memgraph::query::AstStorage ast_copy;
     auto unoptimized_plan = plan->Clone(&ast_copy);
     auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
-    double cost = post_process.EstimatePlanCost(rewritten_plan, dba);
+    double cost = post_process.EstimatePlanCost(rewritten_plan, dba, symbol_table).cost;
     interactive_plans.push_back(
         InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }
@@ -483,7 +496,7 @@ void RunInteractivePlanning(memgraph::query::DbAccessor *dba) {
       auto *query = dynamic_cast<memgraph::query::CypherQuery *>(MakeAst(*line, &ast));
       if (!query) {
         throw memgraph::utils::BasicException(
-            "Interactive planning is only avaialable for regular openCypher "
+            "Interactive planning is only available for regular openCypher "
             "queries.");
       }
       auto symbol_table = memgraph::query::MakeSymbolTable(query);

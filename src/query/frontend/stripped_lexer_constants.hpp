@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,8 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace memgraph::query {
-namespace lexer_constants {
+namespace memgraph::query::lexer_constants {
 
 namespace trie {
 
@@ -33,7 +32,7 @@ inline int Noop(int x) { return x; }
 
 class Trie {
  public:
-  Trie() {}
+  Trie() = default;
   Trie(std::initializer_list<std::string> l) {
     for (const auto &s : l) {
       Insert(s);
@@ -139,12 +138,14 @@ const trie::Trie kKeywords = {"union",
                               "false",
                               "reduce",
                               "coalesce",
+                              "use",
                               "user",
                               "password",
                               "alter",
                               "drop",
                               "show",
                               "stats",
+                              "status",
                               "unique",
                               "explain",
                               "profile",
@@ -158,6 +159,7 @@ const trie::Trie kKeywords = {"union",
                               "key",
                               "dump",
                               "database",
+                              "databases",
                               "call",
                               "yield",
                               "memory",
@@ -208,7 +210,17 @@ const trie::Trie kKeywords = {"union",
                               "websocket",
                               "foreach",
                               "labels",
-                              "edge_types"};
+                              "edge_types",
+                              "off",
+                              "in_memory_transactional",
+                              "in_memory_analytical",
+                              "data",
+                              "directory",
+                              "lock",
+                              "unlock",
+                              "build",
+                              "instance",
+                              "coordinator"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(
@@ -2923,5 +2935,4 @@ const trie::Trie kSpecialTokens = {";",
                                    "\xEF\xB9\x98",   // u8"\ufe58"
                                    "\xEF\xB9\xA3",   // u8"\ufe63"
                                    "\xEF\xBC\x8D"};  // u8"\uff0d"
-}  // namespace lexer_constants
-}  // namespace memgraph::query
+}  // namespace memgraph::query::lexer_constants

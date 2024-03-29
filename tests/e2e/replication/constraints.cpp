@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <gflags/gflags.h>
 
 #include "common.hpp"
+#include "io/network/fmt.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
@@ -49,7 +50,7 @@ int main(int argc, char **argv) {
         const auto label_name = (*data)[0][1].ValueString();
         const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT hava valid constraint created.", database_endpoint);
+          LOG_FATAL("{} does NOT have a valid constraint created.", database_endpoint);
         }
       } else {
         LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
@@ -132,7 +133,7 @@ int main(int argc, char **argv) {
       auto client = mg::e2e::replication::Connect(database_endpoint);
       client->Execute("SHOW CONSTRAINT INFO;");
       if (const auto data = client->FetchAll()) {
-        if ((*data).size() != 0) {
+        if (!(*data).empty()) {
           LOG_FATAL("{} still have some constraints.", database_endpoint);
         }
       } else {

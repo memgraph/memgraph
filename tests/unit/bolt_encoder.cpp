@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,16 @@
 
 #include <array>
 #include <bit>
+#include <memory>
 
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
+#include "disk_test_utils.hpp"
 #include "glue/communication.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/temporal.hpp"
 using memgraph::communication::bolt::Value;
@@ -174,40 +178,39 @@ TEST_F(BoltEncoder, Map) {
   CheckOutput(output, nullptr, 0);
 }
 
-TEST_F(BoltEncoder, VertexAndEdge) {
+void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::Storage> &&db) {
   output.clear();
 
   // create vertex
-  memgraph::storage::Storage db;
-  auto dba = db.Access();
-  auto va1 = dba.CreateVertex();
-  auto va2 = dba.CreateVertex();
-  auto l1 = dba.NameToLabel("label1");
-  auto l2 = dba.NameToLabel("label2");
+  auto dba = db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto va1 = dba->CreateVertex();
+  auto va2 = dba->CreateVertex();
+  auto l1 = dba->NameToLabel("label1");
+  auto l2 = dba->NameToLabel("label2");
   ASSERT_TRUE(va1.AddLabel(l1).HasValue());
   ASSERT_TRUE(va1.AddLabel(l2).HasValue());
-  auto p1 = dba.NameToProperty("prop1");
-  auto p2 = dba.NameToProperty("prop2");
+  auto p1 = dba->NameToProperty("prop1");
+  auto p2 = dba->NameToProperty("prop2");
   memgraph::storage::PropertyValue pv1(12), pv2(200);
   ASSERT_TRUE(va1.SetProperty(p1, pv1).HasValue());
   ASSERT_TRUE(va1.SetProperty(p2, pv2).HasValue());
 
   // create edge
-  auto et = dba.NameToEdgeType("edgetype");
-  auto ea = dba.CreateEdge(&va1, &va2, et);
-  auto p3 = dba.NameToProperty("prop3");
-  auto p4 = dba.NameToProperty("prop4");
+  auto et = dba->NameToEdgeType("edgetype");
+  auto ea = dba->CreateEdge(&va1, &va2, et).GetValue();
+  auto p3 = dba->NameToProperty("prop3");
+  auto p4 = dba->NameToProperty("prop4");
   memgraph::storage::PropertyValue pv3(42), pv4(1234);
-  ASSERT_TRUE(ea->SetProperty(p3, pv3).HasValue());
-  ASSERT_TRUE(ea->SetProperty(p4, pv4).HasValue());
+  ASSERT_TRUE(ea.SetProperty(p3, pv3).HasValue());
+  ASSERT_TRUE(ea.SetProperty(p4, pv4).HasValue());
 
   // check everything
   std::vector<Value> vals;
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)), db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)), db,
-                                              memgraph::storage::View::NEW));
-  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(*ea)), db,
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va1)),
+                                              db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::VertexAccessor(va2)),
+                                              db.get(), memgraph::storage::View::NEW));
+  vals.push_back(*memgraph::glue::ToBoltValue(memgraph::query::TypedValue(memgraph::query::EdgeAccessor(ea)), db.get(),
                                               memgraph::storage::View::NEW));
   bolt_encoder.MessageRecord(vals);
 
@@ -219,10 +222,25 @@ TEST_F(BoltEncoder, VertexAndEdge) {
   CheckOutput(output, vertexedge_encoded + 6, 34, false);
   CheckInt(output, va2.Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 41, 4, false);
-  CheckInt(output, ea->Gid().AsInt());
+  CheckInt(output, ea.Gid().AsInt());
   CheckInt(output, va1.Gid().AsInt());
   CheckInt(output, va2.Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 48, 26);
+}
+
+TEST_F(BoltEncoder, VertexAndEdgeInMemoryStorage) {
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage()};
+  TestVertexAndEdgeWithDifferentStorages(std::move(db));
+}
+
+TEST_F(BoltEncoder, VertexAndEdgeOnDiskStorage) {
+  const std::string testSuite = "bolt_encoder";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::DiskStorage(config)};
+  TestVertexAndEdgeWithDifferentStorages(std::move(db));
+
+  disk_test_utils::RemoveRocksDbDirs(testSuite);
 }
 
 TEST_F(BoltEncoder, BoltV1ExampleMessages) {

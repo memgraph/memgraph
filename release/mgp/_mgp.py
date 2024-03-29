@@ -257,3 +257,11 @@ class _MODULE:
     @staticmethod
     def add_function(wrapper):
         pass
+
+
+class SOURCE_TYPE_KAFKA:
+    pass
+
+
+class SOURCE_TYPE_PULSAR:
+    pass

@@ -25,9 +25,11 @@ statement : query ;
 
 query : cypherQuery
       | indexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
-      | infoQuery
+      | databaseInfoQuery
+      | systemInfoQuery
       | constraintQuery
       ;
 
@@ -46,7 +48,15 @@ indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
 
-infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
+edgetypeInfo : EDGE_TYPES INFO ;
+
+nodelabelInfo : NODE_LABELS INFO ;
+
+buildInfo : BUILD INFO ;
+
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -55,6 +65,8 @@ profileQuery : PROFILE cypherQuery ;
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
+
+textIndexQuery : createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -134,7 +146,7 @@ order : ORDER BY sortItem ( ',' sortItem )* ;
 
 skip : L_SKIP expression ;
 
-limit : LIMIT expression ;
+limit : LIMIT ( expression | parameter ) ;
 
 sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
 
@@ -170,7 +182,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
                    | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ']'
                    | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ']';
 
-relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable '|' expression ')';
+relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
 variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
 
@@ -184,7 +196,10 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName ;
+labelName : symbolicName
+          | parameter
+          | variable ( propertyLookup )+
+          ;
 
 relTypeName : symbolicName ;
 
@@ -236,6 +251,7 @@ atom : literal
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
+     | ( EXISTS '(' existsExpression ')' )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -247,6 +263,7 @@ literal : numberLiteral
         | booleanLiteral
         | CYPHERNULL
         | mapLiteral
+        | mapProjectionLiteral
         | listLiteral
         ;
 
@@ -275,6 +292,8 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
+existsExpression : patternPart ;
+
 idInColl : variable IN expression ;
 
 functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
@@ -283,9 +302,11 @@ functionName : symbolicName ( '.' symbolicName )* ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
-patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+patternComprehension : '[' ( variable '=' )? relationshipsPattern ( where )? '|' resultExpr=expression ']' ;
 
 propertyLookup : '.' ( propertyKeyName ) ;
+
+allPropertiesLookup : '.' '*' ;
 
 caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
 
@@ -299,11 +320,21 @@ numberLiteral : doubleLiteral
 
 mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
 
+mapProjectionLiteral : variable '{' ( mapElement ( ',' mapElement )* )? '}' ;
+
+mapElement : propertyLookup
+           | allPropertiesLookup
+           | variable
+           | propertyKeyValuePair
+           ;
+
 parameter : '$' ( symbolicName | DecimalLiteral ) ;
 
 propertyExpression : atom ( propertyLookup )+ ;
 
 propertyKeyName : symbolicName ;
+
+propertyKeyValuePair : propertyKeyName ':' expression ;
 
 integerLiteral : DecimalLiteral
                | OctalLiteral
@@ -313,6 +344,12 @@ integerLiteral : DecimalLiteral
 createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
+
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
 
 doubleLiteral : FloatingLiteral ;
 
@@ -389,4 +426,5 @@ cypherKeyword : ALL
 symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
              | cypherKeyword
+             | UNDERSCORE
              ;

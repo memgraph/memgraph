@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,8 +29,10 @@
 
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
+#include "utils/concepts.hpp"
 #include "utils/endian.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/typeinfo.hpp"
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
 // Mercedes car model line.
@@ -46,6 +48,7 @@ static_assert(std::is_same_v<std::uint8_t, char> || std::is_same_v<std::uint8_t,
 class SlkDecodeException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkDecodeException)
 };
 
 // Forward declarations for all recursive `Save` and `Load` functions must be
@@ -53,14 +56,25 @@ class SlkDecodeException : public utils::BasicException {
 // the global namespace.
 
 template <typename T>
+inline void Save(const std::vector<T> &obj, Builder *builder,
+                 std::function<void(const T &, Builder *)> item_save_function);
+template <typename T>
+inline void Load(std::vector<T> *obj, Reader *reader, std::function<void(T *, Reader *)> item_load_function);
+
+template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
 
-template <typename T>
-void Save(const std::set<T> &obj, Builder *builder);
-template <typename T>
-void Load(std::set<T> *obj, Reader *reader);
+template <typename T, size_t N>
+void Save(const std::array<T, N> &obj, Builder *builder);
+template <typename T, size_t N>
+void Load(std::array<T, N> *obj, Reader *reader);
+
+template <typename T, typename Cmp>
+void Save(const std::set<T, Cmp> &obj, Builder *builder);
+template <typename T, typename Cmp>
+void Load(std::set<T, Cmp> *obj, Reader *reader);
 
 template <typename K, typename V>
 void Save(const std::map<K, V> &obj, Builder *builder);
@@ -198,8 +212,8 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   }
 }
 
-template <typename T>
-inline void Save(const std::set<T> &obj, Builder *builder) {
+template <typename T, size_t N>
+inline void Save(const std::array<T, N> &obj, Builder *builder) {
   uint64_t size = obj.size();
   Save(size, builder);
   for (const auto &item : obj) {
@@ -207,8 +221,26 @@ inline void Save(const std::set<T> &obj, Builder *builder) {
   }
 }
 
-template <typename T>
-inline void Load(std::set<T> *obj, Reader *reader) {
+template <typename T, size_t N>
+inline void Load(std::array<T, N> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T, typename Cmp>
+inline void Save(const std::set<T, Cmp> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T, typename Cmp>
+inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
   uint64_t size = 0;
   Load(&size, reader);
   for (uint64_t i = 0; i < size; ++i) {
@@ -270,7 +302,7 @@ inline void Load(std::unique_ptr<T> *obj, Reader *reader) {
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 3rd argument.");
   bool exists = false;
@@ -306,6 +338,10 @@ inline void Save(const std::optional<T> &obj, Builder *builder) {
     Save(exists, builder);
     Save(*obj, builder);
   }
+}
+
+inline void Save(const utils::TypeId &obj, Builder *builder) {
+  Save(static_cast<std::underlying_type_t<utils::TypeId>>(obj), builder);
 }
 
 template <typename T>
@@ -372,7 +408,7 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader, std::vector<std::share
   // Prevent any loading which may potentially break class hierarchies.
   // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
   // checking whether some type has any derived or base classes.
-  static_assert(!std::is_polymorphic<T>::value,
+  static_assert(!std::is_polymorphic_v<T>,
                 "Only non polymorphic types can be loaded generically from a "
                 "pointer. Pass a custom load function as the 4th argument.");
   bool exists = false;
@@ -471,4 +507,25 @@ inline void Load(std::optional<T> *obj, Reader *reader, std::function<void(T *, 
     *obj = std::nullopt;
   }
 }
+
+inline void Load(utils::TypeId *obj, Reader *reader) {
+  using enum_type = std::underlying_type_t<utils::TypeId>;
+  enum_type obj_encoded;
+  slk::Load(&obj_encoded, reader);
+  *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+}
+
+template <utils::Enum T>
+void Save(const T &enum_value, slk::Builder *builder) {
+  slk::Save(utils::UnderlyingCast(enum_value), builder);
+}
+
+template <utils::Enum T>
+void Load(T *enum_value, slk::Reader *reader) {
+  using UnderlyingType = std::underlying_type_t<T>;
+  UnderlyingType value;
+  slk::Load(&value, reader);
+  *enum_value = static_cast<T>(value);
+}
+
 }  // namespace memgraph::slk

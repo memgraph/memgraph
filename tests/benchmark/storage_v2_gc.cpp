@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,11 @@
 
 #include <gflags/gflags.h>
 
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/timer.hpp"
+
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // This benchmark should be run for a fixed amount of time that is
 // large compared to GC interval to make the output relevant.
@@ -41,14 +44,14 @@ void UpdateLabelFunc(int thread_id, memgraph::storage::Storage *storage,
 
   memgraph::utils::Timer timer;
   for (int iter = 0; iter < num_iterations; ++iter) {
-    auto acc = storage->Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     memgraph::storage::Gid gid = vertices.at(vertex_dist(gen));
-    std::optional<memgraph::storage::VertexAccessor> vertex = acc.FindVertex(gid, memgraph::storage::View::OLD);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist", gid.AsUint());
     if (vertex->AddLabel(memgraph::storage::LabelId::FromUint(label_dist(gen))).HasValue()) {
-      MG_ASSERT(!acc.Commit().HasError());
+      MG_ASSERT(!acc->Commit().HasError());
     } else {
-      acc.Abort();
+      acc->Abort();
     }
   }
 }
@@ -57,21 +60,21 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   for (const auto &config : TestConfigurations) {
-    memgraph::storage::Storage storage(config.second);
+    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(config.second));
     std::vector<memgraph::storage::Gid> vertices;
     {
-      auto acc = storage.Access();
+      auto acc = storage->Access(ReplicationRole::MAIN);
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
-        vertices.push_back(acc.CreateVertex().Gid());
+        vertices.push_back(acc->CreateVertex().Gid());
       }
-      MG_ASSERT(!acc.Commit().HasError());
+      MG_ASSERT(!acc->Commit().HasError());
     }
 
     memgraph::utils::Timer timer;
     std::vector<std::thread> threads;
     threads.reserve(FLAGS_num_threads);
     for (int i = 0; i < FLAGS_num_threads; ++i) {
-      threads.emplace_back(UpdateLabelFunc, i, &storage, vertices, FLAGS_num_iterations);
+      threads.emplace_back(UpdateLabelFunc, i, storage.get(), vertices, FLAGS_num_iterations);
     }
 
     for (int i = 0; i < FLAGS_num_threads; ++i) {

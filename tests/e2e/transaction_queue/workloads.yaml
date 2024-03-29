@@ -1,0 +1,34 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+test_transaction_queue_in_memory_cluster: &test_transaction_queue_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "transaction_queue.log"
+      setup_queries: []
+      validation_queries: []
+
+test_transaction_queue_disk_cluster: &test_transaction_queue_disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "transaction_queue.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
+workloads:
+  - name: "test-transaction-queue"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/transaction_queue/procedures/"
+    args: ["transaction_queue/test_transaction_queue.py"]
+    <<: *test_transaction_queue_in_memory_cluster
+
+  - name: "test-transaction-queue for on-disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/transaction_queue/procedures/"
+    args: ["transaction_queue/test_transaction_queue.py"]
+    <<: *test_transaction_queue_disk_cluster

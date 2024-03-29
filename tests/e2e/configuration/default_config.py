@@ -14,14 +14,7 @@
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
 startup_config_dict = {
-    "auth_module_create_missing_role": ("true", "true", "Set to false to disable creation of missing roles."),
-    "auth_module_create_missing_user": ("true", "true", "Set to false to disable creation of missing users."),
     "auth_module_executable": ("", "", "Absolute path to the auth module executable that should be used."),
-    "auth_module_manage_roles": (
-        "true",
-        "true",
-        "Set to false to disable management of roles through the auth module.",
-    ),
     "auth_module_timeout_ms": (
         "10000",
         "10000",
@@ -56,8 +49,8 @@ startup_config_dict = {
     ),
     "bolt_port": ("7687", "7687", "Port on which the Bolt server should listen."),
     "bolt_server_name_for_init": (
-        "",
-        "",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
+        "Neo4j/v5.11.0 compatible graph database server - Memgraph",
         "Server name which the database should send to the client in the Bolt INIT message.",
     ),
     "bolt_session_inactivity_timeout": (
@@ -65,7 +58,19 @@ startup_config_dict = {
         "1800",
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
+    "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
+    "management_port": ("0", "0", "Port on which coordinator servers will be started."),
+    "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
+    "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
+    "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
+    "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
+    "data_recovery_on_startup": (
+        "false",
+        "false",
+        "Controls whether the database recovers persisted data on startup.",
+    ),
     "isolation_level": (
         "SNAPSHOT_ISOLATION",
         "SNAPSHOT_ISOLATION",
@@ -92,12 +97,39 @@ startup_config_dict = {
         "1024",
         "Memory warning threshold, in MB. If Memgraph detects there is less available RAM it will log a warning. Set to 0 to disable.",
     ),
+    "metrics_address": (
+        "0.0.0.0",
+        "0.0.0.0",
+        "IP address on which the Memgraph server for exposing metrics should listen.",
+    ),
+    "metrics_port": ("9091", "9091", "Port on which the Memgraph server for exposing metrics should listen."),
     "monitoring_address": (
         "0.0.0.0",
         "0.0.0.0",
         "IP address on which the websocket server for Memgraph monitoring should listen.",
     ),
     "monitoring_port": ("7444", "7444", "Port on which the websocket server for Memgraph monitoring should listen."),
+    "storage_parallel_index_recovery": (
+        "false",
+        "false",
+        "Controls whether the index creation can be done in a multithreaded fashion.",
+    ),
+    "storage_parallel_schema_recovery": (
+        "false",
+        "false",
+        "Controls whether the indices and constraints creation can be done in a multithreaded fashion.",
+    ),
+    "storage_enable_schema_metadata": (
+        "false",
+        "false",
+        "Controls whether metadata should be collected about the resident labels and edge types.",
+    ),
+    "storage_enable_edges_metadata": (
+        "false",
+        "false",
+        "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
+    "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
         "600",
@@ -114,13 +146,20 @@ startup_config_dict = {
         "1",
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
-    "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
-    "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
-    "storage_recover_on_startup": (
-        "false",
-        "false",
-        "Controls whether the storage recovers persisted data on startup.",
+    "storage_delta_on_identical_property_update": (
+        "true",
+        "true",
+        "Controls whether updating a property with the same value should create a delta object.",
     ),
+    "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
+    "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
+    "storage_items_per_batch": (
+        "1000000",
+        "1000000",
+        "The number of edges and vertices stored in a batch in a snapshot file.",
+    ),
+    "storage_properties_on_edges": ("false", "true", "Controls whether edges have properties."),
+    "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
         "0",
         "300",
@@ -137,6 +176,11 @@ startup_config_dict = {
         "100000",
         "100000",
         "Issue a 'fsync' call after this amount of transactions are written to the WAL file. Set to 1 for fully synchronous operation.",
+    ),
+    "storage_mode": (
+        "IN_MEMORY_TRANSACTIONAL",
+        "IN_MEMORY_TRANSACTIONAL",
+        "Default storage mode Memgraph uses. Allowed values: IN_MEMORY_TRANSACTIONAL, IN_MEMORY_ANALYTICAL, ON_DISK_TRANSACTIONAL",
     ),
     "storage_wal_file_size_kib": ("20480", "20480", "Minimum file size of each WAL file."),
     "stream_transaction_conflict_retries": (
@@ -155,7 +199,7 @@ startup_config_dict = {
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
-    "query_plan_cache_ttl": ("60", "60", "Time to live for cached query plans, in seconds."),
+    "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_vertex_count_to_expand_existing": (
         "10",
         "10",
@@ -163,4 +207,30 @@ startup_config_dict = {
     ),
     "query_max_plans": ("1000", "1000", "Maximum number of generated plans for a query."),
     "flag_file": ("", "", "load flags from file"),
+    "init_file": (
+        "",
+        "",
+        "Path to cypherl file that is used for configuring users and database schema before server starts.",
+    ),
+    "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts."),
+    "replication_restore_state_on_startup": (
+        "false",
+        "false",
+        "Restore replication state on startup, e.g. recover replica",
+    ),
+    "query_callable_mappings_path": (
+        "",
+        "",
+        "The path to mappings that describes aliases to callables in cypher queries in the form of key-value pairs in a json file. With this option query module procedures that do not exist in memgraph can be mapped to ones that exist.",
+    ),
+    "delta_chain_cache_threshold": (
+        "128",
+        "128",
+        "The threshold for when to cache long delta chains. This is used for heavy read + write workloads where repeated processing of delta chains can become costly.",
+    ),
+    "experimental_enabled": (
+        "",
+        "",
+        "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
+    ),
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,16 +31,17 @@
 #include "utils/spin_lock.hpp"
 
 namespace memgraph::query {
+
+enum class TransactionStatus;
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query,
                    const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                    utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                   const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                   const query::AuthChecker *auth_checker);
+                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
-  void Execute(DbAccessor *dba, utils::MonotonicBufferResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, const TriggerContext &context,
-               const AuthChecker *auth_checker) const;
+  void Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, double max_execution_time_sec,
+               std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
+               const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -60,10 +61,10 @@ struct Trigger {
 
     explicit TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers);
 
-    CachedPlan cached_plan;
+    PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, const query::AuthChecker *auth_checker) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -72,7 +73,7 @@ struct Trigger {
 
   mutable utils::SpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
-  std::optional<std::string> owner_;
+  std::shared_ptr<QueryUserOrRole> owner_;
 };
 
 enum class TriggerPhase : uint8_t { BEFORE_COMMIT, AFTER_COMMIT };
@@ -86,8 +87,7 @@ struct TriggerStore {
   void AddTrigger(std::string name, const std::string &query,
                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
                   TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  const InterpreterConfig::Query &query_config, std::optional<std::string> owner,
-                  const query::AuthChecker *auth_checker);
+                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
   void DropTrigger(const std::string &name);
 

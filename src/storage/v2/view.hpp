@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace memgraph::storage {
 
 /// Indicator for obtaining the state before or after a transaction & command.
-enum class View {
+enum class View : uint8_t {
   OLD,
   NEW,
 };

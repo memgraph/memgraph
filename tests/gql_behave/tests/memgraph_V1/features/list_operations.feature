@@ -219,3 +219,142 @@ Feature: List operators
             | [[1], 2] |
             | [3]      |
             | 4        |
+
+    Scenario: Unwind + InList test1
+        When executing query:
+            """
+            UNWIND [[1,2], [3,4]] as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |
+
+    Scenario: Unwind + InList test2
+        When executing query:
+            """
+            WITH [[1,2], [3,4]] as list
+            UNWIND list as l
+            RETURN 2 in l as x
+            """
+        Then the result should be:
+            | x     |
+            | true  |
+            | false |
+
+     Scenario: Unwind + InList test3
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({id: 1}), ({id: 2}), ({id: 3}), ({id: 4})
+            """
+        When executing query:
+            """
+            WITH [1, 2, 3] as list
+            MATCH (n) WHERE n.id in list
+            WITH n
+            WITH n, [1, 2] as list
+            WHERE n.id in list
+            RETURN n.id as id
+            ORDER BY id;
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+            | 2  |
+
+     Scenario: InList 01
+        Given an empty graph
+        And having executed
+            """
+            CREATE (o:Node) SET o.Status = 'This is the status';
+            """
+        When executing query:
+            """
+            match (o:Node)
+            where o.Status IN ['This is not the status', 'This is the status']
+            return o;
+            """
+        Then the result should be:
+            | o                                       |
+            | (:Node {Status: 'This is the status'})  |
+
+     Scenario: Simple list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then the result should be:
+            | years                    |
+            | [2003, 2003, 1999, 2021] |
+
+    Scenario: List pattern comprehension and property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years, keanu.name
+            """
+        Then the result should be:
+            | years                    | keanu.name     |
+            | [2003, 2003, 1999, 2021] | 'Keanu Reeves' |
+
+    Scenario: List pattern comprehension with function on selected property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(b.title)] AS movie_lens;
+            """
+        Then the result should be:
+            | movie_lens       |
+            | [22, 19, 10, 24] |
+
+     Scenario: Multiple entries with list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name, [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then the result should be:
+            | n.name               | years                    |
+            | 'Keanu Reeves'       | [2003, 2003, 1999, 2021] |
+            | 'Carrie-Anne Moss'   | [1999,2003]              |
+            | 'Laurence Fishburne' | [1999]                   |
+
+     Scenario: Multiple list pattern comprehensions in Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.title] AS titles
+            """
+        Then an error should be raised
+
+     Scenario: Function inside pattern comprehension's expression
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [p = (keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(nodes(p))] AS nodes
+            """
+        Then an error should be raised
+
+     Scenario: Multiple list pattern comprehensions in With
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n) WHERE size(n.name) > 5
+            WITH
+                n AS actor,
+                [(n)-->(m) WHERE m.released > 2000 | m.title] AS titles,
+                [(n)-->(m) WHERE m.released > 2000 | m.released] AS years
+            RETURN actor.name, years, titles;
+            """
+        Then an error should be raised

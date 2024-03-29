@@ -8,3 +8,5 @@ copy_magic_functions_e2e_python_files(conftest.py)
 copy_magic_functions_e2e_python_files(function_example.py)
 
 add_subdirectory(functions)
+
+copy_e2e_files(functions workloads.yaml)

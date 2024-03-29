@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,9 +13,7 @@
 #include <cstdint>
 
 namespace memgraph::storage::replication {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
 
-enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, INVALID };
+enum class ReplicaState : std::uint8_t { READY, REPLICATING, RECOVERY, MAYBE_BEHIND, DIVERGED_FROM_MAIN };
 
-enum class RegistrationMode : std::uint8_t { MUST_BE_INSTANTLY_VALID, CAN_BE_INVALID };
 }  // namespace memgraph::storage::replication

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,18 +19,38 @@ namespace memgraph::rpc {
 /// `utils::BasicException` is used for transient errors that should be reported
 /// to the user and `utils::StacktraceException` is used for fatal errors.
 /// This exception always requires explicit handling.
-class RpcFailedException final : public utils::BasicException {
+class RpcFailedException : public utils::BasicException {
  public:
-  RpcFailedException(const io::network::Endpoint &endpoint)
-      : utils::BasicException::BasicException(
-            "Couldn't communicate with the cluster! Please contact your "
-            "database administrator."),
-        endpoint_(endpoint) {}
-
-  /// Returns the endpoint associated with the error.
-  const io::network::Endpoint &endpoint() const { return endpoint_; }
-
- private:
-  io::network::Endpoint endpoint_;
+  explicit RpcFailedException(std::string_view msg) : utils::BasicException(msg) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
+
+class VersionMismatchRpcFailedException : public RpcFailedException {
+ public:
+  VersionMismatchRpcFailedException()
+      : RpcFailedException(
+            "Couldn't communicate with the cluster! There was a version mismatch. "
+            "Please contact your database administrator.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(VersionMismatchRpcFailedException);
+};
+
+class GenericRpcFailedException : public RpcFailedException {
+ public:
+  GenericRpcFailedException()
+      : RpcFailedException(
+            "Couldn't communicate with the cluster! Please contact your "
+            "database administrator.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
+};
+
+class SlkRpcFailedException : public RpcFailedException {
+ public:
+  SlkRpcFailedException()
+      : RpcFailedException("Received malformed message from cluster. Please raise an issue on Memgraph GitHub issues.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
+};
+
 }  // namespace memgraph::rpc

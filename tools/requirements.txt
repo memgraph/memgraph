@@ -6,3 +6,4 @@ python-dateutil==2.6.1
 pytz==2017.2
 six==1.11.0
 tabulate==0.8.1
+networkx==2.4

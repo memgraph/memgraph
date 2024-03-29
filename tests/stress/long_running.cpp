@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -47,6 +47,9 @@ DEFINE_bool(global_queries, true, "If queries that modifiy globally should be ex
 
 DEFINE_string(stats_file, "", "File into which to write statistics.");
 
+DEFINE_string(isolation_level, "", "Database isolation level.");
+DEFINE_string(storage_mode, "", "Database storage_mode.");
+
 /**
  * Encapsulates a Graph and a Bolt session and provides CRUD op functions.
  * Also defines a run-loop for a generic exectutor, and a graph state
@@ -83,7 +86,7 @@ class GraphSession {
   std::set<uint64_t> edges_;
 
   std::string indexed_label_;
-  std::set<std::string> labels_;
+  std::set<std::string, std::less<>> labels_;
 
   std::map<std::string, std::set<uint64_t>> labels_vertices_;
 
@@ -106,7 +109,7 @@ class GraphSession {
     return *it;
   }
 
-  std::string RandomElement(std::set<std::string> &data) {
+  std::string RandomElement(std::set<std::string, std::less<>> &data) {
     uint64_t pos = std::floor(GetRandom() * data.size());
     auto it = data.begin();
     std::advance(it, pos);
@@ -254,6 +257,22 @@ class GraphSession {
     Execute(fmt::format("MATCH ()-[e]->() WHERE e.id > {} AND e.id < {} SET e.value = {}", lo, hi, num));
   }
 
+  void CheckGraphProjection() {
+    uint64_t vertex_id = *vertices_.rbegin();
+    uint64_t lo = std::floor(GetRandom() * vertex_id);
+    uint64_t hi = std::floor(lo + vertex_id * 0.01);
+
+    Execute(fmt::format(
+        "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.nodes as nodes "
+        "UNWIND nodes as n RETURN n.x "
+        "as x ORDER BY x DESC",
+        lo, hi));
+    Execute(fmt::format(
+        "MATCH p=()-[e]->() WHERE e.id > {} AND e.id < {} WITH project(p) as graph WITH graph.edges as edges "
+        "UNWIND edges as e RETURN e.prop as y ORDER BY y DESC",
+        lo, hi));
+  }
+
   /** Checks if the local info corresponds to DB state */
   void VerifyGraph() {
     // helper lambda for set verification
@@ -357,6 +376,7 @@ class GraphSession {
       } else {
         CreateVertices(1);
       }
+      CheckGraphProjection();
     }
 
     // final verification

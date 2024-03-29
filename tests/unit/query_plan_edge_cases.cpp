@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,35 +14,84 @@
 // easy testing and latter readability they are tested end-to-end.
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
+#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
+#include "query/stream/streams.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 DECLARE_bool(query_cost_planner);
 
+template <typename StorageType>
 class QueryExecution : public testing::Test {
  protected:
-  std::optional<memgraph::storage::Storage> db_;
+  const std::string testSuite = "query_plan_edge_cases";
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
-  void SetUp() {
-    db_.emplace();
-    interpreter_context_.emplace(&*db_, memgraph::query::InterpreterConfig{}, data_directory);
-    interpreter_.emplace(&*interpreter_context_);
+  std::optional<memgraph::replication::ReplicationState> repl_state;
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::system::System> system_state;
+
+  void SetUp() override {
+    auto config = [&]() {
+      memgraph::storage::Config config{};
+      config.durability.storage_directory = data_directory;
+      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
+      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
+        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
+        config.force_on_disk = true;
+      }
+      return config;
+    }();  // iile
+
+    repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
+    db_gk.emplace(config, *repl_state);
+    auto db_acc_opt = db_gk->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
+    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
+                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
+                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+              "Wrong storage mode!");
+    db_acc_ = std::move(db_acc);
+    system_state.emplace();
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system_state
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 std::nullopt
+#endif
+    );
+    auth_checker_.emplace();
+    interpreter_.emplace(&*interpreter_context_, *db_acc_);
+    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, std::nullopt));
   }
 
-  void TearDown() {
+  void TearDown() override {
     interpreter_ = std::nullopt;
+    auth_checker_.reset();
     interpreter_context_ = std::nullopt;
-    db_ = std::nullopt;
+    system_state.reset();
+    db_acc_.reset();
+    db_gk.reset();
+    repl_state.reset();
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+    std::filesystem::remove_all(data_directory);
   }
 
   /**
@@ -51,9 +100,9 @@ class QueryExecution : public testing::Test {
    * Return the query results.
    */
   auto Execute(const std::string &query) {
-    ResultStreamFaker stream(&*db_);
+    ResultStreamFaker stream(this->db_acc_->get()->storage());
 
-    auto [header, _, qid] = interpreter_->Prepare(query, {}, nullptr);
+    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, {});
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);
@@ -62,24 +111,28 @@ class QueryExecution : public testing::Test {
   }
 };
 
-TEST_F(QueryExecution, MissingOptionalIntoExpand) {
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(QueryExecution, StorageTypes);
+
+TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
   // validating bug where expanding from Null (due to a preceeding optional
   // match) exhausts the expansion cursor, even if it's input is still not
   // exhausted
-  Execute(
+  this->Execute(
       "CREATE (a:Person {id: 1}), (b:Person "
       "{id:2})-[:Has]->(:Dog)-[:Likes]->(:Food )");
-  ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 4);
+  ASSERT_EQ(this->Execute("MATCH (n) RETURN n").size(), 4);
 
   auto Exec = [this](bool desc, const std::string &edge_pattern) {
     // this test depends on left-to-right query planning
     FLAGS_query_cost_planner = false;
-    return Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") + (desc ? "DESC " : "") +
-                   "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
-                   "MATCH (d)" +
-                   edge_pattern +
-                   "(f:Food) "
-                   "RETURN p, d, f")
+    return this
+        ->Execute(std::string("MATCH (p:Person) WITH p ORDER BY p.id ") + (desc ? "DESC " : "") +
+                  "OPTIONAL MATCH (p)-->(d:Dog) WITH p, d "
+                  "MATCH (d)" +
+                  edge_pattern +
+                  "(f:Food) "
+                  "RETURN p, d, f")
         .size();
   };
 
@@ -94,14 +147,14 @@ TEST_F(QueryExecution, MissingOptionalIntoExpand) {
   EXPECT_EQ(Exec(true, bfs), 1);
 }
 
-TEST_F(QueryExecution, EdgeUniquenessInOptional) {
+TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
   // Validating that an edge uniqueness check can't fail when the edge is Null
   // due to optonal match. Since edge-uniqueness only happens in one OPTIONAL
   // MATCH, we only need to check that scenario.
-  Execute("CREATE (), ()-[:Type]->()");
-  ASSERT_EQ(Execute("MATCH (n) RETURN n").size(), 3);
-  EXPECT_EQ(Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
-                    "RETURN n, r1, r2")
+  this->Execute("CREATE (), ()-[:Type]->()");
+  ASSERT_EQ(this->Execute("MATCH (n) RETURN n").size(), 3);
+  EXPECT_EQ(this->Execute("MATCH (n) OPTIONAL MATCH (n)-[r1]->(), (n)-[r2]->() "
+                          "RETURN n, r1, r2")
                 .size(),
             3);
 }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
+DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
 namespace {
 auto GetClient() {
@@ -125,7 +126,7 @@ std::filesystem::path CreateModuleFile(auto &client, const std::string_view file
 }
 
 std::string GetModuleFileQuery(const std::filesystem::path &path) {
-  return fmt::format("CALL mg.get_module_file({}) YIELD content", path);
+  return fmt::format("CALL mg.get_module_file('{}') YIELD content", path);
 }
 
 std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
@@ -140,7 +141,7 @@ std::string GetModuleFile(auto &client, const std::filesystem::path &path) {
 }
 
 std::string UpdateModuleFileQuery(const std::filesystem::path &path, const std::string_view content) {
-  return fmt::format("CALL mg.update_module_file({}, '{}')", path, content);
+  return fmt::format("CALL mg.update_module_file('{}', '{}')", path, content);
 }
 
 void UpdateModuleFile(auto &client, const std::filesystem::path &path, const std::string_view content) {
@@ -150,7 +151,7 @@ void UpdateModuleFile(auto &client, const std::filesystem::path &path, const std
 }
 
 std::string DeleteModuleFileQuery(const std::filesystem::path &path) {
-  return fmt::format("CALL mg.delete_module_file({})", path);
+  return fmt::format("CALL mg.delete_module_file('{}')", path);
 }
 
 void DeleteModuleFile(auto &client, const std::filesystem::path &path) {
@@ -180,6 +181,15 @@ int main(int argc, char **argv) {
 
   mg::Client::Init();
   auto client = GetClient();
+
+  if (FLAGS_multi_db) {
+    client->Execute("CREATE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("USE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  }
 
   AssertQueryFails<mg::ClientException>(client, CreateModuleFileQuery("some.cpp", "some content"),
                                         "mg.create_module_file: The specified file isn't in the supported format.");

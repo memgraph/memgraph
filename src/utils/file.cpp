@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,6 +81,8 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
   std::filesystem::rename(src, dst, error_code);
   return !error_code;
 }
+
+bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
 
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
 
@@ -502,7 +504,7 @@ void OutputFile::Close() noexcept {
 void OutputFile::FlushBuffer(bool force_flush) {
   MG_ASSERT(IsOpen(), "Flushing an unopend file.");
 
-  if (!force_flush && buffer_position_.load() < kFileBufferSize) return;
+  if (!force_flush && buffer_position_ < kFileBufferSize) return;
 
   std::unique_lock flush_guard(flush_lock_);
   FlushBufferInternal();
@@ -517,7 +519,7 @@ void OutputFile::FlushBufferInternal() {
   auto *buffer = buffer_;
   auto buffer_position = buffer_position_.load();
   while (buffer_position > 0) {
-    auto written = write(fd_, buffer, buffer_position_);
+    auto written = write(fd_, buffer, buffer_position);
     if (written == -1 && errno == EINTR) {
       continue;
     }

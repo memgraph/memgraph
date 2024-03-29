@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <mutex>
 #include <stack>
+#include <utility>
 
 #include "rpc/client.hpp"
 
@@ -25,8 +26,8 @@ namespace memgraph::rpc {
  */
 class ClientPool {
  public:
-  ClientPool(const io::network::Endpoint &endpoint, communication::ClientContext *context)
-      : endpoint_(endpoint), context_(context) {}
+  ClientPool(io::network::Endpoint endpoint, communication::ClientContext *context)
+      : endpoint_(std::move(endpoint)), context_(context) {}
 
   template <class TRequestResponse, class... Args>
   typename TRequestResponse::Response Call(Args &&...args) {

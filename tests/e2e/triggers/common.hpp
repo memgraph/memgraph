@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ inline constexpr std::string_view kVertexLabel{"VERTEX"};
 inline constexpr std::string_view kEdgeLabel{"EDGE"};
 
 std::unique_ptr<mg::Client> Connect();
-std::unique_ptr<mg::Client> ConnectWithUser(const std::string_view username);
+std::unique_ptr<mg::Client> ConnectWithUser(std::string_view username);
 void CreateVertex(mg::Client &client, int vertex_id);
 void CreateEdge(mg::Client &client, int from_vertex, int to_vertex, int edge_id);
 

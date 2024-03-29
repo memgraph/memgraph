@@ -9,18 +9,21 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+# import os
+import pulsar
 import pytest
+from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
-import pulsar
 import requests
-
-from common import NAME, connect, execute_and_fetch_all, PULSAR_SERVICE_URL
 
 # To run these test locally a running Kafka sever is necessery. The test tries
 # to connect on localhost:9092.
 
+# KAFKA_HOSTNAME=os.getenv("KAFKA_HOSTNAME", "localhost")
+# PULSAR_HOSTNAME=os.getenv("PULSAR_HOSTNAME", "localhost")
+# PULSAR_PORT="6652" if PULSAR_HOSTNAME == "localhost" else "8080"
 
 @pytest.fixture(autouse=True)
 def connection():
@@ -37,29 +40,22 @@ def connection():
 
 
 def get_topics(num):
-    return [f'topic_{i}' for i in range(num)]
+    return [f"topic_{i}" for i in range(num)]
 
 
 @pytest.fixture(scope="function")
 def kafka_topics():
-    admin_client = KafkaAdminClient(
-        bootstrap_servers="localhost:9092",
-        client_id="test")
+    admin_client = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
     # The issue arises if we remove default kafka topics, e.g.
     # "__consumer_offsets"
-    previous_topics = [
-        topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
+    previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
     if previous_topics:
         admin_client.delete_topics(topics=previous_topics, timeout_ms=5000)
 
     topics = get_topics(3)
     topics_to_create = []
     for topic in topics:
-        topics_to_create.append(
-            NewTopic(
-                name=topic,
-                num_partitions=1,
-                replication_factor=1))
+        topics_to_create.append(NewTopic(name=topic, num_partitions=1, replication_factor=1))
 
     admin_client.create_topics(new_topics=topics_to_create, timeout_ms=5000)
     yield topics
@@ -68,7 +64,7 @@ def kafka_topics():
 
 @pytest.fixture(scope="function")
 def kafka_producer():
-    yield KafkaProducer(bootstrap_servers="localhost:9092")
+    yield KafkaProducer(bootstrap_servers=["localhost:29092"], api_version_auto_timeout_ms=10000)
 
 
 @pytest.fixture(scope="function")
@@ -80,6 +76,5 @@ def pulsar_client():
 def pulsar_topics():
     topics = get_topics(3)
     for topic in topics:
-        requests.delete(
-            f'http://127.0.0.1:6652/admin/v2/persistent/public/default/{topic}?force=true')
+        requests.delete(f"http://localhost:6652/admin/v2/persistent/public/default/{topic}?force=true")
     yield topics

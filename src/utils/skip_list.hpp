@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,13 +21,17 @@
 #include <random>
 #include <utility>
 
+#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
+#include "utils/stat.hpp"
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -42,7 +46,7 @@ namespace memgraph::utils {
 /// heights than 32. The probability of heights larger than 32 gets extremely
 /// small. Also, the internal implementation can handle a maximum height of 32
 /// primarily becase of the height generator (see the `gen_height` function).
-const uint64_t kSkipListMaxHeight = 32;
+constexpr uint64_t kSkipListMaxHeight = 32;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
@@ -50,21 +54,45 @@ const uint64_t kSkipListMaxHeight = 32;
 /// list. Each thread that accesses the list can perform garbage collection. The
 /// level is determined empirically using benchmarks. A smaller height means
 /// that the garbage collection will be triggered more often.
-const uint64_t kSkipListGcHeightTrigger = 16;
+constexpr uint64_t kSkipListGcHeightTrigger = 16;
 
 /// This is the highest layer that will be used by default for item count
 /// estimation. It was determined empirically using benchmarks to have an
 /// optimal trade-off between performance and accuracy. The function will have
 /// an expected maximum error of less than 20% when the key matches 100k
 /// elements.
-const int kSkipListCountEstimateDefaultLayer = 10;
+constexpr int kSkipListCountEstimateDefaultLayer = 10;
 
 /// These variables define the storage sizes for the SkipListGc. The internal
 /// storage of the GC and the Stack storage used within the GC are all
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
-const uint64_t kSkipListGcBlockSize = 8189;
-const uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcBlockSize = 8189;
+constexpr uint64_t kSkipListGcStackSize = 8191;
+
+namespace detail {
+struct SkipListNode_base {
+  // This function generates a binomial distribution using the same technique
+  // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
+  // "O(1) level generation". The only exception in this implementation is that
+  // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
+  // returns 0 which is an invalid height. To make the distribution binomial
+  // this value is then mapped to `kSkipListMaxSize`.
+  static uint32_t gen_height() {
+    thread_local std::mt19937 gen{std::random_device{}()};
+    static_assert(kSkipListMaxHeight <= 32,
+                  "utils::SkipList::gen_height is implemented only for heights "
+                  "up to 32!");
+    uint32_t value = gen();
+    if (value == 0) return kSkipListMaxHeight;
+    // The value should have exactly `kSkipListMaxHeight` bits.
+    value >>= (32 - kSkipListMaxHeight);
+    // ffs = find first set
+    //       ^    ^     ^
+    return __builtin_ffs(value);
+  }
+};
+}  // namespace detail
 
 /// This is the Node object that represents each element stored in the list. The
 /// array of pointers to the next nodes is declared here to a size of 0 so that
@@ -176,8 +204,8 @@ class SkipListGc final {
   using TDeleted = std::pair<uint64_t, TNode *>;
   using TStack = Stack<TDeleted, kSkipListGcStackSize>;
 
-  const uint64_t kIdsInField = sizeof(uint64_t) * 8;
-  const uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
+  static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
+  static constexpr uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
 
   struct Block {
     std::atomic<Block *> prev;
@@ -337,17 +365,12 @@ class SkipListGc final {
         leftover.Push(*item);
       }
     }
-    while ((item = leftover.Pop())) {
-      deleted_.Push(*item);
-    }
+    deleted_ = std::move(leftover);
   }
 
   MemoryResource *GetMemoryResource() const { return memory_; }
 
   void Clear() {
-#ifndef NDEBUG
-    MG_ASSERT(alive_accessors_ == 0, "The SkipList can't be cleared while there are existing accessors!");
-#endif
     // Delete all allocated blocks.
     Block *head = head_.load(std::memory_order_acquire);
     while (head != nullptr) {
@@ -359,11 +382,14 @@ class SkipListGc final {
     }
 
     // Delete all items that have to be garbage collected.
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      size_t bytes = SkipListNodeSize(*item->second);
-      item->second->~TNode();
-      memory_->Deallocate(item->second, bytes);
+    {
+      std::optional<TDeleted> item;
+      std::unique_lock guard(lock_);
+      while ((item = deleted_.Pop())) {
+        size_t bytes = SkipListNodeSize(*item->second);
+        item->second->~TNode();
+        memory_->Deallocate(item->second, bytes);
+      }
     }
 
     // Reset all variables.
@@ -391,7 +417,7 @@ class SkipListGc final {
 ///
 /// The implementation is based on the work described in the paper
 /// "A Provably Correct Scalable Concurrent Skip List"
-/// https://www.cs.tau.ac.il/~shanir/nir-pubs-web/Papers/OPODIS2006-BA.pdf
+/// http://people.csail.mit.edu/shanir/publications/OPODIS2006-BA.pdf
 ///
 /// The proposed implementation is in Java so the authors don't worry about
 /// garbage collection. This implementation uses the garbage collector that is
@@ -548,7 +574,7 @@ class SkipListGc final {
 ///
 /// @tparam TObj object type that is stored in the list
 template <typename TObj>
-class SkipList final {
+class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
 
@@ -566,13 +592,20 @@ class SkipList final {
     Iterator(TNode *node) : node_(node) {}
 
    public:
-    TObj &operator*() const { return node_->obj; }
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
 
-    TObj *operator->() const { return &node_->obj; }
+    Iterator() = default;
+    Iterator(Iterator const &) = default;
+    Iterator(Iterator &&) = default;
+    Iterator &operator=(Iterator const &) = default;
+    Iterator &operator=(Iterator &&) = default;
 
-    bool operator==(const Iterator &other) const { return node_ == other.node_; }
+    value_type &operator*() const { return node_->obj; }
 
-    bool operator!=(const Iterator &other) const { return node_ != other.node_; }
+    value_type *operator->() const { return &node_->obj; }
+
+    friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
       while (true) {
@@ -585,8 +618,14 @@ class SkipList final {
       }
     }
 
+    Iterator operator++(int) {
+      Iterator old = *this;
+      ++(*this);
+      return old;
+    }
+
    private:
-    TNode *node_;
+    TNode *node_{nullptr};
   };
 
   class ConstIterator final {
@@ -596,15 +635,22 @@ class SkipList final {
     ConstIterator(TNode *node) : node_(node) {}
 
    public:
+    using value_type = TObj const;
+    using difference_type = std::ptrdiff_t;
+
+    ConstIterator() = default;
+    ConstIterator(ConstIterator const &) = default;
+    ConstIterator(ConstIterator &&) = default;
+    ConstIterator &operator=(ConstIterator const &) = default;
+    ConstIterator &operator=(ConstIterator &&) = default;
+
     ConstIterator(const Iterator &it) : node_(it.node_) {}
 
-    const TObj &operator*() const { return node_->obj; }
+    value_type &operator*() const { return node_->obj; }
 
-    const TObj *operator->() const { return &node_->obj; }
+    value_type *operator->() const { return &node_->obj; }
 
-    bool operator==(const ConstIterator &other) const { return node_ == other.node_; }
-
-    bool operator!=(const ConstIterator &other) const { return node_ != other.node_; }
+    friend bool operator==(ConstIterator const &lhs, ConstIterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     ConstIterator &operator++() {
       while (true) {
@@ -615,6 +661,12 @@ class SkipList final {
           return *this;
         }
       }
+    }
+
+    ConstIterator operator++(int) {
+      ConstIterator old = *this;
+      ++(*this);
+      return old;
     }
 
    private:
@@ -628,6 +680,10 @@ class SkipList final {
     explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
+    using value_type = TObj;
+    using iterator = Iterator;
+    using const_iterator = ConstIterator;
+
     ~Accessor() {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
@@ -640,6 +696,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
@@ -669,7 +726,7 @@ class SkipList final {
     /// @return bool indicating whether the item exists
     template <typename TKey>
     bool contains(const TKey &key) const {
-      return skiplist_->template contains(key);
+      return skiplist_->contains(key);
     }
 
     /// Finds the key in the list and returns an iterator to the item.
@@ -677,8 +734,17 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  the key isn't found
     template <typename TKey>
-    Iterator find(const TKey &key) const {
-      return skiplist_->template find(key);
+    Iterator find(const TKey &key) {
+      return skiplist_->find(key);
+    }
+
+    /// Finds the key in the list and returns an iterator to the item.
+    ///
+    /// @return ConstIterator to the item in the list, will be equal to `cend()` when
+    ///                  the key isn't found
+    template <typename TKey>
+    ConstIterator find(const TKey &key) const {
+      return skiplist_->find(key);
     }
 
     /// Finds the key or the first larger key in the list and returns an
@@ -687,8 +753,18 @@ class SkipList final {
     /// @return Iterator to the item in the list, will be equal to `end()` when
     ///                  no items match the search
     template <typename TKey>
-    Iterator find_equal_or_greater(const TKey &key) const {
-      return skiplist_->template find_equal_or_greater(key);
+    Iterator find_equal_or_greater(const TKey &key) {
+      return skiplist_->find_equal_or_greater(key);
+    }
+
+    /// Finds the key or the first larger key in the list and returns an
+    /// iterator to the item.
+    ///
+    /// @return ConstIterator to the item in the list, will be equal to `end()` when
+    ///                  no items match the search
+    template <typename TKey>
+    ConstIterator find_equal_or_greater(const TKey &key) const {
+      return skiplist_->find_equal_or_greater(key);
     }
 
     /// Estimates the number of items that are contained in the list that are
@@ -701,7 +777,7 @@ class SkipList final {
     /// @return uint64_t estimated count of identical items in the list
     template <typename TKey>
     uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+      return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
     /// Estimates the number of items that are contained in the list that are
@@ -716,7 +792,7 @@ class SkipList final {
     uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
                                   const std::optional<utils::Bound<TKey>> &upper,
                                   int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
+      return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     /// Estimates the average number of objects in the list that have the same
@@ -733,7 +809,7 @@ class SkipList final {
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
+      return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     /// Removes the key from the list.
@@ -741,7 +817,7 @@ class SkipList final {
     /// @return bool indicating whether the removal was successful
     template <typename TKey>
     bool remove(const TKey &key) {
-      return skiplist_->template remove(key);
+      return skiplist_->remove(key);
     }
 
     /// Returns the number of items contained in the list.
@@ -761,6 +837,10 @@ class SkipList final {
     explicit ConstAccessor(const SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
 
    public:
+    using value_type = TObj;
+    using iterator = ConstIterator;
+    using const_iterator = ConstIterator;
+
     ~ConstAccessor() {
       if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
     }
@@ -775,6 +855,7 @@ class SkipList final {
       skiplist_ = other.skiplist_;
       id_ = other.id_;
       other.skiplist_ = nullptr;
+      return *this;
     }
 
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
@@ -785,35 +866,35 @@ class SkipList final {
 
     template <typename TKey>
     bool contains(const TKey &key) const {
-      return skiplist_->template contains(key);
+      return skiplist_->contains(key);
     }
 
     template <typename TKey>
     ConstIterator find(const TKey &key) const {
-      return skiplist_->template find(key);
+      return skiplist_->find(key);
     }
 
     template <typename TKey>
     ConstIterator find_equal_or_greater(const TKey &key) const {
-      return skiplist_->template find_equal_or_greater(key);
+      return skiplist_->find_equal_or_greater(key);
     }
 
     template <typename TKey>
     uint64_t estimate_count(const TKey &key, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+      return skiplist_->estimate_count(key, max_layer_for_estimation);
     }
 
     template <typename TKey>
     uint64_t estimate_range_count(const std::optional<utils::Bound<TKey>> &lower,
                                   const std::optional<utils::Bound<TKey>> &upper,
                                   int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_range_count(lower, upper, max_layer_for_estimation);
+      return skiplist_->estimate_range_count(lower, upper, max_layer_for_estimation);
     }
 
     template <typename TCallable>
     uint64_t estimate_average_number_of_equals(
         const TCallable &equal_cmp, int max_layer_for_estimation = kSkipListCountEstimateDefaultLayer) const {
-      return skiplist_->template estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
+      return skiplist_->estimate_average_number_of_equals(equal_cmp, max_layer_for_estimation);
     }
 
     uint64_t size() const { return skiplist_->size(); }
@@ -888,7 +969,7 @@ class SkipList final {
   MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
 
   /// This function removes all elements from the list.
-  /// NOTE: The function *isn't* thread-safe. It must be called while there are
+  /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
   void clear() {
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
@@ -948,40 +1029,46 @@ class SkipList final {
         continue;
       }
 
-      std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
-      TNode *pred, *succ, *prev_pred = nullptr;
-      bool valid = true;
-      // The paper has a wrong condition here. In the paper it states that this
-      // loop should have `(layer <= top_layer)`, but that isn't correct.
-      for (int layer = 0; valid && (layer < top_layer); ++layer) {
-        pred = preds[layer];
-        succ = succs[layer];
-        if (pred != prev_pred) {
-          guards[layer] = std::unique_lock<SpinLock>(pred->lock);
-          prev_pred = pred;
+      TNode *new_node;
+      {
+        TNode *prev_pred = nullptr;
+        bool valid = true;
+        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+        // The paper has a wrong condition here. In the paper it states that this
+        // loop should have `(layer <= top_layer)`, but that isn't correct.
+        for (int layer = 0; valid && (layer < top_layer); ++layer) {
+          TNode *pred = preds[layer];
+          TNode *succ = succs[layer];
+          if (pred != prev_pred) {
+            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
+            prev_pred = pred;
+          }
+          // Existence test is missing in the paper.
+          valid = !pred->marked.load(std::memory_order_acquire) &&
+                  pred->nexts[layer].load(std::memory_order_acquire) == succ &&
+                  (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
         }
-        // Existence test is missing in the paper.
-        valid = !pred->marked.load(std::memory_order_acquire) &&
-                pred->nexts[layer].load(std::memory_order_acquire) == succ &&
-                (succ == nullptr || !succ->marked.load(std::memory_order_acquire));
-      }
 
-      if (!valid) continue;
+        if (!valid) continue;
 
-      size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
-      void *ptr = GetMemoryResource()->Allocate(node_bytes);
-      // `calloc` would be faster, but the API has no such call.
-      memset(ptr, 0, node_bytes);
-      auto *new_node = static_cast<TNode *>(ptr);
-      // Construct through allocator so it propagates if needed.
-      Allocator<TNode> allocator(GetMemoryResource());
-      allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+        size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
 
-      // The paper is also wrong here. It states that the loop should go up to
-      // `top_layer` which is wrong.
-      for (int layer = 0; layer < top_layer; ++layer) {
-        new_node->nexts[layer].store(succs[layer], std::memory_order_release);
-        preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
+        MemoryResource *memoryResource = GetMemoryResource();
+        void *ptr = memoryResource->Allocate(node_bytes);
+        // `calloc` would be faster, but the API has no such call.
+        memset(ptr, 0, node_bytes);
+        new_node = static_cast<TNode *>(ptr);
+
+        // Construct through allocator so it propagates if needed.
+        Allocator<TNode> allocator(memoryResource);
+        allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+
+        // The paper is also wrong here. It states that the loop should go up to
+        // `top_layer` which is wrong.
+        for (int layer = 0; layer < top_layer; ++layer) {
+          new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+          preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
+        }
       }
 
       new_node->fully_linked.store(true, std::memory_order_release);
@@ -991,26 +1078,33 @@ class SkipList final {
   }
 
   template <typename TKey>
-  bool contains(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    int layer_found = find_node(key, preds, succs);
-    return (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
-            !succs[layer_found]->marked.load(std::memory_order_acquire));
-  }
-
-  template <typename TKey>
-  Iterator find(const TKey &key) const {
+  SkipListNode<TObj> *find_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     int layer_found = find_node(key, preds, succs);
     if (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
         !succs[layer_found]->marked.load(std::memory_order_acquire)) {
-      return Iterator{succs[layer_found]};
+      return succs[layer_found];
     }
-    return Iterator{nullptr};
+    return nullptr;
   }
 
   template <typename TKey>
-  Iterator find_equal_or_greater(const TKey &key) const {
+  bool contains(const TKey &key) const {
+    return find_(key) != nullptr;
+  }
+
+  template <typename TKey>
+  Iterator find(const TKey &key) {
+    return {find_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find(const TKey &key) const {
+    return {find_(key)};
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     find_node(key, preds, succs);
     if (succs[0] && succs[0]->fully_linked.load(std::memory_order_acquire) &&
@@ -1018,6 +1112,16 @@ class SkipList final {
       return Iterator{succs[0]};
     }
     return Iterator{nullptr};
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater(const TKey &key) {
+    return {find_equal_or_greater_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find_equal_or_greater(const TKey &key) const {
+    return {find_equal_or_greater_(key)};
   }
 
   template <typename TKey>
@@ -1064,8 +1168,8 @@ class SkipList final {
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
     } else {
-      for (int i = 0; i < kSkipListMaxHeight; ++i) {
-        preds[i] = head_;
+      for (auto &pred : preds) {
+        pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
     }
@@ -1253,34 +1357,12 @@ class SkipList final {
     }
   }
 
-  // This function generates a binomial distribution using the same technique
-  // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
-  // "O(1) level generation". The only exception in this implementation is that
-  // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
-  // returns 0 which is an invalid height. To make the distribution binomial
-  // this value is then mapped to `kSkipListMaxSize`.
-  uint32_t gen_height() {
-    std::lock_guard<SpinLock> guard(lock_);
-    static_assert(kSkipListMaxHeight <= 32,
-                  "utils::SkipList::gen_height is implemented only for heights "
-                  "up to 32!");
-    uint32_t value = gen_();
-    if (value == 0) return kSkipListMaxHeight;
-    // The value should have exactly `kSkipListMaxHeight` bits.
-    value >>= (32 - kSkipListMaxHeight);
-    // ffs = find first set
-    //       ^    ^     ^
-    return __builtin_ffs(value);
-  }
-
  private:
   TNode *head_{nullptr};
   // gc_ also stores the only copy of `MemoryResource *`, to save space.
   mutable SkipListGc<TObj> gc_;
 
-  std::mt19937 gen_{std::random_device{}()};
   std::atomic<uint64_t> size_{0};
-  SpinLock lock_;
 };
 
 }  // namespace memgraph::utils

@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "mgp"
-version = "1.0.0"
+version = "1.1.1"
 description = "Memgraph's module for developing MAGE modules. Used only for type hinting!"
 authors = [
-    "MasterMedo <mislav.vuletic@gmail.com>",
-    "jbajic <jure.bajic@memgraph.io>",
     "katarinasupe <katarina.supe@memgraph.io>",
+    "jbajic <jure.bajic@memgraph.io>",
     "antejavor <ante.javor@memgraph.io>",
     "antaljanosbenjamin <benjamin.antal@memgraph.io>",
+    "MasterMedo <mislav.vuletic@gmail.com>",
 ]
 license = "Apache-2.0"
 readme = "README.md"

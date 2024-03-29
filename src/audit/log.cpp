@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <json/json.hpp>
+#include <utility>
 
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
@@ -88,8 +89,8 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
   return ret;
 }
 
-Log::Log(const std::filesystem::path &storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
-    : storage_directory_(storage_directory),
+Log::Log(std::filesystem::path storage_directory, int32_t buffer_size, int32_t buffer_flush_interval_millis)
+    : storage_directory_(std::move(storage_directory)),
       buffer_size_(buffer_size),
       buffer_flush_interval_millis_(buffer_flush_interval_millis),
       started_(false) {}
@@ -117,12 +118,12 @@ Log::~Log() {
 }
 
 void Log::Record(const std::string &address, const std::string &username, const std::string &query,
-                 const storage::PropertyValue &params) {
+                 const storage::PropertyValue &params, const std::string &db) {
   if (!started_.load(std::memory_order_relaxed)) return;
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  buffer_->emplace(Item{timestamp, address, username, query, params});
+  buffer_->emplace(Item{timestamp, address, username, query, params, db});
 }
 
 void Log::ReopenLog() {
@@ -137,8 +138,8 @@ void Log::Flush() {
   for (uint64_t i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;
-    log_.Write(fmt::format("{}.{:06d},{},{},{},{}\n", item->timestamp / 1000000, item->timestamp % 1000000,
-                           item->address, item->username, utils::Escape(item->query),
+    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n", item->timestamp / 1000000, item->timestamp % 1000000,
+                           item->address, item->username, item->db, utils::Escape(item->query),
                            utils::Escape(PropertyValueToJson(item->params).dump())));
   }
   log_.Sync();

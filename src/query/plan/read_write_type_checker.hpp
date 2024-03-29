@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 namespace memgraph::query::plan {
 
-class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
+struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
  public:
   ReadWriteTypeChecker() = default;
 
@@ -73,6 +73,7 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
@@ -88,7 +89,6 @@ class ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   bool Visit(Once &) override;
 
- private:
   void UpdateType(RWType op_type);
 };
 

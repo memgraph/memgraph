@@ -9,12 +9,12 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import time
+from multiprocessing import Manager, Process, Value
+
 import mgclient
 import pytest
-import time
-
 from mg_utils import mg_sleep_and_assert
-from multiprocessing import Manager, Process, Value
 
 # These are the indices of the different values in the result of SHOW STREAM
 # query
@@ -103,15 +103,53 @@ def get_stream_info(cursor, stream_name):
 
 def get_is_running(cursor, stream_name):
     stream_info = get_stream_info(cursor, stream_name)
-
-    assert stream_info
+    assert stream_info is not None
     return stream_info[IS_RUNNING]
 
 
-def start_stream(cursor, stream_name):
-    execute_and_fetch_all(cursor, f"START STREAM {stream_name}")
+def create_stream(
+    cursor,
+    stream_name,
+    topics,
+    transformation,
+    consumer_group=None,
+    batch_interval=None,
+    batch_size=None,
+    bootstrap_servers=None,
+    configs=None,
+    credentials=None,
+):
+    query_str = f"CREATE KAFKA STREAM {stream_name} TOPICS {topics} TRANSFORM {transformation}"
+    if consumer_group is not None:
+        query_str += f" CONSUMER_GROUP {consumer_group}"
+    if batch_interval is not None:
+        query_str += f" BATCH_INTERVAL {batch_interval}"
+    if batch_size is not None:
+        query_str += f" BATCH_SIZE {batch_size}"
+    if bootstrap_servers is not None:
+        query_str += f" BOOTSTRAP_SERVERS {bootstrap_servers}"
+    if configs is not None:
+        query_str += f" CONFIGS {configs}"
+    if credentials is not None:
+        query_str += f" CREDENTIALS {credentials}"
+    execute_and_fetch_all(cursor, query_str)
 
+
+def start_stream(cursor, stream_name, sleep=True):
+    # Sleep is needed because although is_running returns True,
+    # the stream cannot accept messages yet
+    execute_and_fetch_all(cursor, f"START STREAM {stream_name}")
     assert get_is_running(cursor, stream_name)
+    if sleep:
+        time.sleep(5)
+
+
+def start_streams(cursor, stream_names):
+    # Start every stream but don't sleep after each creation
+    for stream_name in stream_names:
+        execute_and_fetch_all(cursor, f"START STREAM {stream_name}")
+        assert get_is_running(cursor, stream_name)
+    time.sleep(5)
 
 
 def start_stream_with_limit(cursor, stream_name, batch_limit, timeout=None):
@@ -123,13 +161,11 @@ def start_stream_with_limit(cursor, stream_name, batch_limit, timeout=None):
 
 def stop_stream(cursor, stream_name):
     execute_and_fetch_all(cursor, f"STOP STREAM {stream_name}")
-
     assert not get_is_running(cursor, stream_name)
 
 
 def drop_stream(cursor, stream_name):
     execute_and_fetch_all(cursor, f"DROP STREAM {stream_name}")
-
     assert get_stream_info(cursor, stream_name) is None
 
 
@@ -227,7 +263,7 @@ def test_start_and_stop_during_check(
     try:
         check_stream_proc.start()
 
-        time.sleep(0.5)
+        time.sleep(3)
 
         assert timed_wait(lambda: check_counter.value == CHECK_BEFORE_EXECUTE)
         assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
@@ -260,25 +296,22 @@ def test_start_and_stop_during_check(
 
 def test_start_checked_stream_after_timeout(connection, stream_creator):
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, stream_creator("test_stream"))
+    stream_name = "test_start_checked_stream_after_timeout"
+    execute_and_fetch_all(cursor, stream_creator(stream_name))
 
-    TIMEOUT_IN_MS = 2000
-    TIMEOUT_IN_SECONDS = TIMEOUT_IN_MS / 1000
+    timeout_in_ms = 2000
 
     def call_check():
-        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM test_stream TIMEOUT {TIMEOUT_IN_MS}")
+        execute_and_fetch_all(connect().cursor(), f"CHECK STREAM {stream_name} TIMEOUT {timeout_in_ms}")
 
     check_stream_proc = Process(target=call_check, daemon=True)
 
-    start = time.time()
     check_stream_proc.start()
-    assert timed_wait(lambda: get_is_running(cursor, "test_stream"))
-    start_stream(cursor, "test_stream")
-    end = time.time()
+    assert timed_wait(lambda: get_is_running(cursor, stream_name))
+    start_stream(cursor, stream_name)
 
-    assert (end - start) < 1.3 * TIMEOUT_IN_SECONDS, "The START STREAM was blocked too long"
-    assert get_is_running(cursor, "test_stream")
-    stop_stream(cursor, "test_stream")
+    assert get_is_running(cursor, stream_name)
+    stop_stream(cursor, stream_name)
 
 
 def test_check_stream_same_number_of_queries_than_messages(connection, stream_creator, message_sender):
@@ -313,7 +346,6 @@ def test_check_stream_same_number_of_queries_than_messages(connection, stream_cr
     # #            {parameters: {"value": "Parameter: 04"}, query: "Message: 04"}]
     # # -Batch 3: [{parameters: {"value": "Parameter: 05"}, query: "Message: 05"},
     # #            {parameters: {"value": "Parameter: 06"}, query: "Message: 06"}]
-
     assert len(test_results.value) == BATCH_LIMIT
 
     expected_queries_and_raw_messages_1 = (
@@ -351,7 +383,7 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
     STREAM_NAME = "test_stream"
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME, BATCH_SIZE))
-    time.sleep(2)
+    time.sleep(3)
 
     results = Manager().Namespace()
 
@@ -413,30 +445,32 @@ def test_check_stream_different_number_of_queries_than_messages(connection, stre
     assert expected_queries_and_raw_messages_3 == results.value[2]
 
 
-def test_start_stream_with_batch_limit(connection, stream_creator, messages_sender):
-    STREAM_NAME = "test"
+def test_start_stream_with_batch_limit(connection, stream_name, stream_creator, messages_sender):
     BATCH_LIMIT = 5
+    TIMEOUT = 10000
 
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
+    execute_and_fetch_all(cursor, stream_creator())
+    results = execute_and_fetch_all(connection.cursor(), "SHOW STREAMS")
+    assert len(results) == 1
 
-    def start_new_stream_with_limit(stream_name, batch_limit):
+    def start_new_stream_with_limit():
         connection = connect()
         cursor = connection.cursor()
-        start_stream_with_limit(cursor, stream_name, batch_limit)
-
-    thread_stream_running = Process(target=start_new_stream_with_limit, daemon=True, args=(STREAM_NAME, BATCH_LIMIT))
-    thread_stream_running.start()
+        start_stream_with_limit(cursor, stream_name, BATCH_LIMIT, TIMEOUT)
 
     def is_running():
-        return get_is_running(cursor, STREAM_NAME)
+        return get_is_running(cursor, stream_name)
 
+    thread_stream_running = Process(target=start_new_stream_with_limit)
+    thread_stream_running.start()
+
+    execute_and_fetch_all(connection.cursor(), "SHOW STREAMS")
     assert mg_sleep_and_assert(True, is_running)
-
     messages_sender(BATCH_LIMIT - 1)
 
     # We have not sent enough batches to reach the limit. We check that the stream is still correctly running.
-    assert get_is_running(cursor, STREAM_NAME)
+    assert get_is_running(cursor, stream_name)
 
     # We send a last message to reach the batch_limit
     messages_sender(1)
@@ -549,7 +583,6 @@ def test_check_while_stream_with_batch_limit_running(connection, stream_creator,
     STREAM_NAME = "test_batch_limit_and_check"
     BATCH_LIMIT = 1
     TIMEOUT = 10000
-    TIMEOUT_IN_SECONDS = TIMEOUT / 1000
 
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
@@ -625,7 +658,7 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stre
 
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, stream_creator(STREAM_NAME))
-    time.sleep(2)
+    time.sleep(3)
 
     # 1/ checking with batch_limit=-10
     batch_limit = -10

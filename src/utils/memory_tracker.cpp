@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,6 +89,13 @@ void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
     ;
 }
 
+void MemoryTracker::ResetTrackings() {
+  hard_limit_.store(0, std::memory_order_relaxed);
+  peak_.store(0, std::memory_order_relaxed);
+  amount_.store(0, std::memory_order_relaxed);
+  maximum_hard_limit_ = 0;
+}
+
 void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   if (maximum_hard_limit_ < 0) {
     spdlog::warn("Invalid maximum hard limit.");
@@ -97,27 +104,59 @@ void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   maximum_hard_limit_ = limit;
 }
 
-void MemoryTracker::Alloc(const int64_t size) {
+bool MemoryTracker::Alloc(int64_t const size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (UNLIKELY(current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow())) {
+  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
 
-    throw OutOfMemoryException(
-        fmt::format("Memory limit exceeded! Atempting to allocate a chunk of {} which would put the current "
-                    "use to {}, while the maximum allowed size for allocation is set to {}.",
-                    GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
-  }
+    // register our error data, we will pick this up on the other side of jemalloc
+    MemoryErrorStatus().set({size, will_be, current_hard_limit});
 
+    return false;
+  }
   UpdatePeak(will_be);
+  return true;
+}
+
+void MemoryTracker::DoCheck() {
+  const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
+  const auto current_amount = amount_.load(std::memory_order_relaxed);
+  if (current_hard_limit && current_amount > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+    MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+    throw OutOfMemoryException(
+        fmt::format("Memory limit exceeded! Current "
+                    "use is {}, while the maximum allowed size for allocation is set to {}.",
+                    GetReadableSize(static_cast<double>(current_amount)),
+                    GetReadableSize(static_cast<double>(current_hard_limit))));
+  }
 }
 
 void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+
+// DEVNOTE: important that this is allocated at thread construction time
+//          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex
+//          that it already owns
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+thread_local MemoryTrackerStatus status;
+auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
+
+auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
+  if (!data_) return std::nullopt;
+
+  auto [size, will_be, hard_limit] = *data_;
+  data_.reset();
+  return fmt::format(
+      "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+      "use to {}, while the maximum allowed size for allocation is set to {}.",
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(hard_limit));
+}
 
 }  // namespace memgraph::utils

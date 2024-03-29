@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
+DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Memory Limit For Global Allocators");
@@ -31,6 +32,16 @@ int main(int argc, char **argv) {
   if (!client) {
     LOG_FATAL("Failed to connect!");
   }
+
+  if (FLAGS_multi_db) {
+    client->Execute("CREATE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("USE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  }
+
   MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.error() YIELD *"));
   MG_ASSERT(std::invoke([&] {
               try {
@@ -46,6 +57,6 @@ int main(int argc, char **argv) {
 
   MG_ASSERT(client->Execute("CALL libglobal_memory_limit_proc.success() YIELD *"));
   auto result2 = client->FetchAll();
-  MG_ASSERT(result2 != std::nullopt && result2->size() > 0);
+  MG_ASSERT(result2 != std::nullopt && !result2->empty());
   return 0;
 }

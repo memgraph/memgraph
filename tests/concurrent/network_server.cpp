@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,10 +30,10 @@ TEST(Network, Server) {
   std::cout << endpoint << std::endl;
 
   // initialize server
-  TestData session_data;
+  TestData session_context;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   ContextT context;
-  ServerT server(endpoint, &session_data, &context, -1, "Test", N);
+  ServerT server(endpoint, &session_context, &context, -1, "Test", N);
   ASSERT_TRUE(server.Start());
 
   const auto &ep = server.endpoint();

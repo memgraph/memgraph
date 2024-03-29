@@ -1,6 +1,10 @@
 # Install systemd service (must use absolute path).
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/memgraph.service
-        DESTINATION /lib/systemd/system)
+    DESTINATION /lib/systemd/system)
+
+# Set parameters to recognize the host distro
+cmake_host_system_information(RESULT DISTRO QUERY DISTRIB_NAME)
+cmake_host_system_information(RESULT DISTRO_VERSION QUERY DISTRIB_VERSION)
 
 # ---- Setup CPack --------
 
@@ -10,12 +14,13 @@ set(CPACK_PACKAGE_VENDOR "Memgraph Ltd.")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "High performance, in-memory, transactional graph database")
 
-# Setting arhitecture extension for deb packages
+# Setting architecture extension for deb packages
 set(MG_ARCH_EXTENSION_DEB "all")
-if (${MG_ARCH} STREQUAL "x86_64")
+
+if(${MG_ARCH} STREQUAL "x86_64")
     set(MG_ARCH_EXTENSION_DEB "amd64")
-elseif (${MG_ARCH} STREQUAL "ARM64")
-    set(MG_ARCH_EXTENSION_DEB  "arm64")
+elseif(${MG_ARCH} STREQUAL "ARM64")
+    set(MG_ARCH_EXTENSION_DEB "arm64")
 endif()
 
 # DEB specific
@@ -34,21 +39,24 @@ set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postrm;"
     "${CMAKE_CURRENT_SOURCE_DIR}/debian/postinst;")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  Contains Memgraph, the graph database. It aims to deliver developers the
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
+
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0), libstdc++6")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "openssl (>= 1.1.0), python3 (>= 3.5.0)")
 
-# Setting arhitecture extension for rpm packages
+# Setting architecture extension for rpm packages
 set(MG_ARCH_EXTENSION_RPM "noarch")
-if (${MG_ARCH} STREQUAL "x86_64")
+
+if(${MG_ARCH} STREQUAL "x86_64")
     set(MG_ARCH_EXTENSION_RPM "x86_64")
-elseif (${MG_ARCH} STREQUAL "ARM64")
-    set(MG_ARCH_EXTENSION_RPM  "aarch64")
+elseif(${MG_ARCH} STREQUAL "ARM64")
+    set(MG_ARCH_EXTENSION_RPM "aarch64")
 endif()
 
 # RPM specific
@@ -56,18 +64,26 @@ set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
 set(CPACK_RPM_PACKAGE_VERSION "${MEMGRAPH_VERSION_RPM}")
 set(CPACK_RPM_FILE_NAME "memgraph-${MEMGRAPH_VERSION_RPM}-1.${MG_ARCH_EXTENSION_RPM}.rpm")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
-  /var /var/lib /var/log /etc/logrotate.d
-  /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
+    /var /var/lib /var/log /etc/logrotate.d
+    /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
 set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
 set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_CURRENT_SOURCE_DIR}/rpm/memgraph.spec.in")
 set(CPACK_RPM_PACKAGE_LICENSE "Memgraph License")
+# CPACK deduces dependency to libstdc++ which:
+#   * can't be easily installed on Centos 7 (the one from the toolchain,
+#     only required to avoid printing issue within query modules)
+#   * it causes issues with glibcxx 2.4
+#     `if(DISTRO STREQUAL "Amazon Linux" AND DISTRO_VERSION STREQUAL "2")`
+set(CPACK_RPM_PACKAGE_AUTOREQ " no")
+
 # Description formatting is important, no line must be greater than 80 characters.
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
 It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
+
 # Add `openssl` package to dependencies list. Used to generate SSL certificates.
 # We also depend on `python3` because we embed it in Memgraph.
-set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, libstdc >= 6, logrotate")
+set(CPACK_RPM_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, python3 >= 3.5.0, logrotate")
 
 # All variables must be set before including.
 include(CPack)

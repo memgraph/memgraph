@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,8 +19,8 @@
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/operator.hpp"
 
 namespace memgraph::query::plan {
 
@@ -70,7 +70,26 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    symbols_.insert(symbol_table_.at(ident));
+    if (!in_exists || ident.user_declared_) {
+      symbols_.insert(symbol_table_.at(ident));
+    }
+
+    return true;
+  }
+
+  bool PreVisit(Exists &exists) override {
+    in_exists = true;
+
+    // We do not visit pattern identifier since we're in exists filter pattern
+    for (auto &atom : exists.pattern_->atoms_) {
+      atom->Accept(*this);
+    }
+
+    return false;
+  }
+
+  bool PostVisit(Exists & /*exists*/) override {
+    in_exists = false;
     return true;
   }
 
@@ -79,7 +98,40 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
+
+ private:
+  bool in_exists{false};
 };
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PREPROCESS_DEFINE_ID_TYPE(name)                                                                       \
+  class name final {                                                                                          \
+   private:                                                                                                   \
+    explicit name(uint64_t id) : id_(id) {}                                                                   \
+                                                                                                              \
+   public:                                                                                                    \
+    /* Default constructor to allow serialization or preallocation. */                                        \
+    name() = default;                                                                                         \
+                                                                                                              \
+    static name FromUint(uint64_t id) { return name(id); }                                                    \
+    static name FromInt(int64_t id) { return name(utils::MemcpyCast<uint64_t>(id)); }                         \
+    uint64_t AsUint() const { return id_; }                                                                   \
+    int64_t AsInt() const { return utils::MemcpyCast<int64_t>(id_); }                                         \
+                                                                                                              \
+   private:                                                                                                   \
+    uint64_t id_;                                                                                             \
+  };                                                                                                          \
+  static_assert(std::is_trivially_copyable_v<name>, "query::plan::" #name " must be trivially copyable!");    \
+  inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); } \
+  inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); } \
+  inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }   \
+  inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); }   \
+  inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); } \
+  inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
+
+PREPROCESS_DEFINE_ID_TYPE(ExpansionGroupId);
+
+#undef STORAGE_DEFINE_ID_TYPE
 
 /// Normalized representation of a pattern that needs to be matched.
 struct Expansion {
@@ -97,12 +149,164 @@ struct Expansion {
   /// Optional node at the other end of an edge. If the expansion
   /// contains an edge, then this node is required.
   NodeAtom *node2 = nullptr;
+  // ExpansionGroupId represents a distinct part of the matching which is not tied to any other symbols.
+  ExpansionGroupId expansion_group_id = ExpansionGroupId();
+};
+
+struct PatternComprehensionMatching;
+struct FilterMatching;
+
+enum class PatternFilterType { EXISTS };
+
+/// Collects matchings that include patterns
+class PatternVisitor : public ExpressionVisitor<void> {
+ public:
+  explicit PatternVisitor(SymbolTable &symbol_table, AstStorage &storage);
+  PatternVisitor(const PatternVisitor &);
+  PatternVisitor &operator=(const PatternVisitor &) = delete;
+  PatternVisitor(PatternVisitor &&) noexcept;
+  PatternVisitor &operator=(PatternVisitor &&) noexcept = delete;
+  ~PatternVisitor() override;
+
+  using ExpressionVisitor<void>::Visit;
+
+  // Unary operators
+  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
+  void Visit(UnaryPlusOperator &op) override{};
+  void Visit(UnaryMinusOperator &op) override{};
+
+  // Binary operators
+  void Visit(OrOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(XorOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AndOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(NotEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(EqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(InListOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubscriptOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  // Other
+  void Visit(ListSlicingOperator &op) override{};
+  void Visit(IfOperator &op) override{};
+  void Visit(ListLiteral &op) override{};
+  void Visit(MapLiteral &op) override{};
+  void Visit(MapProjectionLiteral &op) override{};
+  void Visit(LabelsTest &op) override{};
+  void Visit(Aggregation &op) override{};
+
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) {
+      argument->Accept(*this);
+    }
+  }
+
+  void Visit(Reduce &op) override{};
+  void Visit(Coalesce &op) override{};
+  void Visit(Extract &op) override{};
+  void Visit(Exists &op) override;
+  void Visit(All &op) override{};
+  void Visit(Single &op) override{};
+  void Visit(Any &op) override{};
+  void Visit(None &op) override{};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
+  void Visit(RegexMatch &op) override{};
+  void Visit(NamedExpression &op) override;
+  void Visit(PatternComprehension &op) override;
+
+  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
+
+  SymbolTable &symbol_table_;
+  AstStorage &storage_;
+
+ private:
+  /// Collection of matchings in the filter expression being analyzed.
+  std::vector<FilterMatching> filter_matchings_;
+
+  /// Collection of matchings in the pattern comprehension being analyzed.
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
 };
 
 /// Stores the symbols and expression used to filter a property.
 class PropertyFilter {
  public:
-  using Bound = ScanAllByLabelPropertyRange::Bound;
+  using Bound = utils::Bound<Expression *>;
 
   /// Depending on type, this PropertyFilter may be a value equality, regex
   /// matched value or a range with lower and (or) upper bounds, IN list filter.
@@ -117,7 +321,7 @@ class PropertyFilter {
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
   /// values that should be filtered further.
-  PropertyFilter(const Symbol &, PropertyIx, Type);
+  PropertyFilter(Symbol, PropertyIx, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -153,19 +357,36 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id };
+  enum class Type { Generic, Label, Property, Id, Pattern };
 
-  Type type;
+  // FilterInfo is tricky because FilterMatching is not yet defined:
+  //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
+  //   * if any user-declared constructor -> non-aggregate type -> no designated initializers are possible
+  //   * IMPORTANT: Matchings will always be initialized to an empty container.
+  explicit FilterInfo(Type type = Type::Generic, Expression *expression = nullptr,
+                      std::unordered_set<Symbol> used_symbols = {}, std::optional<PropertyFilter> property_filter = {},
+                      std::optional<IdFilter> id_filter = {});
+  // All other constructors are also defined in the cpp file because this struct is incomplete here.
+  FilterInfo(const FilterInfo &);
+  FilterInfo &operator=(const FilterInfo &);
+  FilterInfo(FilterInfo &&) noexcept;
+  FilterInfo &operator=(FilterInfo &&) noexcept;
+  ~FilterInfo();
+
+  Type type{Type::Generic};
   /// The original filter expression which must be satisfied.
-  Expression *expression;
+  Expression *expression{nullptr};
   /// Set of used symbols by the filter @c expression.
-  std::unordered_set<Symbol> used_symbols;
+  std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
-  std::vector<LabelIx> labels;
+  std::vector<LabelIx> labels{};
   /// Property information for Type::Property filtering.
-  std::optional<PropertyFilter> property_filter;
+  std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
-  std::optional<IdFilter> id_filter;
+  std::optional<IdFilter> id_filter{};
+  /// Matchings for filters that include patterns
+  /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
+  std::vector<FilterMatching> matchings;
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -184,21 +405,15 @@ class Filters final {
 
   auto empty() const { return all_filters_.empty(); }
 
-  auto erase(iterator pos) { return all_filters_.erase(pos); }
-  auto erase(const_iterator pos) { return all_filters_.erase(pos); }
-  auto erase(iterator first, iterator last) { return all_filters_.erase(first, last); }
-  auto erase(const_iterator first, const_iterator last) { return all_filters_.erase(first, last); }
+  auto erase(iterator pos) -> iterator;
+  auto erase(const_iterator pos) -> iterator;
+  auto erase(iterator first, iterator last) -> iterator;
+  auto erase(const_iterator first, const_iterator last) -> iterator;
 
-  auto FilteredLabels(const Symbol &symbol) const {
-    std::unordered_set<LabelIx> labels;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
-        MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
-        labels.insert(filter.labels.begin(), filter.labels.end());
-      }
-    }
-    return labels;
-  }
+  void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
+
+  auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -208,29 +423,14 @@ class Filters final {
   /// Remove a label filter for symbol; may invalidate iterators.
   /// If removed_filters is not nullptr, fills the vector with original
   /// `Expression *` which are now completely removed.
-  void EraseLabelFilter(const Symbol &, LabelIx, std::vector<Expression *> *removed_filters = nullptr);
+  void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
+                        std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
-  auto PropertyFilters(const Symbol &symbol) const {
-    std::vector<FilterInfo> filters;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-        filters.push_back(filter);
-      }
-    }
-    return filters;
-  }
+  auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Return a vector of FilterInfo for ID equality filtering.
-  auto IdFilters(const Symbol &symbol) const {
-    std::vector<FilterInfo> filters;
-    for (const auto &filter : all_filters_) {
-      if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {
-        filters.push_back(filter);
-      }
-    }
-    return filters;
-  }
+  auto IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Collects filtering information from a pattern.
   ///
@@ -254,9 +454,8 @@ class Filters final {
   void CollectFilterExpression(Expression *, const SymbolTable &);
 
  private:
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
-
   std::vector<FilterInfo> all_filters_;
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
 };
 
 /// Normalized representation of a single or multiple Match clauses.
@@ -281,10 +480,81 @@ struct Matching {
   Filters filters;
   /// Maps node symbols to expansions which bind them.
   std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
+  /// Tracker of the total number of expansion groups for correct assigning of expansion group IDs
+  size_t number_of_expansion_groups{0};
+  /// Maps every node symbol to its expansion group ID
+  std::unordered_map<Symbol, ExpansionGroupId> node_symbol_to_expansion_group_id{};
   /// Maps named path symbols to a vector of Symbols that define its pattern.
   std::unordered_map<Symbol, std::vector<Symbol>> named_paths{};
   /// All node and edge symbols across all expansions (from all matches).
   std::unordered_set<Symbol> expansion_symbols{};
+};
+
+// TODO clumsy to need to declare it before, usually only the struct definition would be in header
+struct QueryParts;
+
+struct FilterMatching : Matching {
+  /// Type of pattern filter
+  PatternFilterType type;
+  /// Symbol for the filter expression
+  std::optional<Symbol> symbol;
+};
+
+inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
+inline auto Filters::erase(Filters::const_iterator pos) -> iterator { return all_filters_.erase(pos); }
+inline auto Filters::erase(Filters::iterator first, Filters::iterator last) -> iterator {
+  return all_filters_.erase(first, last);
+}
+inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterator last) -> iterator {
+  return all_filters_.erase(first, last);
+}
+
+inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
+  std::unordered_set<LabelIx> labels;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+      MG_ASSERT(filter.used_symbols.size() == 1U, "Expected a single used symbol for label filter");
+      labels.insert(filter.labels.begin(), filter.labels.end());
+    }
+  }
+  return labels;
+}
+
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
+  std::unordered_set<PropertyIx> properties;
+
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+      properties.insert(filter.property_filter->property_);
+    }
+  }
+  return properties;
+}
+
+inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+  std::vector<FilterInfo> filters;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+      filters.push_back(filter);
+    }
+  }
+  return filters;
+}
+
+inline auto Filters::IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+  std::vector<FilterInfo> filters;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Id && filter.id_filter->symbol_ == symbol) {
+      filters.push_back(filter);
+    }
+  }
+  return filters;
+}
+
+struct PatternComprehensionMatching : Matching {
+  /// Pattern comprehension result named expression
+  NamedExpression *result_expr = nullptr;
+  Symbol result_symbol;
 };
 
 /// @brief Represents a read (+ write) part of a query. Parts are split on
@@ -329,8 +599,19 @@ struct SingleQueryPart {
   /// in the `remaining_clauses` but rather in the `Foreach` itself and are guranteed
   /// to be processed in the same order by the semantics of the `RuleBasedPlanner`.
   std::vector<Matching> merge_matching{};
+
+  /// @brief @c NamedExpression name to @c PatternComprehensionMatching for each pattern comprehension.
+  ///
+  /// Storing the normalized pattern of a @c PatternComprehension does not preclude storing the
+  /// @c PatternComprehension clause itself inside `remaining_clauses`. The reason is that we
+  /// need to have access to other parts of the clause, such as pattern, filter clauses.
+  std::unordered_map<std::string, PatternComprehensionMatching> pattern_comprehension_matchings{};
+
   /// @brief All the remaining clauses (without @c Match).
   std::vector<Clause *> remaining_clauses{};
+  /// The subqueries vector are all the subqueries in this query part ordered in a list by
+  /// the order of calling.
+  std::vector<std::shared_ptr<QueryParts>> subqueries{};
 };
 
 /// Holds query parts of a single query together with the optional information

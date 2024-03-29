@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "rpc/client_pool.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/timer.hpp"
 
 #include "rpc_messages.hpp"
@@ -57,6 +58,10 @@ void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) 
 TEST(Rpc, Call) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
+  auto const on_exit = memgraph::utils::OnScopeExit{[&] {
+    server.Shutdown();
+    server.AwaitShutdown();
+  }};
   server.Register<Sum>([](auto *req_reader, auto *res_builder) {
     SumReq req;
     memgraph::slk::Load(&req, req_reader);
@@ -70,9 +75,6 @@ TEST(Rpc, Call) {
   Client client(server.endpoint(), &client_context);
   auto sum = client.Call<Sum>(10, 20);
   EXPECT_EQ(sum.sum, 30);
-
-  server.Shutdown();
-  server.AwaitShutdown();
 }
 
 TEST(Rpc, Abort) {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,33 @@
 #include <filesystem>
 #include <string>
 
+#include "disk_test_utils.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
+#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 
-TEST(PyModule, MgpValueToPyObject) {
+using memgraph::replication_coordination_glue::ReplicationRole;
+
+template <typename StorageType>
+class PyModule : public testing::Test {
+ public:
+  const std::string testSuite = "query_procedure_py_module";
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
+
+  void TearDown() override {
+    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
+      disk_test_utils::RemoveRocksDbDirs(testSuite);
+    }
+  }
+};
+
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+TYPED_TEST_CASE(PyModule, StorageTypes);
+
+TYPED_TEST(PyModule, MgpValueToPyObject) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto *list = EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 42, &memory);
   {
@@ -93,27 +115,26 @@ static void AssertPickleAndCopyAreNotSupported(PyObject *py_obj) {
   ASSERT_TRUE(memgraph::py::FetchError());
 }
 
-TEST(PyModule, PyVertex) {
+TYPED_TEST(PyModule, PyVertex) {
   // Initialize the database with 2 vertices and 1 edge.
-  memgraph::storage::Storage db;
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
 
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(v1.SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(v1.SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
 
-    auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
+    auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the first vertex as an mgp_value.
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
-  mgp_graph graph{&dba, memgraph::storage::View::OLD};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
   auto *vertex = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(vertex);
   auto *vertex_value = EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_vertex,
@@ -143,26 +164,27 @@ TEST(PyModule, PyVertex) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyEdge) {
+TYPED_TEST(PyModule, PyEdge) {
   // Initialize the database with 2 vertices and 1 edge.
-  memgraph::storage::Storage db;
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
+    auto dba = this->db->Access(ReplicationRole::MAIN);
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
 
-    auto e = dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type"));
+    auto e = dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type"));
     ASSERT_TRUE(e.HasValue());
 
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
-    ASSERT_TRUE(e->SetProperty(dba.NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_TRUE(
+        e.GetValue().SetProperty(dba->NameToProperty("key1"), memgraph::storage::PropertyValue("value1")).HasValue());
+    ASSERT_TRUE(
+        e.GetValue().SetProperty(dba->NameToProperty("key2"), memgraph::storage::PropertyValue(1337)).HasValue());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
   // Get the edge as an mgp_value.
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
-  mgp_graph graph{&dba, memgraph::storage::View::OLD};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
   auto *edges_it = EXPECT_MGP_NO_ERROR(mgp_edges_iterator *, mgp_vertex_iter_out_edges, start_v, &memory);
@@ -197,19 +219,18 @@ TEST(PyModule, PyEdge) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyPath) {
-  memgraph::storage::Storage db;
+TYPED_TEST(PyModule, PyPath) {
   {
-    auto dba = db.Access();
-    auto v1 = dba.CreateVertex();
-    auto v2 = dba.CreateVertex();
-    ASSERT_TRUE(dba.CreateEdge(&v1, &v2, dba.NameToEdgeType("type")).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    auto dba = this->db->Access(ReplicationRole::MAIN);
+    auto v1 = dba->CreateVertex();
+    auto v2 = dba->CreateVertex();
+    ASSERT_TRUE(dba->CreateEdge(&v1, &v2, dba->NameToEdgeType("type")).HasValue());
+    ASSERT_FALSE(dba->Commit().HasError());
   }
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
-  mgp_graph graph{&dba, memgraph::storage::View::OLD};
+  mgp_graph graph{&dba, memgraph::storage::View::OLD, nullptr, dba.GetStorageMode()};
   auto *start_v = EXPECT_MGP_NO_ERROR(mgp_vertex *, mgp_graph_get_vertex_by_id, &graph, mgp_vertex_id{0}, &memory);
   ASSERT_TRUE(start_v);
   auto *path = EXPECT_MGP_NO_ERROR(mgp_path *, mgp_path_make_with_start, start_v, &memory);
@@ -245,7 +266,7 @@ TEST(PyModule, PyPath) {
   ASSERT_FALSE(dba.Commit().HasError());
 }
 
-TEST(PyModule, PyObjectToMgpValue) {
+TYPED_TEST(PyModule, PyObjectToMgpValue) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
   auto gil = memgraph::py::EnsureGIL();
   memgraph::py::Object py_value{

@@ -1,0 +1,1 @@
+add_query_module(transaction_rollback procedures.cpp)

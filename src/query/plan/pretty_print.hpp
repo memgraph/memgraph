@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,8 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
+  bool PreVisit(ScanAllByEdgeType &) override;
+  bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(Expand &) override;
   bool PreVisit(ExpandVariable &) override;
@@ -74,12 +76,15 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ConstructNamedPath &) override;
 
   bool PreVisit(Filter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*unused*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
 
   bool PreVisit(Merge &) override;
   bool PreVisit(Optional &) override;
   bool PreVisit(Cartesian &) override;
+  bool PreVisit(HashJoin &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;
@@ -88,11 +93,14 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(OrderBy &) override;
   bool PreVisit(Distinct &) override;
   bool PreVisit(Union &) override;
+  bool PreVisit(RollUpApply &) override;
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
   bool PreVisit(Foreach &) override;
+  bool PreVisit(Apply & /*unused*/) override;
+  bool PreVisit(IndexedJoin & /*unused*/) override;
 
   bool Visit(Once &) override;
 
@@ -185,8 +193,12 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Optional &) override;
 
   bool PreVisit(Filter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
   bool PreVisit(EdgeUniquenessFilter &) override;
   bool PreVisit(Cartesian &) override;
+  bool PreVisit(Apply & /*unused*/) override;
+  bool PreVisit(HashJoin &) override;
+  bool PreVisit(IndexedJoin & /*unused*/) override;
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
@@ -194,7 +206,10 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
+  bool PreVisit(ScanAllByEdgeType &) override;
+  bool PreVisit(ScanAllByEdgeId &) override;
 
+  bool PreVisit(EmptyResult &) override;
   bool PreVisit(Produce &) override;
   bool PreVisit(Accumulate &) override;
   bool PreVisit(Aggregate &) override;

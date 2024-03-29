@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "query/procedure/module.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <optional>
 
 extern "C" {
@@ -22,6 +23,7 @@ extern "C" {
 #include <unistd.h>
 
 #include "py/py.hpp"
+#include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/file.hpp"
@@ -32,6 +34,28 @@ extern "C" {
 #include "utils/string.hpp"
 
 namespace memgraph::query::procedure {
+
+constexpr const char *func_code =
+    "import ast\n\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph']\n"
+    "modules = set()\n\n"
+    "def visit_Import(node):\n"
+    "  for name in node.names:\n"
+    "    mod_name = name.name.split('.')[0]\n"
+    "    if mod_name not in no_removals:\n"
+    "      modules.add(mod_name)\n\n"
+    "def visit_ImportFrom(node):\n"
+    "  if node.module is not None and node.level == 0:\n"
+    "    mod_name = node.module.split('.')[0]\n"
+    "    if mod_name not in no_removals:\n"
+    "      modules.add(mod_name)\n"
+    "node_iter = ast.NodeVisitor()\n"
+    "node_iter.visit_Import = visit_Import\n"
+    "node_iter.visit_ImportFrom = visit_ImportFrom\n"
+    "node_iter.visit(ast.parse(code))\n";
+
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
+                             PyObject *sys_mod_ref);
 
 ModuleRegistry gModuleRegistry;
 
@@ -995,11 +1019,45 @@ bool PythonModule::Close() {
   procedures_.clear();
   transformations_.clear();
   functions_.clear();
-  // Delete the module from the `sys.modules` directory so that the module will
-  // be properly imported if imported again.
+
+  // Get the reference to sys.modules dictionary
   py::Object sys(PyImport_ImportModule("sys"));
-  if (PyDict_DelItemString(sys.GetAttr("modules").Ptr(), file_path_.stem().c_str()) != 0) {
-    spdlog::warn("Failed to remove the module from sys.modules");
+  PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
+
+  std::string stem = file_path_.stem().string();
+
+  ProcessFileDependencies(file_path_, file_path_.stem().c_str(), func_code, sys_mod_ref);
+
+  std::vector<std::filesystem::path> submodules;
+
+  for (auto it = std::filesystem::recursive_directory_iterator(file_path_.parent_path());
+       it != std::filesystem::recursive_directory_iterator(); ++it) {
+    std::string dir_entry_stem = it->path().stem().string();
+    if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
+    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+      it.disable_recursion_pending();
+      submodules.emplace_back(it->path());
+    }
+  }
+
+  for (const auto &submodule : submodules) {
+    if (std::filesystem::exists(submodule)) {
+      std::filesystem::remove_all(submodule / "__pycache__");
+      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodule)) {
+        std::string rec_dir_entry_stem = rec_dir_entry.path().stem().string();
+        if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
+          std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
+        }
+        std::string rec_dir_entry_ext = rec_dir_entry.path().extension().string();
+        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext != ".py") continue;
+        ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
+      }
+    }
+  }
+
+  // first throw out of cache file
+  if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
+    spdlog::warn("Failed to remove the module {} from sys.modules", file_path_.stem().c_str());
     py_module_ = py::Object(nullptr);
     return false;
   }
@@ -1009,6 +1067,51 @@ bool PythonModule::Close() {
   py_module_ = py::Object(nullptr);
   spdlog::info("Closed module {}", file_path_);
   return true;
+}
+
+void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
+                             PyObject *sys_mod_ref) {
+  const auto maybe_content =
+      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
+
+  if (maybe_content) {
+    const char *content_value = maybe_content->c_str();
+    if (content_value) {
+      PyObject *py_main = PyImport_ImportModule("__main__");
+      PyObject *py_global_dict = PyModule_GetDict(py_main);
+
+      PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
+      PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
+      PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+
+      PyObject *iterator = PyObject_GetIter(py_res);
+      PyObject *module = nullptr;
+
+      if (iterator != nullptr) {
+        while ((module = PyIter_Next(iterator))) {
+          const char *module_name = PyUnicode_AsUTF8(module);
+          auto module_name_str = std::string(module_name);
+          PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
+          if (sys_iterator == nullptr) {
+            spdlog::warn("Cannot get reference to the sys.modules.keys()");
+            break;
+          }
+          PyObject *sys_mod_key = nullptr;
+          while ((sys_mod_key = PyIter_Next(sys_iterator))) {
+            const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
+            auto sys_mod_key_name_str = std::string(sys_mod_key_name);
+            if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
+              PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
+            }
+            Py_DECREF(sys_mod_key);
+          }
+          Py_DECREF(sys_iterator);
+          Py_DECREF(module);
+        }
+        Py_DECREF(iterator);
+      }
+    }
+  }
 }
 
 const std::map<std::string, mgp_proc, std::less<>> *PythonModule::Procedures() const {
@@ -1166,7 +1269,7 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
   std::shared_lock<utils::RWLock> guard(lock_);
   auto found_it = modules_.find(name);
-  if (found_it == modules_.end()) return nullptr;
+  if (found_it == modules_.end()) return ModulePtr{nullptr};
   return ModulePtr(found_it->second.get(), std::move(guard));
 }
 
@@ -1225,10 +1328,27 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
     }
   };
   auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
-  if (!result) return std::nullopt;
-  auto [module_name, prop_name] = *result;
+  if (!result) {
+    return std::nullopt;
+  }
+  auto [module_name, module_prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  if (!module) return std::nullopt;
+  auto prop_name = std::string(module_prop_name);
+  if (!module) {
+    // Check for possible callable aliases.
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    if (maybe_valid_alias) {
+      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
+      auto [module_name, module_prop_name] = *result;
+      module = module_registry.GetModuleNamed(module_name);
+      prop_name = std::string(module_prop_name);
+      if (!module) {
+        return std::nullopt;
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
   auto *prop = prop_fun(module);
   const auto &prop_it = prop->find(prop_name);
   if (prop_it == prop->end()) return std::nullopt;

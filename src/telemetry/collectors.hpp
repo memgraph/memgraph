@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,6 @@ namespace memgraph::telemetry {
  * This function returs a dictionary containing resource usage information
  * (total cpu usage and current memory usage).
  */
-const nlohmann::json GetResourceUsage();
+const nlohmann::json GetResourceUsage(std::filesystem::path root_directory);
 
 }  // namespace memgraph::telemetry

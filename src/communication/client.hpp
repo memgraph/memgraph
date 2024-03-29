@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,10 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+
+// Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
+#undef TRUE
+#undef FALSE
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
@@ -128,7 +132,7 @@ class Client final {
  */
 class ClientInputStream final {
  public:
-  ClientInputStream(Client &client);
+  explicit ClientInputStream(Client &client);
 
   ClientInputStream(const ClientInputStream &) = delete;
   ClientInputStream(ClientInputStream &&) = delete;
@@ -152,7 +156,7 @@ class ClientInputStream final {
  */
 class ClientOutputStream final {
  public:
-  ClientOutputStream(Client &client);
+  explicit ClientOutputStream(Client &client);
 
   ClientOutputStream(const ClientOutputStream &) = delete;
   ClientOutputStream(ClientOutputStream &&) = delete;

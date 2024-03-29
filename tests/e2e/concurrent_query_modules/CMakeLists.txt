@@ -1,0 +1,10 @@
+function(copy_concurrent_query_modules_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(concurrent_query_modules ${FILE_NAME})
+endfunction()
+
+copy_concurrent_query_modules_e2e_python_files(client.py)
+copy_concurrent_query_modules_e2e_python_files(con_query_modules.py)
+
+add_subdirectory(test_query_modules)
+
+copy_e2e_files(concurrent_query_modules workloads.yaml)

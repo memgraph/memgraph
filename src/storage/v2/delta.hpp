@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -56,9 +57,11 @@ class PreviousPtr {
     explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
     Type type{Type::NULLPTR};
-    Delta *delta{nullptr};
-    Vertex *vertex{nullptr};
-    Edge *edge{nullptr};
+    union {
+      Delta *delta = nullptr;
+      Vertex *vertex;
+      Edge *edge;
+    };
   };
 
   PreviousPtr() : storage_(0) {}
@@ -121,9 +124,32 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
+struct opt_str {
+  opt_str(std::optional<std::string> const &other) : str_{other ? new_cstr(*other) : nullptr} {}
+
+  ~opt_str() { delete[] str_; }
+
+  auto as_opt_str() const -> std::optional<std::string> {
+    if (!str_) return std::nullopt;
+    return std::optional<std::string>{std::in_place, str_};
+  }
+
+ private:
+  static auto new_cstr(std::string const &str) -> char const * {
+    auto *mem = new char[str.length() + 1];
+    strcpy(mem, str.c_str());
+    return mem;
+  }
+
+  char const *str_ = nullptr;
+};
+
 struct Delta {
-  enum class Action {
-    // Used for both Vertex and Edge
+  enum class Action : std::uint8_t {
+    /// Use for Vertex and Edge
+    /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
+    /// deleting old-data (compaction).
+    DELETE_DESERIALIZED_OBJECT,
     DELETE_OBJECT,
     RECREATE_OBJECT,
     SET_PROPERTY,
@@ -138,6 +164,7 @@ struct Delta {
   };
 
   // Used for both Vertex and Edge
+  struct DeleteDeserializedObjectTag {};
   struct DeleteObjectTag {};
   struct RecreateObjectTag {};
   struct SetPropertyTag {};
@@ -150,49 +177,54 @@ struct Delta {
   struct RemoveInEdgeTag {};
   struct RemoveOutEdgeTag {};
 
-  Delta(DeleteObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::DELETE_OBJECT), timestamp(timestamp), command_id(command_id) {}
+  // DELETE_DESERIALIZED_OBJECT is used to load data from disk committed by past txs.
+  // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
+  // current tx. This timestamp we got from RocksDB timestamp stored in key.
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
+      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
 
-  Delta(RecreateObjectTag, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::RECREATE_OBJECT), timestamp(timestamp), command_id(command_id) {}
+  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
 
-  Delta(AddLabelTag, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::ADD_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
+  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : timestamp(timestamp), command_id(command_id), action(Action::RECREATE_OBJECT) {}
 
-  Delta(RemoveLabelTag, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
-      : action(Action::REMOVE_LABEL), timestamp(timestamp), command_id(command_id), label(label) {}
+  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : timestamp(timestamp), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
 
-  Delta(SetPropertyTag, PropertyId key, const PropertyValue &value, std::atomic<uint64_t> *timestamp,
+  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+      : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
+
+  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue value, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : action(Action::SET_PROPERTY), timestamp(timestamp), command_id(command_id), property({key, value}) {}
-
-  Delta(AddInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
-      : action(Action::ADD_IN_EDGE),
-        timestamp(timestamp),
+      : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        property{
+            .action = Action::SET_PROPERTY, .key = key, .value = std::make_unique<PropertyValue>(std::move(value))} {}
 
-  Delta(AddOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : action(Action::ADD_OUT_EDGE),
-        timestamp(timestamp),
+      : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
-  Delta(RemoveInEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : action(Action::REMOVE_IN_EDGE),
-        timestamp(timestamp),
+      : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
 
-  Delta(RemoveOutEdgeTag, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
-      : action(Action::REMOVE_OUT_EDGE),
-        timestamp(timestamp),
+      : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge({edge_type, vertex, edge}) {}
+        vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
+        uint64_t command_id)
+      : timestamp(timestamp),
+        command_id(command_id),
+        vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(const Delta &) = delete;
   Delta(Delta &&) = delete;
@@ -210,13 +242,16 @@ struct Delta {
       case Action::REMOVE_IN_EDGE:
       case Action::REMOVE_OUT_EDGE:
         break;
+      case Action::DELETE_DESERIALIZED_OBJECT:
+        std::destroy_at(&old_disk_key.value);
+        delete timestamp;
+        timestamp = nullptr;
+        break;
       case Action::SET_PROPERTY:
-        property.value.~PropertyValue();
+        property.value.reset();
         break;
     }
   }
-
-  Action action;
 
   // TODO: optimize with in-place copy
   std::atomic<uint64_t> *timestamp;
@@ -225,12 +260,22 @@ struct Delta {
   std::atomic<Delta *> next{nullptr};
 
   union {
-    LabelId label;
+    Action action;
     struct {
+      Action action = Action::DELETE_DESERIALIZED_OBJECT;
+      opt_str value;
+    } old_disk_key;
+    struct {
+      Action action;
+      LabelId value;
+    } label;
+    struct {
+      Action action;
       PropertyId key;
-      storage::PropertyValue value;
+      std::unique_ptr<storage::PropertyValue> value;
     } property;
     struct {
+      Action action;
       EdgeTypeId edge_type;
       Vertex *vertex;
       EdgeRef edge;

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,16 +19,15 @@
 #include <vector>
 
 //////////////////////////////////////////////////////
-// "json.hpp" should always come before "antrl4-runtime.h"
+// "json.hpp" should always come before "antlr4-runtime.h"
 // "json.hpp" uses libc's EOF macro while
-// "antrl4-runtime.h" contains a static variable of the
+// "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
 // This hides the definition of the macro which causes
 // the compilation to fail.
 #include <json/json.hpp>
 //////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
-#include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -37,11 +36,13 @@
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
+#include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -58,7 +59,7 @@ class Base {
   ParsingContext context_;
   Parameters parameters_;
 
-  virtual ~Base() {}
+  virtual ~Base() = default;
 
   virtual Query *ParseQuery(const std::string &query_string) = 0;
 
@@ -118,7 +119,8 @@ class AstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
-    CypherMainVisitor visitor(context_, &ast_storage_);
+    Parameters parameters;
+    CypherMainVisitor visitor(context_, &ast_storage_, &parameters);
     visitor.visit(parser.tree());
     return visitor.query();
   }
@@ -151,6 +153,7 @@ class ClonedAstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
+    Parameters parameters;
     AstStorage tmp_storage;
     {
       // Add a label, property and edge type into temporary storage so
@@ -159,7 +162,7 @@ class ClonedAstGenerator : public Base {
       tmp_storage.GetPropertyIx("fdjakfjdklfjdaslk");
       tmp_storage.GetEdgeTypeIx("fdjkalfjdlkajfdkla");
     }
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
@@ -182,8 +185,9 @@ class CachedAstGenerator : public Base {
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
     ::frontend::opencypher::Parser parser(stripped.query());
+    Parameters parameters;
     AstStorage tmp_storage;
-    CypherMainVisitor visitor(context_, &tmp_storage);
+    CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
     return visitor.query()->Clone(&ast_storage_);
   }
@@ -199,8 +203,8 @@ class CachedAstGenerator : public Base {
 
 class MockModule : public procedure::Module {
  public:
-  MockModule(){};
-  ~MockModule() override{};
+  MockModule() = default;
+  ~MockModule() override = default;
   MockModule(const MockModule &) = delete;
   MockModule(MockModule &&) = delete;
   MockModule &operator=(const MockModule &) = delete;
@@ -1027,6 +1031,63 @@ TEST_P(CypherMainVisitorTest, MapLiteral) {
   auto *elem_2_1 = dynamic_cast<MapLiteral *>(elem_2->elements_[1]);
   ASSERT_TRUE(elem_2_1);
   EXPECT_EQ(1, elem_2_1->elements_.size());
+}
+
+TEST_P(CypherMainVisitorTest, MapProjectionLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "WITH {name: \"Morgan\"} as actor, 85 as age RETURN actor {.name, .*, age, lastName: \"Freeman\"}"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[1]);
+  auto *map_projection_literal =
+      dynamic_cast<MapProjectionLiteral *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(map_projection_literal);
+  ASSERT_EQ(4, map_projection_literal->elements_.size());
+
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("name")]->GetTypeInfo().name),
+            std::string("PropertyLookup"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("*")]->GetTypeInfo().name),
+            std::string("AllPropertiesLookup"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("age")]->GetTypeInfo().name),
+            std::string("Identifier"));
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("lastName")]->GetTypeInfo().name),
+            std::string(typeid(ast_generator).name()).ends_with("CachedAstGenerator")
+                ? std::string("ParameterLookup")
+                : std::string("PrimitiveLiteral"));
+}
+
+TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeySameTypeValue) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("WITH {} as x RETURN x {a: 0, a: 1}"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[1]);
+  auto *map_projection_literal =
+      dynamic_cast<MapProjectionLiteral *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(map_projection_literal);
+  // When multiple map properties have the same name, only one gets in
+  ASSERT_EQ(1, map_projection_literal->elements_.size());
+}
+
+TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeyDifferentTypeValue) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("WITH {a: 0} as x, 1 as a RETURN x {a: 2, .a, a}"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[1]);
+  auto *map_projection_literal =
+      dynamic_cast<MapProjectionLiteral *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(map_projection_literal);
+  // When multiple map properties have the same name, only one gets in
+  ASSERT_EQ(1, map_projection_literal->elements_.size());
+  // The last-given map property is the one that gets in
+  ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("a")]->GetTypeInfo().name),
+            std::string("Identifier"));
 }
 
 TEST_P(CypherMainVisitorTest, NodePattern) {
@@ -1868,6 +1929,41 @@ TEST_P(CypherMainVisitorTest, MatchBfsReturn) {
   ASSERT_TRUE(eq);
 }
 
+TEST_P(CypherMainVisitorTest, MatchBfsFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH pth=(r:type1 {id: 1})<-[*BFS ..10 (e, n, p | startNode(relationships(e)[-1]) = "
+                                 "c:type2)]->(:type3 {id: 3}) RETURN pth;"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *bfs = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(bfs);
+    EXPECT_TRUE(bfs->IsVariable());
+    EXPECT_EQ(bfs->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(bfs->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(bfs->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(bfs->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(bfs->filter_lambda_.accumulated_weight, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnBfsFilterByWeight) {
+  auto &ast_generator = *GetParam();
+  {
+    ASSERT_THROW(ast_generator.ParseQuery(
+                     "MATCH pth=(:type1 {id: 1})<-[*BFS ..10 (e, n, p, w | startNode(relationships(e)[-1] AND w > 0) = "
+                     "c:type2)]->(:type3 {id: 3}) RETURN pth;"),
+                 SemanticException);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH () -[*]- () RETURN *"));
@@ -1922,6 +2018,57 @@ TEST_P(CypherMainVisitorTest, MatchWShortestReturn) {
   ASSERT_TRUE(shortest->total_weight_);
   EXPECT_EQ(shortest->total_weight_->name_, "total_weight");
   EXPECT_TRUE(shortest->total_weight_->user_declared_);
+}
+
+TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH pth=()-[r:type1 *wShortest 10 (we, wn | 42) total_weight "
+                                 "(e, n, p | startNode(relationships(e)[-1]) = c:type3)]->(:type2) RETURN pth"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortestPath = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortestPath);
+    EXPECT_TRUE(shortestPath->IsVariable());
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight, nullptr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathWeightReturn) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH pth=()-[r:type1 *wShortest 10 (we, wn | 42) total_weight "
+        "(e, n, p, w | startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortestPath = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortestPath);
+    EXPECT_TRUE(shortestPath->IsVariable());
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_edge->name_, "e");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.inner_node->name_, "n");
+    EXPECT_TRUE(shortestPath->filter_lambda_.inner_node->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_path->name_, "p");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
+    EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight->name_, "w");
+    EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_weight->user_declared_);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
@@ -2403,7 +2550,7 @@ TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
 void check_replication_query(Base *ast_generator, const ReplicationQuery *query, const std::string name,
                              const std::optional<TypedValue> socket_address, const ReplicationQuery::SyncMode sync_mode,
                              const std::optional<TypedValue> port = {}) {
-  EXPECT_EQ(query->replica_name_, name);
+  EXPECT_EQ(query->instance_name_, name);
   EXPECT_EQ(query->sync_mode_, sync_mode);
   ASSERT_EQ(static_cast<bool>(query->socket_address_), static_cast<bool>(socket_address));
   if (socket_address) {
@@ -2450,7 +2597,7 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
   }
 
   {
-    const std::string query = "SET REPLICATION ROLE TO MAIN WITH PORT 10000";
+    const std::string query = "SET REPLICATION ROLE TO REPLICA";
     ASSERT_THROW(ast_generator.ParseQuery(query), SemanticException);
   }
 
@@ -2484,6 +2631,103 @@ TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
                           ReplicationQuery::SyncMode::SYNC);
 }
 
+#ifdef MG_ENTERPRISE
+
+TEST_P(CypherMainVisitorTest, TestRegisterSyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const sync_instance = R"(REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001", "management_server": "127.0.0.1:10011"
+    })";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(sync_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::SYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::unordered_map<std::string, std::string> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::unordered_map<std::string, std::string>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.at("bolt_server"), "127.0.0.1:7688");
+  EXPECT_EQ(config_map.at("management_server"), "127.0.0.1:10011");
+  EXPECT_EQ(config_map.at("replication_server"), "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const async_instance =
+      R"(REGISTER INSTANCE instance_1 AS ASYNC WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001",
+    "management_server": "127.0.0.1:10011"})";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(async_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.find(memgraph::query::kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(memgraph::query::kManagementServer)->second, "127.0.0.1:10011");
+  EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query =
+      R"(ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "coordinator_server": "127.0.0.1:10111"})";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 2);
+  EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   auto &ast_generator = *GetParam();
 
@@ -2493,7 +2737,7 @@ TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
   std::string correct_query = "DROP REPLICA replica1";
   auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
   ASSERT_TRUE(correct_query_parsed);
-  EXPECT_EQ(correct_query_parsed->replica_name_, "replica1");
+  EXPECT_EQ(correct_query_parsed->instance_name_, "replica1");
 }
 
 TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
@@ -2540,23 +2784,23 @@ TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
 
 TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+  auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::STORAGE);
+  EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::STORAGE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
+  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::INDEX);
+  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
+  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
   ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::CONSTRAINT);
+  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
@@ -2776,18 +3020,6 @@ TEST_P(CypherMainVisitorTest, DumpDatabase) {
   ASSERT_TRUE(query);
 }
 
-namespace {
-template <class TAst>
-void CheckCallProcedureDefaultMemoryLimit(const TAst &ast, const CallProcedure &call_proc) {
-  // Should be 100 MB
-  auto *literal = dynamic_cast<PrimitiveLiteral *>(call_proc.memory_limit_);
-  ASSERT_TRUE(literal);
-  TypedValue value(literal->value_);
-  ASSERT_TRUE(TypedValue::BoolEqual{}(value, TypedValue(100)));
-  ASSERT_EQ(call_proc.memory_scale_, 1024 * 1024);
-}
-}  // namespace
-
 TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   AddProc(*mock_module_with_dots_in_name, "proc", {}, {"res"}, ProcedureType::WRITE);
   auto &ast_generator = *GetParam();
@@ -2811,7 +3043,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
@@ -2837,7 +3068,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
@@ -2869,7 +3099,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
     std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
     ASSERT_EQ(identifier_names, expected_names);
     ASSERT_EQ(identifier_names, call_proc->result_fields_);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
   };
   check_proc(ProcedureType::READ);
   check_proc(ProcedureType::WRITE);
@@ -2902,7 +3131,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   ASSERT_EQ(identifier_names, aliased_names);
   std::vector<std::string> field_names{"fst", "snd", "thrd"};
   ASSERT_EQ(call_proc->result_fields_, field_names);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
@@ -2929,7 +3157,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
@@ -2951,7 +3178,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
@@ -2976,7 +3202,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
@@ -2992,7 +3217,6 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
@@ -3126,7 +3350,6 @@ void CheckParsedCallProcedure(const CypherQuery &query, Base &ast_generator,
   EXPECT_EQ(identifier_names, args_as_str);
   EXPECT_EQ(identifier_names, call_proc->result_fields_);
   ASSERT_EQ(call_proc->is_write_, type == ProcedureType::WRITE);
-  CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
 };
 }  // namespace
 
@@ -3368,10 +3591,43 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
       ASSERT_TRUE(parsed_query);
       EXPECT_EQ(parsed_query->action_, action);
     }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY LOCK STATUS", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
+
+    {
+      const std::string query = fmt::format("{} DATA DIRECTORY STATUS", command);
+      ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+    }
   };
 
   test_lock_path_query("LOCK", LockPathQuery::Action::LOCK_PATH);
   test_lock_path_query("UNLOCK", LockPathQuery::Action::UNLOCK_PATH);
+
+  // Status test
+  {
+    const std::string query = "DATA DIRECTORY LOCK";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DATA LOCK STATUS";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DIRECTORY LOCK STATUS";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = "DATA DIRECTORY LOCK STATUS";
+    auto *parsed_query = dynamic_cast<LockPathQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    EXPECT_EQ(parsed_query->action_, LockPathQuery::Action::STATUS);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
@@ -3486,8 +3742,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 
   {
@@ -3547,8 +3802,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
-    CheckCallProcedureDefaultMemoryLimit(ast_generator, *call_proc);
+    [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   }
 }
 
@@ -4305,5 +4559,249 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     ASSERT_TRUE(clauses.size() == 2);
     ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
     ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ExistsThrow) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
+                                               "Identifiers are not supported in exists(...).");
+}
+
+TEST_P(CypherMainVisitorTest, Exists) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)-[]->()-[]->()) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 5);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+    const auto *edge2 = dynamic_cast<EdgeAtom *>(pattern->atoms_[3]);
+    const auto *node3 = dynamic_cast<NodeAtom *>(pattern->atoms_[4]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+    ASSERT_TRUE(edge2);
+    ASSERT_TRUE(node3);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)) RETURN n;"));
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+
+    ASSERT_TRUE(exists);
+
+    const auto pattern = exists->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 1);
+
+    const auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+
+    ASSERT_TRUE(node);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CallSubqueryThrow) {
+  auto &ast_generator = *GetParam();
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) CALL { MATCH (m) RETURN m QUERY MEMORY UNLIMITED } RETURN n",
+                                               ast_generator, "Memory limit cannot be set on subqueries!");
+}
+
+TEST_P(CypherMainVisitorTest, CallSubquery) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN (m) UNION MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto unions = subquery->cypher_unions_;
+    ASSERT_TRUE(unions.size() == 1);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) RETURN (m) UNION ALL MATCH (m) RETURN m } RETURN n, m"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto unions = subquery->cypher_unions_;
+    ASSERT_TRUE(unions.size() == 1);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) CALL { MATCH (o) RETURN o} RETURN m, o } RETURN n, m, o"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+
+    const auto *nested_subquery = dynamic_cast<CallSubquery *>(subquery->single_query_->clauses_[1]);
+    ASSERT_TRUE(nested_subquery);
+
+    const auto *nested_cypher = dynamic_cast<CypherQuery *>(nested_subquery->cypher_query_);
+    ASSERT_TRUE(nested_cypher);
+
+    const auto *nested_match = dynamic_cast<Match *>(nested_cypher->single_query_->clauses_[0]);
+    ASSERT_TRUE(nested_match);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, PatternComprehension) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    EXPECT_EQ(pc->filter_, nullptr);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN [p = (n)-->(b) WHERE b.id=1 | b.val] AS res;"));
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    ASSERT_TRUE(pc->variable_);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
   }
 }

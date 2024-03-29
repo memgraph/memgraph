@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include <iostream>
 
+#include <fmt/core.h>
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
@@ -24,18 +25,37 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
+DEFINE_string(use_db, "memgraph", "Database to run the query against");
 
 using namespace memgraph::communication::bolt;
 
 class BoltClient : public ::testing::Test {
  protected:
-  virtual void SetUp() { client_.Connect(endpoint_, FLAGS_username, FLAGS_password); }
+  virtual void SetUp() {
+    client_.Connect(endpoint_, FLAGS_username, FLAGS_password);
+    Execute("CREATE DATABASE db1");
+  }
 
   virtual void TearDown() {}
 
   bool Execute(const std::string &query, const std::string &message = "") {
     try {
       auto ret = client_.Execute(query, {});
+    } catch (const ClientQueryException &e) {
+      if (message != "") {
+        EXPECT_EQ(e.what(), message);
+      }
+      throw;
+    }
+    return true;
+  }
+
+  bool ExecuteAndCheckQid(const std::string &query, int qid, const std::string &message = "") {
+    try {
+      auto ret = client_.Execute(query, {});
+      if (ret.metadata["qid"].ValueInt() != qid) {
+        return false;
+      }
     } catch (const ClientQueryException &e) {
       if (message != "") {
         EXPECT_EQ(e.what(), message);
@@ -74,6 +94,15 @@ const std::string kNestedTransactions = "Nested transactions are not supported."
 const std::string kCommitInvalid =
     "Transaction can't be committed because there was a previous error. Please "
     "invoke a rollback instead.";
+
+TEST_F(BoltClient, SelectDB) { Execute(fmt::format("USE DATABASE {}", FLAGS_use_db)); }
+
+TEST_F(BoltClient, SelectDBUnderTx) {
+  EXPECT_TRUE(Execute("begin"));
+  EXPECT_THROW(Execute("USE DATABASE memgraph", "Multi-database queries are not allowed in multicommand transactions."),
+               ClientQueryException);
+  EXPECT_FALSE(TransactionActive());
+}
 
 TEST_F(BoltClient, CommitWithoutTransaction) {
   EXPECT_THROW(Execute("commit", kNoCurrentTransactionToCommit), ClientQueryException);
@@ -458,6 +487,18 @@ TEST_F(BoltClient, MixedCaseAndWhitespace) {
   ASSERT_EQ(GetCount(), count + 1);
   EXPECT_TRUE(Execute("    COMmit  "));
   EXPECT_EQ(GetCount(), count + 1);
+  EXPECT_FALSE(TransactionActive());
+}
+
+TEST_F(BoltClient, TestQid) {
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_TRUE(Execute("match (n) return count(n)"));
+  }
+  EXPECT_TRUE(Execute("begin"));
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_TRUE(ExecuteAndCheckQid("match (n) return count(n)", i + 1));
+  }
+  EXPECT_TRUE(Execute("commit"));
   EXPECT_FALSE(TransactionActive());
 }
 

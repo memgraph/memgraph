@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -111,6 +111,22 @@ enum mgp_error mgp_global_aligned_alloc(size_t size_in_bytes, size_t alignment, 
 /// The behavior is undefined if `ptr` is not a value returned from a prior
 /// mgp_global_alloc() or mgp_global_aligned_alloc().
 void mgp_global_free(void *p);
+
+/// State of the graph database.
+struct mgp_graph;
+
+/// Allocations are tracked only for master thread. If new threads are spawned
+/// inside procedure, by calling following function
+/// you can start tracking allocations for current thread too. This
+/// is important if you need query memory limit to work
+/// for given procedure or per procedure memory limit.
+enum mgp_error mgp_track_current_thread_allocations(struct mgp_graph *graph);
+
+/// Once allocations are tracked for current thread, you need to stop tracking allocations
+/// for given thread, before thread finishes with execution, or is detached.
+/// Otherwise it might result in slowdown of system due to unnecessary tracking of
+/// allocations.
+enum mgp_error mgp_untrack_current_thread_allocations(struct mgp_graph *graph);
 ///@}
 
 /// @name Operations on mgp_value
@@ -413,6 +429,9 @@ enum mgp_error mgp_list_copy(struct mgp_list *list, struct mgp_memory *memory, s
 /// Free the memory used by the given mgp_list and contained elements.
 void mgp_list_destroy(struct mgp_list *list);
 
+/// Return whether the given mgp_list contains any deleted values.
+enum mgp_error mgp_list_contains_deleted(struct mgp_list *list, int *result);
+
 /// Append a copy of mgp_value to mgp_list if capacity allows.
 /// The list copies the given value and therefore does not take ownership of the
 /// original value. You still need to call mgp_value_destroy to free the
@@ -453,6 +472,9 @@ enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, stru
 /// Free the memory used by the given mgp_map and contained items.
 void mgp_map_destroy(struct mgp_map *map);
 
+/// Return whether the given mgp_map contains any deleted values.
+enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
+
 /// Insert a new mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is *not* replaced.
 /// In case of insertion, both the string and the value are copied into the map.
@@ -462,6 +484,18 @@ void mgp_map_destroy(struct mgp_map *map);
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
 
+/// Insert a mapping from a NULL terminated character string to a value.
+/// If a mapping with the same key already exists, it is replaced.
+/// In case of update, both the string and the value are copied into the map.
+/// Therefore, the map does not take ownership of the original key nor value, so
+/// you still need to free their memory explicitly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
+enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+// Erase a mapping by key.
+// If the key doesn't exist in the map nothing happens
+enum mgp_error mgp_map_erase(struct mgp_map *map, const char *key);
+
 /// Get the number of items stored in mgp_map.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_map_size(struct mgp_map *map, size_t *result);
@@ -469,6 +503,9 @@ enum mgp_error mgp_map_size(struct mgp_map *map, size_t *result);
 /// Get the mapped mgp_value to the given character string.
 /// Result is NULL if no mapping exists.
 enum mgp_error mgp_map_at(struct mgp_map *map, const char *key, struct mgp_value **result);
+
+/// Returns true if key in map.
+enum mgp_error mgp_key_exists(struct mgp_map *map, const char *key, int *result);
 
 /// An item in the mgp_map.
 struct mgp_map_item;
@@ -521,6 +558,9 @@ enum mgp_error mgp_path_copy(struct mgp_path *path, struct mgp_memory *memory, s
 /// Free the memory used by the given mgp_path and contained vertices and edges.
 void mgp_path_destroy(struct mgp_path *path);
 
+/// Return whether the given mgp_path contains any deleted values.
+enum mgp_error mgp_path_contains_deleted(struct mgp_path *path, int *result);
+
 /// Append an edge continuing from the last vertex on the path.
 /// The edge is copied into the path. Therefore, the path does not take
 /// ownership of the original edge, so you still need to free the edge memory
@@ -530,6 +570,10 @@ void mgp_path_destroy(struct mgp_path *path);
 /// Return mgp_error::MGP_ERROR_LOGIC_ERROR if the current last vertex in the path is not part of the given edge.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for path extension.
 enum mgp_error mgp_path_expand(struct mgp_path *path, struct mgp_edge *edge);
+
+/// Remove the last node and the last relationship from the path.
+/// Return mgp_error::MGP_ERROR_OUT_OF_RANGE if the path contains no relationships.
+enum mgp_error mgp_path_pop(struct mgp_path *path);
 
 /// Get the number of edges in a mgp_path.
 /// Current implementation always returns without errors.
@@ -635,6 +679,12 @@ struct mgp_vertex_id {
 /// Get the ID of given vertex.
 enum mgp_error mgp_vertex_get_id(struct mgp_vertex *v, struct mgp_vertex_id *result);
 
+/// Get the in degree of given vertex.
+enum mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result);
+
+/// Get the out degree of given vertex.
+enum mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result);
+
 /// Result is non-zero if the vertex can be modified.
 /// The mutability of the vertex is the same as the graph which it is part of. If a vertex is immutable, then edges
 /// cannot be created or deleted, properties and labels cannot be set or removed and all of the returned edges will be
@@ -651,6 +701,15 @@ enum mgp_error mgp_vertex_underlying_graph_is_mutable(struct mgp_vertex *v, int 
 /// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
 enum mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_name,
                                        struct mgp_value *property_value);
+
+/// Set the value of properties on a vertex.
+/// When the value is `null`, then the property is removed from the vertex.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
+/// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
+enum mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *properties);
 
 /// Add the label to the vertex.
 /// If the vertex already has the label, this function does nothing.
@@ -674,6 +733,9 @@ enum mgp_error mgp_vertex_copy(struct mgp_vertex *v, struct mgp_memory *memory, 
 
 /// Free the memory used by a mgp_vertex.
 void mgp_vertex_destroy(struct mgp_vertex *v);
+
+/// Return whether the given mgp_vertex is deleted.
+enum mgp_error mgp_vertex_is_deleted(struct mgp_vertex *v, int *result);
 
 /// Result is non-zero if given vertices are equal, otherwise 0.
 enum mgp_error mgp_vertex_equal(struct mgp_vertex *v1, struct mgp_vertex *v2, int *result);
@@ -769,6 +831,9 @@ enum mgp_error mgp_edge_copy(struct mgp_edge *e, struct mgp_memory *memory, stru
 /// Free the memory used by a mgp_edge.
 void mgp_edge_destroy(struct mgp_edge *e);
 
+/// Return whether the given mgp_edge is deleted.
+enum mgp_error mgp_edge_is_deleted(struct mgp_edge *e, int *result);
+
 /// Result is non-zero if given edges are equal, otherwise 0.
 enum mgp_error mgp_edge_equal(struct mgp_edge *e1, struct mgp_edge *e2, int *result);
 
@@ -802,6 +867,15 @@ enum mgp_error mgp_edge_get_property(struct mgp_edge *e, const char *property_na
 /// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
 enum mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, struct mgp_value *property_value);
 
+/// Set the value of properties on a vertex.
+/// When the value is `null`, then the property is removed from the vertex.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for storing the property.
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `v` is immutable.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `v` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `v` has been modified by another transaction.
+/// Return mgp_error::MGP_ERROR_VALUE_CONVERSION if `property_value` is vertex, edge or path.
+enum mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties);
+
 /// Start iterating over properties stored in the given edge.
 /// The properties of the edge are copied when the iterator is created, therefore later changes won't affect them.
 /// Resulting mgp_properties_iterator needs to be deallocated with
@@ -811,20 +885,112 @@ enum mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_na
 enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *memory,
                                         struct mgp_properties_iterator **result);
 
-/// State of the graph database.
-struct mgp_graph;
-
 /// Get the vertex corresponding to given ID, or NULL if no such vertex exists.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the vertex.
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
+/// Result is non-zero if the index with the given name exists.
+/// The current implementation always returns without errors.
+enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
+
+/// Available modes of searching text indices.
+MGP_ENUM_CLASS text_search_mode{
+    SPECIFIED_PROPERTIES,
+    REGEX,
+    ALL_PROPERTIES,
+};
+
+/// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.
+/// The "search_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "search_results" key is absent, and "error_msg" contains the error message.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
+enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
+                                           enum text_search_mode search_mode, struct mgp_memory *memory,
+                                           struct mgp_map **result);
+
+/// Aggregate over the results of a search over the named text index. The result is a map with the "aggregation_results"
+/// and "error_msg" keys.
+/// The "aggregation_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "aggregation_results" key is absent, and "error_msg" contains the error message.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
+enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
+                                                   const char *search_query, const char *aggregation_query,
+                                                   struct mgp_memory *memory, struct mgp_map **result);
+
+/// Creates label index for given label.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// Drop label index.
+enum mgp_error mgp_drop_label_index(struct mgp_graph *graph, const char *label, int *result);
+
+/// List all label indices.
+enum mgp_error mgp_list_all_label_indices(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_list **result);
+
+/// Creates label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if label property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops label-property index for given label and propery.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping label property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all label+property indices.
+enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                   struct mgp_list **result);
+
+/// Creates existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                               int *result);
+
+/// Drops existence constraint for given label and property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping existence constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_existence_constraint(struct mgp_graph *graph, const char *label, const char *property,
+                                             int *result);
+
+/// List all existence constraints.
+enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                  struct mgp_list **result);
+
+/// Creates unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if creating unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                            int *result);
+
+/// Drops unique constraint for given label and properties.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping unique constraint failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+                                          int *result);
+
+/// List all unique constraints
+enum mgp_error mgp_list_all_unique_constraints(struct mgp_graph *graph, struct mgp_memory *memory,
+                                               struct mgp_list **result);
+
 /// Result is non-zero if the graph can be modified.
 /// If a graph is immutable, then vertices cannot be created or deleted, and all of the returned vertices will be
 /// immutable also. The same applies for edges.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
+
+/// Result is non-zero if the graph is in transactional storage mode.
+/// If a graph is not in transactional mode (i.e. analytical mode), then vertices and edges can be missing
+/// because changes from other transactions are visible.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
 
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
@@ -851,6 +1017,29 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge from vertex
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
+enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                       struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge to vertex
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
+/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
+enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                     struct mgp_memory *memory, struct mgp_edge **result);
+
+/// Change edge type
+/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
+/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by
+/// another transaction.
+enum mgp_error mgp_graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
+                                          struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
@@ -1318,6 +1507,13 @@ MGP_ENUM_CLASS mgp_log_level{
 /// to allocate global resources.
 typedef void (*mgp_proc_cb)(struct mgp_list *, struct mgp_graph *, struct mgp_result *, struct mgp_memory *);
 
+/// Cleanup for a query module read procedure. Can't be invoked through OpenCypher. Cleans batched stream.
+typedef void (*mgp_proc_cleanup)();
+
+/// Initializer for a query module batched read procedure. Can't be invoked through OpenCypher. Initializes batched
+/// stream.
+typedef void (*mgp_proc_initializer)(struct mgp_list *, struct mgp_graph *, struct mgp_memory *);
+
 /// Register a read-only procedure to a module.
 ///
 /// The `name` must be a sequence of digits, underscores, lowercase and
@@ -1341,6 +1537,30 @@ enum mgp_error mgp_module_add_read_procedure(struct mgp_module *module, const ch
 /// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
 enum mgp_error mgp_module_add_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
                                               struct mgp_proc **result);
+
+/// Register a readable batched procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_proc.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
+enum mgp_error mgp_module_add_batch_read_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                   mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                                   struct mgp_proc **result);
+
+/// Register a writeable batched procedure to a module.
+///
+/// The `name` must be a valid identifier, following the same rules as the
+/// procedure`name` in mgp_module_add_read_procedure.
+///
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for mgp_proc.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if `name` is not a valid procedure name.
+/// RETURN mgp_error::MGP_ERROR_LOGIC_ERROR if a procedure with the same name was already registered.
+enum mgp_error mgp_module_add_batch_write_procedure(struct mgp_module *module, const char *name, mgp_proc_cb cb,
+                                                    mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                                    struct mgp_proc **result);
 
 /// Add a required argument to a procedure.
 ///
@@ -1417,7 +1637,10 @@ enum mgp_error mgp_log(enum mgp_log_level log_level, const char *output);
 /// @{
 
 /// Return non-zero if the currently executing procedure should abort as soon as
-/// possible.
+/// possible. If non-zero the reasons are:
+/// (1) The transaction was requested to be terminated
+/// (2) The server is gracefully shutting down
+/// (3) The transaction has hit its timeout threshold
 ///
 /// Procedures which perform heavyweight processing run the risk of running too
 /// long and going over the query execution time limit. To prevent this, such

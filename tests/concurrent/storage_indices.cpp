@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,9 +15,11 @@
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "utils/thread.hpp"
+
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 const uint64_t kNumVerifiers = 5;
 const uint64_t kNumMutators = 1;
@@ -27,10 +29,13 @@ const uint64_t kVerifierBatchSize = 10;
 const uint64_t kMutatorBatchSize = 1000;
 
 TEST(Storage, LabelIndex) {
-  auto store = memgraph::storage::Storage();
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
-  auto label = store.NameToLabel("label");
-  ASSERT_FALSE(store.CreateIndex(label).HasError());
+  auto label = store->NameToLabel("label");
+  {
+    auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+  }
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);
@@ -41,17 +46,17 @@ TEST(Storage, LabelIndex) {
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
-          auto acc = store.Access();
-          auto vertex = acc.CreateVertex();
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->CreateVertex();
           gids.emplace(vertex.Gid(), false);
           auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
         {
-          auto acc = store.Access();
-          auto vertices = acc.Vertices(label, memgraph::storage::View::OLD);
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertices = acc->Vertices(label, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
@@ -78,20 +83,20 @@ TEST(Storage, LabelIndex) {
       gids.resize(kMutatorBatchSize);
       while (mutators_run.load(std::memory_order_acquire)) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store.Access();
-          auto vertex = acc.CreateVertex();
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->CreateVertex();
           gids[i] = vertex.Gid();
           auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store.Access();
-          auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
-          ASSERT_TRUE(acc.DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
       }
     });
@@ -108,11 +113,14 @@ TEST(Storage, LabelIndex) {
 }
 
 TEST(Storage, LabelPropertyIndex) {
-  auto store = memgraph::storage::Storage();
+  std::unique_ptr<memgraph::storage::Storage> store{new memgraph::storage::InMemoryStorage()};
 
-  auto label = store.NameToLabel("label");
-  auto prop = store.NameToProperty("prop");
-  ASSERT_FALSE(store.CreateIndex(label, prop).HasError());
+  auto label = store->NameToLabel("label");
+  auto prop = store->NameToProperty("prop");
+  {
+    auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+    ASSERT_FALSE(unique_acc->CreateIndex(label, prop).HasError());
+  }
 
   std::vector<std::thread> verifiers;
   verifiers.reserve(kNumVerifiers);
@@ -123,8 +131,8 @@ TEST(Storage, LabelPropertyIndex) {
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
-          auto acc = store.Access();
-          auto vertex = acc.CreateVertex();
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->CreateVertex();
           gids.emplace(vertex.Gid(), false);
           {
             auto ret = vertex.AddLabel(label);
@@ -136,11 +144,11 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
         {
-          auto acc = store.Access();
-          auto vertices = acc.Vertices(label, prop, memgraph::storage::View::OLD);
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertices = acc->Vertices(label, prop, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
@@ -167,8 +175,8 @@ TEST(Storage, LabelPropertyIndex) {
       gids.resize(kMutatorBatchSize);
       while (mutators_run.load(std::memory_order_acquire)) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store.Access();
-          auto vertex = acc.CreateVertex();
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->CreateVertex();
           gids[i] = vertex.Gid();
           {
             auto ret = vertex.AddLabel(label);
@@ -180,14 +188,14 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store.Access();
-          auto vertex = acc.FindVertex(gids[i], memgraph::storage::View::OLD);
+          auto acc = store->Access(ReplicationRole::MAIN);
+          auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
-          ASSERT_TRUE(acc.DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc.Commit().HasError());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
+          ASSERT_FALSE(acc->Commit().HasError());
         }
       }
     });

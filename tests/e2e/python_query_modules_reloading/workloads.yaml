@@ -1,0 +1,35 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+  - "--also-log-to-stderr"
+
+test_reload_query_module_in_memory_cluster: &test_reload_query_module_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "py-query-modules-reloading-e2e.log"
+      setup_queries: []
+      validation_querie: []
+
+disk_test_reload_query_module_disk_cluster: &disk_test_reload_query_module_disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "py-query-modules-reloading-e2e.log"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
+workloads:
+  - name: "test-reload-query-module"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/python_query_modules_reloading/procedures/"
+    args: ["python_query_modules_reloading/test_reload_query_module.py"]
+    <<: *test_reload_query_module_in_memory_cluster
+
+  - name: "test-reload-query-module on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/python_query_modules_reloading/procedures/"
+    args: ["python_query_modules_reloading/test_reload_query_module.py"]
+    <<: *disk_test_reload_query_module_disk_cluster

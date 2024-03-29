@@ -1,0 +1,18 @@
+awesome_functions_cluster: &awesome_functions_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "awesome_functions.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Property size awesome function"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["awesome_functions/property_size.py"]
+    <<: *awesome_functions_cluster
+  - name: "Value type awesome function"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["awesome_functions/value_type.py"]
+    <<: *awesome_functions_cluster

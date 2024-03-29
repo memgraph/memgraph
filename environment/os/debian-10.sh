@@ -1,9 +1,9 @@
 #!/bin/bash
-
 set -Eeuo pipefail
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
+
+# IMPORTANT: Deprecated since memgraph v2.12.0.
 
 check_operating_system "debian-10"
 check_architecture "x86_64"
@@ -24,7 +24,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libgmp-dev # for gdb
     gperf # for proxygen
     git # for fbthrift
-    libedit-dev libpcre3-dev automake bison # for swig
+    libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -40,7 +40,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make pkg-config # build system
+    make cmake pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
@@ -53,10 +53,19 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless # for driver tests
-    dotnet-sdk-3.1 golang nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless oracle-java17-installer custom-maven3.9.3 # for driver tests
+    dotnet-sdk-3.1 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    libsasl2-dev
+)
+
+MEMGRAPH_RUN_DEPS=(
+    logrotate openssl python3 libseccomp
+)
+
+NEW_DEPS=(
+    wget curl tar gzip
 )
 
 list() {
@@ -64,7 +73,28 @@ list() {
 }
 
 check() {
-    check_all_dpkg "$1"
+    local missing=""
+    for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+              missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
+            missing="$pkg $missing"
+        fi
+    done
+    if [ "$missing" != "" ]; then
+        echo "MISSING PACKAGES: $missing"
+        exit 1
+    fi
 }
 
 install() {
@@ -76,7 +106,14 @@ deb-src http://deb.debian.org/debian/ buster-updates main contrib non-free
 deb http://security.debian.org/debian-security buster/updates main contrib non-free
 deb-src http://security.debian.org/debian-security buster/updates main contrib non-free
 EOF
+    apt --allow-releaseinfo-change update
+    cat >/etc/apt/sources.list.d/java.list << EOF
+deb http://ppa.launchpad.net/linuxuprising/java/ubuntu bionic main
+deb-src http://ppa.launchpad.net/linuxuprising/java/ubuntu bionic main
+EOF
     cd "$DIR"
+    apt install -y gnupg
+    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys EA8CACC073C3DB2A
     apt --allow-releaseinfo-change update
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
@@ -85,8 +122,26 @@ EOF
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    apt install -y wget
+
     for pkg in $1; do
+        if [ "$pkg" == custom-maven3.9.3 ]; then
+            install_custom_maven "3.9.3"
+            continue
+        fi
+        if [ "$pkg" == custom-golang1.18.9 ]; then
+            install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == oracle-java17-installer ]; then
+            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
+              echo oracle-java17-installer shared/accepted-oracle-license-v1-3 select true | /usr/bin/debconf-set-selections
+              echo oracle-java17-installer shared/accepted-oracle-license-v1-3 seen true | /usr/bin/debconf-set-selections
+              apt install -y "$pkg"
+              update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
+              update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+            fi
+            continue
+        fi
         if [ "$pkg" == dotnet-sdk-3.1 ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/10/packages-microsoft-prod.deb -O packages-microsoft-prod.deb

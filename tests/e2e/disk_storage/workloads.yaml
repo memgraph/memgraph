@@ -1,0 +1,58 @@
+disk_storage: &disk_storage
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level", "TRACE", "--memory-limit", "150"]
+      log_file: "disk_storage.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Tests SHOW STORAGE INFO clause"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/storage_info.py"]
+    <<: *disk_storage
+
+  - name: "Test that loading vertices from indices and creating edge with them works."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/create_edge_from_indices.py"]
+    <<: *disk_storage
+
+  - name: "Test that free memory query is disabled with on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/free_memory_disabled.py"]
+    <<: *disk_storage
+
+  - name: "Test that replication queries are disabled with on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/replication_disabled.py"]
+    <<: *disk_storage
+
+  - name: "Test that create snapshot queries are disabled with on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/snapshot_disabled.py"]
+    <<: *disk_storage
+
+  - name: "Test that lock data directory query is disabled with on-disk storage."
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/lock_data_dir_disabled.py"]
+    <<: *disk_storage
+
+  - name: "Tests importing data on disk "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/data_import.py"]
+    <<: *disk_storage
+
+  - name: "Tests when switching from in-memory storage to disk storage when the db isn't empty. "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/update_storage_mode_db_not_empty.py"]
+    <<: *disk_storage
+
+  - name: "Tests when switching from disk storage to in-memory storage is forbidden. "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/update_storage_mode_disk_to_memory.py"]
+    <<: *disk_storage
+
+  - name: "Tests when switching from in-memory to disk is allowed. "
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["disk_storage/update_storage_mode_memory_to_disk.py"]
+    <<: *disk_storage

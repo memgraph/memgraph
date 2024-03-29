@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,15 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+
+// Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
+#undef TRUE
+#undef FALSE
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
@@ -47,7 +52,8 @@ using InputStream = Buffer::ReadEnd;
  */
 class OutputStream final {
  public:
-  OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function) : write_function_(write_function) {}
+  explicit OutputStream(std::function<bool(const uint8_t *, size_t, bool)> write_function)
+      : write_function_(std::move(write_function)) {}
 
   OutputStream(const OutputStream &) = delete;
   OutputStream(OutputStream &&) = delete;
@@ -69,10 +75,10 @@ class OutputStream final {
  * sessions. It handles socket ownership, inactivity timeout and protocol
  * wrapping.
  */
-template <class TSession, class TSessionData>
+template <class TSession, class TSessionContext>
 class Session final {
  public:
-  Session(io::network::Socket &&socket, TSessionData *data, ServerContext *context, int inactivity_timeout_sec)
+  Session(io::network::Socket &&socket, TSessionContext *data, ServerContext *context, int inactivity_timeout_sec)
       : socket_(std::move(socket)),
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_(data, socket_.endpoint(), input_buffer_.read_end(), &output_stream_),

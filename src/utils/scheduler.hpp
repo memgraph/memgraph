@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,7 @@ namespace memgraph::utils {
  */
 class Scheduler {
  public:
-  Scheduler() {}
+  Scheduler() = default;
   /**
    * @param pause - Duration between two function executions. If function is
    * still running when it should be ran again, it will run right after it
@@ -57,15 +57,18 @@ class Scheduler {
         // program and there is probably no work to do in scheduled function at
         // the start of the program. Since Server will log some messages on
         // the program start we let him log first and we make sure by first
-        // waiting that funcion f will not log before it.
+        // waiting that function f will not log before it.
+        // Check for pause also.
         std::unique_lock<std::mutex> lk(mutex_);
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
-          condition_variable_.wait_for(lk, start_time - now, [&] { return is_working_.load() == false; });
+          condition_variable_.wait_until(lk, start_time, [&] { return !is_working_.load(); });
         } else {
           start_time = now;
         }
+
+        pause_cv_.wait(lk, [&] { return !is_paused_.load(); });
 
         if (!is_working_) break;
         f();
@@ -73,17 +76,23 @@ class Scheduler {
     });
   }
 
+  void Resume() {
+    is_paused_.store(false);
+    pause_cv_.notify_one();
+  }
+
+  void Pause() { is_paused_.store(true); }
+
   /**
    * @brief Stops the thread execution. This is a blocking call and may take as
    * much time as one call to the function given previously to Run takes.
    * @throw std::system_error
    */
   void Stop() {
+    is_paused_.store(false);
     is_working_.store(false);
-    {
-      std::unique_lock<std::mutex> lk(mutex_);
-      condition_variable_.notify_one();
-    }
+    pause_cv_.notify_one();
+    condition_variable_.notify_one();
     if (thread_.joinable()) thread_.join();
   }
 
@@ -99,6 +108,16 @@ class Scheduler {
    * Variable is true when thread is running.
    */
   std::atomic<bool> is_working_{false};
+
+  /**
+   * Variable is true when thread is paused.
+   */
+  std::atomic<bool> is_paused_{false};
+
+  /*
+   * Wait until the thread is resumed.
+   */
+  std::condition_variable pause_cv_;
 
   /**
    * Mutex used to synchronize threads using condition variable.

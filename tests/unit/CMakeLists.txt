@@ -6,7 +6,8 @@ find_package(Threads REQUIRED)
 
 add_custom_target(memgraph__unit)
 
-set(memgraph_unit_main main.cpp)
+add_library(memgraph_unit_main OBJECT main.cpp)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
 
 function(add_unit_test test_cpp)
   _add_unit_test(${test_cpp} FALSE ${ARGN})
@@ -25,19 +26,19 @@ function(_add_unit_test test_cpp custom_main)
     ${test_cpp}
     ${ARGN})
 
-  if(NOT ${custom_main})
-    set(source_files
-      ${source_files}
-      ${memgraph_unit_main})
-  endif()
-
   add_executable(${target_name} ${source_files})
+
+  if(NOT ${custom_main})
+    target_link_libraries(${target_name} memgraph_unit_main)
+  else()
+    target_link_libraries(${target_name} gtest gmock Threads::Threads dl)
+  endif()
 
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} mg-memory mg-utils gtest gmock Threads::Threads dl)
+
 
   # register test
   if(TEST_COVERAGE)
@@ -109,7 +110,10 @@ add_unit_test(query_plan_edge_cases.cpp ${CMAKE_SOURCE_DIR}/src/glue/communicati
 target_link_libraries(${test_prefix}query_plan_edge_cases mg-communication mg-query)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-query mg-glue)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-query mg-glue)
+
+add_unit_test(query_plan_operator_to_string.cpp)
+target_link_libraries(${test_prefix}query_plan_operator_to_string mg-query)
 
 add_unit_test(query_plan_read_write_typecheck.cpp
   ${CMAKE_SOURCE_DIR}/src/query/plan/read_write_type_checker.cpp)
@@ -129,6 +133,12 @@ target_link_libraries(${test_prefix}query_serialization_property_value mg-query)
 
 add_unit_test(query_streams.cpp)
 target_link_libraries(${test_prefix}query_streams mg-query kafka-mock)
+
+add_unit_test(transaction_queue.cpp)
+target_link_libraries(${test_prefix}transaction_queue mg-communication mg-query mg-glue)
+
+add_unit_test(transaction_queue_multiple.cpp)
+target_link_libraries(${test_prefix}transaction_queue_multiple mg-communication mg-query mg-glue)
 
 # Test query functions
 add_unit_test(query_function_mgp_module.cpp)
@@ -218,6 +228,9 @@ target_link_libraries(${test_prefix}utils_algorithm mg-utils)
 add_unit_test(utils_exceptions.cpp)
 target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 
+add_unit_test(utils_histogram.cpp)
+target_link_libraries(${test_prefix}utils_histogram mg-utils mg-events)
+
 add_unit_test(utils_file.cpp)
 target_link_libraries(${test_prefix}utils_file mg-utils)
 
@@ -263,20 +276,29 @@ target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 add_unit_test(utils_thread_pool.cpp)
 target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
 
-add_unit_test(utils_csv_parsing.cpp ${CMAKE_SOURCE_DIR}/src/utils/csv_parsing.cpp)
-target_link_libraries(${test_prefix}utils_csv_parsing mg-utils fmt)
+add_unit_test(csv_csv_parsing.cpp)
+target_link_libraries(${test_prefix}csv_csv_parsing mg::csv)
 
 add_unit_test(utils_async_timer.cpp)
 target_link_libraries(${test_prefix}utils_async_timer mg-utils)
 
-add_unit_test(utils_license.cpp)
-target_link_libraries(${test_prefix}utils_license mg-utils mg-license)
+add_unit_test(license.cpp)
+target_link_libraries(${test_prefix}license mg-utils mg-license)
 
 add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
 target_link_libraries(${test_prefix}utils_temporal mg-utils)
+
+add_unit_test(utils_java_string_formatter.cpp)
+target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
+
+add_unit_test(utils_resource_lock.cpp)
+target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
+
+add_unit_test(lru_cache.cpp)
+target_link_libraries(${test_prefix}lru_cache mg-utils)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -289,16 +311,28 @@ add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
 add_unit_test(storage_v2_constraints.cpp)
-target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
 
 add_unit_test(storage_v2_decoder_encoder.cpp)
 target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg-storage-v2)
 
-add_unit_test(storage_v2_durability.cpp)
-target_link_libraries(${test_prefix}storage_v2_durability mg-storage-v2)
+add_unit_test(storage_v2_durability_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg-storage-v2 mg-dbms)
 
-add_unit_test(storage_v2_edge.cpp)
-target_link_libraries(${test_prefix}storage_v2_edge mg-storage-v2)
+add_unit_test(storage_rocks.cpp)
+target_link_libraries(${test_prefix}storage_rocks mg-storage-v2)
+
+add_unit_test(storage_v2_disk.cpp)
+target_link_libraries(${test_prefix}storage_v2_disk mg-storage-v2)
+
+add_unit_test(clearing_old_disk_data.cpp)
+target_link_libraries(${test_prefix}clearing_old_disk_data mg-storage-v2)
+
+add_unit_test(storage_v2_edge_inmemory.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_inmemory mg-storage-v2)
+
+add_unit_test(storage_v2_edge_ondisk.cpp)
+target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg-storage-v2)
 
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
@@ -313,16 +347,28 @@ add_unit_test(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 fmt)
+target_link_libraries(${test_prefix}storage_v2_wal_file mg-storage-v2 storage_test_utils fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 fmt)
+target_link_libraries(${test_prefix}storage_v2_replication mg-storage-v2 mg-dbms fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg-storage-v2)
 
+add_unit_test(storage_v2_show_storage_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_show_storage_info mg-storage-v2)
+
+add_unit_test(storage_v2_get_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_get_info mg-storage-v2)
+
+add_unit_test(database_get_info.cpp)
+target_link_libraries(${test_prefix}database_get_info mg-storage-v2 mg-glue mg-dbms)
+
+add_unit_test(storage_v2_storage_mode.cpp)
+target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
+
 add_unit_test(replication_persistence_helper.cpp)
-target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2)
+target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
 
 add_unit_test(auth_checker.cpp)
 target_link_libraries(${test_prefix}auth_checker mg-glue mg-auth)
@@ -343,34 +389,101 @@ endif()
 # Test mg-slk
 if(MG_ENTERPRISE)
   add_unit_test(slk_advanced.cpp)
-  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2)
+  target_link_libraries(${test_prefix}slk_advanced mg-storage-v2 mg-replication mg-coordination mg-repl_coord_glue)
 endif()
 
-if(MG_ENTERPRISE)
-  add_unit_test(slk_core.cpp)
-  target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+add_unit_test(slk_core.cpp)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 
-  add_unit_test(slk_streams.cpp)
-  target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
-endif()
+add_unit_test(slk_streams.cpp)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 
 # Test mg-rpc
-if(MG_ENTERPRISE)
-  add_unit_test(rpc.cpp)
-  target_link_libraries(${test_prefix}rpc mg-rpc)
-endif()
-
-# Test LCP
-add_custom_command(
-  OUTPUT test_lcp
-  DEPENDS ${lcp_src_files} lcp test_lcp.lisp
-  COMMAND sbcl --script ${CMAKE_CURRENT_SOURCE_DIR}/test_lcp.lisp)
-add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
-add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
-add_dependencies(memgraph__unit test_lcp)
+add_unit_test(rpc.cpp)
+target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test websocket
 find_package(Boost REQUIRED)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)
+
+# Test multi-database
+if(MG_ENTERPRISE)
+  add_unit_test(dbms_database.cpp)
+  target_link_libraries(${test_prefix}dbms_database mg-storage-v2 mg-query mg-glue mg-dbms)
+
+  add_unit_test_with_custom_main(dbms_handler.cpp)
+  target_link_libraries(${test_prefix}dbms_handler mg-query mg-auth mg-glue mg-dbms)
+
+  add_unit_test(multi_tenancy.cpp)
+  target_link_libraries(${test_prefix}multi_tenancy mg-query mg-auth mg-glue mg-dbms)
+else()
+  add_unit_test_with_custom_main(dbms_handler_community.cpp)
+  target_link_libraries(${test_prefix}dbms_handler_community mg-query mg-auth mg-glue mg-dbms)
+endif()
+
+# Test distributed
+add_unit_test(distributed_lamport_clock.cpp)
+target_link_libraries(${test_prefix}distributed_lamport_clock mg-distributed)
+target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_unit_test(query_hint_provider.cpp)
+target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)
+
+
+# Test coordination
+if(MG_ENTERPRISE)
+add_unit_test(coordination_utils.cpp)
+target_link_libraries(${test_prefix}coordination_utils gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordination_utils PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test Raft log serialization
+if(MG_ENTERPRISE)
+add_unit_test(raft_log_serialization.cpp)
+target_link_libraries(${test_prefix}raft_log_serialization gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}raft_log_serialization PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test CoordinatorClusterState
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_cluster_state.cpp)
+target_link_libraries(${test_prefix}coordinator_cluster_state gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_cluster_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator state machine
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_state_machine.cpp)
+target_link_libraries(${test_prefix}coordinator_state_machine gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_state_machine PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test RAFT state
+if(MG_ENTERPRISE)
+add_unit_test(raft_state.cpp)
+target_link_libraries(${test_prefix}raft_state gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator instance
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_instance.cpp)
+target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test replication instance connector
+if(MG_ENTERPRISE)
+add_unit_test(replication_instance_connector.cpp)
+target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test HA cluster setup
+if(MG_ENTERPRISE)
+add_unit_test(high_availability_cluster_setup.cpp)
+target_link_libraries(${test_prefix}high_availability_cluster_setup gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}high_availability_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()

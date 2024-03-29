@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -192,6 +192,26 @@ TEST(TemporalTest, DurationConversion) {
     ASSERT_EQ(local_date_time.local_time.minute, 3);
     ASSERT_EQ(local_date_time.local_time.second, 15);
   };
+}
+
+TEST(TemporalTest, LocalDateTimeToDate) {
+  memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2020, 11, 22},
+                                                 memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456}};
+  memgraph::utils::Date date{local_date_time.date};
+  ASSERT_EQ(date.year, 2020);
+  ASSERT_EQ(date.month, 11);
+  ASSERT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, LocalDateTimeToLocalTime) {
+  memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2020, 11, 22},
+                                                 memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456}};
+  memgraph::utils::LocalTime local_time{local_date_time.local_time};
+  ASSERT_EQ(local_time.hour, 13);
+  ASSERT_EQ(local_time.minute, 21);
+  ASSERT_EQ(local_time.second, 40);
+  ASSERT_EQ(local_time.millisecond, 123);
+  ASSERT_EQ(local_time.microsecond, 456);
 }
 
 namespace {

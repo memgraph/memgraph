@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <ostream>
 #include <string>
 
 #include <json/json.hpp>
@@ -46,5 +47,17 @@ bool RequestPostJson(const std::string &url, const nlohmann::json &data, int tim
  * @return bool true if the request was successful, false otherwise.
  */
 bool CreateAndDownloadFile(const std::string &url, const std::string &path, int timeout_in_seconds = 10);
+
+/**
+ * Downloads content into a stream
+ *
+ * This function sends a GET request an put the response within a stream.
+ * Using c-string because internals interop with a C API
+ *
+ * @param url url of the contents
+ * @param os an output stream
+ * @return bool true if the request was successful, false otherwise.
+ */
+auto DownloadToStream(char const *url, std::ostream &os) -> bool;
 
 }  // namespace memgraph::requests

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ struct KafkaStream {
   bool IsRunning() const;
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
-             const ConsumerFunction<Message> &consumer_function) const;
+             ConsumerFunction<Message> consumer_function) const;
 
   utils::BasicResult<std::string> SetStreamOffset(int64_t offset);
 
@@ -77,7 +77,7 @@ struct PulsarStream {
   bool IsRunning() const;
 
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
-             const ConsumerFunction<Message> &consumer_function) const;
+             ConsumerFunction<Message> consumer_function) const;
 
  private:
   using Consumer = integrations::pulsar::Consumer;

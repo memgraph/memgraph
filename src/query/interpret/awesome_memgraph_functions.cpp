@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,6 +28,7 @@
 #include "query/typed_value.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::query {
 namespace {
@@ -103,6 +104,7 @@ struct Date {};
 struct LocalTime {};
 struct LocalDateTime {};
 struct Duration {};
+struct Graph {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -142,6 +144,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsLocalDateTime();
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return arg.IsDuration();
+  } else if constexpr (std::is_same_v<ArgType, Graph>) {
+    return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -192,6 +196,8 @@ constexpr const char *ArgTypeName() {
     return "LocalDateTime";
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return "Duration";
+  } else if constexpr (std::is_same_v<ArgType, Graph>) {
+    return "graph";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -419,6 +425,10 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   }
 }
 
+TypedValue RandomUuid(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  return TypedValue(utils::GenerateUUID(), ctx.memory);
+}
+
 TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, List, String, Map, Path>>("size", args, nargs);
   const auto &value = args[0];
@@ -435,6 +445,29 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   } else {
     return TypedValue(static_cast<int64_t>(value.ValuePath().edges().size()), ctx.memory);
   }
+}
+
+TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge>, Or<String>>("propertySize", args, nargs);
+
+  auto *dba = ctx.db_accessor;
+
+  const auto &property_name = args[1].ValueString();
+  const auto maybe_property_id = dba->NameToPropertyIfExists(property_name);
+
+  if (!maybe_property_id) {
+    return TypedValue(0, ctx.memory);
+  }
+
+  uint64_t property_size = 0;
+  const auto &graph_entity = args[0];
+  if (graph_entity.IsVertex()) {
+    property_size = graph_entity.ValueVertex().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+  } else if (graph_entity.IsEdge()) {
+    property_size = graph_entity.ValueEdge().GetPropertySize(*maybe_property_id, ctx.view).GetValue();
+  }
+
+  return TypedValue(static_cast<int64_t>(property_size), ctx.memory);
 }
 
 TypedValue StartNode(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -499,8 +532,8 @@ TypedValue ToBoolean(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(value.ValueInt() != 0L, ctx.memory);
   } else {
     auto s = utils::ToUpperCase(utils::Trim(value.ValueString()));
-    if (s == "TRUE") return TypedValue(true, ctx.memory);
-    if (s == "FALSE") return TypedValue(false, ctx.memory);
+    if (s == "TRUE" || s == "T") return TypedValue(true, ctx.memory);
+    if (s == "FALSE" || s == "F") return TypedValue(false, ctx.memory);
     // I think this is just stupid and that exception should be thrown, but
     // neo4j does it this way...
     return TypedValue(ctx.memory);
@@ -555,7 +588,8 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path>>("type", args, nargs);
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime, Duration,
+           Graph>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -588,14 +622,16 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
     case TypedValue::Type::Graph:
-      throw QueryRuntimeException("Cannot fetch graph as it is not standardized openCypher type name");
+      return TypedValue("GRAPH", ctx.memory);
+    case TypedValue::Type::Function:
+      throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
   throw 1;
 }
 
 // TODO: How is Keys different from Properties function?
 TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Vertex, Edge>>("keys", args, nargs);
+  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
   auto *dba = ctx.db_accessor;
   auto get_keys = [&](const auto &record_accessor) {
     TypedValue::TVector keys(ctx.memory);
@@ -620,11 +656,64 @@ TypedValue Keys(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   const auto &value = args[0];
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
-  } else if (value.IsVertex()) {
+  }
+  if (value.IsVertex()) {
     return get_keys(value.ValueVertex());
-  } else {
+  }
+  if (value.IsEdge()) {
     return get_keys(value.ValueEdge());
   }
+
+  // map
+  TypedValue::TVector keys(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    keys.emplace_back(string_key);
+  }
+  return TypedValue(std::move(keys));
+}
+
+TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, Vertex, Edge, Map>>("keys", args, nargs);
+
+  auto get_values = [&](const auto &record_accessor) {
+    TypedValue::TVector values(ctx.memory);
+    auto maybe_props = record_accessor.Properties(ctx.view);
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get keys from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get keys from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting keys.");
+      }
+    }
+    for (const auto &[key, value] : *maybe_props) {
+      values.emplace_back(std::move(value));
+    }
+    return TypedValue(std::move(values));
+  };
+
+  const auto &value = args[0];
+  if (value.IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+  if (value.IsVertex()) {
+    return get_values(value.ValueVertex());
+  }
+  if (value.IsEdge()) {
+    return get_values(value.ValueEdge());
+  }
+
+  // map
+  TypedValue::TVector values(ctx.memory);
+  for (const auto &[string_key, value] : value.ValueMap()) {
+    values.emplace_back(value);
+  }
+
+  return TypedValue(std::move(values));
 }
 
 TypedValue Labels(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -680,13 +769,19 @@ TypedValue Range(const TypedValue *args, int64_t nargs, const FunctionContext &c
   int64_t step = nargs == 3 ? args[2].ValueInt() : 1;
   TypedValue::TVector list(ctx.memory);
   if (lbound <= rbound && step > 0) {
+    int64_t n = ((rbound - lbound + 1) + (step - 1)) / step;
+    list.reserve(n);
     for (auto i = lbound; i <= rbound; i += step) {
       list.emplace_back(i);
     }
+    MG_ASSERT(list.size() == n);
   } else if (lbound >= rbound && step < 0) {
+    int64_t n = ((lbound - rbound + 1) + (-step - 1)) / -step;
+    list.reserve(n);
     for (auto i = lbound; i >= rbound; i += step) {
       list.emplace_back(i);
     }
+    MG_ASSERT(list.size() == n);
   }
   return TypedValue(std::move(list));
 }
@@ -899,7 +994,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
   }
   if (arg.IsDouble()) {
-    return TypedValue(std::to_string(arg.ValueDouble()), ctx.memory);
+    return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
   }
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().ToString(), ctx.memory);
@@ -1099,9 +1194,14 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("date", args, nargs);
+  FType<Optional<Or<String, Map, LocalDateTime>>>("date", args, nargs);
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).date, ctx.memory);
+  }
+
+  if (args[0].IsLocalDateTime()) {
+    utils::Date date{args[0].ValueLocalDateTime().date};
+    return TypedValue(date, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1121,10 +1221,15 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("localtime", args, nargs);
+  FType<Optional<Or<String, Map, LocalDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time, ctx.memory);
+  }
+
+  if (args[0].IsLocalDateTime()) {
+    utils::LocalTime local_time{args[0].ValueLocalDateTime().local_time};
+    return TypedValue(local_time, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1199,7 +1304,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to aquire the lock on Module pointer while user-defined function is executed
+    /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
     const auto &maybe_found =
         procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
     if (!maybe_found) {
@@ -1207,7 +1312,7 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
           "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
           fully_qualified_name);
     }
-    /// Explicit extraction of module pointer, to clearly state that the lock is aquired.
+    /// Explicit extraction of module pointer, to clearly state that the lock is acquired.
     // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
     const auto &module_ptr = (*maybe_found).first;
 
@@ -1255,7 +1360,9 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == kId) return Id;
   if (function_name == "LAST") return Last;
   if (function_name == "PROPERTIES") return Properties;
+  if (function_name == "RANDOMUUID") return RandomUuid;
   if (function_name == "SIZE") return Size;
+  if (function_name == "PROPERTYSIZE") return PropertySize;
   if (function_name == "STARTNODE") return StartNode;
   if (function_name == "TIMESTAMP") return Timestamp;
   if (function_name == "TOBOOLEAN") return ToBoolean;
@@ -1264,7 +1371,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "TYPE") return Type;
   if (function_name == "VALUETYPE") return ValueType;
 
-  // List functions
+  // List, map functions
   if (function_name == "KEYS") return Keys;
   if (function_name == "LABELS") return Labels;
   if (function_name == "NODES") return Nodes;
@@ -1272,6 +1379,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "RELATIONSHIPS") return Relationships;
   if (function_name == "TAIL") return Tail;
   if (function_name == "UNIFORMSAMPLE") return UniformSample;
+  if (function_name == "VALUES") return Values;
 
   // Mathematical functions - numeric
   if (function_name == "ABS") return Abs;

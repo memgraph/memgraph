@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,8 +86,8 @@ struct ConsumerInfo {
   std::string bootstrap_servers;
   std::chrono::milliseconds batch_interval;
   int64_t batch_size;
-  std::unordered_map<std::string, std::string> public_configs;
-  std::unordered_map<std::string, std::string> private_configs;
+  std::unordered_map<std::string, std::string> public_configs{};
+  std::unordered_map<std::string, std::string> private_configs{};
 };
 
 /// Memgraphs Kafka consumer wrapper.
@@ -171,10 +171,10 @@ class Consumer final : public RdKafka::EventCb {
 
   class ConsumerRebalanceCb : public RdKafka::RebalanceCb {
    public:
-    ConsumerRebalanceCb(std::string consumer_name);
+    explicit ConsumerRebalanceCb(std::string consumer_name);
 
     void rebalance_cb(RdKafka::KafkaConsumer *consumer, RdKafka::ErrorCode err,
-                      std::vector<RdKafka::TopicPartition *> &partitions) override final;
+                      std::vector<RdKafka::TopicPartition *> &partitions) final;
 
     void set_offset(int64_t offset);
 

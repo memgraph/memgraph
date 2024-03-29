@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,21 +21,29 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/procedure/cypher_types.hpp"
+#include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
-#include "utils/license.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
@@ -102,30 +110,37 @@ void MgpFreeImpl(memgraph::utils::MemoryResource &memory, void *const p) noexcep
 }
 struct DeletedObjectException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(DeletedObjectException)
 };
 
 struct KeyAlreadyExistsException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(KeyAlreadyExistsException)
 };
 
 struct InsufficientBufferException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(InsufficientBufferException)
 };
 
 struct ImmutableObjectException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ImmutableObjectException)
 };
 
 struct ValueConversionException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ValueConversionException)
 };
 
 struct SerializationException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SerializationException)
 };
 
 struct AuthorizationException : public memgraph::utils::BasicException {
   using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(AuthorizationException)
 };
 
 template <typename TFunc, typename TReturn>
@@ -149,6 +164,7 @@ template <typename TFunc, typename... Args>
 [[nodiscard]] mgp_error WrapExceptions(TFunc &&func, Args &&...args) noexcept {
   static_assert(sizeof...(args) <= 1, "WrapExceptions should have only one or zero parameter!");
   try {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
     WrapExceptionsHelper(std::forward<TFunc>(func), std::forward<Args>(args)...);
   } catch (const DeletedObjectException &neoe) {
     spdlog::error("Deleted object error during mg API call: {}", neoe.what());
@@ -175,6 +191,7 @@ template <typename TFunc, typename... Args>
     spdlog::error("Memory allocation error during mg API call: {}", bae.what());
     return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
   } catch (const memgraph::utils::OutOfMemoryException &oome) {
+    [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
     spdlog::error("Memory limit exceeded during mg API call: {}", oome.what());
     return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE;
   } catch (const std::out_of_range &oore) {
@@ -186,12 +203,12 @@ template <typename TFunc, typename... Args>
   } catch (const std::logic_error &lee) {
     spdlog::error("Logic error during mg API call: {}", lee.what());
     return mgp_error::MGP_ERROR_LOGIC_ERROR;
-  } catch (const std::exception &e) {
-    spdlog::error("Unexpected error during mg API call: {}", e.what());
-    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   } catch (const memgraph::utils::temporal::InvalidArgumentException &e) {
     spdlog::error("Invalid argument was sent to an mg API call for temporal types: {}", e.what());
     return mgp_error::MGP_ERROR_INVALID_ARGUMENT;
+  } catch (const std::exception &e) {
+    spdlog::error("Unexpected error during mg API call: {}", e.what());
+    return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
   } catch (...) {
     spdlog::error("Unexpected error during mg API call");
     return mgp_error::MGP_ERROR_UNKNOWN_ERROR;
@@ -302,12 +319,61 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Function:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"mgp_value for TypedValue::Type::Graph doesn't exist."};
   }
   throw 1;
 }
 }  // namespace
+
+bool IsDeleted(const mgp_vertex *vertex) { return vertex->getImpl().impl_.vertex_->deleted; }
+
+bool IsDeleted(const mgp_edge *edge) { return edge->impl.IsDeleted(); }
+
+bool ContainsDeleted(const mgp_path *path) {
+  return std::ranges::any_of(path->vertices, [](const auto &vertex) { return IsDeleted(&vertex); }) ||
+         std::ranges::any_of(path->edges, [](const auto &edge) { return IsDeleted(&edge); });
+}
+
+bool ContainsDeleted(const mgp_list *list) {
+  return std::ranges::any_of(list->elems, [](const auto &elem) { return ContainsDeleted(&elem); });
+}
+
+bool ContainsDeleted(const mgp_map *map) {
+  return std::ranges::any_of(map->items, [](const auto &item) { return ContainsDeleted(&item.second); });
+}
+
+bool ContainsDeleted(const mgp_value *val) {
+  switch (val->type) {
+    // Value types
+    case MGP_VALUE_TYPE_NULL:
+    case MGP_VALUE_TYPE_BOOL:
+    case MGP_VALUE_TYPE_INT:
+    case MGP_VALUE_TYPE_DOUBLE:
+    case MGP_VALUE_TYPE_STRING:
+    case MGP_VALUE_TYPE_DATE:
+    case MGP_VALUE_TYPE_LOCAL_TIME:
+    case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+    case MGP_VALUE_TYPE_DURATION:
+      return false;
+    // Reference types
+    case MGP_VALUE_TYPE_LIST:
+      return ContainsDeleted(val->list_v);
+    case MGP_VALUE_TYPE_MAP:
+      return ContainsDeleted(val->map_v);
+    case MGP_VALUE_TYPE_VERTEX:
+      return IsDeleted(val->vertex_v);
+    case MGP_VALUE_TYPE_EDGE:
+      return IsDeleted(val->edge_v);
+    case MGP_VALUE_TYPE_PATH:
+      return ContainsDeleted(val->path_v);
+    default:
+      throw memgraph::query::QueryRuntimeException("Value of unknown type");
+  }
+  return false;
+}
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory) {
   switch (val.type) {
@@ -487,12 +553,16 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, me
       edge_v = std::visit(
           memgraph::utils::Overloaded{
               [&tv, graph, &allocator](memgraph::query::DbAccessor *) {
-                return allocator.new_object<mgp_edge>(tv.ValueEdge(), graph);
+                return allocator.new_object<mgp_edge>(tv.ValueEdge(), tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                      tv.ValueEdge().DeletedEdgeToVertex(), graph);
               },
               [&tv, graph, &allocator](memgraph::query::SubgraphDbAccessor *db_impl) {
                 return allocator.new_object<mgp_edge>(
-                    tv.ValueEdge(), memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().From(), db_impl->getGraph()),
-                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().To(), db_impl->getGraph()), graph);
+                    tv.ValueEdge(),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeFromVertex(),
+                                                            db_impl->getGraph()),
+                    memgraph::query::SubgraphVertexAccessor(tv.ValueEdge().DeletedEdgeToVertex(), db_impl->getGraph()),
+                    graph);
               }},
           graph->impl);
       break;
@@ -849,11 +919,16 @@ mgp_value::~mgp_value() noexcept { DeleteValueMember(this); }
 mgp_edge *mgp_edge::Copy(const mgp_edge &edge, mgp_memory &memory) {
   return std::visit(
       memgraph::utils::Overloaded{
-          [&](memgraph::query::DbAccessor *) { return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.from.graph); },
+          [&](memgraph::query::DbAccessor *) {
+            return NewRawMgpObject<mgp_edge>(&memory, edge.impl, edge.impl.DeletedEdgeFromVertex(),
+                                             edge.impl.DeletedEdgeToVertex(), edge.from.graph);
+          },
           [&](memgraph::query::SubgraphDbAccessor *db_impl) {
             return NewRawMgpObject<mgp_edge>(
-                &memory, edge.impl, memgraph::query::SubgraphVertexAccessor(edge.impl.From(), db_impl->getGraph()),
-                memgraph::query::SubgraphVertexAccessor(edge.impl.To(), db_impl->getGraph()), edge.to.graph);
+                &memory, edge.impl,
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeFromVertex(), db_impl->getGraph()),
+                memgraph::query::SubgraphVertexAccessor(edge.impl.DeletedEdgeToVertex(), db_impl->getGraph()),
+                edge.to.graph);
           }},
       edge.to.graph->impl);
 }
@@ -983,6 +1058,10 @@ mgp_error mgp_list_copy(mgp_list *list, mgp_memory *memory, mgp_list **result) {
 
 void mgp_list_destroy(mgp_list *list) { DeleteRawMgpObject(list); }
 
+mgp_error mgp_list_contains_deleted(mgp_list *list, int *result) {
+  return WrapExceptions([list, result] { *result = ContainsDeleted(list); });
+}
+
 namespace {
 void MgpListAppendExtend(mgp_list &list, const mgp_value &value) { list.elems.push_back(value); }
 }  // namespace
@@ -1034,11 +1113,34 @@ mgp_error mgp_map_copy(mgp_map *map, mgp_memory *memory, mgp_map **result) {
 
 void mgp_map_destroy(mgp_map *map) { DeleteRawMgpObject(map); }
 
+mgp_error mgp_map_contains_deleted(mgp_map *map, int *result) {
+  return WrapExceptions([map, result] { *result = ContainsDeleted(map); });
+}
+
 mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
     auto emplace_result = map->items.emplace(key, *value);
     if (!emplace_result.second) {
       throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+    }
+  });
+}
+
+mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      map->items.erase(emplace_result.first);
+      map->items.emplace(key, *value);
+    }
+  });
+}
+
+mgp_error mgp_map_erase(mgp_map *map, const char *key) {
+  return WrapExceptions([&] {
+    auto iterator = map->items.find(key);
+    if (iterator != map->items.end()) {
+      map->items.erase(iterator);
     }
   });
 }
@@ -1057,6 +1159,18 @@ mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
           return nullptr;
         };
         return &found_it->second;
+      },
+      result);
+}
+
+mgp_error mgp_key_exists(mgp_map *map, const char *key, int *result) {
+  return WrapExceptions(
+      [&map, &key]() -> int {
+        auto found_it = map->items.find(key);
+        if (found_it == map->items.end()) {
+          return 0;
+        };
+        return 1;
       },
       result);
 }
@@ -1126,6 +1240,10 @@ mgp_error mgp_path_copy(mgp_path *path, mgp_memory *memory, mgp_path **result) {
 
 void mgp_path_destroy(mgp_path *path) { DeleteRawMgpObject(path); }
 
+mgp_error mgp_path_contains_deleted(mgp_path *path, int *result) {
+  return WrapExceptions([path, result] { *result = ContainsDeleted(path); });
+}
+
 mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
   return WrapExceptions([path, edge] {
     MG_ASSERT(Call<size_t>(mgp_path_size, path) == path->vertices.size() - 1, "Invalid mgp_path");
@@ -1149,6 +1267,17 @@ mgp_error mgp_path_expand(mgp_path *path, mgp_edge *edge) {
 
     path->edges.push_back(*edge);
     path->vertices.push_back(*dst_vertex);
+  });
+}
+
+mgp_error mgp_path_pop(struct mgp_path *path) {
+  return WrapExceptions([path] {
+    if (path->edges.empty()) {
+      throw std::out_of_range("Path contains no relationships.");
+    }
+
+    path->vertices.pop_back();
+    path->edges.pop_back();
   });
 }
 
@@ -1486,6 +1615,7 @@ mgp_error mgp_duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory
 
 mgp_error mgp_result_set_error_msg(mgp_result *res, const char *msg) {
   return WrapExceptions([=] {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker{};
     auto *memory = res->rows.get_allocator().GetMemoryResource();
     res->error_msg.emplace(msg, memory);
   });
@@ -1497,8 +1627,9 @@ mgp_error mgp_result_new_record(mgp_result *res, mgp_result_record **result) {
         auto *memory = res->rows.get_allocator().GetMemoryResource();
         MG_ASSERT(res->signature, "Expected to have a valid signature");
         res->rows.push_back(mgp_result_record{
-            res->signature,
-            memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory)});
+            .signature = res->signature,
+            .values = memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue>(memory),
+            .ignore_deleted_values = !res->is_transactional});
         return &res->rows.back();
       },
       result);
@@ -1513,10 +1644,14 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
     if (find_it == record->signature->end()) {
       throw std::out_of_range{fmt::format("The result doesn't have any field named '{}'.", field_name)};
     }
+    if (record->ignore_deleted_values && ContainsDeleted(val)) [[unlikely]] {
+      record->has_deleted_values = true;
+      return;
+    }
     const auto *type = find_it->second.first;
     if (!type->SatisfiesType(*val)) {
       throw std::logic_error{
-          fmt::format("The type of value doesn't satisfies the type '{}'!", type->GetPresentableName())};
+          fmt::format("The type of value doesn't satisfy the type '{}'!", type->GetPresentableName())};
     }
     record->values.emplace(field_name, ToTypedValue(*val, memory));
   });
@@ -1586,6 +1721,48 @@ mgp_error mgp_vertex_get_id(mgp_vertex *v, mgp_vertex_id *result) {
       result);
 }
 
+mgp_error mgp_vertex_get_in_degree(struct mgp_vertex *v, size_t *result) {
+  return WrapExceptions(
+      [v]() -> size_t {
+        auto maybe_in_degree = std::visit([v](const auto &impl) { return impl.InDegree(v->graph->view); }, v->impl);
+        if (maybe_in_degree.HasError()) {
+          switch (maybe_in_degree.GetError()) {
+            case memgraph::storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              LOG_FATAL("Unexpected error when getting vertex degree.");
+          }
+        }
+        return *maybe_in_degree;
+      },
+      result);
+}
+
+mgp_error mgp_vertex_get_out_degree(struct mgp_vertex *v, size_t *result) {
+  return WrapExceptions(
+      [v]() -> size_t {
+        auto maybe_out_degree = std::visit([v](const auto &impl) { return impl.OutDegree(v->graph->view); }, v->impl);
+        if (maybe_out_degree.HasError()) {
+          switch (maybe_out_degree.GetError()) {
+            case memgraph::storage::Error::DELETED_OBJECT:
+              throw DeletedObjectException{"Cannot get the degree of a deleted vertex!"};
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex degree!");
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              LOG_FATAL("Unexpected error when getting vertex degree.");
+          }
+        }
+        return *maybe_out_degree;
+      },
+      result);
+}
+
 mgp_error mgp_vertex_underlying_graph_is_mutable(mgp_vertex *v, int *result) {
   return mgp_graph_is_mutable(v->graph, result);
 }
@@ -1641,7 +1818,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_VERTEX:
-      throw ValueConversionException{"A vertex is not a valid property value! "};
+      throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
       throw ValueConversionException{"An edge is not a valid property value!"};
     case MGP_VALUE_TYPE_PATH:
@@ -1656,7 +1833,7 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     auto *ctx = v->graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on vertex!"};
@@ -1672,6 +1849,11 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
     const auto result = std::visit(
         [prop_key, property_value](auto &impl) { return impl.SetProperty(prop_key, ToPropertyValue(*property_value)); },
         v->impl);
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
+    }
+
     if (result.HasError()) {
       switch (result.GetError()) {
         case memgraph::storage::Error::DELETED_OBJECT:
@@ -1703,13 +1885,81 @@ mgp_error mgp_vertex_set_property(struct mgp_vertex *v, const char *property_nam
   });
 }
 
+mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *properties) {
+  return WrapExceptions([=] {
+    auto *ctx = v->graph->ctx;
+
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+        !ctx->auth_checker->Has(v->getImpl(), v->graph->view,
+                                memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw AuthorizationException{"Insufficient permissions for setting properties on the vertex!"};
+    }
+#endif
+    if (!MgpVertexIsMutable(*v)) {
+      throw ImmutableObjectException{"Cannot set properties of an immutable vertex!"};
+    }
+
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    for (const auto &item : properties->items) {
+      props.insert(std::visit(
+          [&item](auto *impl) {
+            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          },
+          v->graph->impl));
+    }
+
+    const auto result = v->getImpl().UpdateProperties(props);
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
+    }
+
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted vertex!"};
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of a vertex!");
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of a vertex.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of a vertex."};
+      }
+    }
+
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::VertexAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(v->getImpl(), property_key, old_value);
+        continue;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(v->getImpl(), property_key, old_value, new_value);
+    }
+  });
+}
+
 mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
   return WrapExceptions([=] {
     auto *ctx = v->graph->ctx;
     const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
           ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
@@ -1722,6 +1972,10 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     }
 
     const auto result = std::visit([label_id](auto &impl) { return impl.AddLabel(label_id); }, v->impl);
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl);
+    }
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1753,7 +2007,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     const auto label_id = std::visit([&label](auto *impl) { return impl->NameToLabel(label.name); }, v->graph->impl);
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
           ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
@@ -1764,6 +2018,10 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
       throw ImmutableObjectException{"Cannot remove a label from an immutable vertex!"};
     }
     const auto result = std::visit([label_id](auto &impl) { return impl.RemoveLabel(label_id); }, v->impl);
+    if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH) && !result.HasError()) {
+      auto v_impl = v->getImpl();
+      v->graph->getImpl()->TextIndexUpdateVertex(v_impl, {label_id});
+    }
 
     if (result.HasError()) {
       switch (result.GetError()) {
@@ -1795,9 +2053,13 @@ mgp_error mgp_vertex_copy(mgp_vertex *v, mgp_memory *memory, mgp_vertex **result
 
 void mgp_vertex_destroy(mgp_vertex *v) { DeleteRawMgpObject(v); }
 
+mgp_error mgp_vertex_is_deleted(mgp_vertex *v, int *result) {
+  return WrapExceptions([v] { return IsDeleted(v); }, result);
+}
+
 mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *v1 == *v2 ? 1 : 0));
+  static_assert(noexcept(*v1 == *v2));
   *result = *v1 == *v2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -1849,7 +2111,8 @@ mgp_error mgp_vertex_label_at(mgp_vertex *v, size_t i, mgp_label *result) {
                       "Expected LabelToName to return a pointer or reference, so we "
                       "don't have to take a copy and manage memory.");
 
-        const auto &name = std::visit([label](const auto *impl) { return impl->LabelToName(label); }, v->graph->impl);
+        const auto &name = std::visit(
+            [label](const auto *impl) -> const std::string & { return impl->LabelToName(label); }, v->graph->impl);
         return name.c_str();
       },
       &result->name);
@@ -1952,9 +2215,9 @@ void NextPermittedEdge(mgp_edges_iterator &it, const bool for_in) {
     const auto *auth_checker = it.source_vertex.graph->ctx->auth_checker.get();
     const auto view = it.source_vertex.graph->view;
     while (*impl_it != end) {
-      if (auth_checker->Has(**impl_it, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        const auto &check_vertex =
-            it.source_vertex.getImpl() == (*impl_it)->From() ? (*impl_it)->To() : (*impl_it)->From();
+      auto edgeAcc = **impl_it;
+      if (auth_checker->Has(edgeAcc, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        const auto &check_vertex = it.source_vertex.getImpl() == edgeAcc.From() ? edgeAcc.To() : edgeAcc.From();
         if (auth_checker->Has(check_vertex, view, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
           break;
         }
@@ -1988,28 +2251,29 @@ mgp_error mgp_vertex_iter_in_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges_
               LOG_FATAL("Unexpected error when getting the inbound edges of a vertex.");
           }
         }
-        it->in.emplace(std::move(*maybe_edges));
+        it->in.emplace(std::move(maybe_edges->edges));
         it->in_it.emplace(it->in->begin());
 #ifdef MG_ENTERPRISE
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
           NextPermittedEdge(*it, true);
         }
 #endif
 
         if (*it->in_it != it->in->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->in_it, (**it->in_it).From(), (**it->in_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->in_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->in_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->in_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
@@ -2039,29 +2303,30 @@ mgp_error mgp_vertex_iter_out_edges(mgp_vertex *v, mgp_memory *memory, mgp_edges
           }
         }
 
-        it->out.emplace(std::move(*maybe_edges));
+        it->out.emplace(std::move(maybe_edges->edges));
         it->out_it.emplace(it->out->begin());
 
 #ifdef MG_ENTERPRISE
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
           NextPermittedEdge(*it, false);
         }
 #endif
 
         if (*it->out_it != it->out->end()) {
-          std::visit(memgraph::utils::Overloaded{
-                         [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**it->out_it, (**it->out_it).From(), (**it->out_it).To(), v->graph,
-                                                 it->GetMemoryResource());
-                         },
-                         [&](memgraph::query::SubgraphDbAccessor *impl) {
-                           it->current_e.emplace(
-                               **it->out_it,
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**it->out_it).To(), impl->getGraph()), v->graph,
-                               it->GetMemoryResource());
-                         }},
-                     v->graph->impl);
+          std::visit(
+              memgraph::utils::Overloaded{
+                  [&](memgraph::query::DbAccessor *) {
+                    memgraph::query::EdgeAccessor edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), v->graph, it->GetMemoryResource());
+                  },
+                  [&](memgraph::query::SubgraphDbAccessor *impl) {
+                    auto edgeAcc = **it->out_it;
+                    it->current_e.emplace(edgeAcc,
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                                          memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
+                                          v->graph, it->GetMemoryResource());
+                  }},
+              v->graph->impl);
         }
 
         return it.release();
@@ -2101,7 +2366,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           ++*impl_it;
 
 #ifdef MG_ENTERPRISE
-          if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+          if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
             NextPermittedEdge(*it, for_in);
           }
 #endif
@@ -2112,13 +2377,15 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           }
           std::visit(memgraph::utils::Overloaded{
                          [&](memgraph::query::DbAccessor *) {
-                           it->current_e.emplace(**impl_it, (**impl_it).From(), (**impl_it).To(),
-                                                 it->source_vertex.graph, it->GetMemoryResource());
+                           auto edgeAcc = **impl_it;
+                           it->current_e.emplace(edgeAcc, edgeAcc.From(), edgeAcc.To(), it->source_vertex.graph,
+                                                 it->GetMemoryResource());
                          },
                          [&](memgraph::query::SubgraphDbAccessor *impl) {
+                           auto edgeAcc = **impl_it;
                            it->current_e.emplace(
-                               **impl_it, memgraph::query::SubgraphVertexAccessor((**impl_it).From(), impl->getGraph()),
-                               memgraph::query::SubgraphVertexAccessor((**impl_it).To(), impl->getGraph()),
+                               edgeAcc, memgraph::query::SubgraphVertexAccessor(edgeAcc.From(), impl->getGraph()),
+                               memgraph::query::SubgraphVertexAccessor(edgeAcc.To(), impl->getGraph()),
                                it->source_vertex.graph, it->GetMemoryResource());
                          }},
                      it->source_vertex.graph->impl);
@@ -2126,10 +2393,7 @@ mgp_error mgp_edges_iterator_next(mgp_edges_iterator *it, mgp_edge **result) {
           return &*it->current_e;
         };
         if (it->in_it) {
-          auto *result = next(true);
-          if (result != nullptr) {
-            return result;
-          }
+          return next(true);
         }
         return next(false);
       },
@@ -2150,9 +2414,13 @@ mgp_error mgp_edge_copy(mgp_edge *e, mgp_memory *memory, mgp_edge **result) {
 
 void mgp_edge_destroy(mgp_edge *e) { DeleteRawMgpObject(e); }
 
+mgp_error mgp_edge_is_deleted(mgp_edge *e, int *result) {
+  return WrapExceptions([e] { return IsDeleted(e); }, result);
+}
+
 mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
   // NOLINTNEXTLINE(clang-diagnostic-unevaluated-expression)
-  static_assert(noexcept(*result = *e1 == *e2 ? 1 : 0));
+  static_assert(noexcept(*e1 == *e2));
   *result = *e1 == *e2 ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
@@ -2160,8 +2428,9 @@ mgp_error mgp_edge_equal(mgp_edge *e1, mgp_edge *e2, int *result) {
 mgp_error mgp_edge_get_type(mgp_edge *e, mgp_edge_type *result) {
   return WrapExceptions(
       [e] {
-        const auto &name =
-            std::visit([e](const auto *impl) { return impl->EdgeTypeToName(e->impl.EdgeType()); }, e->from.graph->impl);
+        const auto &name = std::visit(
+            [e](const auto *impl) -> const std::string & { return impl->EdgeTypeToName(e->impl.EdgeType()); },
+            e->from.graph->impl);
         return name.c_str();
       },
       &result->name);
@@ -2206,7 +2475,7 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
     auto *ctx = e->from.graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
       throw AuthorizationException{"Insufficient permissions for setting a property on edge!"};
     }
@@ -2251,6 +2520,69 @@ mgp_error mgp_edge_set_property(struct mgp_edge *e, const char *property_name, m
   });
 }
 
+mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties) {
+  return WrapExceptions([=] {
+    auto *ctx = e->from.graph->ctx;
+
+#ifdef MG_ENTERPRISE
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+        !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw AuthorizationException{"Insufficient permissions for setting properties on the edge!"};
+    }
+#endif
+
+    if (!MgpEdgeIsMutable(*e)) {
+      throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
+    }
+    std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
+    for (const auto &item : properties->items) {
+      props.insert(std::visit(
+          [&item](auto *impl) {
+            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second));
+          },
+          e->from.graph->impl));
+    }
+
+    const auto result = e->impl.UpdateProperties(props);
+    if (result.HasError()) {
+      switch (result.GetError()) {
+        case memgraph::storage::Error::DELETED_OBJECT:
+          throw DeletedObjectException{"Cannot set the properties of a deleted edge!"};
+        case memgraph::storage::Error::NONEXISTENT_OBJECT:
+          LOG_FATAL("Query modules shouldn't have access to nonexistent objects when setting a property of an edge!");
+        case memgraph::storage::Error::PROPERTIES_DISABLED:
+          throw std::logic_error{"Cannot set the properties of edges, because properties on edges are disabled!"};
+        case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          LOG_FATAL("Unexpected error when setting a property of an edge.");
+        case memgraph::storage::Error::SERIALIZATION_ERROR:
+          throw SerializationException{"Cannot serialize setting a property of an edge."};
+      }
+    }
+
+    ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
+        static_cast<int64_t>(properties->items.size());
+
+    auto *trigger_ctx_collector = ctx->trigger_context_collector;
+    if (!trigger_ctx_collector ||
+        !trigger_ctx_collector->ShouldRegisterObjectPropertyChange<memgraph::query::EdgeAccessor>()) {
+      return;
+    }
+
+    for (const auto &res : *result) {
+      const auto property_key = std::get<0>(res);
+      const auto old_value = memgraph::query::TypedValue(std::get<1>(res));
+      const auto new_value = memgraph::query::TypedValue(std::get<2>(res));
+
+      if (new_value.IsNull()) {
+        trigger_ctx_collector->RegisterRemovedObjectProperty(e->impl, property_key, old_value);
+        continue;
+      }
+
+      trigger_ctx_collector->RegisterSetObjectProperty(e->impl, property_key, old_value, new_value);
+    }
+  });
+}
+
 mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properties_iterator **result) {
   // NOTE: This copies the whole properties into iterator.
   // TODO: Think of a good way to avoid the copy which doesn't just rely on some
@@ -2282,7 +2614,7 @@ mgp_error mgp_edge_iter_properties(mgp_edge *e, mgp_memory *memory, mgp_properti
 mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_memory *memory, mgp_vertex **result) {
   return WrapExceptions(
       [graph, id, memory]() -> mgp_vertex * {
-        std::optional<memgraph::query::VertexAccessor> maybe_vertex = std::visit(
+        auto maybe_vertex = std::visit(
             [graph, id](auto *impl) {
               return impl->FindVertex(memgraph::storage::Gid::FromInt(id.as_int), graph->view);
             },
@@ -2304,6 +2636,338 @@ mgp_error mgp_graph_get_vertex_by_id(mgp_graph *graph, mgp_vertex_id id, mgp_mem
       result);
 }
 
+mgp_error mgp_create_label_index(mgp_graph *graph, const char *label, int *result) {
+  return WrapExceptions(
+      [graph, label]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{
+                           [label_id](memgraph::query::DbAccessor *impl) { return impl->CreateIndex(label_id); },
+                           [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->GetAccessor()->CreateIndex(label_id);
+                           }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_label_index(mgp_graph *graph, const char *label, int *result) {
+  return WrapExceptions(
+      [graph, label]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{
+                           [label_id](memgraph::query::DbAccessor *impl) { return impl->DropIndex(label_id); },
+                           [label_id](memgraph::query::SubgraphDbAccessor *impl) {
+                             return impl->GetAccessor()->DropIndex(label_id);
+                           }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_label_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto index_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllIndices().label; }},
+        graph->impl);
+    if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all label indices failed due to failure of creating list");
+    }
+    for (const auto &label : index_res) {
+      const auto label_id_str = std::visit([label](const auto *impl) { return impl->LabelToName(label); }, graph->impl);
+
+      mgp_value *label_value = nullptr;
+      if (const auto err_str = mgp_value_make_string(label_id_str.c_str(), memory, &label_value);
+          err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all label indices failed due to failure of creating label value");
+      }
+      if (const auto err_list = mgp_list_append_extend(*result, label_value);
+          err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all label indices failed due to failure of appending label value");
+      }
+      mgp_value_destroy(label_value);
+    }
+  });
+}
+
+mgp_error mgp_create_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                                     return impl->CreateIndex(label_id, property_id);
+                                                   },
+                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                                     return impl->GetAccessor()->CreateIndex(label_id, property_id);
+                                                   }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_label_property_index(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto index_res =
+            std::visit(memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                                     return impl->DropIndex(label_id, property_id);
+                                                   },
+                                                   [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                                     return impl->GetAccessor()->DropIndex(label_id, property_id);
+                                                   }},
+                       graph->impl);
+        return index_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error create_and_append_label_property_to_mgp_list(mgp_graph *graph, mgp_memory *memory, mgp_list **result,
+                                                       const auto &label_property_pair) {
+  return WrapExceptions([graph, memory, result, &label_property_pair]() {
+    const auto label_id_str = std::visit(
+        [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
+    const auto property_id_str = std::visit(
+        [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
+        graph->impl);
+
+    // This is hack to avoid dealing with pairs
+    mgp_value *label_property = nullptr;
+    auto final_str = label_id_str + ":";
+    final_str += property_id_str;
+
+    if (const auto err_str = mgp_value_make_string(final_str.c_str(), memory, &label_property);
+        err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Creating a list of label+property pairs failed due to failure of creating label+property value");
+    }
+    if (const auto err_list = mgp_list_append_extend(*result, label_property);
+        err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Creating a list of label-property pairs due to failure of appending label+property value");
+    }
+
+    mgp_value_destroy(label_property);
+  });
+}
+
+mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto index_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllIndices().label_property; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->ListAllIndices().label_property;
+                       }},
+                   graph->impl);
+
+    if (const auto err = mgp_list_make_empty(index_res.size(), memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
+    }
+
+    for (const auto &label_property_pair : index_res) {
+      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+          err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error(
+            "Listing all label+property indices failed due to failure of appending label+property value");
+      }
+    }
+  });
+}
+
+mgp_error mgp_create_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateExistenceConstraint(label_id, property_id);
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateExistenceConstraint(label_id, property_id);
+                                        }},
+            graph->impl);
+        return exist_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_existence_constraint(mgp_graph *graph, const char *label, const char *property, int *result) {
+  return WrapExceptions(
+      [graph, label, property]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        const auto property_id =
+            std::visit([property](auto *impl) { return impl->NameToProperty(property); }, graph->impl);
+        const auto exist_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_id](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropExistenceConstraint(label_id, property_id);
+                                        },
+                                        [label_id, property_id](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropExistenceConstraint(label_id, property_id);
+                                        }},
+            graph->impl);
+        return exist_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto constraint_res =
+        std::visit(memgraph::utils::Overloaded{
+                       [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().existence; },
+                       [](memgraph::query::SubgraphDbAccessor *impl) {
+                         return impl->GetAccessor()->ListAllConstraints().existence;
+                       }},
+                   graph->impl);
+
+    if (const auto err = mgp_list_make_empty(constraint_res.size(), memory, result);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all existence constraints failed due to failure of creating a list");
+    }
+
+    for (const auto &label_property_pair : constraint_res) {
+      if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
+          err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error(
+            "Listing all existence constraints failed due to failure of appending label+property value");
+      }
+    }
+  });
+}
+
+mgp_error mgp_create_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  return WrapExceptions(
+      [graph, label, properties]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        std::set<memgraph::storage::PropertyId> property_ids;
+        for (const auto &elem : properties->list_v->elems) {
+          property_ids.insert(std::visit(
+              [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+        }
+
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                          return impl->CreateUniqueConstraint(label_id, property_ids);
+                                        },
+                                        [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->CreateUniqueConstraint(label_id, property_ids);
+                                        }},
+            graph->impl);
+        return unique_res.HasError() ? 0 : 1;
+      },
+      result);
+}
+
+mgp_error mgp_drop_unique_constraint(mgp_graph *graph, const char *label, mgp_value *properties, int *result) {
+  return WrapExceptions(
+      [graph, label, properties]() {
+        const auto label_id = std::visit([label](auto *impl) { return impl->NameToLabel(label); }, graph->impl);
+        std::set<memgraph::storage::PropertyId> property_ids;
+        for (const auto &elem : properties->list_v->elems) {
+          property_ids.insert(std::visit(
+              [prop_str = elem.string_v](auto *impl) { return impl->NameToProperty(prop_str); }, graph->impl));
+        }
+
+        const auto unique_res = std::visit(
+            memgraph::utils::Overloaded{[label_id, property_ids](memgraph::query::DbAccessor *impl) {
+                                          return impl->DropUniqueConstraint(label_id, property_ids);
+                                        },
+                                        [label_id, property_ids](memgraph::query::SubgraphDbAccessor *impl) {
+                                          return impl->GetAccessor()->DropUniqueConstraint(label_id, property_ids);
+                                        }},
+            graph->impl);
+        return unique_res == memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS ? 1 : 0;
+      },
+      result);
+}
+
+mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, mgp_list **result) {
+  return WrapExceptions([graph, memory, result]() {
+    const auto constraints_res = std::visit(
+        memgraph::utils::Overloaded{
+            [](memgraph::query::DbAccessor *impl) { return impl->ListAllConstraints().unique; },
+            [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor()->ListAllConstraints().unique; }},
+        graph->impl);
+
+    if (const auto err = mgp_list_make_empty(constraints_res.size(), memory, result);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Listing all unique constraints failed due to failure of creating a list");
+    }
+
+    for (const auto &label_properties_pair : constraints_res) {
+      const std::string label_id_str =
+          std::visit([label_id = label_properties_pair.first](const auto *impl) { return impl->LabelToName(label_id); },
+                     graph->impl);
+      const std::vector<std::string> properties_str = std::visit(
+          [property_ids = label_properties_pair.second](const auto *impl) {
+            std::vector<std::string> property_ids_str;
+            property_ids_str.reserve(property_ids.size());
+            std::transform(property_ids.begin(), property_ids.end(), std::back_inserter(property_ids_str),
+                           [impl](const auto &property_id) { return impl->PropertyToName(property_id); });
+            return property_ids_str;
+          },
+          graph->impl);
+
+      mgp_list *label_properties_mgp_list = nullptr;
+      if (const auto properties_mgp_list_err =
+              mgp_list_make_empty(properties_str.size() + 1, memory, &label_properties_mgp_list);
+          properties_mgp_list_err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating an inner list");
+      }
+
+      mgp_value *mgp_value_label = nullptr;
+      if (const auto err_label = mgp_value_make_string(label_id_str.c_str(), memory, &mgp_value_label);
+          err_label != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating a label value");
+      }
+      if (const auto err_label_into_list = mgp_list_append_extend(label_properties_mgp_list, mgp_value_label);
+          err_label_into_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of appending a label value");
+      }
+
+      mgp_value_destroy(mgp_value_label);
+
+      for (const std::string &property_str : properties_str) {
+        mgp_value *property_mgp_value = nullptr;
+        if (const auto err_str = mgp_value_make_string(property_str.c_str(), memory, &property_mgp_value);
+            err_str != mgp_error::MGP_ERROR_NO_ERROR) {
+          throw std::logic_error("Listing all unique constraints failed due to failure of creating a property value");
+        }
+        if (const auto err_list = mgp_list_append_extend(label_properties_mgp_list, property_mgp_value);
+            err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+          throw std::logic_error("Listing all unique constraints failed due to failure of appending a property value");
+        }
+        mgp_value_destroy(property_mgp_value);
+      }
+      mgp_value value(label_properties_mgp_list, label_properties_mgp_list->GetMemoryResource());
+
+      if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
+      }
+      mgp_value_destroy(&value);
+    }
+  });
+}
+
+mgp_error mgp_graph_is_transactional(mgp_graph *graph, int *result) {
+  *result = IsTransactional(graph->storage_mode) ? 1 : 0;
+  return mgp_error::MGP_ERROR_NO_ERROR;
+}
+
 mgp_error mgp_graph_is_mutable(mgp_graph *graph, int *result) {
   *result = MgpGraphIsMutable(*graph) ? 1 : 0;
   return mgp_error::MGP_ERROR_NO_ERROR;
@@ -2314,7 +2978,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
       [=]() -> mgp_vertex * {
 
 #ifdef MG_ENTERPRISE
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && graph->ctx &&
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && graph->ctx &&
             graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPrivilegeOnVertices(
                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
@@ -2327,6 +2991,10 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         }
         auto *vertex = std::visit(
             [=](auto *impl) { return NewRawMgpObject<mgp_vertex>(memory, impl->InsertVertex(), graph); }, graph->impl);
+        if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::TEXT_SEARCH)) {
+          auto v_impl = vertex->getImpl();
+          vertex->graph->getImpl()->TextIndexAddVertex(v_impl);
+        }
 
         auto &ctx = graph->ctx;
         ctx->execution_stats[memgraph::query::ExecutionStats::Key::CREATED_NODES] += 1;
@@ -2344,7 +3012,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
     auto *ctx = graph->ctx;
 
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(vertex->getImpl(), graph->view,
                                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
@@ -2395,7 +3063,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(vertex->getImpl(), graph->view,
                                 memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
@@ -2459,7 +3127,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
 #ifdef MG_ENTERPRISE
         const auto edge_id =
             std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->impl);
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
             !ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
           throw AuthorizationException{"Insufficient permissions for creating edges!"};
         }
@@ -2516,11 +3184,141 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
       result);
 }
 
+namespace {
+
+mgp_edge *EdgeSet(auto *e, auto *new_vertex, auto *memory, auto *graph, bool set_from) {
+  auto *ctx = graph->ctx;
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+      !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    throw AuthorizationException{"Insufficient permissions for changing an edge!"};
+  }
+#endif
+  if (!MgpGraphIsMutable(*graph)) {
+    throw ImmutableObjectException{"Cannot change the edge because the graph is immutable!"};
+  }
+
+  auto edge = std::visit(
+      memgraph::utils::Overloaded{
+          [&e, &new_vertex, &set_from](
+              memgraph::query::DbAccessor *accessor) -> memgraph::storage::Result<memgraph::query::EdgeAccessor> {
+            if (set_from) {
+              return accessor->EdgeSetFrom(&e->impl, &std::get<memgraph::query::VertexAccessor>(new_vertex->impl));
+            }
+            return accessor->EdgeSetTo(&e->impl, &std::get<memgraph::query::VertexAccessor>(new_vertex->impl));
+          },
+          [&e, &new_vertex, &set_from](memgraph::query::SubgraphDbAccessor *accessor)
+              -> memgraph::storage::Result<memgraph::query::EdgeAccessor> {
+            if (set_from) {
+              return accessor->EdgeSetFrom(&e->impl,
+                                           &std::get<memgraph::query::SubgraphVertexAccessor>(new_vertex->impl));
+            }
+            return accessor->EdgeSetTo(&e->impl, &std::get<memgraph::query::SubgraphVertexAccessor>(new_vertex->impl));
+          }},
+      graph->impl);
+
+  if (edge.HasError()) {
+    switch (edge.GetError()) {
+      case memgraph::storage::Error::NONEXISTENT_OBJECT:
+        LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing an edge!");
+      case memgraph::storage::Error::DELETED_OBJECT:
+        LOG_FATAL("The edge was already deleted.");
+      case memgraph::storage::Error::PROPERTIES_DISABLED:
+      case memgraph::storage::Error::VERTEX_HAS_EDGES:
+        LOG_FATAL("Unexpected error when removing an edge.");
+      case memgraph::storage::Error::SERIALIZATION_ERROR:
+        throw SerializationException{"Cannot serialize changing an edge."};
+    }
+  }
+
+  if (ctx->trigger_context_collector) {
+    ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
+    ctx->trigger_context_collector->RegisterCreatedObject(*edge);
+  }
+
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [&memory, &edge, &new_vertex](memgraph::query::DbAccessor *) -> mgp_edge * {
+            return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), new_vertex->graph);
+          },
+          [&memory, &edge, &new_vertex](memgraph::query::SubgraphDbAccessor *db_impl) -> mgp_edge * {
+            const auto v_from = memgraph::query::SubgraphVertexAccessor(edge.GetValue().From(), db_impl->getGraph());
+            const auto v_to = memgraph::query::SubgraphVertexAccessor(edge.GetValue().To(), db_impl->getGraph());
+            return NewRawMgpObject<mgp_edge>(memory->impl, edge.GetValue(), v_from, v_to, new_vertex->graph);
+          }},
+      new_vertex->graph->impl);
+}
+
+}  // namespace
+
+mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
+                                  mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions([&]() -> mgp_edge * { return EdgeSet(e, new_from, memory, graph, true); }, result);
+}
+
+mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
+                                mgp_memory *memory, mgp_edge **result) {
+  return WrapExceptions([&]() -> mgp_edge * { return EdgeSet(e, new_to, memory, graph, false); }, result);
+}
+
+mgp_error mgp_graph_edge_change_type(mgp_graph *graph, mgp_edge *e, mgp_edge_type new_type, mgp_memory *memory,
+                                     mgp_edge **result) {
+  return WrapExceptions(
+      [&] {
+        auto *ctx = graph->ctx;
+#ifdef MG_ENTERPRISE
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
+            !ctx->auth_checker->Has(e->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+          throw AuthorizationException{"Insufficient permissions for changing the edge type!"};
+        }
+#endif
+        if (!MgpGraphIsMutable(*graph)) {
+          throw ImmutableObjectException{"Cannot change an edge in an immutable graph!"};
+        }
+
+        const auto maybe_edge = std::visit(
+            [e, &new_type](auto *impl) { return impl->EdgeChangeType(&e->impl, impl->NameToEdgeType(new_type.name)); },
+            graph->impl);
+        if (maybe_edge.HasError()) {
+          switch (maybe_edge.GetError()) {
+            case memgraph::storage::Error::NONEXISTENT_OBJECT:
+              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when changing the edge type!");
+            case memgraph::storage::Error::DELETED_OBJECT:
+            case memgraph::storage::Error::PROPERTIES_DISABLED:
+            case memgraph::storage::Error::VERTEX_HAS_EDGES:
+              LOG_FATAL("Unexpected error when changing the edge type.");
+            case memgraph::storage::Error::SERIALIZATION_ERROR:
+              throw SerializationException{"Cannot serialize changing the edge type."};
+          }
+        }
+
+        if (ctx->trigger_context_collector) {
+          ctx->trigger_context_collector->RegisterDeletedObject(e->impl);
+          ctx->trigger_context_collector->RegisterCreatedObject(*maybe_edge);
+        }
+
+        return std::visit(
+            memgraph::utils::Overloaded{
+                [&memory, &maybe_edge, &graph](memgraph::query::DbAccessor *) -> mgp_edge * {
+                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), graph);
+                },
+                [&memory, &maybe_edge, &graph](memgraph::query::SubgraphDbAccessor *db_impl) -> mgp_edge * {
+                  const auto v_from =
+                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().From(), db_impl->getGraph());
+                  const auto v_to =
+                      memgraph::query::SubgraphVertexAccessor(maybe_edge.GetValue().To(), db_impl->getGraph());
+                  return NewRawMgpObject<mgp_edge>(memory->impl, maybe_edge.GetValue(), v_from, v_to, graph);
+                }},
+            graph->impl);
+      },
+      result);
+}
+
 mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   return WrapExceptions([=] {
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
-    if (memgraph::utils::license::global_license_checker.IsValidLicenseFast() && ctx && ctx->auth_checker &&
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(edge->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting an edge!"};
     }
@@ -2554,6 +3352,140 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
   });
 }
 
+mgp_error mgp_graph_has_text_index(mgp_graph *graph, const char *index_name, int *result) {
+  return WrapExceptions([graph, index_name, result]() {
+    std::visit(memgraph::utils::Overloaded{
+                   [&](memgraph::query::DbAccessor *impl) { *result = impl->TextIndexExists(index_name); },
+                   [&](memgraph::query::SubgraphDbAccessor *impl) {
+                     *result = impl->GetAccessor()->TextIndexExists(index_name);
+                   }},
+               graph->impl);
+  });
+}
+
+mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memory *memory) {
+  auto get_vertex_by_gid = memgraph::utils::Overloaded{
+      [graph, id, memory](memgraph::query::DbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(memory, *maybe_vertex, graph);
+      },
+      [graph, id, memory](memgraph::query::SubgraphDbAccessor *impl) -> mgp_vertex * {
+        auto maybe_vertex = impl->FindVertex(id, graph->view);
+        if (!maybe_vertex) return nullptr;
+        return NewRawMgpObject<mgp_vertex>(
+            memory, memgraph::query::SubgraphVertexAccessor(*maybe_vertex, impl->getGraph()), graph);
+      }};
+  return std::visit(get_vertex_by_gid, graph->impl);
+}
+
+void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
+                    const std::vector<memgraph::storage::Gid> &vertex_ids = {},
+                    const std::optional<std::string> &error_msg = std::nullopt) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *error_value;
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
+    }
+  }
+
+  mgp_list *search_results{};
+  if (const auto err = mgp_list_make_empty(vertex_ids.size(), memory, &search_results);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
+  }
+
+  for (const auto &vertex_id : vertex_ids) {
+    mgp_value *vertex;
+    if (const auto err = mgp_value_make_vertex(GetVertexByGid(graph, vertex_id, memory), &vertex);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search results failed during creation of a vertex mgp_value");
+    }
+    if (const auto err = mgp_list_append(search_results, vertex); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving text search results failed during insertion of the mgp_value into the result list");
+    }
+  }
+
+  mgp_value *search_results_value;
+  if (const auto err = mgp_value_make_list(search_results, &search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
+  }
+
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text index search error failed during insertion into mgp_map");
+    }
+    return;
+  }
+
+  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
+  }
+}
+
+void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::string &aggregation_result,
+                              const std::optional<std::string> &error_msg = std::nullopt) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *aggregation_result_or_error_value;
+  if (const auto err = mgp_value_make_string(error_msg.value_or(aggregation_result).data(), memory,
+                                             &aggregation_result_or_error_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
+  }
+
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_map_insert(*result, "error_msg", aggregation_result_or_error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text index aggregation error failed during insertion into mgp_map");
+    }
+    return;
+  }
+
+  if (const auto err = mgp_map_insert(*result, "aggregation_results", aggregation_result_or_error_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text index aggregation results failed during insertion into mgp_map");
+  }
+}
+
+mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                      text_search_mode search_mode, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
+    std::vector<memgraph::storage::Gid> found_vertices_ids;
+    std::optional<std::string> error_msg = std::nullopt;
+    try {
+      found_vertices_ids = graph->getImpl()->TextIndexSearch(index_name, search_query, search_mode);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapTextSearch(graph, memory, result, found_vertices_ids, error_msg);
+  });
+}
+
+mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                              const char *aggregation_query, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, aggregation_query, result]() {
+    std::string search_results;
+    std::optional<std::string> error_msg = std::nullopt;
+    try {
+      search_results = graph->getImpl()->TextIndexAggregate(index_name, search_query, aggregation_query);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapTextIndexAggregation(memory, result, search_results, error_msg);
+  });
+}
+
 #ifdef MG_ENTERPRISE
 namespace {
 void NextPermitted(mgp_vertices_iterator &it) {
@@ -2582,7 +3514,7 @@ mgp_vertices_iterator::mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::
       vertices(std::visit([graph](auto *impl) { return impl->Vertices(graph->view); }, graph->impl)),
       current_it(vertices.begin()) {
 #ifdef MG_ENTERPRISE
-  if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     NextPermitted(*this);
   }
 #endif
@@ -2631,7 +3563,7 @@ mgp_error mgp_vertices_iterator_next(mgp_vertices_iterator *it, mgp_vertex **res
 
         ++it->current_it;
 #ifdef MG_ENTERPRISE
-        if (memgraph::utils::license::global_license_checker.IsValidLicenseFast()) {
+        if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
           NextPermitted(*it);
         }
 #endif
@@ -2735,6 +3667,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
 }
 
 namespace {
+/// @throw std::bad_alloc, std::length_error
 mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_proc_cb cb,
                                    const ProcedureInfo &procedure_info) {
   if (!IsValidIdentifierName(name)) {
@@ -2745,9 +3678,24 @@ mgp_proc *mgp_module_add_procedure(mgp_module *module, const char *name, mgp_pro
   };
 
   auto *memory = module->procedures.get_allocator().GetMemoryResource();
-  // May throw std::bad_alloc, std::length_error
   return &module->procedures.emplace(name, mgp_proc(name, cb, memory, procedure_info)).first->second;
 }
+
+/// @throw std::bad_alloc, std::length_error
+mgp_proc *mgp_module_add_batch_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                         mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                         const ProcedureInfo &procedure_info) {
+  if (!IsValidIdentifierName(name)) {
+    throw std::invalid_argument{fmt::format("Invalid procedure name: {}", name)};
+  }
+  if (module->procedures.find(name) != module->procedures.end()) {
+    throw std::logic_error{fmt::format("Procedure already exists with name '{}'", name)};
+  };
+  auto *memory = module->procedures.get_allocator().GetMemoryResource();
+  return &module->procedures.emplace(name, mgp_proc(name, cb_batch, initializer, cleanup, memory, procedure_info))
+              .first->second;
+}
+
 }  // namespace
 
 mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
@@ -2756,6 +3704,28 @@ mgp_error mgp_module_add_read_procedure(mgp_module *module, const char *name, mg
 
 mgp_error mgp_module_add_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb, mgp_proc **result) {
   return WrapExceptions([=] { return mgp_module_add_procedure(module, name, cb, {.is_write = true}); }, result);
+}
+
+mgp_error mgp_module_add_batch_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                              mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                              mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
+                                              {.is_write = false, .is_batched = true});
+      },
+      result);
+}
+
+mgp_error mgp_module_add_batch_write_procedure(mgp_module *module, const char *name, mgp_proc_cb cb_batch,
+                                               mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
+                                               mgp_proc **result) {
+  return WrapExceptions(
+      [=] {
+        return mgp_module_add_batch_procedure(module, name, cb_batch, initializer, cleanup,
+                                              {.is_write = true, .is_batched = true});
+      },
+      result);
 }
 
 namespace {
@@ -2887,7 +3857,18 @@ mgp_error mgp_proc_add_deprecated_result(mgp_proc *proc, const char *name, mgp_t
 int mgp_must_abort(mgp_graph *graph) {
   MG_ASSERT(graph->ctx);
   static_assert(noexcept(memgraph::query::MustAbort(*graph->ctx)));
-  return memgraph::query::MustAbort(*graph->ctx) ? 1 : 0;
+  auto const reason = memgraph::query::MustAbort(*graph->ctx);
+  // NOTE: deliberately decoupled to avoid accidental ABI breaks
+  switch (reason) {
+    case memgraph::query::AbortReason::TERMINATED:
+      return 1;
+    case memgraph::query::AbortReason::SHUTDOWN:
+      return 2;
+    case memgraph::query::AbortReason::TIMEOUT:
+      return 3;
+    case memgraph::query::AbortReason::NO_ABORT:
+      return 0;
+  }
 }
 
 namespace memgraph::query::procedure {
@@ -2935,7 +3916,8 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
     case TypedValue::Type::Graph:
-      LOG_FATAL("value must not be a graph element");
+    case TypedValue::Type::Function:
+      LOG_FATAL("value must not be a graph|function element");
   }
   throw 1;
 }
@@ -2979,7 +3961,7 @@ void PrintFuncSignature(const mgp_func &func, std::ostream &stream) {
 
 bool IsValidIdentifierName(const char *name) {
   if (!name) return false;
-  std::regex regex("[_[:alpha:]][_[:alnum:]]*");
+  static std::regex regex("[_[:alpha:]][_[:alnum:]]*");
   return std::regex_match(name, regex);
 }
 
@@ -3189,5 +4171,17 @@ mgp_error mgp_log(const mgp_log_level log_level, const char *output) {
         return;
     }
     throw std::invalid_argument{fmt::format("Invalid log level: {}", log_level)};
+  });
+}
+
+mgp_error mgp_track_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->TrackCurrentThreadAllocations(); }, graph->impl);
+  });
+}
+
+mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
+  return WrapExceptions([&]() {
+    std::visit([](auto *db_accessor) -> void { db_accessor->UntrackCurrentThreadAllocations(); }, graph->impl);
   });
 }

@@ -16,8 +16,7 @@
 .ycm_extra_conf.pyc
 .temp/
 Testing/
-build
-build/
+/build*/
 release/examples/build
 cmake-build-*
 cmake/DownloadProject/
@@ -34,9 +33,6 @@ TAGS
 *.fas
 *.fasl
 
-# LCP generated C++ files
-*.lcp.cpp
-
 src/database/distributed/serialization.hpp
 src/database/single_node_ha/serialization.hpp
 src/distributed/bfs_rpc_messages.hpp
@@ -50,15 +46,11 @@ src/distributed/pull_produce_rpc_messages.hpp
 src/distributed/storage_gc_rpc_messages.hpp
 src/distributed/token_sharing_rpc_messages.hpp
 src/distributed/updates_rpc_messages.hpp
-src/query/frontend/ast/ast.hpp
-src/query/distributed/frontend/ast/ast_serialization.hpp
 src/durability/distributed/state_delta.hpp
 src/durability/single_node/state_delta.hpp
 src/durability/single_node_ha/state_delta.hpp
-src/query/frontend/semantic/symbol.hpp
 src/query/distributed/frontend/semantic/symbol_serialization.hpp
 src/query/distributed/plan/ops.hpp
-src/query/plan/operator.hpp
 src/raft/log_entry.hpp
 src/raft/raft_rpc_messages.hpp
 src/raft/snapshot_metadata.hpp
@@ -66,3 +58,7 @@ src/raft/storage_info_rpc_messages.hpp
 src/stats/stats_rpc_messages.hpp
 src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp
 src/transactions/distributed/engine_rpc_messages.hpp
+/tests/manual/js/transaction_timeout/package-lock.json
+/tests/manual/js/transaction_timeout/node_modules/
+.vscode/
+src/query/frontend/opencypher/grammar/.antlr/*

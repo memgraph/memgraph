@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,14 @@
 
 #pragma once
 
+#include <boost/math/special_functions/math_fwd.hpp>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <type_traits>
+
+#include <boost/math/special_functions/relative_difference.hpp>
 
 namespace memgraph::utils {
 
@@ -62,6 +66,36 @@ constexpr std::optional<uint64_t> RoundUint64ToMultiple(uint64_t val, uint64_t m
   // No overflow is possible as the final, rounded value can only be less than
   // or equal to `numerator`.
   return (numerator / multiple) * multiple;
+}
+
+template <typename T>
+concept FloatingPoint = std::is_floating_point_v<T>;
+
+template <FloatingPoint T>
+bool ApproxEqualDecimal(T a, T b) {
+  return boost::math::relative_difference(a, b) < std::numeric_limits<T>::epsilon();
+}
+
+template <FloatingPoint T>
+bool LessThanDecimal(T a, T b) {
+  return (b - a) > std::numeric_limits<T>::epsilon();
+}
+
+/// @return 0 if a == b
+/// @return 1 if a > b
+/// @return -1 if a < b
+template <FloatingPoint T>
+int CompareDecimal(T a, T b) {
+  if (ApproxEqualDecimal(a, b)) return 0;
+  if (LessThanDecimal(a, b)) return -1;
+  return 1;
+}
+
+constexpr double ChiSquaredValue(double observed, double expected) {
+  if (utils::ApproxEqualDecimal(expected, 0.0)) {
+    return std::numeric_limits<double>::max();
+  }
+  return (observed - expected) * (observed - expected) / expected;
 }
 
 }  // namespace memgraph::utils

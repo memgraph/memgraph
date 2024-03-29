@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
+#include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -46,10 +47,10 @@ namespace memgraph::communication {
  * @tparam TSession the server can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
- * @tparam TSessionData the class with objects that will be forwarded to the
+ * @tparam TSessionContext the class with objects that will be forwarded to the
  *         session
  */
-template <typename TSession, typename TSessionData>
+template <typename TSession, typename TSessionContext>
 class Server final {
  public:
   using Socket = io::network::Socket;
@@ -58,12 +59,12 @@ class Server final {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
    */
-  Server(const io::network::Endpoint &endpoint, TSessionData *session_data, ServerContext *context,
+  Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context,
          int inactivity_timeout_sec, const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
       : alive_(false),
-        endpoint_(endpoint),
-        listener_(session_data, context, inactivity_timeout_sec, service_name, workers_count),
+        endpoint_(std::move(endpoint)),
+        listener_(session_context, context, inactivity_timeout_sec, service_name, workers_count),
         service_name_(service_name) {}
 
   ~Server() {
@@ -156,7 +157,7 @@ class Server final {
 
   Socket socket_;
   io::network::Endpoint endpoint_;
-  Listener<TSession, TSessionData> listener_;
+  Listener<TSession, TSessionContext> listener_;
 
   const std::string service_name_;
 };

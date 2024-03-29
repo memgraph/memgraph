@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -151,7 +151,7 @@ TEST(String, RandomString) {
   EXPECT_EQ(RandomString(1).size(), 1);
   EXPECT_EQ(RandomString(42).size(), 42);
 
-  std::set<std::string> string_set;
+  std::set<std::string, std::less<>> string_set;
   for (int i = 0; i < 20; ++i) string_set.emplace(RandomString(256));
 
   EXPECT_EQ(string_set.size(), 20);
@@ -170,4 +170,23 @@ TEST(String, Substr) {
   EXPECT_EQ(Substr(string, 0, string.size() - 1), string.substr(0, string.size() - 1));
   EXPECT_EQ(Substr(string, string.size() - 1, 1), string.substr(string.size() - 1, 1));
   EXPECT_EQ(Substr(string, string.size() - 1, 2), string.substr(string.size() - 1, 2));
+}
+
+TEST(String, DoubleToString) {
+  EXPECT_EQ(DoubleToString(0), "0");
+  EXPECT_EQ(DoubleToString(1), "1");
+  EXPECT_EQ(DoubleToString(1234567890123456), "1234567890123456");
+  EXPECT_EQ(DoubleToString(static_cast<double>(12345678901234567)), "12345678901234568");
+  EXPECT_EQ(DoubleToString(0.5), "0.5");
+  EXPECT_EQ(DoubleToString(1.0), "1");
+  EXPECT_EQ(DoubleToString(5.8), "5.8");
+  EXPECT_EQ(DoubleToString(1.01234000), "1.01234");
+  EXPECT_EQ(DoubleToString(1.036837585345), "1.036837585345");
+  EXPECT_EQ(DoubleToString(103.6837585345), "103.683758534500001");
+  EXPECT_EQ(DoubleToString(1.01234567890123456789), "1.012345678901235");
+  EXPECT_EQ(DoubleToString(1234567.01234567891234567), "1234567.012345678871498");
+  EXPECT_EQ(DoubleToString(0.00001), "0.00001");
+  EXPECT_EQ(DoubleToString(0.00000000000001), "0.00000000000001");
+  EXPECT_EQ(DoubleToString(0.000000000000001), "0.000000000000001");
+  EXPECT_EQ(DoubleToString(0.0000000000000001), "0");
 }

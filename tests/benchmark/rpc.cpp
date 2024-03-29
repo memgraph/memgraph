@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include <optional>
 #include <thread>
+#include <utility>
 
 #include <benchmark/benchmark.h>
 
@@ -24,8 +25,8 @@
 struct EchoMessage {
   static const memgraph::utils::TypeInfo kType;
 
-  EchoMessage() {}  // Needed for serialization.
-  EchoMessage(const std::string &data) : data(data) {}
+  EchoMessage() = default;  // Needed for serialization.
+  explicit EchoMessage(std::string data) : data(std::move(data)) {}
 
   static void Load(EchoMessage *obj, memgraph::slk::Reader *reader);
   static void Save(const EchoMessage &obj, memgraph::slk::Builder *builder);
@@ -41,7 +42,7 @@ void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-const memgraph::utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
+const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::UNKNOWN, "EchoMessage"};
 
 using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;
 

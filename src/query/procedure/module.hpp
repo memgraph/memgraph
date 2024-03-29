@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,7 +60,7 @@ class ModulePtr final {
 
  public:
   ModulePtr() = default;
-  ModulePtr(std::nullptr_t) {}
+  explicit ModulePtr(std::nullptr_t) {}
   ModulePtr(const Module *module, std::shared_lock<utils::RWLock> lock) : module_(module), lock_(std::move(lock)) {}
 
   explicit operator bool() const { return static_cast<bool>(module_); }
@@ -131,7 +131,12 @@ class ModuleRegistry final {
  private:
   class SharedLibraryHandle {
    public:
-    SharedLibraryHandle(const std::string &shared_library, int mode) : handle_{dlopen(shared_library.c_str(), mode)} {}
+    SharedLibraryHandle(const std::string &shared_library, int mode, const std::string &hint_message = "")
+        : handle_{dlopen(shared_library.c_str(), mode)} {
+      if (!handle_) {
+        spdlog::warn("Unable to load {}. {}", shared_library, hint_message);
+      }
+    }
     SharedLibraryHandle(const SharedLibraryHandle &) = delete;
     SharedLibraryHandle(SharedLibraryHandle &&) = delete;
     SharedLibraryHandle operator=(const SharedLibraryHandle &) = delete;
@@ -147,12 +152,15 @@ class ModuleRegistry final {
     void *handle_;
   };
 
+  inline static const std::string kLibstdcppWarning =
+      "Query modules might not work as expected. Printing non-string values from query modules might not work. Please "
+      "install libstdc++ or compile from source with the recent toolchain (all included).";
 // TODO: Figure out for both clang and GCC
 // #if __has_feature(address_sanitizer)
 #if defined(__SANITIZE_ADDRESS__)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE, kLibstdcppWarning};
 #else
   // The reason behind opening share library during runtime is to avoid issues
   // with loading symbols from stdlib. We have encounter issues with locale
@@ -163,13 +171,14 @@ class ModuleRegistry final {
   // mentioned library will be first performed in the already existing binded
   // libraries and then the global namespace.
   // RTLD_DEEPBIND => https://linux.die.net/man/3/dlopen
-  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND};
+  SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL, kLibstdcppWarning};
 #endif
   std::vector<std::filesystem::path> modules_dirs_;
   std::filesystem::path internal_module_dir_;
 };
 
 /// Single, global module registry.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern ModuleRegistry gModuleRegistry;
 
 /// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
@@ -225,7 +234,7 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
   for (size_t i = 0; i < n_args; ++i) {
     auto arg = args[i];
     std::string_view name;
-    const query::procedure::CypherType *type;
+    const query::procedure::CypherType *type = nullptr;
     if (is_not_optional_arg(i)) {
       name = callable.args[i].first;
       type = callable.args[i].second;

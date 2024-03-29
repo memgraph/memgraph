@@ -1,0 +1,5 @@
+archives
+build
+output
+*.tar.gz
+tmp_build.sh

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 DEFINE_uint64(bolt_port, 7687, "Bolt port");
 DEFINE_uint64(timeout, 120, "Timeout seconds");
+DEFINE_bool(multi_db, false, "Run test in multi db environment");
 
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Memory Control");
@@ -34,7 +35,16 @@ int main(int argc, char **argv) {
   client->Execute("MATCH (n) DETACH DELETE n;");
   client->DiscardAll();
 
-  const auto *create_query = "UNWIND range(1, 50) as u CREATE (n {string: \"Some longer string\"}) RETURN n;";
+  if (FLAGS_multi_db) {
+    client->Execute("CREATE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("USE DATABASE clean;");
+    client->DiscardAll();
+    client->Execute("MATCH (n) DETACH DELETE n;");
+    client->DiscardAll();
+  }
+
+  const auto *create_query = "UNWIND range(1, 100) as u CREATE (n {string: \"Some longer string\"}) RETURN n;";
 
   memgraph::utils::Timer timer;
   while (true) {

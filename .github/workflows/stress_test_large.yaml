@@ -1,0 +1,73 @@
+name: Stress test large
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+      os:
+        type: choice
+        description: "Target OS on which the release tests will be run. Select 'all' if you want to package for every listed OS."
+        default: 'debian-11'
+        options:
+          - all
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-11
+          - debian-12
+          - fedora-38
+          - fedora-39
+          - rocky-9.3
+          - ubuntu-20.04
+          - ubuntu-22.04
+      toolchain:
+        type: choice
+        description: "Toolchain version with which memgraph will be packaged."
+        default: 'v5'
+        options:
+          - v5
+  push:
+    tags:
+      - "v*.*.*-rc*"
+      - "v*.*-rc*"
+  schedule:
+    - cron: "0 22 * * *"
+
+jobs:
+  StressTestLargeIndividual:
+    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ github.event.inputs.os || 'debian-11' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      threads: 24
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit
+
+  StressTestLargeAll:
+    if: ${{ github.event.inputs.os == 'all' }}
+    strategy:
+      matrix:
+        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04]
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ matrix.os }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      threads: 24
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit

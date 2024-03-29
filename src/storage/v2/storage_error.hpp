@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,28 +11,35 @@
 
 #pragma once
 
-#include "storage/v2/constraints.hpp"
+#include "storage/v2/constraints/constraints.hpp"
 
+#include <iterator>
 #include <variant>
 
 namespace memgraph::storage {
 
 struct ReplicationError {};
-
-using StorageDataManipulationError = std::variant<ConstraintViolation, ReplicationError>;
+struct PersistenceError {};  // TODO: Generalize and add to InMemory durability as well (currently durability just
+                             // asserts and terminated if failed)
 
 struct IndexDefinitionError {};
-using StorageIndexDefinitionError = std::variant<IndexDefinitionError, ReplicationError>;
+
+struct ConstraintsPersistenceError {};
+
+struct SerializationError {};
+inline bool operator==(const SerializationError & /*err1*/, const SerializationError & /*err2*/) { return true; }
+
+using StorageManipulationError =
+    std::variant<ConstraintViolation, ReplicationError, SerializationError, PersistenceError>;
+
+using StorageIndexDefinitionError = IndexDefinitionError;
 
 struct ConstraintDefinitionError {};
 
-using StorageExistenceConstraintDefinitionError =
-    std::variant<ConstraintViolation, ConstraintDefinitionError, ReplicationError>;
+using StorageExistenceConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
-using StorageExistenceConstraintDroppingError = std::variant<ConstraintDefinitionError, ReplicationError>;
+using StorageExistenceConstraintDroppingError = ConstraintDefinitionError;
 
-using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ReplicationError>;
-
-using StorageUniqueConstraintDroppingError = std::variant<ReplicationError>;
+using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,7 @@ struct Vertex {
   Id id;
   std::vector<std::string> labels;
   std::map<std::string, Value> properties;
+  std::string element_id;
 };
 
 /**
@@ -69,6 +70,9 @@ struct Edge {
   Id to;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
+  std::string from_element_id;
+  std::string to_element_id;
 };
 
 /**
@@ -79,6 +83,7 @@ struct UnboundedEdge {
   Id id;
   std::string type;
   std::map<std::string, Value> properties;
+  std::string element_id;
 };
 
 /**
@@ -86,7 +91,7 @@ struct UnboundedEdge {
  * The decoder writes data into this structure.
  */
 struct Path {
-  Path() {}
+  Path() = default;
 
   Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
     // Helper function. Looks for the given element in the collection. If found,
@@ -107,7 +112,7 @@ struct Path {
     for (uint i = 0; i < edges.size(); i++) {
       const auto &e = edges[i];
       const auto &v = vertices[i + 1];
-      UnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      UnboundedEdge unbounded_edge{e.id, e.type, e.properties, e.element_id};
       add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
       add_element(this->vertices, v, 1, 0);
     }
@@ -271,6 +276,7 @@ class ValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   ValueException() : BasicException("Incompatible template param and type!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ValueException)
 };
 
 /**

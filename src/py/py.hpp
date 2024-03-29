@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -274,3 +274,8 @@ inline void RestoreError(ExceptionInfo exc_info) {
 }
 
 }  // namespace memgraph::py
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<memgraph::py::ExceptionInfo> : public fmt::ostream_formatter {};
+#endif

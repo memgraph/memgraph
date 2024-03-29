@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -84,7 +84,8 @@ class TypedValue {
     LocalTime,
     LocalDateTime,
     Duration,
-    Graph
+    Graph,
+    Function
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -416,8 +417,12 @@ class TypedValue {
    * element-wise move and graph is not guaranteed to be empty.
    */
   TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-    new (&graph_v) Graph(std::move(graph), memory_);
+    auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
+    new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
   }
+
+  explicit TypedValue(std::function<void(TypedValue *)> &&other)
+      : function_v(std::move(other)), type_(Type::Function) {}
 
   /**
    * Construct with the value of other.
@@ -450,6 +455,7 @@ class TypedValue {
   TypedValue &operator=(const utils::LocalTime &);
   TypedValue &operator=(const utils::LocalDateTime &);
   TypedValue &operator=(const utils::Duration &);
+  TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   TypedValue &operator=(const TypedValue &other);
@@ -469,47 +475,51 @@ class TypedValue {
 
   Type type() const { return type_; }
 
-  // TODO consider adding getters for primitives by value (and not by ref)
+#define DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field) \
+  /** Gets the value of type field. Throws if value is not field*/             \
+  type_param &Value##type_enum();                                              \
+  /** Gets the value of type field. Throws if value is not field*/             \
+  type_param Value##type_enum() const;                                         \
+  /** Checks if it's the value is of the given type */                         \
+  bool Is##type_enum() const;                                                  \
+  /** Get the value of the type field. Unchecked */                            \
+  type_param UnsafeValue##type_enum() const { return field; }
 
-#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, field)          \
-  /** Gets the value of type field. Throws if value is not field*/ \
-  type_param &Value##field();                                      \
-  /** Gets the value of type field. Throws if value is not field*/ \
-  const type_param &Value##field() const;                          \
-  /** Checks if it's the value is of the given type */             \
-  bool Is##field() const;
+#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field) \
+  /** Gets the value of type field. Throws if value is not field*/   \
+  type_param &Value##type_enum();                                    \
+  /** Gets the value of type field. Throws if value is not field*/   \
+  const type_param &Value##type_enum() const;                        \
+  /** Checks if it's the value is of the given type */               \
+  bool Is##type_enum() const;                                        \
+  /** Get the value of the type field. Unchecked */                  \
+  type_param const &UnsafeValue##type_enum() const { return field; }
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(bool, Bool)
-  DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
-  DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  /**
-   * Get the list value.
-   * @throw TypedValueException if stored value is not a list.
-   */
-  TVector &ValueList();
+  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, path_v)
 
-  const TVector &ValueList() const;
-
-  /** Check if the stored value is a list value */
-  bool IsList() const;
-
-  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
-  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
-
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
+#undef DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+
+  bool ContainsDeleted() const;
 
   /**  Checks if value is a TypedValue::Null. */
-  bool IsNull() const;
+  bool IsNull() const { return type_ == Type::Null; }
 
   /** Convenience function for checking if this TypedValue is either
    * an integer or double */
@@ -547,7 +557,9 @@ class TypedValue {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
-    Graph graph_v;
+    // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
+    std::unique_ptr<Graph> graph_v;
+    std::function<void(TypedValue *)> function_v;
   };
 
   /**
@@ -564,6 +576,7 @@ class TypedValue {
 class TypedValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
 // binary bool operators

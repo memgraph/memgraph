@@ -1,39 +1,50 @@
-set(storage_v2_src_files
-    commit_log.cpp
-    constraints.cpp
-    temporal.cpp
-    durability/durability.cpp
-    durability/serialization.cpp
-    durability/snapshot.cpp
-    durability/wal.cpp
-    edge_accessor.cpp
-    indices.cpp
-    property_store.cpp
-    vertex_accessor.cpp
-    storage.cpp)
-
-##### Replication #####
-define_add_lcp(add_lcp_storage lcp_storage_cpp_files generated_lcp_storage_files)
-
-add_lcp_storage(replication/rpc.lcp SLK_SERIALIZE)
-
-add_custom_target(generate_lcp_storage DEPENDS ${generated_lcp_storage_files})
-
-set(storage_v2_src_files
-    ${storage_v2_src_files}
-    replication/replication_client.cpp
-    replication/replication_server.cpp
-    replication/serialization.cpp
-    replication/slk.cpp
-    replication/replication_persistence_helper.cpp
-    ${lcp_storage_cpp_files})
-
 #######################
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 
-add_library(mg-storage-v2 STATIC ${storage_v2_src_files})
-target_link_libraries(mg-storage-v2 Threads::Threads mg-utils gflags)
+add_library(mg-storage-v2 STATIC
+        commit_log.cpp
+        constraints/existence_constraints.cpp
+        constraints/constraints.cpp
+        constraint_verification_info.cpp
+        temporal.cpp
+        durability/durability.cpp
+        durability/serialization.cpp
+        durability/snapshot.cpp
+        durability/wal.cpp
+        edge_accessor.cpp
+        property_store.cpp
+        vertex_accessor.cpp
+        vertex_info_cache_fwd.hpp
+        vertex_info_cache.hpp
+        vertex_info_cache.cpp
+        storage.cpp
+        indices/indices.cpp
+        indices/text_index.cpp
+        all_vertices_iterable.cpp
+        edges_iterable.cpp
+        vertices_iterable.cpp
+        inmemory/storage.cpp
+        inmemory/edge_type_index.cpp
+        inmemory/label_index.cpp
+        inmemory/label_property_index.cpp
+        inmemory/unique_constraints.cpp
+        disk/durable_metadata.cpp
+        disk/edge_import_mode_cache.cpp
+        disk/storage.cpp
+        disk/rocksdb_storage.cpp
+        disk/edge_type_index.cpp
+        disk/label_index.cpp
+        disk/label_property_index.cpp
+        disk/unique_constraints.cpp
+        storage_mode.cpp
+        replication/replication_client.cpp
+        replication/serialization.cpp
+        replication/slk.cpp
+        replication/rpc.cpp
+        replication/replication_storage_state.cpp
+        inmemory/replication/recovery.cpp
+)
 
-add_dependencies(mg-storage-v2 generate_lcp_storage)
-target_link_libraries(mg-storage-v2 mg-rpc mg-slk)
+target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils mg-flags gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory mgcxx_text_search tantivy_text_search)

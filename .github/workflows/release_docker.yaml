@@ -19,26 +19,26 @@ jobs:
       DOCKER_REPOSITORY_NAME: memgraph
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v2
 
       - name: Set up Docker Buildx
         id: buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v2
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v1
+        uses: docker/login-action@v2
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Download memgraph binary
         run: |
           cd release/docker
-          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11/memgraph_${{ github.event.inputs.version }}-1_amd64.deb > memgraph-amd64.deb
-          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-11-aarch64/memgraph_${{ github.event.inputs.version }}-1_arm64.deb > memgraph-arm64.deb
+          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-12/memgraph_${{ github.event.inputs.version }}-1_amd64.deb > memgraph-amd64.deb
+          curl -L https://download.memgraph.com/memgraph/v${{ github.event.inputs.version }}/debian-12-aarch64/memgraph_${{ github.event.inputs.version }}-1_arm64.deb > memgraph-arm64.deb
 
       - name: Check if specified version is already pushed
         run: |
@@ -65,5 +65,5 @@ jobs:
           --platform linux/amd64,linux/arm64 \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ github.event.inputs.version }} \
           --tag $DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:latest \
-          --file memgraph_deb.dockerfile \
+          --file v5_deb.dockerfile \
           --push .

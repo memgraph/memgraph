@@ -5,13 +5,16 @@ cd "$DIR"
 
 source "$DIR/environment/util.sh"
 
+DISTRO=$(operating_system)
+ARCHITECTURE=$(architecture)
+
 function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Check for missing packages and setup the project.\n"
     echo "Optional arguments:"
     echo -e "  -h\tdisplay this help and exit"
     echo -e "  --without-libs-setup\tskip the step for setting up libs"
-    echo -e "  --wsl-quicklisp-proxy \"host:port\"\tquicklist HTTP proxy (this flag + HTTP proxy are required on WSL)"
+    echo -e "  --ci\tscript is being run inside ci"
 }
 
 function setup_virtualenv () {
@@ -32,27 +35,21 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
-wsl_quicklisp_proxy=""
 setup_libs=true
+ci=false
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
 else
     while(($#)); do
         case "$1" in
-          --wsl-quicklisp-proxy)
-              shift
-              if [[ $# -eq 0 ]]; then
-                  echo "Missing proxy URL"
-                  print_help
-                  exit 1
-              fi
-              wsl_quicklisp_proxy=":proxy \"http://$1/\""
-              shift
-          ;;
           --without-libs-setup)
               shift
               setup_libs=false
+          ;;
+          --ci)
+              shift
+              ci=true
           ;;
           *)
               # unknown option
@@ -64,8 +61,6 @@ else
     done
 fi
 
-DISTRO=$(operating_system)
-ARCHITECTURE=$(architecture)
 if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
   OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
 else
@@ -78,37 +73,29 @@ echo "All packages are in-place..."
 # create a default build directory
 mkdir -p ./build
 
-# quicklisp package manager for Common Lisp
-quicklisp_install_dir="$HOME/quicklisp"
-if [[ -v QUICKLISP_HOME ]]; then
-  quicklisp_install_dir="${QUICKLISP_HOME}"
-fi
-
-if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
-  wget -nv https://beta.quicklisp.org/quicklisp.lisp -O quicklisp.lisp || exit 1
-  echo \
-  "
-  (load \"${DIR}/quicklisp.lisp\")
-  (quicklisp-quickstart:install $wsl_quicklisp_proxy :path \"${quicklisp_install_dir}\")
-  " | sbcl --script || exit 1
-  rm -rf quicklisp.lisp || exit 1
-fi
-ln -Tfs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
-# Install LCP dependencies
-# TODO: We should at some point cache or have a mirror of packages we use.
-# TODO: move the installation of LCP's dependencies into ./setup.sh
-echo \
-  "
-  (load \"${quicklisp_install_dir}/setup.lisp\")
-  (ql:quickload '(:lcp :lcp/test) :silent t)
-  " | sbcl --script
-
 if [[ "$setup_libs" == "true" ]]; then
-    # Setup libs (download).
-    cd libs
-    ./cleanup.sh
-    ./setup.sh
-    cd ..
+  # Setup libs (download).
+  cd libs
+  ./cleanup.sh
+  ./setup.sh
+  cd ..
+fi
+
+# Fix for centos 7 during release
+if [[ "$ci" == "false" ]]; then
+  if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "debian-11" ] || [ "${DISTRO}" = "amzn-2" ]; then
+    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
+      python3 -m pip uninstall -y virtualenv
+    fi
+    python3 -m pip install virtualenv
+  fi
+else
+  if [ "${DISTRO}" = "centos-7" ] || [ "${DISTRO}" = "amzn-2" ]; then
+    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
+      python3 -m pip uninstall -y virtualenv
+    fi
+    python3 -m pip install --user virtualenv
+  fi
 fi
 
 # setup gql_behave dependencies
@@ -121,6 +108,10 @@ setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
 
 # Setup tests dependencies.
+# NOTE: This is commented out because of the build order (at the time of
+# execution mgclient is not built yet) which makes this setup to fail. mgclient
+# is built during the make phase. The tests/setup.sh is called under GHA CI
+# jobs.
 # cd tests
 # ./setup.sh
 # cd ..
@@ -130,15 +121,30 @@ setup_virtualenv tests/integration/ldap
 
 echo "Done installing dependencies for Memgraph"
 
-echo "Linking git hooks"
-for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
-  ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
-  echo "Added $hook hook"
-done;
+echo "Linking git hooks OR skip if .git folder is not there"
+if [ -d "$DIR/.git" ]; then
+  for hook in $(find $DIR/.githooks -type f -printf "%f\n"); do
+    ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+    echo "Added $hook hook"
+  done;
+else
+  echo "WARNING: .git folder not present, skip adding hooks"
+fi
 
-# Install precommit hook
-python3 -m pip install pre-commit
-python3 -m pre_commit install
+# Install precommit hook except on old operating systems because we don't
+# develop on them -> pre-commit hook not required -> we can use latest
+# packages.
+if [[ "$ci" == "false" ]]; then
+  if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
+    python3 -m pip install pre-commit
+    python3 -m pre_commit install
+    # Install py format tools for usage during the development.
+    echo "Install black formatter"
+    python3 -m pip install black==23.1.*
+    echo "Install isort"
+    python3 -m pip install isort==5.12.*
+  fi
+fi
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
 ln -v -f include/mgp.py release/mgp/mgp.py

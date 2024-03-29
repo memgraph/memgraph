@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
+using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
 
 // TODO: The point of these is not to test GC fully, these are just simple
@@ -24,26 +25,27 @@ using testing::UnorderedElementsAre;
 // then verify that GC didn't delete anything it shouldn't have.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Sanity) {
-  memgraph::storage::Storage storage(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+  std::unique_ptr<memgraph::storage::Storage> storage(
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
 
   std::vector<memgraph::storage::Gid> vertices;
 
   {
-    auto acc = storage.Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     // Create some vertices, but delete some of them immediately.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.CreateVertex();
+      auto vertex = acc->CreateVertex();
       vertices.push_back(vertex.Gid());
     }
 
-    acc.AdvanceCommand();
+    acc->AdvanceCommand();
 
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(vertices[i], memgraph::storage::View::OLD);
+      auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex.has_value());
       if (i % 5 == 0) {
-        EXPECT_FALSE(acc.DeleteVertex(&vertex.value()).HasError());
+        EXPECT_FALSE(acc->DeleteVertex(&vertex.value()).HasError());
       }
     }
 
@@ -51,20 +53,20 @@ TEST(StorageV2Gc, Sanity) {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex_old = acc.FindVertex(vertices[i], memgraph::storage::View::OLD);
-      auto vertex_new = acc.FindVertex(vertices[i], memgraph::storage::View::NEW);
+      auto vertex_old = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
+      auto vertex_new = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_TRUE(vertex_old.has_value());
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
 
   // Verify existing vertices and add labels to some of them.
   {
-    auto acc = storage.Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(vertices[i], memgraph::storage::View::OLD);
+      auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
@@ -79,7 +81,7 @@ TEST(StorageV2Gc, Sanity) {
 
     // Verify labels.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(vertices[i], memgraph::storage::View::NEW);
+      auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
 
       if (vertex.has_value()) {
@@ -95,32 +97,32 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
 
   // Add and remove some edges.
   {
-    auto acc = storage.Access();
+    auto acc = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto from_vertex = acc.FindVertex(vertices[i], memgraph::storage::View::OLD);
-      auto to_vertex = acc.FindVertex(vertices[(i + 1) % 1000], memgraph::storage::View::OLD);
+      auto from_vertex = acc->FindVertex(vertices[i], memgraph::storage::View::OLD);
+      auto to_vertex = acc->FindVertex(vertices[(i + 1) % 1000], memgraph::storage::View::OLD);
       EXPECT_EQ(from_vertex.has_value(), i % 5 != 0);
       EXPECT_EQ(to_vertex.has_value(), (i + 1) % 5 != 0);
 
       if (from_vertex.has_value() && to_vertex.has_value()) {
         EXPECT_FALSE(
-            acc.CreateEdge(&from_vertex.value(), &to_vertex.value(), memgraph::storage::EdgeTypeId::FromUint(i))
+            acc->CreateEdge(&from_vertex.value(), &to_vertex.value(), memgraph::storage::EdgeTypeId::FromUint(i))
                 .HasError());
       }
     }
 
     // Detach delete some vertices.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(vertices[i], memgraph::storage::View::NEW);
+      auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0);
       if (vertex.has_value()) {
         if (i % 3 == 0) {
-          EXPECT_FALSE(acc.DetachDeleteVertex(&vertex.value()).HasError());
+          EXPECT_FALSE(acc->DetachDeleteVertex(&vertex.value()).HasError());
         }
       }
     }
@@ -130,30 +132,30 @@ TEST(StorageV2Gc, Sanity) {
 
     // Vertify edges.
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc.FindVertex(vertices[i], memgraph::storage::View::NEW);
+      auto vertex = acc->FindVertex(vertices[i], memgraph::storage::View::NEW);
       EXPECT_EQ(vertex.has_value(), i % 5 != 0 && i % 3 != 0);
       if (vertex.has_value()) {
-        auto out_edges = vertex->OutEdges(memgraph::storage::View::NEW);
+        auto out_edges = vertex->OutEdges(memgraph::storage::View::NEW)->edges;
         if (i % 5 != 4 && i % 3 != 2) {
-          EXPECT_EQ(out_edges.GetValue().size(), 1);
+          EXPECT_EQ(out_edges.size(), 1);
           EXPECT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 1);
-          EXPECT_EQ(out_edges.GetValue().at(0).EdgeType().AsUint(), i);
+          EXPECT_EQ(out_edges.at(0).EdgeType().AsUint(), i);
         } else {
-          EXPECT_TRUE(out_edges->empty());
+          EXPECT_TRUE(out_edges.empty());
         }
 
-        auto in_edges = vertex->InEdges(memgraph::storage::View::NEW);
+        auto in_edges = vertex->InEdges(memgraph::storage::View::NEW)->edges;
         if (i % 5 != 1 && i % 3 != 1) {
-          EXPECT_EQ(in_edges.GetValue().size(), 1);
+          EXPECT_EQ(in_edges.size(), 1);
           EXPECT_EQ(*vertex->InDegree(memgraph::storage::View::NEW), 1);
-          EXPECT_EQ(in_edges.GetValue().at(0).EdgeType().AsUint(), (i + 999) % 1000);
+          EXPECT_EQ(in_edges.at(0).EdgeType().AsUint(), (i + 999) % 1000);
         } else {
-          EXPECT_TRUE(in_edges->empty());
+          EXPECT_TRUE(in_edges.empty());
         }
       }
     }
 
-    ASSERT_FALSE(acc.Commit().HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
   }
 }
 
@@ -166,33 +168,37 @@ TEST(StorageV2Gc, Sanity) {
 //    transaction 1 can still see them with that label.
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(StorageV2Gc, Indices) {
-  memgraph::storage::Storage storage(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
-
-  ASSERT_FALSE(storage.CreateIndex(storage.NameToLabel("label")).HasError());
+  std::unique_ptr<memgraph::storage::Storage> storage(
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
+  {
+    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
+    ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
 
   {
-    auto acc0 = storage.Access();
+    auto acc0 = storage->Access(ReplicationRole::MAIN);
     for (uint64_t i = 0; i < 1000; ++i) {
-      auto vertex = acc0.CreateVertex();
-      ASSERT_TRUE(*vertex.AddLabel(acc0.NameToLabel("label")));
+      auto vertex = acc0->CreateVertex();
+      ASSERT_TRUE(*vertex.AddLabel(acc0->NameToLabel("label")));
     }
-    ASSERT_FALSE(acc0.Commit().HasError());
+    ASSERT_FALSE(acc0->Commit().HasError());
   }
   {
-    auto acc1 = storage.Access();
+    auto acc1 = storage->Access(ReplicationRole::MAIN);
 
-    auto acc2 = storage.Access();
-    for (auto vertex : acc2.Vertices(memgraph::storage::View::OLD)) {
-      ASSERT_TRUE(*vertex.RemoveLabel(acc2.NameToLabel("label")));
+    auto acc2 = storage->Access(ReplicationRole::MAIN);
+    for (auto vertex : acc2->Vertices(memgraph::storage::View::OLD)) {
+      ASSERT_TRUE(*vertex.RemoveLabel(acc2->NameToLabel("label")));
     }
-    ASSERT_FALSE(acc2.Commit().HasError());
+    ASSERT_FALSE(acc2->Commit().HasError());
 
     // Wait for GC.
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     std::set<memgraph::storage::Gid> gids;
-    for (auto vertex : acc1.Vertices(acc1.NameToLabel("label"), memgraph::storage::View::OLD)) {
+    for (auto vertex : acc1->Vertices(acc1->NameToLabel("label"), memgraph::storage::View::OLD)) {
       gids.insert(vertex.Gid());
     }
     EXPECT_EQ(gids.size(), 1000);

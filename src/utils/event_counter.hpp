@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,11 +10,12 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <atomic>
 #include <cstdlib>
 #include <memory>
 
-namespace EventCounter {
+namespace memgraph::metrics {
 using Event = uint64_t;
 using Count = uint64_t;
 using Counter = std::atomic<Count>;
@@ -29,19 +30,23 @@ class EventCounters {
 
   void Increment(Event event, Count amount = 1);
 
+  void Decrement(Event event, Count amount = 1);
+
   static const Event num_counters;
 
  private:
   Counter *counters_;
 };
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EventCounters global_counters;
 
 void IncrementCounter(Event event, Count amount = 1);
+void DecrementCounter(Event event, Count amount = 1);
 
-const char *GetName(Event event);
-const char *GetDocumentation(Event event);
+const char *GetCounterName(Event event);
+const char *GetCounterDocumentation(Event event);
+const char *GetCounterType(Event event);
 
-Event End();
-
-}  // namespace EventCounter
+Event CounterEnd();
+}  // namespace memgraph::metrics

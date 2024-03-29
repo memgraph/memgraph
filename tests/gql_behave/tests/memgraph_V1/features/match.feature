@@ -684,4 +684,128 @@ Feature: Match
             """
             MATCH path = (pers:Person {id: 1})-[:KNOWS*2..]->(pers) RETURN path
             """
+            Then the result should be empty
+
+    Scenario: Match with temporal property
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (n:User {time: localDateTime("2021-10-05T14:15:00")});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN date(n.time);
+            """
+        Then the result should be
+            | date(n.time) |
+            | 2021-10-05   |
+
+    Scenario: Variable expand with filter by size of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | size(p) < 4)]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})-[:KNOWS]->(:Person{id:4})> |
+
+    Scenario: Variable expand with filter by last edge type of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | type(relationships(p)[-1]) = 'KNOWS')]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be
+            | path                                        |
+            | <(:Person{id:1})-[:KNOWS]->(:Person{id:2})-[:KNOWS]->(:Person{id:3})-[:KNOWS]->(:Person{id:4})> |
+
+    Scenario: Variable expand with too restricted filter by size of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | size(p) < 3)]->(:Person {id: 4}) RETURN path
+            """
         Then the result should be empty
+
+    Scenario: Variable expand with too restricted filter by last edge type of accumulated path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {id: 1})-[:KNOWS]->(:Person {id: 2})-[:KNOWS]->(:Person {id: 3})-[:KNOWS]->(:Person {id: 4});
+            """
+        When executing query:
+            """
+            MATCH path = (:Person {id: 1})-[* (e, n, p | type(relationships(p)[-1]) = 'Invalid')]->(:Person {id: 4}) RETURN path
+            """
+        Then the result should be empty
+
+    Scenario: Test DFS variable expand with filter by edge type1
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[* (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+
+    Scenario: Test DFS variable expand using IN edges with filter by edge type1
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label3)<-[* (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]-(:label1) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
+
+    Scenario: Test DFS variable expand with filter by edge type2
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[* (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]->(:label3) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Test DFS variable expand using IN edges with filter by edge type2
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label3)<-[* (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]-(:label1) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
+
+    Scenario: Using path indentifier from CREATE in MERGE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE p0=()-[:T0]->() MERGE ({k:(size(p0))});
+            """
+        When executing query:
+            """
+            MATCH (n {k: 1}) RETURN n;
+            """
+        Then the result should be:
+            | n        |
+            | ({k: 1}) |

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,4 +17,15 @@ size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, mem
   for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count)
     ;
   return count;
+}
+
+std::string_view StorageModeToString(memgraph::storage::StorageMode storage_mode) {
+  switch (storage_mode) {
+    case memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL:
+      return "IN_MEMORY_ANALYTICAL";
+    case memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL:
+      return "IN_MEMORY_TRANSACTIONAL";
+    case memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL:
+      return "ON_DISK_TRANSACTIONAL";
+  }
 }

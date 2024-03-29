@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,7 @@ namespace memgraph::kvstore {
 class KVStoreError : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(KVStoreError)
 };
 
 /**
@@ -60,7 +61,7 @@ class KVStore final {
    * @return true if the value has been successfully stored.
    *         In case of any error false is going to be returned.
    */
-  bool Put(const std::string &key, const std::string &value);
+  bool Put(std::string_view key, std::string_view value);
 
   /**
    * Store values under the given keys.
@@ -80,7 +81,7 @@ class KVStore final {
    * @return Value for the given key. std::nullopt in case of any error
    *         OR the value doesn't exist.
    */
-  std::optional<std::string> Get(const std::string &key) const noexcept;
+  std::optional<std::string> Get(std::string_view key) const noexcept;
 
   /**
    * Deletes the key and corresponding value from storage.
@@ -91,7 +92,7 @@ class KVStore final {
    *         true if the key doesn't exist and underlying storage
    *         didn't encounter any error.
    */
-  bool Delete(const std::string &key);
+  bool Delete(std::string_view key);
 
   /**
    * Deletes the keys and corresponding values from storage.
@@ -159,13 +160,14 @@ class KVStore final {
    * and behaves as if all of those pairs are stored in a single iterable
    * collection of std::pair<std::string, std::string>.
    */
-  class iterator final : public std::iterator<std::input_iterator_tag,                      // iterator_category
-                                              std::pair<std::string, std::string>,          // value_type
-                                              long,                                         // difference_type
-                                              const std::pair<std::string, std::string> *,  // pointer
-                                              const std::pair<std::string, std::string> &   // reference
-                                              > {
+  class iterator final {
    public:
+    using iterator_concept [[maybe_unused]] = std::input_iterator_tag;
+    using value_type = std::pair<std::string, std::string>;
+    using difference_type = long;
+    using pointer = const std::pair<std::string, std::string> *;
+    using reference = const std::pair<std::string, std::string> &;
+
     explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false);
 
     iterator(const iterator &other) = delete;

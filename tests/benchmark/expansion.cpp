@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,51 +10,80 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
+#include <memory>
 
 #include "communication/result_stream_faker.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/typed_value.hpp"
+#include "replication/status.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
+#include "utils/logging.hpp"
+
+std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
-  std::optional<memgraph::storage::Storage> db;
+  std::optional<memgraph::system::System> system;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
-  std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::replication::ReplicationState> repl_state;
 
   void SetUp(const benchmark::State &state) override {
-    db.emplace();
+    repl_state.emplace(std::nullopt);  // No need for a storage directory, since we are not replicating or restoring
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = data_directory / "disk";
+    db_gk.emplace(std::move(config), *repl_state);
+    auto db_acc_opt = db_gk->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
 
-    auto label = db->NameToLabel("Starting");
+    system.emplace();
+    auth_checker.emplace();
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system
+#ifdef MG_ENTERPRISE
+                                ,
+                                std::nullopt
+#endif
+    );
+
+    auto label = db_acc->storage()->NameToLabel("Starting");
 
     {
-      auto dba = db->Access();
-      for (int i = 0; i < state.range(0); i++) dba.CreateVertex();
+      auto dba = db_acc->Access();
+      for (int i = 0; i < state.range(0); i++) dba->CreateVertex();
 
       // the fixed part is one vertex expanding to 1000 others
-      auto start = dba.CreateVertex();
+      auto start = dba->CreateVertex();
       MG_ASSERT(start.AddLabel(label).HasValue());
-      auto edge_type = dba.NameToEdgeType("edge_type");
+      auto edge_type = dba->NameToEdgeType("edge_type");
       for (int i = 0; i < 1000; i++) {
-        auto dest = dba.CreateVertex();
-        MG_ASSERT(dba.CreateEdge(&start, &dest, edge_type).HasValue());
+        auto dest = dba->CreateVertex();
+        MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      MG_ASSERT(!dba.Commit().HasError());
+      MG_ASSERT(!dba->Commit().HasError());
     }
 
-    MG_ASSERT(!db->CreateIndex(label).HasError());
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      MG_ASSERT(!unique_acc->CreateIndex(label).HasError());
+    }
 
-    interpreter_context.emplace(&*db, memgraph::query::InterpreterConfig{}, data_directory);
-    interpreter.emplace(&*interpreter_context);
+    interpreter.emplace(&*interpreter_context, std::move(db_acc));
+    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, std::nullopt));
   }
 
   void TearDown(const benchmark::State &) override {
     interpreter = std::nullopt;
     interpreter_context = std::nullopt;
-    db = std::nullopt;
+    db_gk.reset();
+    auth_checker.reset();
+    system.reset();
     std::filesystem::remove_all(data_directory);
   }
 };
@@ -63,8 +92,8 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {}, nullptr);
+    ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
+    interpreter->Prepare(query, {}, {});
     interpreter->PullAll(&results);
   }
 }
@@ -78,8 +107,8 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
 
   while (state.KeepRunning()) {
-    ResultStreamFaker results(&*db);
-    interpreter->Prepare(query, {}, nullptr);
+    ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
+    interpreter->Prepare(query, {}, {});
     interpreter->PullAll(&results);
   }
 }

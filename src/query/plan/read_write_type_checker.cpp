@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,16 +11,17 @@
 
 #include "query/plan/read_write_type_checker.hpp"
 
-#define PRE_VISIT(TOp, RWType, continue_visiting) \
-  bool ReadWriteTypeChecker::PreVisit(TOp &op) {  \
-    UpdateType(RWType);                           \
-    return continue_visiting;                     \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp, RWType, continue_visiting)                                     \
+  bool ReadWriteTypeChecker::PreVisit(TOp &) { /*NOLINT(bugprone-macro-parentheses)*/ \
+    UpdateType(RWType);                                                               \
+    return continue_visiting;                                                         \
   }
 
 namespace memgraph::query::plan {
 
 PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::R, true)
+PRE_VISIT(CreateExpand, RWType::R, true)  // ?? RWType::RW
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)
@@ -54,6 +55,7 @@ bool ReadWriteTypeChecker::PreVisit(Cartesian &op) {
   return false;
 }
 
+PRE_VISIT(EmptyResult, RWType::NONE, true)
 PRE_VISIT(Produce, RWType::NONE, true)
 PRE_VISIT(Accumulate, RWType::NONE, true)
 PRE_VISIT(Aggregate, RWType::NONE, true)
@@ -86,21 +88,28 @@ bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
 
 #undef PRE_VISIT
 
-bool ReadWriteTypeChecker::Visit(Once &op) { return false; }
+bool ReadWriteTypeChecker::Visit(Once &) { return false; }  // NOLINT(hicpp-named-parameter)
 
 void ReadWriteTypeChecker::UpdateType(RWType op_type) {
-  // Update type only if it's not the NONE type and the current operator's type
-  // is different than the one that's currently inferred.
-  if (type != RWType::NONE && type != op_type) {
-    type = RWType::RW;
-  }
   // Stop inference because RW is the most "dominant" type, i.e. it isn't
   // affected by the type of nodes in the plan appearing after the node for
   // which the type is set to RW.
   if (type == RWType::RW) {
     return;
   }
-  if (type == RWType::NONE && op_type != RWType::NONE) {
+
+  // if op_type is NONE, type doesn't change.
+  if (op_type == RWType::NONE) {
+    return;
+  }
+
+  // Update type only if it's not the NONE type and the current operator's type
+  // is different than the one that's currently inferred.
+  if (type != RWType::NONE && type != op_type) {
+    type = RWType::RW;
+  }
+
+  if (type == RWType::NONE) {
     type = op_type;
   }
 }

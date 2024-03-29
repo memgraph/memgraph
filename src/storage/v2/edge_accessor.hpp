@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,23 +27,28 @@ struct Vertex;
 class VertexAccessor;
 struct Indices;
 struct Constraints;
+class Storage;
 
 class EdgeAccessor final {
  private:
   friend class Storage;
 
  public:
-  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Transaction *transaction,
-               Indices *indices, Constraints *constraints, Config::Items config, bool for_deleted = false)
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
+               Transaction *transaction, bool for_deleted = false)
       : edge_(edge),
         edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
+        storage_(storage),
         transaction_(transaction),
-        indices_(indices),
-        constraints_(constraints),
-        config_(config),
         for_deleted_(for_deleted) {}
+
+  static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
+                                            Storage *storage, Transaction *transaction, View view,
+                                            bool for_deleted = false);
+
+  bool IsDeleted() const;
 
   /// @return true if the object is visible from the current transaction
   bool IsVisible(View view) const;
@@ -52,11 +57,27 @@ class EdgeAccessor final {
 
   VertexAccessor ToVertex() const;
 
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeFromVertex() const;
+
+  /// When edge is deleted and you are accessing To vertex
+  /// for_deleted_ flag will in this case be updated properly
+  VertexAccessor DeletedEdgeToVertex() const;
+
   EdgeTypeId EdgeType() const { return edge_type_; }
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
   Result<storage::PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+
+  /// Set property values only if property store is empty. Returns `true` if successully set all values,
+  /// `false` otherwise.
+  /// @throw std::bad_alloc
+  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+
+  Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
 
   /// Remove all properties and return old values for each removed property.
   /// @throw std::bad_alloc
@@ -65,16 +86,15 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Returns the size of the encoded edge property in bytes.
+  Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
-  storage::Gid Gid() const noexcept {
-    if (config_.properties_on_edges) {
-      return edge_.ptr->gid;
-    } else {
-      return edge_.gid;
-    }
-  }
+  auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+  auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+  Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
@@ -83,15 +103,12 @@ class EdgeAccessor final {
   }
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
- private:
   EdgeRef edge_;
   EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
+  Storage *storage_;
   Transaction *transaction_;
-  Indices *indices_;
-  Constraints *constraints_;
-  Config::Items config_;
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this
@@ -103,6 +120,9 @@ class EdgeAccessor final {
 };
 
 }  // namespace memgraph::storage
+
+static_assert(std::is_trivially_copyable_v<memgraph::storage::EdgeAccessor>,
+              "storage::EdgeAccessor must be trivially copyable!");
 
 namespace std {
 template <>

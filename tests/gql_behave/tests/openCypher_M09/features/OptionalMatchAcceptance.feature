@@ -323,3 +323,16 @@ Feature: OptionalMatchAcceptance
       | a  | b            |
       | [] | [42, 43, 44] |
     And no side effects
+
+  Scenario: Declaring a path with only one node in OPTIONAL MATCH after MATCH in which that node is already used
+    When executing query:
+      """
+      MATCH (n1) OPTIONAL MATCH p=(n1) RETURN p;
+      """
+    Then the result should be:
+      | p                 |
+      | <(:Single)>       |
+      | <(:A {prop: 42})> |
+      | <(:B {prop: 46})> |
+      | <(:C)>            |
+    And no side effects

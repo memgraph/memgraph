@@ -60,19 +60,6 @@
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
 
-(defn default-node-configuration
-  "Creates default replication configuration for nodes.
-  All of them are replicas in sync mode."
-  [nodes]
-  (reduce (fn [cur n]
-            (conj cur {n
-                       {:replication-role :replica
-                        :replication-mode :sync
-                        :port             10000
-                        :timeout          5}}))
-          {}
-          nodes))
-
 (defn resolve-hostname
   "Resolve hostnames to ip address"
   [host]
@@ -102,6 +89,8 @@
   "Merge user defined configuration with default configuration.
   Check if the configuration is valid."
   [nodes node-configs]
+
+
   (when-not (every? (fn [config]
                       (= 1
                          (count
@@ -113,6 +102,12 @@
 
 
   (doseq [node-config node-configs]
+    (when-not (= (count node-config) (count nodes))
+      (throw (Exception. "Invalid node configuration. Configuration not specified for all nodes. Check your .edn file.")))
+
+    (when-not (every? #(contains? node-config %) nodes)
+      (throw (Exception. "Invalid node configuration. Configuration missing for some of nodes [:n1 :n2 :n3 :n4 :n5]. Check your .edn file.")))
+
     (let [replica-nodes-configs (filter
                                   #(= (:replication-role %) :replica)
                                   (vals node-config))]
@@ -129,10 +124,7 @@
              "Every replication node requires "
              ":replication-mode to be defined."))))
 
-  (map (fn [node-config] (resolve-all-node-hostnames
-          (merge
-            (default-node-configuration nodes)
-            node-config)))
+  (map (fn [node-config] (resolve-all-node-hostnames node-config))
        node-configs))
 
 (def cli-opts
@@ -146,8 +138,22 @@
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
-   [nil "--node-configs PATH" "Path to the node configuration file."
+   [nil "--node-configs PATH" "Path to a file containing a list of node config."
     :parse-fn #(-> % e/load-configuration)]])
+
+(defn single-test
+  "Takes base CLI options and constructs a single test."
+  [opts]
+  (let [workload (if (:workload opts)
+                   (:workload opts)
+                   (throw (Exception. "Workload undefined")))
+        node-config (if (:node-configs opts)
+                      (first (merge-node-configurations (:nodes opts) (list (first (:node-configs opts)))))
+                      (throw (Exception. "Node configs undefined")))
+        test-opts (assoc opts
+                         :node-config node-config
+                         :workload workload)]
+    (memgraph-test test-opts)))
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
@@ -169,7 +175,7 @@
   [& args]
   (cli/run! (merge (cli/test-all-cmd {:tests-fn all-tests
                                       :opt-spec cli-opts})
-                   (cli/single-test-cmd {:test-fn memgraph-test
+                   (cli/single-test-cmd {:test-fn single-test
                                          :opt-spec cli-opts})
                    (cli/serve-cmd))
             args))

@@ -1,0 +1,1 @@
+copy_batched_procedures_e2e_python_files(shared.py)

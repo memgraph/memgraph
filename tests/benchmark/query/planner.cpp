@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,8 +16,11 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/vertex_count_cache.hpp"
-#include "storage/v2/storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
+
+using memgraph::replication_coordination_glue::ReplicationRole;
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
 static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph::query::AstStorage &storage) {
@@ -43,9 +46,9 @@ static memgraph::query::CypherQuery *AddChainedMatches(int num_matches, memgraph
 }
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
-  memgraph::storage::Storage db;
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   while (state.KeepRunning()) {
     state.PauseTiming();
     memgraph::query::AstStorage storage;
@@ -58,9 +61,8 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (const auto &plan : plans) {
       // Exhaust through all generated plans, since they are lazily generated.
       benchmark::DoNotOptimize(plan.get());
@@ -95,28 +97,31 @@ static memgraph::query::CypherQuery *AddIndexedMatches(int num_matches, const st
 static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::storage::Storage *db) {
   auto label = db->NameToLabel("label");
   auto prop = db->NameToProperty("prop");
-  [[maybe_unused]] auto _ = db->CreateIndex(label, prop);
-  auto dba = db->Access();
+  {
+    auto unique_acc = db->UniqueAccess(ReplicationRole::MAIN);
+    [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
+  }
+  auto dba = db->Access(ReplicationRole::MAIN);
   for (int vi = 0; vi < vertex_count; ++vi) {
     for (int index = 0; index < index_count; ++index) {
-      auto vertex = dba.CreateVertex();
+      auto vertex = dba->CreateVertex();
       MG_ASSERT(vertex.AddLabel(label).HasValue());
       MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
     }
   }
-  MG_ASSERT(!dba.Commit().HasError());
+  MG_ASSERT(!dba->Commit().HasError());
   return std::make_pair("label", "prop");
 }
 
 static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -129,24 +134,24 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&dba, parameters, *plan);
+      memgraph::query::plan::EstimatePlanCost(&dba, symbol_table, parameters, *plan,
+                                              memgraph::query::plan::IndexHints());
     }
   }
 }
 
 static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &state) {
-  memgraph::storage::Storage db;
+  std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
   std::string label;
   std::string prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
-  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, &db);
-  auto storage_dba = db.Access();
-  memgraph::query::DbAccessor dba(&storage_dba);
+  std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
+  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex_counts = memgraph::query::plan::MakeVertexCountCache(&dba);
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
@@ -160,11 +165,11 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
     }
-    auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
     auto plans = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::VariableStartPlanner>(
-        single_query_parts, &ctx);
+        query_parts, &ctx);
     for (auto plan : plans) {
-      memgraph::query::plan::EstimatePlanCost(&vertex_counts, parameters, *plan);
+      memgraph::query::plan::EstimatePlanCost(&vertex_counts, symbol_table, parameters, *plan,
+                                              memgraph::query::plan::IndexHints());
     }
   }
 }

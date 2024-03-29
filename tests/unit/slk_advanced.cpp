@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,17 @@
 
 #include <gtest/gtest.h>
 
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_slk.hpp"
+#include "io/network/endpoint.hpp"
+#include "replication/config.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
-
-#include "slk_common.hpp"
 #include "storage/v2/temporal.hpp"
+
+using memgraph::io::network::Endpoint;
 
 TEST(SlkAdvanced, PropertyValueList) {
   std::vector<memgraph::storage::PropertyValue> original{
@@ -109,6 +115,32 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   memgraph::slk::Save(original, builder);
 
   memgraph::storage::PropertyValue decoded;
+  auto reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(original, decoded);
+}
+
+TEST(SlkAdvanced, ReplicationClientConfigs) {
+  using ReplicationClientInfo = memgraph::coordination::ReplicationClientInfo;
+  using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
+  using ReplicationMode = memgraph::replication_coordination_glue::ReplicationMode;
+
+  ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
+                                                          .replication_mode = ReplicationMode::SYNC,
+                                                          .replication_server = Endpoint{"127.0.0.1", 10000}},
+                                    ReplicationClientInfo{.instance_name = "replica2",
+                                                          .replication_mode = ReplicationMode::ASYNC,
+                                                          .replication_server = Endpoint{"127.0.0.1", 10010}},
+                                    ReplicationClientInfo{.instance_name = "replica3",
+                                                          .replication_mode = ReplicationMode::ASYNC,
+                                                          .replication_server = Endpoint{"127.0.0.1", 10011}}};
+
+  memgraph::slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationClientInfoVec decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 

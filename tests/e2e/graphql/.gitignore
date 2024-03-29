@@ -1,0 +1,4 @@
+node_modules/
+# Because the parent folder ignores *.json
+!callable_alias_mapping.json
+!package.json

@@ -27,6 +27,7 @@ def execute_test(**kwargs):
     client_binary = kwargs.pop("client")
     server_binary = kwargs.pop("server")
     storage_directory = kwargs.pop("storage")
+    root_directory = kwargs.pop("root")
 
     start_server = kwargs.pop("start_server", True)
     endpoint = kwargs.pop("endpoint", "")
@@ -36,8 +37,7 @@ def execute_test(**kwargs):
     timeout = duration * 2 if "hang" not in kwargs else duration * 2 + 60
     success = False
 
-    server_args = [server_binary, "--interval", interval,
-                   "--duration", duration]
+    server_args = [server_binary, "--interval", interval, "--duration", duration]
     for flag, value in kwargs.items():
         flag = "--" + flag.replace("_", "-")
         # We handle boolean flags here. The type of value must be `bool`, and
@@ -48,9 +48,17 @@ def execute_test(**kwargs):
         else:
             server_args.extend([flag, value])
 
-    client_args = [client_binary, "--interval", interval,
-                   "--duration", duration,
-                   "--storage-directory", storage_directory]
+    client_args = [
+        client_binary,
+        "--interval",
+        interval,
+        "--duration",
+        duration,
+        "--storage-directory",
+        storage_directory,
+        "--root-directory",
+        root_directory,
+    ]
     if endpoint:
         client_args.extend(["--endpoint", endpoint])
 
@@ -61,8 +69,7 @@ def execute_test(**kwargs):
         assert server.poll() is None, "Server process died prematurely!"
 
     try:
-        subprocess.run(list(map(str, client_args)), timeout=timeout,
-                       check=True)
+        subprocess.run(list(map(str, client_args)), timeout=timeout, check=True)
     finally:
         if server is None:
             success = True
@@ -88,16 +95,14 @@ TESTS = [
     {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
     {"start_server": False},
     {"startups": 4, "no_check_duration": True},  # the last 3 tests failed
-                                                 # to send any data + this test
-    {"add_garbage": True}
+    # to send any data + this test
+    {"add_garbage": True},
 ]
 
 if __name__ == "__main__":
     server_binary = os.path.join(SCRIPT_DIR, "server.py")
-    client_binary = os.path.join(PROJECT_DIR, "build", "tests",
-                                 "integration", "telemetry", "client")
-    kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests",
-                                          "manual", "kvstore_console")
+    client_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "telemetry", "client")
+    kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests", "manual", "kvstore_console")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", default=client_binary)
@@ -106,21 +111,22 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     storage = tempfile.TemporaryDirectory()
+    durability_root = tempfile.TemporaryDirectory()
 
     for test in TESTS:
-        print("\033[1;36m~~ Executing test with arguments:",
-              json.dumps(test, sort_keys=True), "~~\033[0m")
+        print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
 
         if test.pop("add_garbage", False):
-            proc = subprocess.Popen([args.kvstore_console, "--path",
-                                     storage.name], stdin=subprocess.PIPE,
-                                    stdout=subprocess.DEVNULL)
+            proc = subprocess.Popen(
+                [args.kvstore_console, "--path", storage.name], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
+            )
             proc.communicate("put garbage garbage".encode("utf-8"))
             assert proc.wait() == 0
 
         try:
-            success = execute_test(client=args.client, server=args.server,
-                                   storage=storage.name, **test)
+            success = execute_test(
+                client=args.client, server=args.server, storage=storage.name, root=durability_root, **test
+            )
         except Exception as e:
             print("\033[1;33m", e, "\033[0m", sep="")
             success = False

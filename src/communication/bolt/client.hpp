@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -34,10 +35,11 @@ class FailureResponseException : public utils::BasicException {
 
   explicit FailureResponseException(const std::string &message) : utils::BasicException{message} {}
 
-  FailureResponseException(const std::string &code, const std::string &message)
-      : utils::BasicException{message}, code_{code} {}
+  FailureResponseException(std::string code, const std::string &message)
+      : utils::BasicException{message}, code_{std::move(code)} {}
 
   const std::string &code() const { return code_; }
+  SPECIALIZE_GET_EXCEPTION_NAME(FailureResponseException)
 
  private:
   std::string code_;
@@ -49,6 +51,7 @@ class FailureResponseException : public utils::BasicException {
 class ClientQueryException : public FailureResponseException {
  public:
   using FailureResponseException::FailureResponseException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ClientQueryException)
 };
 
 /// This exception is thrown whenever a fatal error occurs during query
@@ -57,6 +60,7 @@ class ClientQueryException : public FailureResponseException {
 class ClientFatalException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(ClientFatalException)
 };
 
 // Internal exception used whenever a communication error occurs. You should
@@ -64,6 +68,7 @@ class ClientFatalException : public utils::BasicException {
 class ServerCommunicationException : public ClientFatalException {
  public:
   ServerCommunicationException() : ClientFatalException("Couldn't communicate with the server!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ServerCommunicationException)
 };
 
 // Internal exception used whenever a malformed data error occurs. You should
@@ -71,6 +76,7 @@ class ServerCommunicationException : public ClientFatalException {
 class ServerMalformedDataException : public ClientFatalException {
  public:
   ServerMalformedDataException() : ClientFatalException("The server sent malformed data!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ServerMalformedDataException)
 };
 
 /// Structure that is used to return results from an executed query.
@@ -155,4 +161,5 @@ class Client final {
   ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{output_stream_};
   ClientEncoderX encoder_{encoder_buffer_};
 };
+
 }  // namespace memgraph::communication::bolt

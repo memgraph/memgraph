@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <concepts>
+#include <cstddef>
 #include <optional>
 #include <thread>
 
@@ -24,8 +26,13 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
+#include "communication/bolt/v1/value.hpp"
+#include "communication/metrics.hpp"
+#include "dbms/constants.hpp"
+#include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -37,6 +44,7 @@ namespace memgraph::communication::bolt {
 class SessionException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionException)
 };
 
 /**
@@ -52,10 +60,22 @@ class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
+  /**
+   * @brief Construct a new Session object
+   *
+   * @param input_stream stream to read from
+   * @param output_stream stream to write to
+   * @param impl a default high-level implementation to use (has to be defined)
+   */
   Session(TInputStream *input_stream, TOutputStream *output_stream)
-      : input_stream_(*input_stream), output_stream_(*output_stream) {}
+      : input_stream_(*input_stream), output_stream_(*output_stream), session_uuid_(utils::GenerateUUID()) {}
 
-  virtual ~Session() {}
+  virtual ~Session() = default;
+
+  Session(const Session &) = delete;
+  Session &operator=(const Session &) = delete;
+  Session(Session &&) noexcept = delete;
+  Session &operator=(Session &&) noexcept = delete;
 
   /**
    * Process the given `query` with `params`.
@@ -63,7 +83,16 @@ class Session {
    * if an explicit transaction was started.
    */
   virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params) = 0;
+      const std::string &query, const std::map<std::string, Value> &params,
+      const std::map<std::string, memgraph::communication::bolt::Value> &extra) = 0;
+
+  virtual void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) = 0;
+
+#ifdef MG_ENTERPRISE
+  virtual auto Route(std::map<std::string, Value> const &routing,
+                     std::vector<memgraph::communication::bolt::Value> const &bookmarks,
+                     std::map<std::string, Value> const &extra) -> std::map<std::string, Value> = 0;
+#endif
 
   /**
    * Put results of the processed query in the `encoder`.
@@ -85,7 +114,7 @@ class Session {
    */
   virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction() = 0;
+  virtual void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;
 
@@ -98,7 +127,6 @@ class Session {
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
   virtual std::optional<std::string> GetServerNameForInit() = 0;
-
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
@@ -120,6 +148,9 @@ class Session {
         return;
       }
       handshake_done_ = true;
+      // Update the decoder's Bolt version (v5 has changed the undelying structure)
+      decoder_.UpdateVersion(version_.major);
+      encoder_.UpdateVersion(version_.major);
     }
 
     ChunkState chunk_state;
@@ -136,6 +167,7 @@ class Session {
           break;
         case State::Idle:
         case State::Result:
+          at_least_one_run_ = true;
           state_ = StateExecutingRun(*this, state_);
           break;
         case State::Error:
@@ -157,8 +189,13 @@ class Session {
     }
   }
 
-  // TODO: Rethink if there is a way to hide some members. At the momement all
-  // of them are public.
+  void HandleError() {
+    if (!at_least_one_run_) {
+      spdlog::info("Sudden connection loss. Make sure the client supports Memgraph.");
+    }
+  }
+
+  // TODO: Rethink if there is a way to hide some members. At the momement all of them are public.
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
 
@@ -170,6 +207,7 @@ class Session {
 
   bool handshake_done_{false};
   State state_{State::Handshake};
+  bool at_least_one_run_{false};
 
   struct Version {
     uint8_t major;
@@ -177,6 +215,11 @@ class Session {
   };
 
   Version version_;
+  std::vector<std::string> client_supported_bolt_versions_;
+  std::optional<BoltMetrics::Metrics> metrics_;
+
+  virtual std::string GetCurrentDB() const = 0;
+  std::string UUID() const { return session_uuid_; }
 
  private:
   void ClientFailureInvalidData() {
@@ -193,6 +236,8 @@ class Session {
     // of the session to trigger session cleanup and socket close.
     throw SessionException("Something went wrong during session execution!");
   }
+
+  const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
 };
 
 }  // namespace memgraph::communication::bolt

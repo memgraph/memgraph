@@ -12,3 +12,4 @@ go get github.com/neo4j/neo4j-go-driver/neo4j
 
 go run docs_how_to_query.go
 go run transactions.go
+go run metadata.go

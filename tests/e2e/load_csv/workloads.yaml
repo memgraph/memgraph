@@ -1,0 +1,63 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+nullif_in_memory_cluster: &nullif_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_csv_log_file.txt"
+      setup_queries: []
+      validation_queries: []
+
+nullif_disk_cluster: &nullif_disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_csv_log_file.txt"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+      validation_queries: []
+
+load_csv_in_memory_cluster: &load_csv_in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_csv_log_file.txt"
+      setup_queries:
+        - "CREATE (n {prop: 1});"
+        - "CREATE (n {prop: 2});"
+      validation_queries: []
+
+load_csv_disk_cluster: &load_csv_disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "load_csv_log_file.txt"
+      setup_queries:
+        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
+        - "CREATE (n {prop: 1});"
+        - "CREATE (n {prop: 2});"
+      validation_queries: []
+
+workloads:
+  - name: "LOAD CSV nullif"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_csv_nullif.py"]
+    <<: *nullif_in_memory_cluster
+
+  - name: "LOAD CSV nullif on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_csv_nullif.py"]
+    <<: *nullif_disk_cluster
+
+  - name: "MATCH + LOAD CSV"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_csv.py"]
+    <<: *load_csv_in_memory_cluster
+
+  - name: "MATCH + LOAD CSV on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["load_csv/load_csv.py"]
+    <<: *load_csv_disk_cluster

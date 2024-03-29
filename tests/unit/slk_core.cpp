@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,7 +108,7 @@ TEST(SlkCore, SetPrimitive) {
 }
 
 TEST(SlkCore, SetString) {
-  std::set<std::string> original{"hai hai hai", "nandare!"};
+  std::set<std::string, std::less<>> original{"hai hai hai", "nandare!"};
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
@@ -116,7 +116,7 @@ TEST(SlkCore, SetString) {
   for (const auto &item : original) {
     size += sizeof(uint64_t) + item.size();
   }
-  std::set<std::string> decoded;
+  std::set<std::string, std::less<>> decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
   ASSERT_EQ(original, decoded);

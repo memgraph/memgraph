@@ -1,0 +1,32 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+in_memory_cluster: &in_memory_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "batched-procedures-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+disk_cluster: &disk_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "batched-procedures-disk-e2e.log"
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
+      validation_queries: []
+
+workloads:
+  - name: "Batched procedures read"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/batched_procedures/procedures/"
+    args: ["batched_procedures/simple_read.py"]
+    <<: *in_memory_cluster
+  - name: "Disk batched procedures read"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/batched_procedures/procedures/"
+    args: ["batched_procedures/simple_read.py"]
+    <<: *disk_cluster

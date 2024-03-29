@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ namespace memgraph::rpc {
 
 class Server {
  public:
-  Server(const io::network::Endpoint &endpoint, communication::ServerContext *context,
+  Server(io::network::Endpoint endpoint, communication::ServerContext *context,
          size_t workers_count = std::thread::hardware_concurrency());
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -35,6 +35,7 @@ class Server {
   bool Start();
   void Shutdown();
   void AwaitShutdown();
+  bool IsRunning();
 
   const io::network::Endpoint &endpoint() const;
 
@@ -86,8 +87,8 @@ class Server {
   };
 
   std::mutex lock_;
-  std::map<uint64_t, RpcCallback> callbacks_;
-  std::map<uint64_t, RpcExtendedCallback> extended_callbacks_;
+  std::map<utils::TypeId, RpcCallback> callbacks_;
+  std::map<utils::TypeId, RpcExtendedCallback> extended_callbacks_;
 
   communication::Server<Session, Server> server_;
 };

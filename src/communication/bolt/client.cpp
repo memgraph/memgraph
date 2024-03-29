@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,9 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "utils/logging.hpp"
+
+#include "communication/bolt/v1/fmt.hpp"
+#include "io/network/fmt.hpp"
 
 namespace {
 constexpr uint8_t kBoltV43Version[4] = {0x00, 0x00, 0x03, 0x04};
@@ -90,7 +93,7 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
   // It is super critical from performance point of view to send the pull message right after the run message. Otherwise
   // the performance will degrade multiple magnitudes.
   encoder_.MessageRun(query, parameters, {});
-  encoder_.MessagePull({});
+  encoder_.MessagePull({{"n", Value(-1)}});
 
   spdlog::debug("Reading run message response");
   Signature signature{};
@@ -146,9 +149,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
     throw ServerMalformedDataException();
   }
 
+  auto &header = fields.ValueMap();
+
   QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
-  auto &header = fields.ValueMap();
   if (header.find("fields") == header.end()) {
     throw ServerMalformedDataException();
   }
@@ -162,6 +166,10 @@ QueryData Client::Execute(const std::string &query, const std::map<std::string, 
       throw ServerMalformedDataException();
     }
     ret.fields.emplace_back(std::move(field_item.ValueString()));
+  }
+
+  if (header.contains("qid")) {
+    ret.metadata["qid"] = header["qid"];
   }
 
   return ret;
@@ -259,4 +267,5 @@ bool Client::ReadMessageData(Marker marker, Value &ret) {
   }
   return false;
 }
+
 }  // namespace memgraph::communication::bolt

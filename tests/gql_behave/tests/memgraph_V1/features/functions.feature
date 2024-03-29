@@ -60,6 +60,34 @@ Feature: Functions
             | false |
             | true  |
 
+    Scenario: ToBoolean test 03:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: TOBOOLEAN("t")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | true   |
+
+    Scenario: ToBoolean test 04:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: TOBOOLEAN("f")});
+            """
+        When executing query:
+            """
+            MATCH (n:Node) RETURN n.prop;
+            """
+        Then the result should be:
+            | n.prop |
+            | false  |
+
     Scenario: ToInteger test 01:
         Given an empty graph
         And having executed
@@ -585,12 +613,12 @@ Feature: Functions
             """
         When executing query:
             """
-            MATCH ()-[r]->() RETURN PROPERTIES(r) AS p
+            MATCH ()-[r]->() RETURN PROPERTIES(r) AS p ORDER BY p.prop;
             """
         Then the result should be:
             | p         |
-            | {b: true} |
             | {}        |
+            | {b: true} |
             | {c: 123}  |
 
     Scenario: Properties test2:
@@ -1135,3 +1163,38 @@ Feature: Functions
             | 0  |
             | 1  |
             | 2  |
+
+    Scenario: Aggregate distinct does not impact other aggregates:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Node_A {id:1})
+            CREATE (:Node_A {id:2})
+            CREATE (:Node_A {id:3})
+            CREATE (:Node_B {id:1})
+            CREATE (:Node_B {id:2})
+            CREATE (:Node_B {id:3})
+            CREATE (:Node_B {id:4})
+            CREATE (:Node_B {id:4})
+            """
+        When executing query:
+            """
+            MATCH (a:Node_A), (b:Node_B)
+            RETURN COUNT(DISTINCT a.id) AS A_COUNT,
+                   COUNT(b.id) AS B_COUNT;
+            """
+        Then the result should be:
+            | A_COUNT | B_COUNT |
+            | 3       | 15      |
+
+    Scenario: Exists is forbidden within reduce:
+      Given an empty graph
+      And having executed:
+        """
+        CREATE ()
+        """
+      When executing query:
+        """
+        MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
+        """
+      Then an error should be raised

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -73,8 +73,14 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor 
   return ToBoltEdge(edge.impl_, db, view);
 }
 
-storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage &db, storage::View view) {
+storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
+  auto check_db = [db]() {
+    if (db == nullptr) [[unlikely]]
+      throw communication::bolt::ValueException("Database needed for TypeValue conversion.");
+  };
+
   switch (value.type()) {
+    // No database needed
     case query::TypedValue::Type::Null:
       return Value();
     case query::TypedValue::Type::Bool:
@@ -85,16 +91,16 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueDouble());
     case query::TypedValue::Type::String:
       return Value(std::string(value.ValueString()));
-    case query::TypedValue::Type::List: {
-      std::vector<Value> values;
-      values.reserve(value.ValueList().size());
-      for (const auto &v : value.ValueList()) {
-        auto maybe_value = ToBoltValue(v, db, view);
-        if (maybe_value.HasError()) return maybe_value.GetError();
-        values.emplace_back(std::move(*maybe_value));
-      }
-      return Value(std::move(values));
-    }
+    case query::TypedValue::Type::Date:
+      return Value(value.ValueDate());
+    case query::TypedValue::Type::LocalTime:
+      return Value(value.ValueLocalTime());
+    case query::TypedValue::Type::LocalDateTime:
+      return Value(value.ValueLocalDateTime());
+    case query::TypedValue::Type::Duration:
+      return Value(value.ValueDuration());
+
+    // Database potentially not required
     case query::TypedValue::Type::Map: {
       std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
@@ -104,33 +110,48 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       }
       return Value(std::move(map));
     }
+
+    // Database is required
+    case query::TypedValue::Type::List: {
+      check_db();
+      std::vector<Value> values;
+      values.reserve(value.ValueList().size());
+      for (const auto &v : value.ValueList()) {
+        auto maybe_value = ToBoltValue(v, db, view);
+        if (maybe_value.HasError()) return maybe_value.GetError();
+        values.emplace_back(std::move(*maybe_value));
+      }
+      return Value(std::move(values));
+    }
     case query::TypedValue::Type::Vertex: {
-      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), db, view);
+      check_db();
+      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view);
       if (maybe_vertex.HasError()) return maybe_vertex.GetError();
       return Value(std::move(*maybe_vertex));
     }
     case query::TypedValue::Type::Edge: {
-      auto maybe_edge = ToBoltEdge(value.ValueEdge(), db, view);
+      check_db();
+      auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view);
       if (maybe_edge.HasError()) return maybe_edge.GetError();
       return Value(std::move(*maybe_edge));
     }
     case query::TypedValue::Type::Path: {
-      auto maybe_path = ToBoltPath(value.ValuePath(), db, view);
+      check_db();
+      auto maybe_path = ToBoltPath(value.ValuePath(), *db, view);
       if (maybe_path.HasError()) return maybe_path.GetError();
       return Value(std::move(*maybe_path));
     }
-    case query::TypedValue::Type::Date:
-      return Value(value.ValueDate());
-    case query::TypedValue::Type::LocalTime:
-      return Value(value.ValueLocalTime());
-    case query::TypedValue::Type::LocalDateTime:
-      return Value(value.ValueLocalDateTime());
-    case query::TypedValue::Type::Duration:
-      return Value(value.ValueDuration());
-    case query::TypedValue::Type::Graph:
-      auto maybe_graph = ToBoltGraph(value.ValueGraph(), db, view);
+    case query::TypedValue::Type::Graph: {
+      check_db();
+      auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view);
       if (maybe_graph.HasError()) return maybe_graph.GetError();
       return Value(std::move(*maybe_graph));
+    }
+
+    // Unsupported conversions
+    case query::TypedValue::Type::Function: {
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
+    }
   }
 }
 
@@ -150,7 +171,9 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
   }
-  return communication::bolt::Vertex{id, labels, properties};
+  // Introduced in Bolt v5 (for now just send the ID)
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
@@ -165,7 +188,12 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
   }
-  return communication::bolt::Edge{id, from, to, type, properties};
+  // Introduced in Bolt v5 (for now just send the ID)
+  const auto element_id = std::to_string(id.AsInt());
+  const auto from_element_id = std::to_string(from.AsInt());
+  const auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{
+      id, from, to, std::move(type), std::move(properties), element_id, from_element_id, to_element_id};
 }
 
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
@@ -195,7 +223,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   for (const auto &v : graph.vertices()) {
     auto maybe_vertex = ToBoltVertex(v, db, view);
     if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-    vertices.emplace_back(Value(std::move(*maybe_vertex)));
+    vertices.emplace_back(std::move(*maybe_vertex));
   }
   map.emplace("nodes", Value(vertices));
 
@@ -204,7 +232,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   for (const auto &e : graph.edges()) {
     auto maybe_edge = ToBoltEdge(e, db, view);
     if (maybe_edge.HasError()) return maybe_edge.GetError();
-    edges.emplace_back(Value(std::move(*maybe_edge)));
+    edges.emplace_back(std::move(*maybe_edge));
   }
   map.emplace("edges", Value(edges));
 

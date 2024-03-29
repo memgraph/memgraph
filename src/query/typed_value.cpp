@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,9 +19,12 @@
 #include <string_view>
 #include <utility>
 
+#include "query/fmt.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+#include "utils/logging.hpp"
+#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -123,9 +126,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     case storage::PropertyValue::Type::List: {
       type_ = Type::List;
       auto &vec = other.ValueList();
-      new (&list_v) TVector(memory_);
-      list_v.reserve(vec.size());
-      for (auto &v : vec) list_v.emplace_back(std::move(v));
+      new (&list_v) TVector(std::make_move_iterator(vec.begin()), std::make_move_iterator(vec.end()), memory_);
       break;
     }
     case storage::PropertyValue::Type::Map: {
@@ -214,8 +215,12 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       return;
+    case Type::Function:
+      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      return;
     case Type::Graph:
-      new (&graph_v) Graph(other.graph_v, memory_);
+      auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+      new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
@@ -266,8 +271,16 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       break;
+    case Type::Function:
+      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      break;
     case Type::Graph:
-      new (&graph_v) Graph(std::move(other.graph_v), memory_);
+      if (other.GetMemoryResource() == memory_) {
+        new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+      } else {
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
+        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+      }
   }
   other.DestroyValue();
 }
@@ -308,24 +321,36 @@ TypedValue::operator storage::PropertyValue() const {
   throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
 }
 
-#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field)                    \
   type_param &TypedValue::Value##type_enum() {                                                   \
-    if (type_ != Type::type_enum)                                                                \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
-                                                                                                 \
-  const type_param &TypedValue::Value##type_enum() const {                                       \
-    if (type_ != Type::type_enum)                                                                \
+  type_param TypedValue::Value##type_enum() const {                                              \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
       throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
     return field;                                                                                \
   }                                                                                              \
-                                                                                                 \
   bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
 
-DEFINE_VALUE_AND_TYPE_GETTERS(bool, Bool, bool_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(int64_t, Int, int_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(double, Double, double_v)
+#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
+  type_param &TypedValue::Value##type_enum() {                                                   \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    return field;                                                                                \
+  }                                                                                              \
+  const type_param &TypedValue::Value##type_enum() const {                                       \
+    if (type_ != Type::type_enum) [[unlikely]]                                                   \
+      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
+    return field;                                                                                \
+  }                                                                                              \
+  bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
+
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
+DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
@@ -336,11 +361,43 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, graph_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 
 #undef DEFINE_VALUE_AND_TYPE_GETTERS
+#undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
 
-bool TypedValue::IsNull() const { return type_ == Type::Null; }
+bool TypedValue::ContainsDeleted() const {
+  switch (type_) {
+    // Value types
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+    case Type::Date:
+    case Type::LocalTime:
+    case Type::LocalDateTime:
+    case Type::Duration:
+      return false;
+    // Reference types
+    case Type::List:
+      return std::ranges::any_of(list_v, [](const auto &elem) { return elem.ContainsDeleted(); });
+    case Type::Map:
+      return std::ranges::any_of(map_v, [](const auto &item) { return item.second.ContainsDeleted(); });
+    case Type::Vertex:
+      return vertex_v.impl_.vertex_->deleted;
+    case Type::Edge:
+      return edge_v.IsDeleted();
+    case Type::Path:
+      return std::ranges::any_of(path_v.vertices(),
+                                 [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
+             std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
+    default:
+      throw TypedValueException("Value of unknown type");
+  }
+  return false;
+}
 
 bool TypedValue::IsNumeric() const { return IsInt() || IsDouble(); }
 
@@ -395,6 +452,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "duration";
     case TypedValue::Type::Graph:
       return os << "graph";
+    case TypedValue::Type::Function:
+      return os << "function";
   }
   LOG_FATAL("Unsupported TypedValue::Type");
 }
@@ -530,9 +589,11 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case TypedValue::Type::Path:
         new (&path_v) Path(other.path_v, memory_);
         return *this;
-      case TypedValue::Type::Graph:
-        new (&graph_v) Graph(other.graph_v, memory_);
+      case TypedValue::Type::Graph: {
+        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
         return *this;
+      }
       case Type::Date:
         new (&date_v) utils::Date(other.date_v);
         return *this;
@@ -544,6 +605,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
         return *this;
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
+        return *this;
+      case Type::Function:
+        new (&function_v) std::function<void(TypedValue *)>(other.function_v);
         return *this;
     }
     LOG_FATAL("Unsupported TypedValue::Type");
@@ -604,8 +668,16 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
+      case Type::Function:
+        new (&function_v) std::function<void(TypedValue *)>{other.function_v};
+        break;
       case Type::Graph:
-        new (&graph_v) Graph(std::move(other.graph_v), memory_);
+        if (other.GetMemoryResource() == memory_) {
+          new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+        } else {
+          auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
+          new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+        }
         break;
     }
     other.DestroyValue();
@@ -625,31 +697,39 @@ void TypedValue::DestroyValue() {
       // we need to call destructors for non primitive types since we used
       // placement new
     case Type::String:
-      string_v.~TString();
+      std::destroy_at(&string_v);
       break;
     case Type::List:
-      list_v.~TVector();
+      std::destroy_at(&list_v);
       break;
     case Type::Map:
-      map_v.~TMap();
+      std::destroy_at(&map_v);
       break;
     case Type::Vertex:
-      vertex_v.~VertexAccessor();
+      std::destroy_at(&vertex_v);
       break;
     case Type::Edge:
-      edge_v.~EdgeAccessor();
+      std::destroy_at(&edge_v);
       break;
     case Type::Path:
-      path_v.~Path();
+      std::destroy_at(&path_v);
       break;
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
     case Type::Duration:
       break;
-    case Type::Graph:
-      graph_v.~Graph();
+    case Type::Function:
+      std::destroy_at(&function_v);
       break;
+    case Type::Graph: {
+      auto *graph = graph_v.release();
+      std::destroy_at(&graph_v);
+      if (graph) {
+        utils::Allocator<Graph>(memory_).delete_object(graph);
+      }
+      break;
+    }
   }
 
   type_ = TypedValue::Type::Null;
@@ -700,10 +780,13 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
         return false;
     }
   };
-  if (!is_legal(a.type()) || !is_legal(b.type()))
+  if (!is_legal(a.type()) || !is_legal(b.type())) {
     throw TypedValueException("Invalid 'less' operand types({} + {})", a.type(), b.type());
+  }
 
-  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  if (a.IsNull() || b.IsNull()) {
+    return TypedValue(a.GetMemoryResource());
+  }
 
   if (a.IsString() || b.IsString()) {
     if (a.type() != b.type()) {
@@ -873,8 +956,9 @@ inline void EnsureArithmeticallyOk(const TypedValue &a, const TypedValue &b, boo
   // checked here because they are handled before this check is performed in
   // arithmetic op implementations.
 
-  if (!is_legal(a) || !is_legal(b))
+  if (!is_legal(a) || !is_legal(b)) {
     throw TypedValueException("Invalid {} operand types {}, {}", op_name, a.type(), b.type());
+  }
 }
 
 namespace {
@@ -1024,8 +1108,9 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {
-  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull())))
+  if (!((a.IsBool() || a.IsNull()) && (b.IsBool() || b.IsNull()))) {
     throw TypedValueException("Invalid {} operand types({} && {})", op_name, a.type(), b.type());
+  }
 }
 
 TypedValue operator&&(const TypedValue &a, const TypedValue &b) {
@@ -1119,6 +1204,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;
+    case TypedValue::Type::Function:
+      throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported hash function for Graph");
   }

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,7 +56,7 @@ const std::pair<const std::string, const double> GetCpuUsage(pid_t pid, pid_t ti
   return {name, cpu};
 }
 
-const nlohmann::json GetResourceUsage() {
+const nlohmann::json GetResourceUsage(std::filesystem::path root_directory) {
   // Get PID of entire process.
   pid_t pid = getpid();
 
@@ -78,8 +78,12 @@ const nlohmann::json GetResourceUsage() {
   }
   auto cpu_total = GetCpuUsage(pid);
   cpu["usage"] = cpu_total.second;
-
-  return {{"cpu", cpu}, {"memory", utils::GetMemoryUsage()}};
+  const auto vm_max_map_count = utils::GetVmMaxMapCount();
+  return {{"cpu", cpu},
+          {"memory", utils::GetMemoryRES()},
+          {"disk", utils::GetDirDiskUsage(root_directory)},
+          {"vm_max_map_count",
+           vm_max_map_count.has_value() ? *vm_max_map_count : memgraph::utils::VM_MAX_MAP_COUNT_DEFAULT}};
 }
 
 }  // namespace memgraph::telemetry

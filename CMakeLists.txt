@@ -1,6 +1,7 @@
 # MemGraph CMake configuration
 
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.12)
+cmake_policy(SET CMP0076 NEW)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
@@ -18,10 +19,12 @@ set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 # during the code coverage process
 find_program(CCACHE_FOUND ccache)
 option(USE_CCACHE "ccache:" ON)
-message(STATUS "CCache: ${USE_CCACHE}")
 if(CCACHE_FOUND AND USE_CCACHE)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
   set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
+  message(STATUS "CCache: Used")
+else ()
+  message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 # choose a compiler
@@ -37,7 +40,14 @@ endif(CCACHE_FOUND AND USE_CCACHE)
 
 # -----------------------------------------------------------------------------
 
-project(memgraph)
+project(memgraph LANGUAGES C CXX)
+
+#TODO: upgrade to cmake 3.24 + CheckIPOSupported
+#cmake_policy(SET CMP0138 NEW)
+#include(CheckIPOSupported)
+#check_ipo_supported()
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -143,7 +153,9 @@ endif()
 # files used can be seen here:
 # https://git-scm.com/book/en/v2/Git-Internals-Git-References
 set(git_directory "${CMAKE_SOURCE_DIR}/.git")
-if (EXISTS "${git_directory}")
+# Check for directory because if the repo is cloned as a git submodule, .git is
+# a file and below code doesn't work.
+if (IS_DIRECTORY "${git_directory}")
   set_property(DIRECTORY APPEND PROPERTY
       CMAKE_CONFIGURE_DEPENDS "${git_directory}/HEAD")
   file(STRINGS "${git_directory}/HEAD" git_head_data)
@@ -158,7 +170,7 @@ endif()
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
 # -----------------------------------------------------------------------------
@@ -179,6 +191,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# # c99-designator is disabled because of required mixture of designated and
+# # non-designated initializers in Python Query Module code (`py_module.cpp`).
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
+#     -Werror=switch -Werror=switch-bool -Werror=return-type \
+#     -Werror=return-stack-address \
+#     -Wno-c99-designator -Wmissing-field-initializers \
 # TODO(gitbuda): Add support for both clang and GCC with the valid flags.
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
@@ -195,8 +213,13 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 # ** Static linking is allowed only for executables! **
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
 
-# Use gold linker to speedup build
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
+# Use lld linker to speedup build and use less memory.
+add_link_options(-fuse-ld=lld)
+# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
+# without explicit link_directories call.
+string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+separate_arguments(LD_LIBS)
+link_directories(${LD_LIBS})
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
@@ -219,7 +242,6 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
-
 # default build type is debug
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
@@ -227,7 +249,17 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-set(MG_ARCH "x86_64" CACHE STRING "Host architecture to build Memgraph on. Supported values are x86_64 (default), ARM64.")
+add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+
+if (NOT MG_ARCH)
+    set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
+    if (${CMAKE_HOST_SYSTEM_PROCESSOR} MATCHES "aarch64")
+        set(MG_ARCH "ARM64" CACHE STRING ${MG_ARCH_DESCR})
+    else()
+        set(MG_ARCH "x86_64" CACHE STRING ${MG_ARCH_DESCR})
+    endif()
+endif()
+message(STATUS "MG_ARCH: ${MG_ARCH}")
 
 # setup external dependencies -------------------------------------------------
 
@@ -246,13 +278,14 @@ endif()
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-# Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
+
+# Build feature flags
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -267,12 +300,25 @@ if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
-set(ENABLE_JEMALLOC ON)
+option(ENABLE_JEMALLOC "Use jemalloc" ON)
+
+option(MG_MEMORY_PROFILE "If build should be setup for memory profiling" OFF)
+if (MG_MEMORY_PROFILE AND ENABLE_JEMALLOC)
+    message(STATUS "Jemalloc has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ENABLE_JEMALLOC OFF)
+endif ()
+if (MG_MEMORY_PROFILE AND ASAN)
+    message(STATUS "ASAN has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ASAN OFF)
+endif ()
+if (MG_MEMORY_PROFILE)
+    add_compile_definitions(MG_MEMORY_PROFILE)
+endif ()
 
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
   set(ENABLE_JEMALLOC OFF)
-  # Enable Addres sanitizer and get nicer stack traces in error messages.
+  # Enable Address sanitizer and get nicer stack traces in error messages.
   # NOTE: AddressSanitizer uses llvm-symbolizer binary from the Clang
   # distribution to symbolize the stack traces (note that ideally the
   # llvm-symbolizer version must match the version of ASan runtime library).
@@ -293,6 +339,8 @@ if (ASAN)
 endif()
 
 if (TSAN)
+  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
   # lead to false positive race reports, false negative race reports and/or
@@ -308,7 +356,7 @@ if (TSAN)
   # By default ThreadSanitizer uses addr2line utility to symbolize reports.
   # llvm-symbolizer is faster, consumes less memory and produces much better
   # reports. To use it set runtime flag:
-  #   TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
+  # TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
   # For more runtime flags see: https://github.com/google/sanitizers/wiki/ThreadSanitizerFlags
 endif()
 

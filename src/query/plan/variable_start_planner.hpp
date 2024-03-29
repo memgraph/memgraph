@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,16 +49,16 @@ class CartesianProduct {
   using TElement = typename decltype(begin_->begin())::value_type;
 
  public:
-  CartesianProduct(std::vector<TSet> sets)
+  explicit CartesianProduct(std::vector<TSet> sets)
       : original_sets_(std::move(sets)), begin_(original_sets_.begin()), end_(original_sets_.end()) {}
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef std::vector<TElement> value_type;
-    typedef long difference_type;
-    typedef const std::vector<TElement> &reference;
-    typedef const std::vector<TElement> *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = std::vector<TElement>;
+    using difference_type = long;
+    using reference = const std::vector<TElement> &;
+    using pointer = const std::vector<TElement> *;
 
     explicit iterator(CartesianProduct *self, bool is_done) : self_(self), is_done_(is_done) {
       if (is_done || self->begin_ == self->end_) {
@@ -186,11 +186,11 @@ class VaryMatchingStart {
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef Matching value_type;
-    typedef long difference_type;
-    typedef const Matching &reference;
-    typedef const Matching *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = Matching;
+    using difference_type = long;
+    using reference = const Matching &;
+    using pointer = const Matching *;
 
     iterator(VaryMatchingStart *, bool);
 
@@ -230,6 +230,8 @@ class VaryMatchingStart {
 // Cartesian product of all of them is returned.
 CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
+CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching, const SymbolTable &symbol_table);
+
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
 class VaryQueryPartMatching {
@@ -238,13 +240,14 @@ class VaryQueryPartMatching {
 
   class iterator {
    public:
-    typedef std::input_iterator_tag iterator_category;
-    typedef SingleQueryPart value_type;
-    typedef long difference_type;
-    typedef const SingleQueryPart &reference;
-    typedef const SingleQueryPart *pointer;
+    using iterator_category = std::input_iterator_tag;
+    using value_type = SingleQueryPart;
+    using difference_type = long;
+    using reference = const SingleQueryPart &;
+    using pointer = const SingleQueryPart *;
 
-    iterator(const SingleQueryPart &, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
+    iterator(SingleQueryPart, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
+             CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
 
@@ -266,15 +269,20 @@ class VaryQueryPartMatching {
     CartesianProduct<VaryMatchingStart>::iterator merge_it_;
     CartesianProduct<VaryMatchingStart>::iterator merge_begin_;
     CartesianProduct<VaryMatchingStart>::iterator merge_end_;
+    CartesianProduct<VaryMatchingStart>::iterator filter_it_;
+    CartesianProduct<VaryMatchingStart>::iterator filter_begin_;
+    CartesianProduct<VaryMatchingStart>::iterator filter_end_;
   };
 
   auto begin() {
     return iterator(query_part_, matchings_.begin(), matchings_.end(), optional_matchings_.begin(),
-                    optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end());
+                    optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end(),
+                    filter_matchings_.begin(), filter_matchings_.end());
   }
   auto end() {
     return iterator(query_part_, matchings_.end(), matchings_.end(), optional_matchings_.end(),
-                    optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end());
+                    optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end(), filter_matchings_.end(),
+                    filter_matchings_.end());
   }
 
  private:
@@ -286,6 +294,7 @@ class VaryQueryPartMatching {
   CartesianProduct<VaryMatchingStart> optional_matchings_;
   // Like optional matching, but for merge matchings.
   CartesianProduct<VaryMatchingStart> merge_matchings_;
+  CartesianProduct<VaryMatchingStart> filter_matchings_;
 };
 
 }  // namespace impl
@@ -304,33 +313,78 @@ class VariableStartPlanner {
 
   // Generates different, equivalent query parts by taking different graph
   // matching routes for each query part.
-  auto VaryQueryMatching(const std::vector<SingleQueryPart> &query_parts, const SymbolTable &symbol_table) {
-    std::vector<impl::VaryQueryPartMatching> alternative_query_parts;
-    alternative_query_parts.reserve(query_parts.size());
-    for (const auto &query_part : query_parts) {
-      alternative_query_parts.emplace_back(impl::VaryQueryPartMatching(query_part, symbol_table));
+  auto VaryQueryMatching(const QueryParts &query_parts, const SymbolTable &symbol_table) {
+    std::vector<impl::VaryQueryPartMatching> varying_query_matchings;
+
+    auto single_query_parts = ExtractSingleQueryParts(std::make_unique<QueryParts>(query_parts));
+
+    for (const auto &single_query_part : single_query_parts) {
+      varying_query_matchings.emplace_back(single_query_part, symbol_table);
     }
-    return iter::slice(MakeCartesianProduct(std::move(alternative_query_parts)), 0UL, FLAGS_query_max_plans);
+
+    return iter::slice(MakeCartesianProduct(std::move(varying_query_matchings)), 0UL, FLAGS_query_max_plans);
+  }
+
+  std::vector<SingleQueryPart> ExtractSingleQueryParts(const std::shared_ptr<QueryParts> query_parts) {
+    std::vector<SingleQueryPart> results;
+
+    for (const auto &query_part : query_parts->query_parts) {
+      for (const auto &single_query_part : query_part.single_query_parts) {
+        results.push_back(single_query_part);
+
+        for (const auto &subquery : single_query_part.subqueries) {
+          const auto subquery_results = ExtractSingleQueryParts(subquery);
+          results.insert(results.end(), std::make_move_iterator(subquery_results.begin()),
+                         std::make_move_iterator(subquery_results.end()));
+        }
+      }
+    }
+
+    return results;
+  }
+
+  QueryParts ReconstructQueryParts(const QueryParts &old_query_parts,
+                                   const std::vector<SingleQueryPart> &single_query_parts_variation, uint64_t &index) {
+    auto reconstructed_query_parts = old_query_parts;
+
+    for (auto i = 0; i < old_query_parts.query_parts.size(); i++) {
+      const auto &old_query_part = old_query_parts.query_parts[i];
+      for (auto j = 0; j < old_query_part.single_query_parts.size(); j++) {
+        const auto &old_single_query_part = old_query_part.single_query_parts[j];
+        reconstructed_query_parts.query_parts[i].single_query_parts[j] = single_query_parts_variation[index++];
+
+        for (auto k = 0; k < old_single_query_part.subqueries.size(); k++) {
+          const auto &subquery = old_single_query_part.subqueries[k];
+          reconstructed_query_parts.query_parts[i].single_query_parts[j].subqueries[k] =
+              std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
+        }
+      }
+    }
+
+    return reconstructed_query_parts;
   }
 
  public:
   explicit VariableStartPlanner(TPlanningContext *context) : context_(context) {}
 
   /// @brief Generate multiple plans by varying the order of graph traversal.
-  auto Plan(const std::vector<SingleQueryPart> &query_parts) {
+  auto Plan(const QueryParts &query_parts) {
     return iter::imap(
-        [context = context_](const auto &alternative_query_parts) {
+        [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
+          uint64_t index = 0;
+          auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
+
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
-          return rule_planner.Plan(alternative_query_parts);
+          return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));
   }
 
   /// @brief The result of plan generation is an iterable of roots to multiple
   /// generated operator trees.
-  using PlanResult = typename std::result_of<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
-      VariableStartPlanner<TPlanningContext>, std::vector<SingleQueryPart> &)>::type;
+  using PlanResult = std::result_of_t<decltype (&VariableStartPlanner<TPlanningContext>::Plan)(
+      VariableStartPlanner<TPlanningContext>, QueryParts &)>;
 };
 
 }  // namespace memgraph::query::plan

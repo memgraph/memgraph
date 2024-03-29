@@ -1,0 +1,3 @@
+copy_query_modules_reloading_procedures_e2e_python_files(test_functions.py)
+
+add_subdirectory(test_functions_dir)

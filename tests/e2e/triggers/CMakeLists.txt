@@ -20,3 +20,12 @@ add_subdirectory(procedures)
 add_dependencies(memgraph__e2e__triggers__on_create memgraph__e2e__triggers__write.py)
 add_dependencies(memgraph__e2e__triggers__on_update memgraph__e2e__triggers__write.py)
 add_dependencies(memgraph__e2e__triggers__on_delete memgraph__e2e__triggers__write.py)
+
+function(copy_triggers_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(triggers ${FILE_NAME})
+endfunction()
+
+copy_triggers_e2e_python_files(common.py)
+copy_triggers_e2e_python_files(triggers_properties_false.py)
+
+copy_e2e_files(triggers workloads.yaml)

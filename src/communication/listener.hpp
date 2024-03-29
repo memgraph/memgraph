@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,11 +17,13 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include <gflags/gflags.h>
 
 #include "communication/session.hpp"
 #include "io/network/epoll.hpp"
+#include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/signals.hpp"
@@ -39,7 +41,7 @@ namespace memgraph::communication {
  * second, checks all sessions for expiration and shuts them down if they have
  * expired.
  */
-template <class TSession, class TSessionData>
+template <class TSession, class TSessionContext>
 class Listener final {
  private:
   // The maximum number of events handled per execution thread is 1. This is
@@ -48,16 +50,16 @@ class Listener final {
   // can take a long time.
   static const int kMaxEvents = 1;
 
-  using SessionHandler = Session<TSession, TSessionData>;
+  using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
-  Listener(TSessionData *data, ServerContext *context, int inactivity_timeout_sec, const std::string &service_name,
+  Listener(TSessionContext *data, ServerContext *context, int inactivity_timeout_sec, std::string service_name,
            size_t workers_count)
       : data_(data),
         alive_(false),
         context_(context),
         inactivity_timeout_sec_(inactivity_timeout_sec),
-        service_name_(service_name),
+        service_name_(std::move(service_name)),
         workers_count_(workers_count) {}
 
   ~Listener() {
@@ -260,7 +262,7 @@ class Listener final {
 
   io::network::Epoll epoll_;
 
-  TSessionData *data_;
+  TSessionContext *data_;
 
   utils::SpinLock lock_;
   std::vector<std::unique_ptr<SessionHandler>> sessions_;

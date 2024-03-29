@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <spdlog/sinks/base_sink.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <utility>
 
 #include "communication/websocket/listener.hpp"
 #include "io/network/endpoint.hpp"
@@ -45,7 +46,7 @@ class Server final {
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
-    explicit LoggingSink(std::weak_ptr<Listener> listener) : listener_(listener) {}
+    explicit LoggingSink(std::weak_ptr<Listener> listener) : listener_(std::move(listener)) {}
 
    private:
     void sink_it_(const spdlog::details::log_msg &msg) override;

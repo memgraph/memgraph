@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,7 @@ class Parser {
    * @param query incoming query that has to be compiled into query plan
    *        the first step is to generate AST
    */
-  Parser(const std::string query) : query_(std::move(query)) {
+  explicit Parser(const std::string query) : query_(std::move(query)) {
     parser_.removeErrorListeners();
     parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();

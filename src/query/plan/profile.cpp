@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,7 +57,7 @@ class ProfilingStatsToTableHelper {
     auto cycles = IndividualCycles(cumulative_stats);
 
     rows_.emplace_back(std::vector<TypedValue>{
-        TypedValue(FormatOperator(cumulative_stats.name)), TypedValue(cumulative_stats.actual_hits),
+        TypedValue(FormatOperator(cumulative_stats.name.c_str())), TypedValue(cumulative_stats.actual_hits),
         TypedValue(FormatRelativeTime(cycles)), TypedValue(FormatAbsoluteTime(cycles))});
 
     for (size_t i = 1; i < cumulative_stats.children.size(); ++i) {
@@ -137,7 +137,7 @@ class ProfilingStatsToJsonHelper {
   void Output(const ProfilingStats &cumulative_stats, json *obj) {
     auto cycles = IndividualCycles(cumulative_stats);
 
-    obj->emplace("name", cumulative_stats.name);
+    obj->emplace("name", cumulative_stats.name.c_str());
     obj->emplace("actual_hits", cumulative_stats.actual_hits);
     obj->emplace("relative_time", RelativeTime(cycles, total_cycles_));
     obj->emplace("absolute_time", AbsoluteTime(cycles, total_cycles_, total_time_));

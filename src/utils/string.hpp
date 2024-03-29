@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <cstdint>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <random>
@@ -226,6 +229,13 @@ inline std::vector<std::string> Split(const std::string_view src, const std::str
   return res;
 }
 
+inline std::vector<std::string_view> SplitView(const std::string_view src, const std::string_view delimiter,
+                                               int splits = -1) {
+  std::vector<std::string_view> res;
+  Split(&res, src, delimiter, splits);
+  return res;
+}
+
 /**
  * Split a string by whitespace into a vector.
  * Runs of consecutive whitespace are regarded as a single delimiter.
@@ -239,7 +249,7 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
   if (src.empty()) return out;
   // TODO: Investigate how much regex allocate and perhaps replace with custom
   // solution doing no allocations.
-  std::regex not_whitespace("[^\\s]+");
+  static std::regex not_whitespace("[^\\s]+");
   auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
   auto matches_end = std::cregex_iterator();
   out->reserve(std::distance(matches_begin, matches_end));
@@ -326,6 +336,20 @@ inline int64_t ParseInt(const std::string_view s) {
     throw BasicException("Couldn't parse string");
   }
   return t;
+}
+
+inline uint64_t ParseStringToUint64(const std::string_view s) {
+  if (uint64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+    return value;
+  }
+  throw utils::ParseException(s);
+}
+
+inline uint32_t ParseStringToUint32(const std::string_view s) {
+  if (uint32_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+    return value;
+  }
+  throw utils::ParseException(s);
 }
 
 /**
@@ -448,6 +472,32 @@ inline std::string_view Substr(const std::string_view string, size_t pos = 0, si
   if (pos >= string.size()) return std::string_view(string.data(), 0);
   auto len = std::min(string.size() - pos, count);
   return string.substr(pos, len);
+}
+
+/**
+ * Convert a double value to a string representation.
+ * Precision of converted value is 16.
+ * Function also removes trailing zeros after the dot.
+ *
+ * @param value The double value to be converted.
+ *
+ * @return The string representation of the double value.
+ *
+ * @throws None
+ */
+inline std::string DoubleToString(const double value) {
+  static const int PRECISION = 15;
+
+  std::stringstream ss;
+  ss << std::setprecision(PRECISION) << std::fixed << value;
+  auto sv = ss.view();
+
+  // Because of setprecision and fixed manipulator we are guaranteed to have the dot
+  sv = sv.substr(0, sv.find_last_not_of('0') + 1);
+  if (sv.ends_with('.')) {
+    sv = sv.substr(0, sv.size() - 1);
+  }
+  return std::string(sv);
 }
 
 }  // namespace memgraph::utils

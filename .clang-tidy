@@ -6,6 +6,7 @@ Checks: '*,
          -altera-unroll-loops,
          -android-*,
          -cert-err58-cpp,
+         -cppcoreguidelines-avoid-do-while,
          -cppcoreguidelines-avoid-c-arrays,
          -cppcoreguidelines-avoid-goto,
          -cppcoreguidelines-avoid-magic-numbers,
@@ -60,10 +61,11 @@ Checks: '*,
          -readability-implicit-bool-conversion,
          -readability-magic-numbers,
          -readability-named-parameter,
+         -readability-identifier-length,
          -misc-no-recursion,
          -concurrency-mt-unsafe,
-         -bugprone-easily-swappable-parameters'
-
+         -bugprone-easily-swappable-parameters,
+         -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "utils/file.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -58,7 +59,7 @@ namespace memgraph::utils {
  *   {
  *     // Create accessor to the locker so you can
  *     // add the files which need to be locked.
- *     // Accesor prevents deletion of any files
+ *     // Accessor prevents deletion of any files
  *     // so you safely add multiple files in atomic way
  *     auto accessor = locker.Access();
  *     accessor.AddPath(file1);
@@ -114,15 +115,26 @@ class FileRetainer {
   struct FileLockerAccessor {
     friend FileLocker;
 
+    enum class Error : uint8_t {
+      NonexistentPath = 0,
+    };
+
+    using ret_type = utils::BasicResult<FileRetainer::FileLockerAccessor::Error, bool>;
+
+    /**
+     * Checks if a single path is in the current locker.
+     */
+    ret_type IsPathLocked(const std::filesystem::path &path);
+
     /**
      * Add a single path to the current locker.
      */
-    bool AddPath(const std::filesystem::path &path);
+    ret_type AddPath(const std::filesystem::path &path);
 
     /**
      * Remove a single path form the current locker.
      */
-    bool RemovePath(const std::filesystem::path &path);
+    ret_type RemovePath(const std::filesystem::path &path);
 
     FileLockerAccessor(const FileLockerAccessor &) = delete;
     FileLockerAccessor(FileLockerAccessor &&) = default;
@@ -182,7 +194,7 @@ class FileRetainer {
 
   class LockerEntry {
    public:
-    void LockPath(const std::filesystem::path &path);
+    bool LockPath(const std::filesystem::path &path);
     bool RemovePath(const std::filesystem::path &path);
     [[nodiscard]] bool LocksFile(const std::filesystem::path &path) const;
 
