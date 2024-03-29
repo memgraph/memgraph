@@ -81,7 +81,7 @@ prepare_toolchain() {
     }
 
     echo "Extracting toolchain to /opt..."
-    tar xzvf /tmp/toolchain.tar.gz -C /opt && rm /tmp/toolchain.tar.gz || {
+    tar xzvf /tmp/toolchain.tar.gz -C /opt && rm -f /tmp/toolchain.tar.gz || {
         echo "Failed to extract toolchain. Please check the archive and your permissions."
         exit 1
     }
