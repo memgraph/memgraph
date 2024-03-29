@@ -2706,7 +2706,7 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
-  ast_generator.CheckLiteral(parsed_query->coordinator_server_id_, TypedValue(1));
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
 
   auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
       -> std::map<std::string, std::string, std::less<>> {
