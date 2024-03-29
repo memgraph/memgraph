@@ -18,6 +18,7 @@ declare -A TOOLCHAIN_URLS=(
     [fedora-39]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-fedora-39-amd64.tar.gz"
     [debian-10]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v4/toolchain-v4-binaries-debian-10-amd64.tar.gz" # Note v4 for Debian 10
     [debian-11]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-11-amd64.tar.gz"
+    [debian-12]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-11-amd64.tar.gz"
     [debian-11-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-debian-11-arm64.tar.gz"
     [ubuntu-18.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v4/toolchain-v4-binaries-ubuntu-18.04-amd64.tar.gz" # Note v4 for Ubuntu 18.04
     [ubuntu-20.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-20.04-amd64.tar.gz"
@@ -138,7 +139,7 @@ if [[ "$1" == "prepare" && "$2" == "TOOLCHAIN_RUN_DEPS" ]]; then
     if [[ "$is_supported" == true ]]; then
         prepare_toolchain "$OS_ARCH"
     else
-        echo "Unsupported OS: $OS_ARCH. The 'setup' command cannot proceed."
+        echo "Unsupported OS: $OS_ARCH. The 'prepare' command cannot proceed."
         exit 1
     fi
 else
