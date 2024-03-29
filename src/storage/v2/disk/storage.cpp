@@ -1780,12 +1780,15 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     logging::AssertRocksDBStatus(transaction_.disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   }
   auto commitStatus = transaction_.disk_transaction_->Commit();
-  delete transaction_.disk_transaction_;
-  transaction_.disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
+    Abort();
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageManipulationError{SerializationError{}};
   }
+
+  delete transaction_.disk_transaction_;
+  transaction_.disk_transaction_ = nullptr;
+
   spdlog::trace("rocksdb: Commit successful");
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     disk_storage->indices_.text_index_.Commit();
