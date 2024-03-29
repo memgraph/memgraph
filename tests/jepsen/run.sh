@@ -180,7 +180,7 @@ CLUSTER_UP() {
   PRINT_CONTEXT
   local cnt=0
   while [[ "$cnt" < 5 ]]; do
-    if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon -n $JEPSEN_ACTIVE_NODES_NO; then
       cnt=$((cnt + 1))
       continue
     else
@@ -242,8 +242,8 @@ case $1 in
     cluster-up)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
         CLUSTER_UP
+        COPY_BINARIES
     ;;
 
     cluster-refresh)
