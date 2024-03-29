@@ -34,7 +34,7 @@
          {:pure-generators true
           :name            (str "test-" (name (:workload opts)))
           :nodes           (keys (:node-config opts))
-          :db              (support/ha-db opts)}))
+          :db              (support/db opts)}))
 
 (defn memgraph-test
   "Given an options map from the command line runner constructs a test map."
