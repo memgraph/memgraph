@@ -76,7 +76,7 @@ prepare_toolchain() {
     }
 
     echo "Extracting toolchain to /opt..."
-    sudo tar xzvf /tmp/toolchain.tar.gz -C /opt || {
+    tar xzvf /tmp/toolchain.tar.gz -C /opt && rm /tmp/toolchain.tar.gz || {
         echo "Failed to extract toolchain. Please check the archive and your permissions."
         exit 1
     }
