@@ -151,7 +151,7 @@ jobs:
     secrets: inherit
 
   Debian11-arm:
-    if: ${{ (github.event.inputs.os == 'debian-11-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v4' }}
+    if: ${{ github.event.inputs.os == 'debian-11-arm' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
