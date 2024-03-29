@@ -1848,6 +1848,8 @@ enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_res
 enum mgp_error mgp_pull_one(struct mgp_execution_result *exec_result, struct mgp_graph *graph,
                             struct mgp_memory *memory, struct mgp_map **result);
 
+void mgp_execution_result_destroy(struct mgp_execution_result *exec_result);
+
 /// @}
 
 #ifdef __cplusplus

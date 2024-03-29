@@ -34,6 +34,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "csv/parsing.hpp"
+#include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -1747,7 +1748,8 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::string current_db_name = std::string(memgraph::dbms::kDefaultDB));
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1778,7 +1780,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   std::string current_db_name)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1790,7 +1793,6 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
   ctx_.user_or_role = user_or_role;
-
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
@@ -1811,6 +1813,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
+  ctx_.current_db_name = std::move(current_db_name);
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2030,7 +2033,8 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
 
 PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+                                 std::string current_db_name, utils::MemoryResource *execution_memory,
+                                 std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role,
                                  std::atomic<TransactionStatus> *transaction_status,
                                  std::shared_ptr<utils::AsyncTimer> tx_timer,
@@ -2095,7 +2099,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, current_db_name);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -4100,7 +4104,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
+                           [db_name = query->db_name_, db_handler, &current_db, interpreter = &interpreter,
+                            on_change = std::move(on_change_cb)](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                              std::vector<std::vector<TypedValue>> status;
                              std::string res;
@@ -4110,8 +4115,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                                  res = "Already using " + db_name;
                                } else {
                                  auto tmp = db_handler->Get(db_name);
-                                 if (on_change) (*on_change)(db_name);  // Will trow if cb fails
+                                 if (on_change) (*on_change)(db_name);  // Will throw if cb fails
                                  current_db.SetCurrentDB(std::move(tmp), false);
+                                 interpreter->current_db_name_ = db_name;
                                  res = "Using " + db_name;
                                }
                              } catch (const utils::BasicException &e) {
@@ -4455,9 +4461,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
-                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
+                             current_db_name_, memory_resource, &query_execution->notifications, user_or_role_,
+                             &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);

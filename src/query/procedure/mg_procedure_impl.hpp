@@ -1023,9 +1023,12 @@ struct mgp_execution_rows {
 };
 
 struct mgp_execution_result {
-  explicit mgp_execution_result();
+  explicit mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
   ~mgp_execution_result();
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
 
   struct pImplMgpExecutionResult;
   std::unique_ptr<pImplMgpExecutionResult> pImpl;
+  memgraph::utils::MemoryResource *memory;
 };

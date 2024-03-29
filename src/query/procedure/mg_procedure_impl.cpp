@@ -4242,10 +4242,14 @@ struct mgp_execution_result::pImplMgpExecutionResult {
   std::unique_ptr<mgp_execution_headers> headers;
 };
 
-mgp_execution_result::mgp_execution_result() : pImpl(std::make_unique<pImplMgpExecutionResult>()) {
+mgp_execution_result::mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
+    : pImpl(std::make_unique<pImplMgpExecutionResult>()), memory(memory) {
   auto *instance = memgraph::query::InterpreterContext::getInstance();
-  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(instance, instance->dbms_handler->Get());
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(
+      instance, instance->dbms_handler->Get(graph->ctx->current_db_name));
 }
+
+void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
 
 mgp_execution_result::~mgp_execution_result() {
   auto *instance = memgraph::query::InterpreterContext::getInstance();
@@ -4260,7 +4264,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto query_string = std::string(query);
         auto *instance = memgraph::query::InterpreterContext::getInstance();
 
-        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl);
+        auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph, memory->impl);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
 
         instance->interpreters.WithLock(

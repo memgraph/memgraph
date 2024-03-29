@@ -1646,6 +1646,7 @@ class ExecutionRow {
 class ExecutionResult {
  public:
   ExecutionResult(mgp_execution_result *result, mgp_graph *graph);
+  ~ExecutionResult();
   ExecutionHeaders Headers() const;
   std::optional<ExecutionRow> PullOne() const;
 
@@ -4406,6 +4407,8 @@ inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp:
 
 inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph *graph)
     : result_(result), graph_(graph) {}
+
+inline ExecutionResult::~ExecutionResult() { mgp::execution_result_destroy(result_); }
 
 inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
 

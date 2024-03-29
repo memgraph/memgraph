@@ -870,6 +870,10 @@ inline mgp_execution_result *execute_query(mgp_graph *graph, const char *query, 
   return MgInvoke<mgp_execution_result *>(mgp_execute_query, graph, memory, query, params);
 }
 
+inline void execution_result_destroy(mgp_execution_result *execution_result) {
+  mgp_execution_result_destroy(execution_result);
+}
+
 inline mgp_execution_headers *fetch_execution_headers(mgp_execution_result *exec_result) {
   return MgInvoke<mgp_execution_headers *>(mgp_fetch_execution_headers, exec_result);
 }

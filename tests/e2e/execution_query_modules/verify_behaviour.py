@@ -143,5 +143,45 @@ def test_fetch_results_empty_count(connection):
     assert len(result) == 0
 
 
+def test_fetch_results_with_result_count_on_multitenancy(connection):
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(cursor, "FOREACH (i in range(1, 10) | CREATE ());")
+    assert has_n_result_row(cursor, "MATCH (n) RETURN n;", 10)
+
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL execution_module.execute_fetch_results('MATCH (n) RETURN count(n) as cnt') YIELD output RETURN output;",
+        )
+    )
+
+    assert len(result) == 1
+
+    result_count = result[0][0]["cnt"]
+
+    assert result_count == 10
+
+    execute_and_fetch_all(cursor, f"CREATE DATABASE mg2;")
+    execute_and_fetch_all(cursor, f"USE DATABASE mg2;")
+
+    result = list(
+        execute_and_fetch_all(
+            cursor,
+            f"CALL execution_module.execute_fetch_results('MATCH (n) RETURN count(n) as cnt') YIELD output RETURN output;",
+        )
+    )
+
+    assert len(result) == 1
+
+    result_count = result[0][0]["cnt"]
+
+    assert result_count == 0
+
+    execute_and_fetch_all(cursor, f"USE DATABASE memgraph;")
+    execute_and_fetch_all(cursor, f"DROP DATABASE mg2;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
