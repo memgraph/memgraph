@@ -3,15 +3,30 @@
   (:require [clojure.tools.logging :refer :all]
             [clojure.java.shell :refer [sh]]
             [jepsen [cli :as cli]
-             [checker :as checker]
-             [generator :as gen]
-             [tests :as tests]]
-            [jepsen.memgraph [basic :as basic]
+                    [checker :as checker]
+                    [client :as client]
+                    [generator :as gen]
+                    [tests :as tests]]
+            [jepsen.memgraph
              [bank :as bank]
              [large :as large]
              [support :as support]
              [nemesis :as nemesis]
              [edn :as e]]))
+
+(defrecord HAClient [conn]
+  client/Client
+  (open! [this test node]
+    this)
+
+  (setup! [this test])
+
+  (invoke! [_ test op])
+
+  (teardown! [this test])
+
+  (close! [_ test]))
+
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
@@ -34,7 +49,8 @@
          {:pure-generators true
           :name            (str "test-" (name (:workload opts)))
           :nodes           (keys (:node-config opts))
-          :db              (support/db opts)}))
+          :db              (support/db opts)
+          :client          (HAClient. nil)}))
 
 (defn memgraph-test
   "Given an options map from the command line runner constructs a test map."
