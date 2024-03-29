@@ -2,8 +2,23 @@
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [jepsen [generator :as gen]])
+            [jepsen [generator :as gen]
+             [client :as client]])
   (:import (java.net URI)))
+
+
+(defrecord Client [conn]
+  client/Client
+  (open! [this test node]
+    this)
+
+  (setup! [this test])
+
+  (invoke! [_ test op])
+
+  (teardown! [this test])
+
+  (close! [_ test]))
 
 ;; Jepsen related utils.
 (defn instance-url
