@@ -14,34 +14,17 @@
     [utils :as utils]
     [bank :as bank]
     [large :as large]
+    [ha :as ha]
     [support :as support]
     [nemesis :as nemesis]
     [edn :as e]]))
-
-(defn r   [_ _] {:type :invoke, :f :read, :value nil})
-(defn w   [_ _] {:type :invoke, :f :write, :value (rand-int 5)})
-(defn cas [_ _] {:type :invoke, :f :cas, :value [(rand-int 5) (rand-int 5)]})
-
-(defrecord HAClient [conn]
-  client/Client
-  (open! [this test node]
-    (dbclient/connect (URI. (utils/get-instance-url node 7687)) "" "")
-    this)
-
-  (setup! [this test])
-
-  (invoke! [_ test op])
-
-  (teardown! [this test])
-
-  (close! [_ test]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         (fn [] (println "High Availability workload"))})
+   :high_availability         ha/test-setup})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -52,19 +35,21 @@
 (defn memgraph-ha-test
   "Given an options map from the command line runner constructs a test map for HA tests."
   [opts]
-  (merge tests/noop-test
-         opts
-         {:pure-generators true
-          :name            (str "test-" (name (:workload opts)))
-          :nodes           (keys (:node-config opts))
-          :db              (support/db opts)
-          :client          (HAClient. nil)}))
+  (let [workload ((get workloads (:workload opts)) opts)]
+    (println "memgraph-ha-test" opts)
+    (merge tests/noop-test
+           opts
+           {:pure-generators true
+            :nodes           (keys (:node-config opts))
+            :name            (str "test-" (name (:workload opts)))
+            :db              (support/db opts)
+            :client          (:client workload)})))
 
 (defn memgraph-test
   "Given an options map from the command line runner constructs a test map."
   [opts]
   (println "memgraph-test")
-  (let [workload ((get workloads (:workload opts)) opts)
+  (let [workload ((get workloads (:workload opts)) opts)  ;opts are options provided to a function from workloads
         nemesis  (nemesis/nemesis nemesis-configuration)
         gen      (->> (:generator workload)
                       (gen/nemesis (:generator nemesis))
