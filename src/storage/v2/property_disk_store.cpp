@@ -96,7 +96,7 @@ PropertyId PDS::ToPid(std::string_view sv) {
 // TODO: Move to PDS
 PropertyId ToPid2(auto sv) {
   // return PropertyId::FromUint(*(uint32_t *)&sv[4]);
-  return PropertyId::FromUint(*(uint64_t *)sv.data());
+  return PropertyId::FromUint(*(uint64_t *)sv.data() & 0xFFFFFFFFUL);
 };
 
 std::string PDS::ToStr(const PropertyValue &pv) {
