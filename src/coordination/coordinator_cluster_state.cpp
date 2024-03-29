@@ -48,16 +48,6 @@ CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, Replicati
       current_main_uuid_(current_main_uuid),
       is_lock_opened_(is_lock_opened) {}
 
-CoordinatorClusterState::CoordinatorClusterState(CoordinatorInstanceInitConfig const &config) {
-  auto c2c_config = CoordinatorToCoordinatorConfig{
-      .coordinator_id = config.coordinator_id,
-      .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.bolt_port)},
-      .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
-
-  spdlog::trace("CoordinatorClusterState: add coordinator instance {}", c2c_config.coordinator_id);
-  coordinators_.emplace_back(CoordinatorInstanceState{.config = std::move(c2c_config)});
-}
-
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : repl_instances_{other.repl_instances_},
       current_main_uuid_(other.current_main_uuid_),
@@ -238,6 +228,12 @@ auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<Coo
 auto CoordinatorClusterState::IsLockOpened() const -> bool {
   auto lock = std::shared_lock{log_lock_};
   return is_lock_opened_;
+}
+
+auto CoordinatorClusterState::CoordinatorExists(uint32_t coordinator_id) const -> bool {
+  auto lock = std::shared_lock{log_lock_};
+  return std::ranges::any_of(
+      coordinators_, [coordinator_id](auto const &coord) { return coord.config.coordinator_id == coordinator_id; });
 }
 
 }  // namespace memgraph::coordination

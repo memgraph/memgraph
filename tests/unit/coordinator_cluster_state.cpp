@@ -47,9 +47,7 @@ class CoordinatorClusterStateTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
 
   auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -69,15 +67,13 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
-  ASSERT_EQ(cluster_state.GetCoordinatorInstances().size(), 1);
+  ASSERT_EQ(cluster_state.GetCoordinatorInstances().size(), 0);
 
   ASSERT_TRUE(cluster_state.HasReplicaState("instance3"));
 }
 
 TEST_F(CoordinatorClusterStateTest, UnregisterReplicationInstance) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
 
   auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -98,9 +94,7 @@ TEST_F(CoordinatorClusterStateTest, UnregisterReplicationInstance) {
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
   {
     auto config =
         CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -144,10 +138,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
   {
     auto config =
         CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -197,27 +188,23 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
 }
 
 TEST_F(CoordinatorClusterStateTest, UpdateUUID) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
   auto uuid = UUID();
   cluster_state.DoAction(uuid, RaftLogAction::UPDATE_UUID_OF_NEW_MAIN);
   ASSERT_EQ(cluster_state.GetCurrentMainUUID(), uuid);
 }
 
 TEST_F(CoordinatorClusterStateTest, AddCoordinatorInstance) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
   CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
   cluster_state.DoAction(config, RaftLogAction::ADD_COORDINATOR_INSTANCE);
 
   auto instances = cluster_state.GetCoordinatorInstances();
-  ASSERT_EQ(instances.size(), 2);
-  ASSERT_EQ(instances[1].config, config);
+  ASSERT_EQ(instances.size(), 1);
+  ASSERT_EQ(instances[0].config, config);
 }
 
 TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
@@ -252,10 +239,7 @@ TEST_F(CoordinatorClusterStateTest, CoordinatorInstanceStateSerialization) {
 }
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7688};
-
-  CoordinatorClusterState cluster_state{init_config1};
+  CoordinatorClusterState cluster_state{};
   CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
                                         .bolt_server = Endpoint{"127.0.0.1", 7687},
                                         .coordinator_server = Endpoint{"127.0.0.1", 10111}};
