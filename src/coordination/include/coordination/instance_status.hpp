@@ -27,6 +27,12 @@ struct InstanceStatus {
   std::string coord_socket_address;
   std::string cluster_role;
   std::string health;
+
+  friend bool operator==(InstanceStatus const &lhs, InstanceStatus const &rhs) {
+    return lhs.instance_name == rhs.instance_name && lhs.raft_socket_address == rhs.raft_socket_address &&
+           lhs.coord_socket_address == rhs.coord_socket_address && lhs.cluster_role == rhs.cluster_role &&
+           lhs.health == rhs.health;
+  }
 };
 
 }  // namespace memgraph::coordination
