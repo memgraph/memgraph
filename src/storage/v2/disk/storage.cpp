@@ -945,14 +945,14 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
   }
 
   for (const auto &edge : deleted_edges) {
-    const std::string ser_edge_gid = edge.Gid().ToString();
+    const std::string ser_edge_gid = edge.GidInAllCases().ToString();
     const auto src_vertex_gid = edge.from_vertex_->gid.ToString();
     const auto dst_vertex_gid = edge.to_vertex_->gid.ToString();
     transaction_.edges_to_delete_.emplace(ser_edge_gid, std::make_pair(src_vertex_gid, dst_vertex_gid));
 
     transaction_.manyDeltasCache.Invalidate(edge.from_vertex_, edge.edge_type_, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(edge.to_vertex_, edge.edge_type_, EdgeDirection::IN);
-    transaction_.RemoveModifiedEdge(edge.Gid());
+    transaction_.RemoveModifiedEdge(edge.GidInAllCases());
   }
 
   return maybe_result;

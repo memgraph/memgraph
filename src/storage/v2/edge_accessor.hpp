@@ -94,7 +94,8 @@ class EdgeAccessor final {
 
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
-  Gid Gid() const noexcept;
+  // TODO(gitbuda): Rename Gid func -> the name here is just a tmp ref.
+  Gid GidInAllCases() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
 
@@ -127,6 +128,6 @@ static_assert(std::is_trivially_copyable_v<memgraph::storage::EdgeAccessor>,
 namespace std {
 template <>
 struct hash<memgraph::storage::EdgeAccessor> {
-  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.Gid().AsUint(); }
+  size_t operator()(const memgraph::storage::EdgeAccessor &e) const { return e.GidInAllCases().AsUint(); }
 };
 }  // namespace std

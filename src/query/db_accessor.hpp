@@ -93,9 +93,9 @@ class EdgeAccessor final {
 
   bool IsCycle() const;
 
-  int64_t CypherId() const { return impl_.Gid().AsInt(); }
+  int64_t CypherId() const { return impl_.GidInAllCases().AsInt(); }
 
-  storage::Gid Gid() const noexcept { return impl_.Gid(); }
+  storage::Gid Gid() const noexcept { return impl_.GidInAllCases(); }
 
   bool operator==(const EdgeAccessor &e) const noexcept { return impl_ == e.impl_; }
 

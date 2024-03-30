@@ -7,8 +7,7 @@ on:
   push:
     branches:
       - master
-  # TODO(gitbuda): Put back the workflow dispatch.
-  # workflow_dispatch:
+  workflow_dispatch:
   pull_request:
     paths-ignore:
       - "docs/**"

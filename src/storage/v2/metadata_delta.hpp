@@ -46,37 +46,37 @@ struct MetadataDelta {
   };
 
   static constexpr struct LabelIndexCreate {
-  } label_index_create;
+  } label_index_create{};
   static constexpr struct LabelIndexDrop {
-  } label_index_drop;
+  } label_index_drop{};
   static constexpr struct LabelIndexStatsSet {
-  } label_index_stats_set;
+  } label_index_stats_set{};
   static constexpr struct LabelIndexStatsClear {
-  } label_index_stats_clear;
+  } label_index_stats_clear{};
   static constexpr struct LabelPropertyIndexCreate {
-  } label_property_index_create;
+  } label_property_index_create{};
   static constexpr struct LabelPropertyIndexDrop {
-  } label_property_index_drop;
+  } label_property_index_drop{};
   static constexpr struct LabelPropertyIndexStatsSet {
-  } label_property_index_stats_set;
+  } label_property_index_stats_set{};
   static constexpr struct LabelPropertyIndexStatsClear {
-  } label_property_index_stats_clear;
+  } label_property_index_stats_clear{};
   static constexpr struct EdgeIndexCreate {
-  } edge_index_create;
+  } edge_index_create{};
   static constexpr struct EdgeIndexDrop {
-  } edge_index_drop;
+  } edge_index_drop{};
   static constexpr struct TextIndexCreate {
-  } text_index_create;
+  } text_index_create{};
   static constexpr struct TextIndexDrop {
-  } text_index_drop;
+  } text_index_drop{};
   static constexpr struct ExistenceConstraintCreate {
-  } existence_constraint_create;
+  } existence_constraint_create{};
   static constexpr struct ExistenceConstraintDrop {
-  } existence_constraint_drop;
+  } existence_constraint_drop{};
   static constexpr struct UniqueConstraintCreate {
-  } unique_constraint_create;
+  } unique_constraint_create{};
   static constexpr struct UniqueConstraintDrop {
-  } unique_constraint_drop;
+  } unique_constraint_drop{};
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
