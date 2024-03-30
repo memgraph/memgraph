@@ -2466,13 +2466,14 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
 }
 
 void InMemoryStorage::InMemoryAccessor::DropGraph() {
-  // STEP 1 of GC Cleanup
-  std::list<Gid> current_deleted_vertices;
-  std::list<Gid> current_deleted_edges;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
-
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  // we take the control from the GC to clear any deltas
+  auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+  mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
+
+  // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
