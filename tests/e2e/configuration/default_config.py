@@ -59,9 +59,9 @@ startup_config_dict = {
         "Time in seconds after which inactive Bolt sessions will be closed.",
     ),
     "cartesian_product_enabled": ("true", "true", "Enable cartesian product expansion."),
-    "coordinator_server_port": ("0", "0", "Port on which coordinator servers will be started."),
-    "raft_server_port": ("0", "0", "Port on which raft servers will be started."),
-    "raft_server_id": ("0", "0", "Unique ID of the raft server."),
+    "management_port": ("0", "0", "Port on which coordinator servers will be started."),
+    "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
+    "coordinator_id": ("0", "0", "Unique ID of the raft server."),
     "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
     "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
@@ -124,6 +124,11 @@ startup_config_dict = {
         "false",
         "Controls whether metadata should be collected about the resident labels and edge types.",
     ),
+    "storage_enable_edges_metadata": (
+        "false",
+        "false",
+        "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
@@ -140,6 +145,11 @@ startup_config_dict = {
         "1",
         "1",
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
+    ),
+    "storage_delta_on_identical_property_update": (
+        "true",
+        "true",
+        "Controls whether updating a property with the same value should create a delta object.",
     ),
     "storage_gc_cycle_sec": ("30", "30", "Storage garbage collector interval (in seconds)."),
     "storage_python_gc_cycle_sec": ("180", "180", "Storage python full garbage collection interval (in seconds)."),
@@ -221,6 +231,6 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma seperated. Options [system-replication, high-availability]",
+        "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
     ),
 }

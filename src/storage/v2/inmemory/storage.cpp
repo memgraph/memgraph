@@ -15,6 +15,8 @@
 #include <functional>
 #include <optional>
 #include "dbms/constants.hpp"
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -102,7 +104,7 @@ InMemoryStorage::InMemoryStorage(Config config)
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edge_count_,
+    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
                                       name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
@@ -339,6 +341,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (delta) {
       delta->prev.Set(&*it);
     }
+    if (config_.enable_edges_metadata) {
+      auto acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+    }
   }
   utils::AtomicMemoryBlock atomic_memory_block{
       [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
@@ -441,6 +448,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (delta) {
       delta->prev.Set(&*it);
     }
+    if (config_.enable_edges_metadata) {
+      auto acc = mem_storage->edges_metadata_.access();
+      auto [_, inserted] = acc.insert(EdgeMetadata(gid, from->vertex_));
+      MG_ASSERT(inserted, "The edge must be inserted here!");
+    }
   }
   utils::AtomicMemoryBlock atomic_memory_block{
       [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
@@ -460,6 +472,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   std::invoke(atomic_memory_block);
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
+}
+
+void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex) {
+  auto edge_metadata_acc = edges_metadata_.access();
+  auto edge_to_modify = edge_metadata_acc.find(edge->gid);
+  if (edge_to_modify == edge_metadata_acc.end()) {
+    throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+  }
+  edge_to_modify->from_vertex = from_vertex;
 }
 
 Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
@@ -561,6 +582,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
         auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
         mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
                                                       edge_type, transaction_);
+
+        if (config_.enable_edges_metadata) {
+          in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
+        }
 
         transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
@@ -890,6 +915,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       commit_timestamp_.reset();  // We have aborted, hence we have not committed
       return StorageManipulationError{*unique_constraint_violation};
     }
+
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      mem_storage->indices_.text_index_.Commit();
+    }
   }
 
   is_transaction_active_ = false;
@@ -989,8 +1018,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   if (!current_deleted_edges.empty()) {
     // 3.c) remove from edge skip_list
     auto edge_acc = mem_storage->edges_.access();
+    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
     for (auto gid : current_deleted_edges) {
       edge_acc.remove(gid);
+      edge_metadata_acc.remove(gid);
     }
   }
 }
@@ -1221,6 +1252,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const &[property, prop_vertices] : property_cleanup) {
         storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
       }
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        storage_->indices_.text_index_.Rollback();
+      }
 
       // VERTICES
       {
@@ -1233,8 +1267,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       // EDGES
       {
         auto edges_acc = mem_storage->edges_.access();
+        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
         for (auto gid : my_deleted_edges) {
           edges_acc.remove(gid);
+          edges_metadata_acc.remove(gid);
         }
       }
     }
@@ -1435,6 +1471,62 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(storage_->indices_.edge_type_index_.get());
   return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
+}
+
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
+  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  auto edge_acc = mem_storage->edges_.access();
+  auto edge_it = edge_acc.find(gid);
+  if (edge_it == edge_acc.end()) {
+    return std::nullopt;
+  }
+
+  auto *edge_ptr = &(*edge_it);
+  auto vertices_acc = mem_storage->vertices_.access();
+
+  auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
+    for (auto &out_edge : from_vertex->out_edges) {
+      if (std::get<2>(out_edge).ptr == edge_ptr) {
+        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
+      }
+    }
+    return std::nullopt;
+  };
+
+  auto edge_accessor_from_info = [this, view](EdgeInfo &maybe_edge_info) -> std::optional<EdgeAccessor> {
+    if (!maybe_edge_info) {
+      return std::nullopt;
+    }
+
+    auto &edge_info = *maybe_edge_info;
+    return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
+                                std::get<3>(edge_info), storage_, &transaction_, view);
+  };
+
+  if (mem_storage->config_.salient.items.enable_edges_metadata) {
+    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
+    auto edge_metadata_it = edge_metadata_acc.find(gid);
+    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
+
+    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
+    return edge_accessor_from_info(maybe_edge_info);
+  }
+
+  // If metadata on edges is not enabled we will have to do
+  // a full scan.
+  auto maybe_edge_info = std::invoke([&]() -> EdgeInfo {
+    for (auto &from_vertex : vertices_acc) {
+      auto maybe_edge_info = extract_edge_info(&from_vertex);
+      if (maybe_edge_info) {
+        return maybe_edge_info;
+      }
+    }
+    return std::nullopt;
+  });
+
+  return edge_accessor_from_info(maybe_edge_info);
 }
 
 Transaction InMemoryStorage::CreateTransaction(
@@ -1785,8 +1877,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
   {
     auto edge_acc = edges_.access();
+    auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {
       MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
+      if (config_.salient.items.enable_edges_metadata) {
+        MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
+      }
     }
   }
 
@@ -1808,10 +1904,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // EXPENSIVE full scan, is only run if an IN_MEMORY_ANALYTICAL transaction involved any deletions
   if (need_full_scan_edges) {
     auto edge_acc = edges_.access();
+    auto edge_metadata_acc = edges_metadata_.access();
     for (auto &edge : edge_acc) {
       // a deleted edge which as no deltas must have come from IN_MEMORY_ANALYTICAL deletion
       if (edge.delta == nullptr && edge.deleted) {
         edge_acc.remove(edge);
+        edge_metadata_acc.remove(edge.gid);
       }
     }
   }
@@ -1854,6 +1952,7 @@ StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::Re
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -2115,6 +2214,16 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
                                   final_commit_timestamp);
       } break;
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+        const auto &info = md_delta.text_index;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        const auto &info = md_delta.text_index;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
+                                  final_commit_timestamp);
+      } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
@@ -2145,11 +2254,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(db_acc));
 }
 
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                                const std::optional<std::string> text_index_name, LabelId label,
                                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
-  wal_file_->AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
+                             final_commit_timestamp);
   repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
 }
 
@@ -2163,12 +2274,13 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 const std::set<PropertyId> &properties,
                                                 LabelPropertyIndexStats property_stats,
                                                 uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, properties, {}, property_stats, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
+                                   final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 LabelIndexStats stats, uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, {}, stats, {}, final_commit_timestamp);
+  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -2180,6 +2292,12 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 uint64_t final_commit_timestamp) {
   return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                                const std::optional<std::string> text_index_name, LabelId label,
+                                                uint64_t final_commit_timestamp) {
+  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -2309,7 +2427,9 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices()};
+  auto &text_index = storage_->indices_.text_index_;
+  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices(),
+          text_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

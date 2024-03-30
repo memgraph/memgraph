@@ -64,8 +64,8 @@ Checks: '*,
          -readability-identifier-length,
          -misc-no-recursion,
          -concurrency-mt-unsafe,
-         -bugprone-easily-swappable-parameters'
-
+         -bugprone-easily-swappable-parameters,
+         -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
 AnalyzeTemporaryDtors: false

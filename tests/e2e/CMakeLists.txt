@@ -78,6 +78,8 @@ add_subdirectory(query_planning)
 add_subdirectory(awesome_functions)
 add_subdirectory(high_availability)
 add_subdirectory(drop_graph)
+add_subdirectory(concurrent_write)
+add_subdirectory(concurrency)
 
 add_subdirectory(replication_experimental)
 

@@ -134,6 +134,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | edgeIndexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery

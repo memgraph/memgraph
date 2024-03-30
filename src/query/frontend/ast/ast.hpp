@@ -2273,6 +2273,37 @@ class EdgeIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class TextIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  TextIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::TextIndexQuery::Action action_;
+  memgraph::query::LabelIx label_;
+  std::string index_name_;
+
+  TextIndexQuery *Clone(AstStorage *storage) const override {
+    TextIndexQuery *object = storage->Create<TextIndexQuery>();
+    object->action_ = action_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->index_name_ = index_name_;
+    return object;
+  }
+
+ protected:
+  TextIndexQuery(Action action, LabelIx label, std::string index_name)
+      : action_(action), label_(std::move(label)), index_name_(index_name) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
@@ -3147,7 +3178,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   memgraph::query::CoordinatorQuery::Action action_;
   std::string instance_name_{};
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  memgraph::query::Expression *coordinator_server_id_{nullptr};
+  memgraph::query::Expression *coordinator_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
@@ -3155,7 +3186,7 @@ class CoordinatorQuery : public memgraph::query::Query {
 
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->coordinator_server_id_ = coordinator_server_id_ ? coordinator_server_id_->Clone(storage) : nullptr;
+    object->coordinator_id_ = coordinator_id_ ? coordinator_id_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);

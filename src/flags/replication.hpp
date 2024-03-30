@@ -15,11 +15,11 @@
 
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(coordinator_server_port);
+DECLARE_int32(management_port);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(raft_server_port);
+DECLARE_int32(coordinator_port);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(raft_server_id);
+DECLARE_uint32(coordinator_id);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint32(instance_down_timeout_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 import interactive_mg_runner
 import pytest
@@ -40,7 +41,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7687",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10011",
         ],
         "log_file": "instance_1.log",
@@ -54,7 +55,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7688",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10012",
         ],
         "log_file": "instance_2.log",
@@ -68,7 +69,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7689",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10013",
         ],
         "log_file": "instance_3.log",
@@ -81,8 +82,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7690",
             "--log-level=TRACE",
-            "--raft-server-id=1",
-            "--raft-server-port=10111",
+            "--coordinator-id=1",
+            "--coordinator-port=10111",
         ],
         "log_file": "coordinator1.log",
         "setup_queries": [],
@@ -93,8 +94,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7691",
             "--log-level=TRACE",
-            "--raft-server-id=2",
-            "--raft-server-port=10112",
+            "--coordinator-id=2",
+            "--coordinator-port=10112",
         ],
         "log_file": "coordinator2.log",
         "setup_queries": [],
@@ -105,8 +106,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7692",
             "--log-level=TRACE",
-            "--raft-server-id=3",
-            "--raft-server-port=10113",
+            "--coordinator-id=3",
+            "--coordinator-port=10113",
         ],
         "log_file": "coordinator3.log",
         "setup_queries": [
@@ -130,7 +131,7 @@ def get_instances_description_no_setup():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -144,7 +145,7 @@ def get_instances_description_no_setup():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -158,7 +159,7 @@ def get_instances_description_no_setup():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -171,8 +172,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "data_directory": f"{TEMP_DIR}/coordinator_1",
@@ -184,8 +185,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "data_directory": f"{TEMP_DIR}/coordinator_2",
@@ -197,8 +198,8 @@ def get_instances_description_no_setup():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "data_directory": f"{TEMP_DIR}/coordinator_3",
@@ -218,7 +219,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     safe_execute(shutil.rmtree, TEMP_DIR)
     inner_instances_description = get_instances_description_no_setup()
 
-    interactive_mg_runner.start_all(inner_instances_description)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
@@ -248,7 +249,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     leader_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
@@ -258,10 +259,10 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     follower_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -271,7 +272,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     leader_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
@@ -357,7 +358,7 @@ def test_distributed_automatic_failover():
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
@@ -443,7 +444,7 @@ def test_distributed_automatic_failover_with_leadership_change():
     leader_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
@@ -453,10 +454,10 @@ def test_distributed_automatic_failover_with_leadership_change():
     follower_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "main"),
         ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),  # TODO: (andi) Will become unknown.
+        ("instance_3", "", "", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -575,7 +576,7 @@ def test_old_main_comes_back_on_new_leader_as_main():
     leader_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
@@ -584,7 +585,7 @@ def test_old_main_comes_back_on_new_leader_as_main():
     follower_data = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("instance_1", "", "", "unknown", "replica"),
         ("instance_2", "", "", "unknown", "replica"),
         ("instance_3", "", "", "unknown", "main"),
@@ -640,7 +641,7 @@ def test_registering_4_coords():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -654,7 +655,7 @@ def test_registering_4_coords():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -668,7 +669,7 @@ def test_registering_4_coords():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -681,8 +682,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "setup_queries": [],
@@ -693,8 +694,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "setup_queries": [],
@@ -705,8 +706,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "setup_queries": [],
@@ -717,8 +718,8 @@ def test_registering_4_coords():
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
-                "--raft-server-id=4",
-                "--raft-server-port=10114",
+                "--coordinator-id=4",
+                "--coordinator-port=10114",
             ],
             "log_file": "coordinator4.log",
             "setup_queries": [
@@ -744,7 +745,7 @@ def test_registering_4_coords():
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("coordinator_4", "0.0.0.0:10114", "", "unknown", "coordinator"),
         ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
@@ -775,7 +776,7 @@ def test_registering_coord_log_store():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -789,7 +790,7 @@ def test_registering_coord_log_store():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -803,7 +804,7 @@ def test_registering_coord_log_store():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -816,8 +817,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator1.log",
             "setup_queries": [],
@@ -828,8 +829,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=2",
-                "--raft-server-port=10112",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator2.log",
             "setup_queries": [],
@@ -840,8 +841,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
-                "--raft-server-id=3",
-                "--raft-server-port=10113",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
             ],
             "log_file": "coordinator3.log",
             "setup_queries": [],
@@ -852,8 +853,8 @@ def test_registering_coord_log_store():
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
-                "--raft-server-id=4",
-                "--raft-server-port=10114",
+                "--coordinator-id=4",
+                "--coordinator-port=10114",
             ],
             "log_file": "coordinator4.log",
             "setup_queries": [
@@ -881,7 +882,7 @@ def test_registering_coord_log_store():
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "127.0.0.1:10114", "", "unknown", "coordinator"),
+        ("coordinator_4", "0.0.0.0:10114", "", "unknown", "coordinator"),
     ]
 
     basic_instances = [
@@ -911,7 +912,7 @@ def test_registering_coord_log_store():
 
         bolt_port = f"--bolt-port={bolt_port_id}"
 
-        manag_server_port = f"--coordinator-server-port={manag_port_id}"
+        manag_server_port = f"--management-port={manag_port_id}"
 
         args_desc.append(bolt_port)
         args_desc.append(manag_server_port)
@@ -989,28 +990,291 @@ def test_registering_coord_log_store():
     mg_sleep_and_assert(new_expected_data_on_coordinator, retrieve_data_show_repl_cluster)
 
 
-def test_multiple_failovers_in_row_no_leadership_change():
-    # Goal of this test is to assure multiple failovers in row work without leadership change
-    # 1. Start basic instances
-    # 2. Check all is there
-    # 3. Kill MAIN (instance_3)
-    # 4. Expect failover (instance_1)
-    # 5. Kill instance_1
-    # 6. Expect failover instance_2
-    # 7. Start instance_3
-    # 8. Expect instance_3 and instance_2 (MAIN) up
-    # 9. Kill instance_2
-    # 10. Expect instance_3 MAIN
-    # 11. Write some data on instance_3
-    # 12. Start instance_2 and instance_1
-    # 13. Expect instance_1 and instance2 to be up and cluster to have correct state
-    # 13. Expect data to be replicated
+# def test_multiple_failovers_in_row_no_leadership_change():
+#     # Goal of this test is to assure multiple failovers in row work without leadership change
+#     # 1. Start basic instances
+#     # 2. Check all is there
+#     # 3. Kill MAIN (instance_3)
+#     # 4. Expect failover (instance_1)
+#     # 5. Kill instance_1
+#     # 6. Expect failover instance_2
+#     # 7. Start instance_3
+#     # 8. Expect instance_3 and instance_2 (MAIN) up
+#     # 9. Kill instance_2
+#     # 10. Expect instance_3 MAIN
+#     # 11. Write some data on instance_3
+#     # 12. Start instance_2 and instance_1
+#     # 13. Expect instance_1 and instance2 to be up and cluster to have correct state
+#     # 13. Expect data to be replicated
+#
+#     # 1
+#     inner_memgraph_instances = get_instances_description_no_setup()
+#     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
+#
+#     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+#
+#     setup_queries = [
+#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+#         "SET INSTANCE instance_3 TO MAIN",
+#     ]
+#
+#     for query in setup_queries:
+#         execute_and_fetch_all(coord_cursor_3, query)
+#
+#     # 2
+#
+#     def get_func_show_instances(cursor):
+#         def show_instances_follower_coord():
+#             return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+#
+#         return show_instances_follower_coord
+#
+#     coordinator_data = [
+#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+#     ]
+#
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+#             ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+#             ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "replica"),
+#             ("instance_2", "", "", "unknown", "replica"),
+#             ("instance_3", "", "", "unknown", "main"),
+#         ]
+#     )
+#
+#     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+#     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 3
+#
+#     interactive_mg_runner.kill(inner_memgraph_instances, "instance_3")
+#
+#     # 4
+#
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+#             ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+#             ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "main"),
+#             ("instance_2", "", "", "unknown", "replica"),
+#             (
+#                 "instance_3",
+#                 "",
+#                 "",
+#                 "unknown",
+#                 "unknown",
+#             ),
+#         ]
+#     )
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 5
+#     interactive_mg_runner.kill(inner_memgraph_instances, "instance_1")
+#
+#     # 6
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+#             ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+#             ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "unknown"),
+#             ("instance_2", "", "", "unknown", "main"),
+#             ("instance_3", "", "", "unknown", "unknown"),
+#         ]
+#     )
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 7
+#
+#     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
+#
+#     # 8
+#
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+#             ("instance_2", "", "127.0.0.1:10012", "up", "main"),
+#             ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "unknown"),
+#             ("instance_2", "", "", "unknown", "main"),
+#             ("instance_3", "", "", "unknown", "replica"),
+#         ]
+#     )
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 9
+#     interactive_mg_runner.kill(inner_memgraph_instances, "instance_2")
+#
+#     # 10
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
+#             ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+#             ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "unknown"),
+#             ("instance_2", "", "", "unknown", "unknown"),
+#             ("instance_3", "", "", "unknown", "main"),
+#         ]
+#     )
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 11
+#
+#     instance_3_cursor = connect(port=7689, host="localhost").cursor()
+#
+#     with pytest.raises(Exception) as e:
+#         execute_and_fetch_all(instance_3_cursor, "CREATE ();")
+#     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+#
+#     # 12
+#     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
+#     interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
+#
+#     # 13
+#     leader_data = []
+#     leader_data.extend(coordinator_data)
+#     leader_data.extend(
+#         [
+#             ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+#             ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+#             ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+#         ]
+#     )
+#
+#     follower_data = []
+#     follower_data.extend(coordinator_data)
+#     follower_data.extend(
+#         [
+#             ("instance_1", "", "", "unknown", "replica"),
+#             ("instance_2", "", "", "unknown", "replica"),
+#             ("instance_3", "", "", "unknown", "main"),
+#         ]
+#     )
+#
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
+#     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
+#     mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+#
+#     # 14.
+#
+#     def show_replicas():
+#         return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+#
+#     replicas = [
+#         (
+#             "instance_1",
+#             "127.0.0.1:10001",
+#             "sync",
+#             {"ts": 0, "behind": None, "status": "ready"},
+#             {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+#         ),
+#         (
+#             "instance_2",
+#             "127.0.0.1:10002",
+#             "sync",
+#             {"ts": 0, "behind": None, "status": "ready"},
+#             {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+#         ),
+#     ]
+#     mg_sleep_and_assert_collection(replicas, show_replicas)
+#
+#     def get_vertex_count_func(cursor):
+#         def get_vertex_count():
+#             return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+#
+#         return get_vertex_count
+#
+#     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
+#
+#     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
+
+
+def test_multiple_old_mains_single_failover():
+    # Goal of this test is to check when leadership changes
+    # and we have old MAIN down, that we don't start failover
+    # 1. Start all instances.
+    # 2. Kill the main instance
+    # 3. Do failover
+    # 4. Kill other main
+    # 5. Kill leader
+    # 6. Leave first main down, and start second main
+    # 7. Second main should write data to new instance all the time
 
     # 1
-    inner_memgraph_instances = get_instances_description_no_setup()
-    interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
 
-    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    interactive_mg_runner.start_all(inner_instances_description)
 
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
@@ -1020,229 +1284,112 @@ def test_multiple_failovers_in_row_no_leadership_change():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
-
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
     for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
 
-    # 2
+    def retrieve_data_show_repl_cluster():
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
 
-    def get_func_show_instances(cursor):
-        def show_instances_follower_coord():
-            return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
-
-        return show_instances_follower_coord
-
-    coordinator_data = [
+    coordinators = [
         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
     ]
 
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "replica"),
-            ("instance_2", "", "", "unknown", "replica"),
-            ("instance_3", "", "", "unknown", "main"),
-        ]
-    )
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
 
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    # 2
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
 
     # 3
 
-    interactive_mg_runner.kill(inner_memgraph_instances, "instance_3")
+    basic_instances = [
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    expected_data_on_coord = []
+    expected_data_on_coord.extend(coordinators)
+    expected_data_on_coord.extend(basic_instances)
+
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
     # 4
 
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
-        ]
-    )
-
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "replica"),
-            (
-                "instance_3",
-                "",
-                "",
-                "unknown",
-                "main",
-            ),  # TODO(antoniofilipovic) change to unknown after PR with transitions
-        ]
-    )
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
 
     # 5
-    interactive_mg_runner.kill(inner_memgraph_instances, "instance_1")
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
 
     # 6
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "main"),
-            ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
-        ]
-    )
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "main"),
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_3", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-        ]
-    )
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
 
     # 7
 
-    interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
-    # 8
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
 
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "main"),
-            ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
-        ]
-    )
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_2", "", "", "unknown", "main"),
-            ("instance_3", "", "", "unknown", "replica"),
-        ]
-    )
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
 
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
 
-    # 9
-    interactive_mg_runner.kill(inner_memgraph_instances, "instance_2")
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "unknown"),
+    ]
+    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
 
-    # 10
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
-            ("instance_3", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
-
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_2", "", "", "unknown", "main"),  # TODO(antoniofilipovic) change to unknown
-            ("instance_3", "", "", "unknown", "main"),
-        ]
-    )
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
-
-    # 11
-
-    instance_3_cursor = connect(port=7689, host="localhost").cursor()
-
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_3_cursor, "CREATE ();")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
-
-    # 12
-    interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
-    interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
-
-    # 13
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-            ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
-
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "", "", "unknown", "replica"),
-            ("instance_2", "", "", "unknown", "replica"),
-            ("instance_3", "", "", "unknown", "main"),
-        ]
-    )
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
-
-    # 14.
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
 
     def show_replicas():
-        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
 
     replicas = [
-        (
-            "instance_1",
-            "127.0.0.1:10001",
-            "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
-        ),
         (
             "instance_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"behind": None, "status": "invalid", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "invalid", "ts": 0}},
         ),
     ]
     mg_sleep_and_assert_collection(replicas, show_replicas)
@@ -1253,9 +1400,734 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
         return get_vertex_count
 
-    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7687, host="localhost").cursor()))
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
 
-    mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    time_slept = 0
+    failover_time = 5
+    while time_slept < failover_time:
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        vertex_count += 1
+
+        assert vertex_count == execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        assert vertex_count == execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n);")[0][0]
+        time.sleep(0.1)
+        time_slept += 0.1
+
+
+def test_force_reset_works_after_failed_registration():
+    # Goal of this test is to check that force reset works after failed registration
+    # 1. Start all instances.
+    # 2. Check everything works correctly
+    # 3. Try register instance which doesn't exist
+    # 4. Enter force reset
+    # 5. Check that everything works correctly
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2
+
+    def show_instances_coord3():
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor_3,
+            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+        )
+
+    # This will trigger force reset and choosing of new instance as MAIN
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "replica"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    vertex_count = 10
+    for i in range(vertex_count):
+        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+
+    interactive_mg_runner.stop_all(inner_instances_description)
+    safe_execute(shutil.rmtree, TEMP_DIR)
+
+
+def test_force_reset_works_after_failed_registration_and_main_down():
+    # Goal of this test is to check when action fails, that force reset happens
+    # and everything works correctly when MAIN is down (needs to be demoted)
+    # 1. Start all instances.
+    # 2. Check everything works correctly
+    # 3. Kill main
+    # 4. Try to register instance which doesn't exist
+    # 4. Enter force reset
+    # 5. Check that everything works correctly with two instances
+    # 6. Start main instance
+    # 7. Check that main is correctly demoted to replica
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2
+
+    def show_instances_coord3():
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor_3,
+            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+        )
+
+    # This will trigger force reset and choosing of new instance as MAIN
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "replica"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    vertex_count = 10
+    for i in range(vertex_count):
+        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+
+    interactive_mg_runner.stop_all(inner_instances_description)
+    safe_execute(shutil.rmtree, TEMP_DIR)
+
+
+def test_force_reset_works_after_failed_registration_and_replica_down():
+    # Goal of this test is to check when action fails, that force reset happens
+    # and everything works correctly when REPLICA is down (can be demoted but doesn't have to - we demote it)
+    # 1. Start all instances.
+    # 2. Check everything works correctly
+    # 3. Kill replica
+    # 4. Try to register instance which doesn't exist
+    # 4. Enter force reset
+    # 5. Check that everything works correctly with two instances
+    # 6. Start replica instance
+    # 7. Check that replica is correctly demoted to replica
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2
+
+    def show_instances_coord3():
+        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    instance_3_cursor = connect(host="localhost", port=7689).cursor()
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    vertex_count = 0
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+
+    # 3
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+
+    # 4
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(
+            coord_cursor_3,
+            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+        )
+
+    # 5
+    # This will trigger force reset and choosing of new instance as MAIN
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),  # TODO(antoniofilipovic) What is logic behind unknown state
+        ("instance_3", "", "", "unknown", "replica"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    # 6
+
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+
+    # 7
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "replica"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+        (
+            "instance_3",
+            "127.0.0.1:10003",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+
+    # 8
+
+    vertex_count = 10
+    for i in range(vertex_count):
+        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+
+    def get_vertex_count_func(cursor):
+        def get_vertex_count():
+            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+        return get_vertex_count
+
+    instance_1_cursor = connect(port=7687, host="localhost").cursor()
+    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+
+
+# def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
+#     # Goal of this test is to check when action fails, that force reset happens
+#     # and everything works correctly after majority of coordinators is back up
+#     # 1. Start all instances.
+#     # 2. Check everything works correctly
+#     # 3. Try to register instance which doesn't exist -> Enter force reset
+#     # 4. Kill 2 coordinators
+#     # 5. New action shouldn't succeed because of opened lock
+#     # 6. Start one coordinator
+#     # 7. Check that replica failover happens in force reset
+#     # 8. Check that everything works correctly
+#
+#     # 1
+#     safe_execute(shutil.rmtree, TEMP_DIR)
+#     inner_instances_description = get_instances_description_no_setup()
+#
+#     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+#
+#     setup_queries = [
+#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+#         "SET INSTANCE instance_3 TO MAIN",
+#     ]
+#     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+#     for query in setup_queries:
+#         execute_and_fetch_all(coord_cursor_3, query)
+#
+#     # 2
+#
+#     def show_instances_coord3():
+#         return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+#
+#     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+#
+#     def show_instances_coord1():
+#         return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+#
+#     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+#
+#     def show_instances_coord2():
+#         return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+#
+#     leader_data = [
+#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+#         ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+#         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+#         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+#     ]
+#
+#     follower_data = [
+#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+#         ("instance_1", "", "", "unknown", "replica"),
+#         ("instance_2", "", "", "unknown", "replica"),
+#         ("instance_3", "", "", "unknown", "main"),
+#     ]
+#     mg_sleep_and_assert(leader_data, show_instances_coord3)
+#     mg_sleep_and_assert(follower_data, show_instances_coord1)
+#     mg_sleep_and_assert(follower_data, show_instances_coord2)
+#
+#     instance_3_cursor = connect(host="localhost", port=7689).cursor()
+#
+#     def show_replicas():
+#         return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
+#
+#     replicas = [
+#         (
+#             "instance_1",
+#             "127.0.0.1:10001",
+#             "sync",
+#             {"behind": None, "status": "ready", "ts": 0},
+#             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+#         ),
+#         (
+#             "instance_2",
+#             "127.0.0.1:10002",
+#             "sync",
+#             {"behind": None, "status": "ready", "ts": 0},
+#             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+#         ),
+#     ]
+#     mg_sleep_and_assert_collection(replicas, show_replicas)
+#
+#     def get_vertex_count_func(cursor):
+#         def get_vertex_count():
+#             return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+#
+#         return get_vertex_count
+#
+#     vertex_count = 0
+#     instance_1_cursor = connect(port=7687, host="localhost").cursor()
+#     instance_2_cursor = connect(port=7688, host="localhost").cursor()
+#
+#     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+#     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+#
+#     # 3
+#
+#     with pytest.raises(Exception) as e:
+#         execute_and_fetch_all(
+#             coord_cursor_3,
+#             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+#         )
+#
+#     # 4
+#     interactive_mg_runner.kill(inner_instances_description, "coordinator_2")
+#     interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
+#
+#     # 5
+#     with pytest.raises(Exception) as e:
+#         execute_and_fetch_all(
+#             coord_cursor_1,
+#             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+#         )
+#
+#     assert "Couldn't register replica instance because because the last action didn't finish successfully!" == str(
+#         e.value
+#     )
+#
+#     # 6
+#
+#     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
+#
+#     # 7
+#
+#     leader_data = [
+#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+#         ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+#         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+#         ("instance_3", "", "127.0.0.1:10013", "up", "replica"),
+#     ]
+#
+#     follower_data = [
+#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+#         ("instance_1", "", "", "unknown", "main"),
+#         ("instance_2", "", "", "unknown", "replica"),
+#         ("instance_3", "", "", "unknown", "replica"),
+#     ]
+#
+#     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+#
+#     def show_instances_coord1():
+#         return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+#
+#     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+#
+#     def show_instances_coord2():
+#         return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+#
+#     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+#     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+#
+#     def show_replicas():
+#         return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+#
+#     replicas = [
+#         (
+#             "instance_2",
+#             "127.0.0.1:10002",
+#             "sync",
+#             {"behind": None, "status": "ready", "ts": 0},
+#             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+#         ),
+#         (
+#             "instance_3",
+#             "127.0.0.1:10003",
+#             "sync",
+#             {"behind": None, "status": "ready", "ts": 0},
+#             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+#         ),
+#     ]
+#     mg_sleep_and_assert_collection(replicas, show_replicas)
+#
+#     # 8
+#
+#     vertex_count = 10
+#     for _ in range(vertex_count):
+#         execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+#
+#     def get_vertex_count_func(cursor):
+#         def get_vertex_count():
+#             return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+#
+#         return get_vertex_count
+#
+#     instance_1_cursor = connect(port=7687, host="localhost").cursor()
+#     instance_2_cursor = connect(port=7688, host="localhost").cursor()
+#
+#     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
+#     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
+#     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
 
 
 if __name__ == "__main__":

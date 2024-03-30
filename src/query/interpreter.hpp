@@ -65,6 +65,54 @@ extern const Event SuccessfulQuery;
 
 namespace memgraph::query {
 
+struct QueryAllocator {
+  QueryAllocator() = default;
+  QueryAllocator(QueryAllocator const &) = delete;
+  QueryAllocator &operator=(QueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  QueryAllocator(QueryAllocator &&) = delete;
+  QueryAllocator &operator=(QueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * {
+#ifndef MG_MEMORY_PROFILE
+    return &pool;
+#else
+    return upstream_resource();
+#endif
+  }
+  auto resource_without_pool() -> utils::MemoryResource * {
+#ifndef MG_MEMORY_PROFILE
+    return &monotonic;
+#else
+    return upstream_resource();
+#endif
+  }
+  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
+
+ private:
+  // At least one page to ensure not sharing page with other subsystems
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  // TODO: need to profile to check for good defaults, also maybe PoolResource
+  //  needs to be smarter. We expect more reuse of smaller objects than larger
+  //  objects. 64*1024B is maybe wasteful, whereas 256*32B maybe sensible.
+  //  Depends on number of small objects expected.
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  static auto upstream_resource() -> utils::MemoryResource * {
+    // singleton ResourceWithOutOfMemoryException
+    // explicitly backed by NewDeleteResource
+    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
+    return &upstream;
+  }
+
+#ifndef MG_MEMORY_PROFILE
+  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
+  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+#endif
+};
+
 struct InterpreterContext;
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
@@ -95,8 +143,8 @@ class CoordinatorQueryHandler {
   };
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicationInstance(std::string_view coordinator_socket_address,
-                                           std::string_view replication_socket_address,
+  virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                           std::string_view replication_server,
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
@@ -112,7 +160,8 @@ class CoordinatorQueryHandler {
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual auto AddCoordinatorInstance(uint32_t raft_server_id, std::string_view coordinator_socket_address) -> void = 0;
+  virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server) -> void = 0;
 };
 #endif
 
@@ -199,6 +248,14 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
+#ifdef MG_ENTERPRISE
+  struct RouteResult {
+    int ttl{300};
+    std::string db{};  // Currently not used since we don't have any specific replication groups etc.
+    coordination::RoutingTable servers{};
+  };
+#endif
+
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -223,6 +280,10 @@ class Interpreter final {
   Interpreter::PrepareResult Prepare(const std::string &query,
                                      const std::map<std::string, storage::PropertyValue> &params,
                                      QueryExtras const &extras);
+
+#ifdef MG_ENTERPRISE
+  auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
+#endif
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -304,45 +365,25 @@ class Interpreter final {
   }
 
   struct QueryExecution {
-    std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
-    utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
-    std::optional<PreparedQuery> prepared_query;
+    QueryAllocator execution_memory;  // NOTE: before all other fields which uses this memory
 
+    std::optional<PreparedQuery> prepared_query;
     std::map<std::string, TypedValue> summary;
     std::vector<Notification> notifications;
 
-    static auto Create(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
-                       std::optional<PreparedQuery> prepared_query = std::nullopt) -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(std::move(memory_resource), std::move(prepared_query));
-    }
+    static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
 
-    explicit QueryExecution(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
-                            std::optional<PreparedQuery> prepared_query)
-        : execution_memory(std::move(memory_resource)), prepared_query{std::move(prepared_query)} {
-      std::visit(
-          [&](auto &memory_resource) {
-            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
-          },
-          execution_memory);
-    };
+    explicit QueryExecution() = default;
 
     QueryExecution(const QueryExecution &) = delete;
-    QueryExecution(QueryExecution &&) = default;
+    QueryExecution(QueryExecution &&) = delete;
     QueryExecution &operator=(const QueryExecution &) = delete;
-    QueryExecution &operator=(QueryExecution &&) = default;
+    QueryExecution &operator=(QueryExecution &&) = delete;
 
-    ~QueryExecution() {
-      // We should always release the execution memory AFTER we
-      // destroy the prepared query which is using that instance
-      // of execution memory.
-      prepared_query.reset();
-      std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
-    }
+    ~QueryExecution() = default;
 
     void CleanRuntimeData() {
-      if (prepared_query.has_value()) {
-        prepared_query.reset();
-      }
+      prepared_query.reset();
       notifications.clear();
     }
   };
@@ -413,9 +454,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream,
-                     std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
-                                query_execution->execution_memory)};
+    AnyStream stream{result_stream, query_execution->execution_memory.resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared

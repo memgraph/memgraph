@@ -72,6 +72,8 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     uint64_t ApproximateVertexCount() const override;
@@ -302,6 +304,8 @@ class DiskStorage final : public Storage {
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
   EdgeImportMode GetEdgeImportMode() const;
+
+  DurableMetadata *GetDurableMetadata() { return &durable_metadata_; }
 
  private:
   void LoadPersistingMetadataInfo();

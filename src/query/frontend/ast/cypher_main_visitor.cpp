@@ -243,6 +243,13 @@ antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryConte
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "TextIndexQuery should have exactly one child!");
+  auto *text_index_query = std::any_cast<TextIndexQuery *>(ctx->children[0]->accept(this));
+  query_ = text_index_query;
+  return text_index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
@@ -283,6 +290,21 @@ antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeInde
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::DROP;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) {
+  auto *index_query = storage_->Create<TextIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->action_ = TextIndexQuery::Action::CREATE;
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) {
+  auto *index_query = storage_->Create<TextIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->action_ = TextIndexQuery::Action::DROP;
   return index_query;
 }
 
@@ -431,7 +453,7 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
-  coordinator_query->coordinator_server_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
   coordinator_query->configs_ =
       std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 

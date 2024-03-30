@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian:11
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME

@@ -15,4 +15,3 @@ fi
 
 node docs_how_to_query.js
 node max_query_length.js
-# node parallel_edge_import.js

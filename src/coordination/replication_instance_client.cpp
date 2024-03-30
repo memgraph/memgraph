@@ -9,51 +9,56 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
+#include "coordination/replication_instance_client.hpp"
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "utils/result.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(memgraph::coordination::CoordinatorClientConfig const &config)
+auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig const &config)
     -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 }  // namespace
 
-CoordinatorClient::CoordinatorClient(CoordinatorInstance *coord_instance, CoordinatorClientConfig config,
-                                     HealthCheckClientCallback succ_cb, HealthCheckClientCallback fail_cb)
+ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorInstance *coord_instance,
+                                                     CoordinatorToReplicaConfig config,
+                                                     HealthCheckClientCallback succ_cb,
+                                                     HealthCheckClientCallback fail_cb)
     : rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
-                  &rpc_context_},
+      rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
       coord_instance_{coord_instance},
       succ_cb_{std::move(succ_cb)},
       fail_cb_{std::move(fail_cb)} {}
 
-auto CoordinatorClient::InstanceName() const -> std::string { return config_.instance_name; }
+auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
 
-auto CoordinatorClient::CoordinatorSocketAddress() const -> std::string { return config_.CoordinatorSocketAddress(); }
-auto CoordinatorClient::ReplicationSocketAddress() const -> std::string { return config_.ReplicationSocketAddress(); }
+auto ReplicationInstanceClient::CoordinatorSocketAddress() const -> std::string {
+  return config_.CoordinatorSocketAddress();
+}
+auto ReplicationInstanceClient::ReplicationSocketAddress() const -> std::string {
+  return config_.ReplicationSocketAddress();
+}
 
-auto CoordinatorClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
+auto ReplicationInstanceClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
   return config_.instance_down_timeout_sec;
 }
 
-auto CoordinatorClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
+auto ReplicationInstanceClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
   return config_.instance_get_uuid_frequency_sec;
 }
 
-void CoordinatorClient::StartFrequentCheck() {
+void ReplicationInstanceClient::StartFrequentCheck() {
   if (instance_checker_.IsRunning()) {
     return;
   }
@@ -61,35 +66,28 @@ void CoordinatorClient::StartFrequentCheck() {
   MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.Run(
-      config_.instance_name, config_.instance_health_check_frequency_sec,
-      [this, instance_name = config_.instance_name] {
-        try {
-          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
-                        config_.CoordinatorSocketAddress());
-          {  // NOTE: This is intentionally scoped so that stream lock could get released.
-            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-            stream.AwaitResponse();
-          }
-          // Subtle race condition:
-          // acquiring of lock needs to happen before function call, as function callback can be changed
-          // for instance after lock is already acquired
-          // (failover case when instance is promoted to MAIN)
-          succ_cb_(coord_instance_, instance_name);
-        } catch (rpc::RpcFailedException const &) {
-          fail_cb_(coord_instance_, instance_name);
-        }
-      });
+  instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
+                        [this, instance_name = config_.instance_name] {
+                          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
+                                        config_.CoordinatorSocketAddress());
+                          if (SendFrequentHeartbeat()) {
+                            succ_cb_(coord_instance_, instance_name);
+                            return;
+                          }
+                          fail_cb_(coord_instance_, instance_name);
+                        });
 }
 
-void CoordinatorClient::StopFrequentCheck() { instance_checker_.Stop(); }
-void CoordinatorClient::PauseFrequentCheck() { instance_checker_.Pause(); }
-void CoordinatorClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
+void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
+void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
+void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
+auto ReplicationInstanceClient::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+  return config_.replication_client_info;
+}
 
-auto CoordinatorClient::ReplicationClientInfo() const -> ReplClientInfo { return config_.replication_client_info; }
-
-auto CoordinatorClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
-                                                    ReplicationClientsInfo replication_clients_info) const -> bool {
+auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
+                                                            ReplicationClientsInfo replication_clients_info) const
+    -> bool {
   try {
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
     if (!stream.AwaitResponse().success) {
@@ -103,7 +101,7 @@ auto CoordinatorClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
   return false;
 }
 
-auto CoordinatorClient::DemoteToReplica() const -> bool {
+auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
   auto const &instance_name = config_.instance_name;
   try {
     auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
@@ -119,21 +117,17 @@ auto CoordinatorClient::DemoteToReplica() const -> bool {
   return false;
 }
 
-auto CoordinatorClient::SendSwapMainUUIDRpc(utils::UUID const &uuid) const -> bool {
+auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
   try {
-    auto stream{rpc_client_.Stream<replication_coordination_glue::SwapMainUUIDRpc>(uuid)};
-    if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC swapping of uuid response!");
-      return false;
-    }
+    auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+    stream.AwaitResponse();
     return true;
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("RPC error occurred while sending swapping uuid RPC!");
+  } catch (rpc::RpcFailedException const &) {
+    return false;
   }
-  return false;
 }
 
-auto CoordinatorClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
+auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   try {
     auto stream{rpc_client_.Stream<UnregisterReplicaRpc>(instance_name)};
     if (!stream.AwaitResponse().success) {
@@ -147,7 +141,7 @@ auto CoordinatorClient::SendUnregisterReplicaRpc(std::string_view instance_name)
   return false;
 }
 
-auto CoordinatorClient::SendGetInstanceUUIDRpc() const
+auto ReplicationInstanceClient::SendGetInstanceUUIDRpc() const
     -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
   try {
     auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
@@ -159,7 +153,7 @@ auto CoordinatorClient::SendGetInstanceUUIDRpc() const
   }
 }
 
-auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
+auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
   try {
     auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
     if (!stream.AwaitResponse().success) {
@@ -173,7 +167,7 @@ auto CoordinatorClient::SendEnableWritingOnMainRpc() const -> bool {
   return false;
 }
 
-auto CoordinatorClient::SendGetInstanceTimestampsRpc() const
+auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
     -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories> {
   try {
     auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};

@@ -109,6 +109,8 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     /// Return approximate number of all vertices in the database.
@@ -401,7 +403,7 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  /// Return true in all cases excepted if any sync replicas have not sent confirmation.
+  /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -415,17 +417,24 @@ class InMemoryStorage final : public Storage {
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
                                  uint64_t final_commit_timestamp);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
                                  const std::set<PropertyId> &properties, LabelIndexStats stats,
                                  LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 uint64_t final_commit_timestamp);
 
   uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
 
   void PrepareForNewEpoch() override;
 
+  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
+  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

@@ -20,6 +20,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_server.hpp"
@@ -53,6 +54,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveTextIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -63,6 +65,7 @@ struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
   std::vector<EdgeTypeId> edge_type;
+  std::vector<std::pair<std::string, LabelId>> text_indices;
 };
 
 struct ConstraintsInfo {
@@ -78,6 +81,7 @@ struct StorageInfo {
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
+  uint64_t text_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -95,6 +99,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
+  res["text_indices"] = info.text_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -174,6 +179,8 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
+
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
@@ -232,6 +239,28 @@ class Storage {
 
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
+    bool TextIndexExists(const std::string &index_name) const {
+      return storage_->indices_.text_index_.IndexExists(index_name);
+    }
+
+    void TextIndexAddVertex(const VertexAccessor &vertex) {
+      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
+    }
+
+    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
+      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
+    }
+
+    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                     text_search_mode search_mode) const {
+      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
+    }
+
+    std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                   const std::string &aggregation_query) const {
+      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -283,6 +312,10 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
+
+    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db);
+
+    void DropTextIndex(const std::string &index_name);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

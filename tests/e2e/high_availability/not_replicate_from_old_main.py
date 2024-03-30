@@ -153,7 +153,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7688",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10011",
             ],
             "log_file": "instance_1.log",
@@ -167,7 +167,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7689",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10012",
             ],
             "log_file": "instance_2.log",
@@ -180,8 +180,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10111",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
@@ -203,7 +203,7 @@ def test_not_replicate_old_main_register_new_cluster():
         return sorted(list(execute_and_fetch_all(first_cluster_coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_up_first_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("instance_2", "", "127.0.0.1:10012", "up", "main"),
         ("shared_instance", "", "127.0.0.1:10011", "up", "replica"),
     ]
@@ -220,7 +220,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "7687",
                 "--log-level",
                 "TRACE",
-                "--coordinator-server-port",
+                "--management-port",
                 "10013",
             ],
             "log_file": "instance_3.log",
@@ -233,8 +233,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
-                "--raft-server-id=1",
-                "--raft-server-port=10112",
+                "--coordinator-id=1",
+                "--coordinator-port=10112",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [],
@@ -259,7 +259,7 @@ def test_not_replicate_old_main_register_new_cluster():
         return sorted(list(execute_and_fetch_all(second_cluster_coord_cursor, "SHOW INSTANCES;")))
 
     expected_data_up_second_cluster = [
-        ("coordinator_1", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
         ("shared_instance", "", "127.0.0.1:10011", "up", "replica"),
     ]

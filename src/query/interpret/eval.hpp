@@ -1105,8 +1105,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
-  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
-    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
+  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+    const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    if (!frame_pattern_comprehension_value.IsList()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Pattern Comprehension expected a list, got {}. Please report the problem on GitHub "
+          "issues",
+          frame_pattern_comprehension_value.type());
+    }
+    return frame_pattern_comprehension_value;
   }
 
  private:
@@ -1209,7 +1216,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
+int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
