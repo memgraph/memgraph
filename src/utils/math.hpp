@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,7 +72,7 @@ template <typename T>
 concept FloatingPoint = std::is_floating_point_v<T>;
 
 template <FloatingPoint T>
-bool ApproxEqualDecimal(T a, T b) {
+constexpr bool ApproxEqualDecimal(T a, T b) {
   return boost::math::relative_difference(a, b) < std::numeric_limits<T>::epsilon();
 }
 

@@ -206,25 +206,25 @@ struct Delta {
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, .vertex = vertex, .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, .vertex = vertex, .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, .vertex = vertex, .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, .vertex = vertex, .edge = edge} {}
 
   Delta(const Delta &) = delete;
   Delta(Delta &&) = delete;

@@ -7,7 +7,8 @@ on:
   push:
     branches:
       - master
-  workflow_dispatch:
+  # TODO(gitbuda): Put back the workflow dispatch.
+  # workflow_dispatch:
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -52,7 +53,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build community binary 
+      - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
