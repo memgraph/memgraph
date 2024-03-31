@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -299,6 +299,11 @@ class VaryQueryPartMatching {
 
 }  // namespace impl
 
+// TODO(gitbuda): This is moved here because of a GCC error -> VariableStartPlanner<...> is not define -> this function
+// is plain but it's called from a lambda inside the VariableStartPlanner
+QueryParts ReconstructQueryParts(const QueryParts &old_query_parts,
+                                 const std::vector<SingleQueryPart> &single_query_parts_variation, uint64_t &index);
+
 /// @brief Planner which generates multiple plans by changing the order of graph
 /// traversal.
 ///
@@ -343,27 +348,6 @@ class VariableStartPlanner {
     return results;
   }
 
-  QueryParts ReconstructQueryParts(const QueryParts &old_query_parts,
-                                   const std::vector<SingleQueryPart> &single_query_parts_variation, uint64_t &index) {
-    auto reconstructed_query_parts = old_query_parts;
-
-    for (auto i = 0; i < old_query_parts.query_parts.size(); i++) {
-      const auto &old_query_part = old_query_parts.query_parts[i];
-      for (auto j = 0; j < old_query_part.single_query_parts.size(); j++) {
-        const auto &old_single_query_part = old_query_part.single_query_parts[j];
-        reconstructed_query_parts.query_parts[i].single_query_parts[j] = single_query_parts_variation[index++];
-
-        for (auto k = 0; k < old_single_query_part.subqueries.size(); k++) {
-          const auto &subquery = old_single_query_part.subqueries[k];
-          reconstructed_query_parts.query_parts[i].single_query_parts[j].subqueries[k] =
-              std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
-        }
-      }
-    }
-
-    return reconstructed_query_parts;
-  }
-
  public:
   explicit VariableStartPlanner(TPlanningContext *context) : context_(context) {}
 
@@ -373,7 +357,6 @@ class VariableStartPlanner {
         [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
           uint64_t index = 0;
           auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
-
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
           return rule_planner.Plan(reconstructed_query_parts);
