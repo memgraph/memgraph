@@ -42,6 +42,7 @@ std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
     case ERROR_ACCEPTING_MAIN:
       return "ERROR_ACCEPTING_MAIN";
   }
+  LOG_FATAL("Invalid implementation of the RegisterReplicaErrorToString");
 }
 
 // Per storage
