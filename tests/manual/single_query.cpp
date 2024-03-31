@@ -30,8 +30,8 @@ int main(int argc, char *argv[]) {
 
   auto data_directory = std::filesystem::temp_directory_path() / "single_query_test";
   memgraph::utils::OnScopeExit([&data_directory] { std::filesystem::remove_all(data_directory); });
-  memgraph::storage::Config db_config{.durability.storage_directory = data_directory,
-                                      .disk.main_storage_directory = data_directory / "disk"};
+  memgraph::storage::Config db_config{.durability = {.storage_directory = data_directory},
+                                      .disk = {.main_storage_directory = data_directory / "disk"}};
 
   memgraph::license::global_license_checker.EnableTesting();
   memgraph::replication::ReplicationState repl_state(memgraph::storage::ReplicationStateRootPath(db_config));

@@ -222,7 +222,7 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   CheckOutput(output, vertexedge_encoded + 6, 34, false);
   CheckInt(output, va2.Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 41, 4, false);
-  CheckInt(output, ea.Gid().AsInt());
+  CheckInt(output, ea.GidInAllCases().AsInt());
   CheckInt(output, va1.Gid().AsInt());
   CheckInt(output, va2.Gid().AsInt());
   CheckOutput(output, vertexedge_encoded + 48, 26);
