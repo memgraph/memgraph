@@ -87,7 +87,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   }
 
   void DoAccept() {
-    acceptor_.async_accept(ioc_, [shared_this = shared_from_this()](auto ec, auto socket) {
+    acceptor_.async_accept(ioc_, [shared_this = shared_from_this()](boost::beast::error_code ec, tcp::socket socket) {
       shared_this->OnAccept(ec, std::move(socket));
     });
   }
