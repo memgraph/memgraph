@@ -787,12 +787,17 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
     throw utils::NotYetImplemented("IF operator cannot be used with Pattern Comprehension!");
   }
 
+  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
+
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
   return true;
 }
 
-bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) { return true; }
+bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+  scopes_.pop_back();
+  return true;
+}
 
 void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {
   auto &scope = scopes_.back();
