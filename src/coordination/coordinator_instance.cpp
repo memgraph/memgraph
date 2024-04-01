@@ -26,11 +26,11 @@
 namespace memgraph::coordination {
 
 using nuraft::ptr;
-using nuraft::srv_config;
 
-CoordinatorInstance::CoordinatorInstance()
+CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : thread_pool_{1},
       raft_state_(RaftState::MakeRaftState(
+          config,
           [this]() {
             if (raft_state_.IsLockOpened()) {
               spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
@@ -45,8 +45,9 @@ CoordinatorInstance::CoordinatorInstance()
 
             std::ranges::for_each(replicas, [this](auto &replica) {
               spdlog::info("Started pinging replication instance {}", replica.config.instance_name);
-              repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
-                                           &CoordinatorInstance::ReplicaSuccessCallback,
+              auto client =
+                  std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+              repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                            &CoordinatorInstance::ReplicaFailCallback);
             });
 
@@ -56,8 +57,9 @@ CoordinatorInstance::CoordinatorInstance()
 
             std::ranges::for_each(main_instances, [this](auto &main_instance) {
               spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
-              repl_instances_.emplace_back(this, main_instance.config, client_succ_cb_, client_fail_cb_,
-                                           &CoordinatorInstance::MainSuccessCallback,
+              auto client = std::make_unique<ReplicationInstanceClient>(this, main_instance.config, client_succ_cb_,
+                                                                        client_fail_cb_);
+              repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::MainSuccessCallback,
                                            &CoordinatorInstance::MainFailCallback);
             });
 
@@ -93,7 +95,8 @@ CoordinatorInstance::CoordinatorInstance()
               repl_instances_.clear();
               spdlog::info("Stopped all replication instance frequent checks.");
             });
-          })) {
+          })),
+      config_{config} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
 
@@ -109,9 +112,10 @@ CoordinatorInstance::CoordinatorInstance()
   };
 }
 
-auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstance & {
+auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
+    -> ReplicationInstanceConnector & {
   auto repl_instance =
-      std::ranges::find_if(repl_instances_, [replication_instance_name](ReplicationInstance const &instance) {
+      std::ranges::find_if(repl_instances_, [replication_instance_name](ReplicationInstanceConnector const &instance) {
         return instance.InstanceName() == replication_instance_name;
       });
 
@@ -121,27 +125,28 @@ auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_i
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  auto const coord_instance_to_status = [](ptr<srv_config> const &instance) -> InstanceStatus {
-    return {.instance_name = "coordinator_" + std::to_string(instance->get_id()),
-            .raft_socket_address = instance->get_endpoint(),
+  auto const coord_instance_to_status = [](CoordinatorInstanceState const &instance) -> InstanceStatus {
+    spdlog::trace("Instance {} is coordinator", instance.config.coordinator_id);
+    return {.instance_name = fmt::format("coordinator_{}", instance.config.coordinator_id),
+            .raft_socket_address = instance.config.coordinator_server.SocketAddress(),
             .cluster_role = "coordinator",
-            .health = "unknown"};  // TODO: (andi) Get this info from RAFT and test it or when we will move
+            .health = "unknown"};
   };
-  auto instances_status = utils::fmap(raft_state_.GetAllCoordinators(), coord_instance_to_status);
+  auto instances_status = utils::fmap(raft_state_.GetCoordinatorInstances(), coord_instance_to_status);
 
   if (raft_state_.IsLeader()) {
-    auto const stringify_repl_role = [this](ReplicationInstance const &instance) -> std::string {
+    auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
       if (!instance.IsAlive()) return "unknown";
       if (raft_state_.IsCurrentMain(instance.InstanceName())) return "main";
       return "replica";
     };
 
-    auto const stringify_repl_health = [](ReplicationInstance const &instance) -> std::string {
+    auto const stringify_repl_health = [](ReplicationInstanceConnector const &instance) -> std::string {
       return instance.IsAlive() ? "up" : "down";
     };
 
     auto process_repl_instance_as_leader =
-        [&stringify_repl_role, &stringify_repl_health](ReplicationInstance const &instance) -> InstanceStatus {
+        [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
               .coord_socket_address = instance.CoordinatorSocketAddress(),
               .cluster_role = stringify_repl_role(instance),
@@ -235,8 +240,9 @@ void CoordinatorInstance::ForceResetCluster() {
   // If at any point later RPC fails for alive instance, we consider this failure
 
   std::ranges::for_each(instances, [this](auto &replica) {
-    repl_instances_.emplace_back(this, replica.config, client_succ_cb_, client_fail_cb_,
-                                 &CoordinatorInstance::ReplicaSuccessCallback,
+    auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+
+    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                  &CoordinatorInstance::ReplicaFailCallback);
   });
 
@@ -288,11 +294,11 @@ void CoordinatorInstance::ForceResetCluster() {
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
 
-  auto const is_not_new_main = [&new_main](ReplicationInstance const &repl_instance) {
+  auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
     return repl_instance.InstanceName() != new_main.InstanceName();
   };
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -314,7 +320,7 @@ void CoordinatorInstance::ForceResetCluster() {
   // CRUX of problem: We need demote callbacks which will demote instance to replica and only then change to
   // REPLICA callbacks
 
-  auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstance &repl_instance) {
+  auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstanceConnector &repl_instance) {
     if (instances_mapped_to_resp[repl_instance.InstanceName()]) {
       return false;
     }
@@ -353,12 +359,12 @@ void CoordinatorInstance::ForceResetCluster() {
 }
 
 auto CoordinatorInstance::TryFailover() -> void {
-  auto const is_replica = [this](ReplicationInstance const &instance) {
+  auto const is_replica = [this](ReplicationInstanceConnector const &instance) {
     return HasReplicaState(instance.InstanceName());
   };
 
-  auto alive_replicas =
-      repl_instances_ | ranges::views::filter(is_replica) | ranges::views::filter(&ReplicationInstance::IsAlive);
+  auto alive_replicas = repl_instances_ | ranges::views::filter(is_replica) |
+                        ranges::views::filter(&ReplicationInstanceConnector::IsAlive);
 
   if (ranges::empty(alive_replicas)) {
     spdlog::warn("Failover failed since all replicas are down!");
@@ -391,13 +397,13 @@ auto CoordinatorInstance::TryFailover() -> void {
   // In frequent check only when we take lock we then check which function (MAIN/REPLICA) success or fail callback
   // we need to call
 
-  auto const is_not_new_main = [&new_main](ReplicationInstance &instance) {
+  auto const is_not_new_main = [&new_main](ReplicationInstanceConnector &instance) {
     return instance.InstanceName() != new_main.InstanceName();
   };
 
   auto const new_main_uuid = utils::UUID{};
 
-  auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstance &instance) {
+  auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstanceConnector &instance) {
     return !instance.SendSwapAndUpdateUUID(new_main_uuid) ||
            !raft_state_.AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
   };
@@ -410,7 +416,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main.PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -460,7 +466,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
-  auto const is_new_main = [&instance_name](ReplicationInstance const &instance) {
+  auto const is_new_main = [&instance_name](ReplicationInstanceConnector const &instance) {
     return instance.InstanceName() == instance_name;
   };
 
@@ -488,13 +494,13 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   new_main->PauseFrequentCheck();
   utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeFrequentCheck(); }};
 
-  auto const is_not_new_main = [&instance_name](ReplicationInstance const &instance) {
+  auto const is_not_new_main = [&instance_name](ReplicationInstanceConnector const &instance) {
     return instance.InstanceName() != instance_name;
   };
 
   auto const new_main_uuid = utils::UUID{};
 
-  auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstance &instance) {
+  auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstanceConnector &instance) {
     return !instance.SendSwapAndUpdateUUID(new_main_uuid) ||
            !raft_state_.AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
   };
@@ -505,7 +511,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstance::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -540,19 +546,21 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
-  if (std::ranges::any_of(repl_instances_, [instance_name = config.instance_name](ReplicationInstance const &instance) {
-        return instance.InstanceName() == instance_name;
-      })) {
+  // TODO: (andi) Change that this is being asked from raft state
+  if (std::ranges::any_of(repl_instances_,
+                          [instance_name = config.instance_name](ReplicationInstanceConnector const &instance) {
+                            return instance.InstanceName() == instance_name;
+                          })) {
     return RegisterInstanceCoordinatorStatus::NAME_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstance const &instance) {
+  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {
         return instance.CoordinatorSocketAddress() == config.CoordinatorSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::COORD_ENDPOINT_EXISTS;
   }
 
-  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstance const &instance) {
+  if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {
         return instance.ReplicationSocketAddress() == config.ReplicationSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
@@ -567,6 +575,16 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
+  if (!raft_state_.CoordinatorExists(config_.coordinator_id)) {
+    auto const self_c2c_config = CoordinatorToCoordinatorConfig{
+        .coordinator_id = config_.coordinator_id,
+        .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.bolt_port)},
+        .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.coordinator_port)}};
+    if (!raft_state_.AppendAddCoordinatorInstanceLog(self_c2c_config)) {
+      spdlog::error("Failed to append add coordinator instance log for self!");
+    }
+  }
+
   utils::OnScopeExit do_reset{[this]() {
     if (raft_state_.IsLockOpened() && raft_state_.IsLeader()) {
       spdlog::trace(
@@ -576,8 +594,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
   }};
 
-  auto *new_instance = &repl_instances_.emplace_back(this, config, client_succ_cb_, client_fail_cb_,
-                                                     &CoordinatorInstance::ReplicaSuccessCallback,
+  auto client = std::make_unique<ReplicationInstanceClient>(this, config, client_succ_cb_, client_fail_cb_);
+  auto *new_instance = &repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
                                                      &CoordinatorInstance::ReplicaFailCallback);
 
   if (!new_instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
@@ -617,7 +635,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  auto const name_matches = [&instance_name](ReplicationInstance const &instance) {
+  auto const name_matches = [&instance_name](ReplicationInstanceConnector const &instance) {
     return instance.InstanceName() == instance_name;
   };
 
@@ -626,7 +644,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
 
-  auto const is_current_main = [this](ReplicationInstance const &instance) {
+  auto const is_current_main = [this](ReplicationInstanceConnector const &instance) {
     return raft_state_.IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
   };
 
@@ -676,6 +694,19 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 }
 
 auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+  spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
+                raft_state_.InstanceName());
+
+  if (!raft_state_.CoordinatorExists(config_.coordinator_id)) {
+    auto const self_c2c_config = CoordinatorToCoordinatorConfig{
+        .coordinator_id = config_.coordinator_id,
+        .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.bolt_port)},
+        .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.coordinator_port)}};
+    if (!raft_state_.AppendAddCoordinatorInstanceLog(self_c2c_config)) {
+      spdlog::error("Failed to append self config to raft log!");
+    }
+  }
+
   raft_state_.AddCoordinatorInstance(config);
   // NOTE: We ignore error we added coordinator instance to networking stuff but not in raft log.
   if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
@@ -925,56 +956,7 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
   return raft_state_.HasReplicaState(instance_name);
 }
 
-auto CoordinatorInstance::GetRoutingTable(std::map<std::string, std::string> const &routing) -> RoutingTable {
-  auto res = RoutingTable{};
-
-  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
-    return instance.config.BoltSocketAddress();
-  };
-
-  // TODO: (andi) This is wrong check, Fico will correct in #1819.
-  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::MAIN;
-  };
-
-  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::REPLICA;
-  };
-
-  auto const &raft_log_repl_instances = raft_state_.GetReplicationInstances();
-
-  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
-                    ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
-  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
-
-  if (!std::ranges::empty(bolt_mains)) {
-    res.emplace_back(std::move(bolt_mains), "WRITE");
-  }
-
-  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
-                       ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
-  if (!std::ranges::empty(bolt_replicas)) {
-    res.emplace_back(std::move(bolt_replicas), "READ");
-  }
-
-  auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
-    return instance.config.bolt_server.SocketAddress();
-  };
-
-  auto const &raft_log_coord_instances = raft_state_.GetCoordinatorInstances();
-  auto bolt_coords =
-      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
-
-  auto const &local_bolt_coord = routing.find("address");
-  if (local_bolt_coord == routing.end()) {
-    throw InvalidRoutingTableException("No bolt address found in routing table for the current coordinator!");
-  }
-
-  bolt_coords.push_back(local_bolt_coord->second);
-  res.emplace_back(std::move(bolt_coords), "ROUTE");
-
-  return res;
-}
+auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_.GetRoutingTable(); }
 
 }  // namespace memgraph::coordination
 #endif

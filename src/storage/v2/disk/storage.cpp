@@ -916,6 +916,10 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
 
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges.");
+}
+
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                         bool detach) {
@@ -1776,12 +1780,15 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     logging::AssertRocksDBStatus(transaction_.disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   }
   auto commitStatus = transaction_.disk_transaction_->Commit();
-  delete transaction_.disk_transaction_;
-  transaction_.disk_transaction_ = nullptr;
   if (!commitStatus.ok()) {
+    Abort();
     spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
     return StorageManipulationError{SerializationError{}};
   }
+
+  delete transaction_.disk_transaction_;
+  transaction_.disk_transaction_ = nullptr;
+
   spdlog::trace("rocksdb: Commit successful");
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     disk_storage->indices_.text_index_.Commit();

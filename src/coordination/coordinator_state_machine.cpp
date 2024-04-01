@@ -255,5 +255,9 @@ auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) co
 
 auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.IsLockOpened(); }
 
+auto CoordinatorStateMachine::CoordinatorExists(uint32_t coordinator_id) const -> bool {
+  return cluster_state_.CoordinatorExists(coordinator_id);
+}
+
 }  // namespace memgraph::coordination
 #endif
