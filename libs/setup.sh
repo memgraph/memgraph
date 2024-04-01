@@ -296,5 +296,5 @@ repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "
 popd
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.5"
+mgcxx_tag="v0.0.6"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
