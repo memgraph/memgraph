@@ -18,6 +18,7 @@
 #include <exception>
 #include <string_view>
 
+#include <fmt/core.h>  // https://github.com/fmtlib/fmt/issues/2419
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 

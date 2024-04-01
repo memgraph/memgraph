@@ -17,6 +17,7 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "dbms/database.hpp"
 #include "global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
@@ -86,7 +87,10 @@ class Handler {
   bool TryDelete(std::string_view name) {
     if (auto itr = items_.find(name); itr != items_.end()) {
       auto db_acc = itr->second.access();
-      if (db_acc && db_acc->try_delete()) {
+      // TODO(gitbuda): GCC says substitituion failed here.
+      // try_delete<Func = decltype([](T &) { return true; })>
+      using FuncType = decltype([](T &) { return true; });
+      if (db_acc && db_acc->template try_delete<FuncType>()) {
         db_acc->reset();
         items_.erase(itr);
         return true;
@@ -111,7 +115,9 @@ class Handler {
     auto db_acc = itr->second.access();
     if (!db_acc) return;
 
-    if (db_acc->try_delete()) {
+    // TODO(gitbuda): GCC says substitituion failed here.
+    using FuncType = decltype([](T &) { return true; });
+    if (db_acc->template try_delete<FuncType>()) {
       // Delete the database now
       db_acc->reset();
       post_delete_func();
@@ -120,7 +126,8 @@ class Handler {
       db_acc->reset();
       // TODO: Make sure this shuts down correctly
       auto task = [gk = std::move(itr->second), post_delete_func = std::forward<Func>(post_delete_func)]() mutable {
-        gk.~Gatekeeper<T>();
+        // TODO(gitbuda): GCC crashes here in lookup_template_class :)
+        // gk.~Gatekeeper<T>();
         post_delete_func();
       };
       defer_pool_.AddTask(utils::CopyMovableFunctionWrapper{std::move(task)});

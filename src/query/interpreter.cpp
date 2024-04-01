@@ -948,6 +948,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     default:
       break;
   }
+  throw 1;
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
@@ -1010,6 +1011,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
             return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
           }
         }
+        throw 1;
       };
       return callback;
     }
@@ -1156,6 +1158,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
   }
+  throw 1;
 }
 
 #ifdef MG_ENTERPRISE
@@ -1592,6 +1595,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
       return callback;
     }
   }
+  throw 1;
 }
 
 Callback HandleConfigQuery() {
@@ -1700,6 +1704,7 @@ Callback HandleSettingQuery(SettingQuery *setting_query, const Parameters &param
       return callback;
     }
   }
+  throw 1;
 }
 
 // Struct for lazy pulling from a vector
@@ -3037,6 +3042,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
     case TriggerQuery::EventType::EDGE_UPDATE:
       return TriggerEventType::EDGE_UPDATE;
   }
+  throw 1;
 }
 
 Callback CreateTrigger(TriggerQuery *trigger_query,
@@ -3124,6 +3130,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
       case TriggerQuery::Action::SHOW_TRIGGERS:
         return ShowTriggers(trigger_store);
     }
+    throw 1;
   });
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
@@ -3189,6 +3196,7 @@ constexpr auto ToStorageIsolationLevel(const IsolationLevelQuery::IsolationLevel
     case IsolationLevelQuery::IsolationLevel::READ_UNCOMMITTED:
       return storage::IsolationLevel::READ_UNCOMMITTED;
   }
+  throw 1;
 }
 
 constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) noexcept {

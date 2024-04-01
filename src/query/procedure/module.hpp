@@ -155,7 +155,9 @@ class ModuleRegistry final {
   inline static const std::string kLibstdcppWarning =
       "Query modules might not work as expected. Printing non-string values from query modules might not work. Please "
       "install libstdc++ or compile from source with the recent toolchain (all included).";
-#if __has_feature(address_sanitizer)
+// TODO: Figure out for both clang and GCC
+// #if __has_feature(address_sanitizer)
+#if defined(__SANITIZE_ADDRESS__)
   // This is why we need RTLD_NODELETE and we must not use RTLD_DEEPBIND with
   // ASAN: https://github.com/google/sanitizers/issues/89
   SharedLibraryHandle libstd_handle{"libstdc++.so.6", RTLD_NOW | RTLD_LOCAL | RTLD_NODELETE, kLibstdcppWarning};

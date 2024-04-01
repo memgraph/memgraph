@@ -626,6 +626,7 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Function:
       throw QueryRuntimeException("Unknown value type! Please report an issue!");
   }
+  throw 1;
 }
 
 // TODO: How is Keys different from Properties function?

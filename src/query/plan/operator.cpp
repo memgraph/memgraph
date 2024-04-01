@@ -437,6 +437,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
       case EdgeAtom::Direction::BOTH:
         return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
     }
+    throw 1;
   }();
 
   context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
@@ -712,6 +713,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
       }
+      throw 1;
     };
     auto maybe_lower = convert(lower_bound_);
     auto maybe_upper = convert(upper_bound_);
@@ -911,6 +913,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
+    throw 1;
   };
 
   while (true) {
@@ -2572,6 +2575,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
     case EdgeAtom::Type::SINGLE:
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
   }
+  throw 1;
 }
 
 class ConstructNamedPathCursor : public Cursor {
@@ -3737,6 +3741,7 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
     case Aggregation::Op::PROJECT:
       return TypedValue(query::Graph(memory));
   }
+  throw 1;
 }
 }  // namespace
 

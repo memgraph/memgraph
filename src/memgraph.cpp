@@ -331,12 +331,12 @@ int main(int argc, char **argv) {
                .id_name_mapper_directory = FLAGS_data_directory + "/rocksdb_id_name_mapper",
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
-      .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                        .enable_edges_metadata =
-                            FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
-                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
-      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+      .salient = {.storage_mode = memgraph::flags::ParseStorageMode(),
+                  .items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
+                            .enable_edges_metadata =
+                                FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
+                            .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                            .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update}}};
   if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "

@@ -230,6 +230,7 @@ std::string LicenseCheckErrorToString(LicenseCheckError error, const std::string
       return fmt::format("Your license has an invalid type. To use {} you need to have an enterprise license. \n",
                          feature);
   }
+  return "";
 }
 
 LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &settings) const {

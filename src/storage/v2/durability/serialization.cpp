@@ -363,6 +363,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::VALUE_TRUE:
       return std::nullopt;
   }
+  return std::nullopt;
 }
 
 bool Decoder::SkipString() {
@@ -471,6 +472,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::VALUE_TRUE:
       return false;
   }
+  return false;
 }
 
 std::optional<uint64_t> Decoder::GetSize() { return file_.GetSize(); }

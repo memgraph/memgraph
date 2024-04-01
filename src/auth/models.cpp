@@ -125,6 +125,7 @@ std::string PermissionToString(Permission permission) {
     case Permission::COORDINATOR:
       return "COORDINATOR";
   }
+  return "";
 }
 
 std::string PermissionLevelToString(PermissionLevel level) {
@@ -136,6 +137,7 @@ std::string PermissionLevelToString(PermissionLevel level) {
     case PermissionLevel::DENY:
       return "DENY";
   }
+  return "";
 }
 
 #ifdef MG_ENTERPRISE
@@ -166,6 +168,7 @@ std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
     case FineGrainedPermission::NOTHING:
       return "NOTHING";
   }
+  return "";
 }
 
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,

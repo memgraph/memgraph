@@ -68,7 +68,7 @@ class ReplicationTest : public ::testing::Test {
             {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
     };
     UpdatePaths(config, storage_directory);
     return config;
@@ -79,7 +79,7 @@ class ReplicationTest : public ::testing::Test {
             {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
     };
     UpdatePaths(config, repl_storage_directory);
     return config;
@@ -90,7 +90,7 @@ class ReplicationTest : public ::testing::Test {
             {
                 .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
             },
-        .salient.items = {.properties_on_edges = true},
+        .salient = {.items = {.properties_on_edges = true}},
     };
     UpdatePaths(config, repl2_storage_directory);
     return config;
@@ -241,13 +241,13 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     auto edge = edgeRes.GetValue();
     ASSERT_TRUE(edge.SetProperty(main.db.storage()->NameToProperty(edge_property), PropertyValue(edge_property_value))
                     .HasValue());
-    edge_gid.emplace(edge.Gid());
+    edge_gid.emplace(edge.GidInAllCases());
     ASSERT_FALSE(acc->Commit({}, main.db_acc).HasError());
   }
 
   const auto find_edge = [&](const auto &edges, const Gid edge_gid) -> std::optional<EdgeAccessor> {
     for (const auto &edge : edges) {
-      if (edge.Gid() == edge_gid) {
+      if (edge.GidInAllCases() == edge_gid) {
         return edge;
       }
     }

@@ -178,7 +178,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
                                                       storage::View view) {
-  auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
+  auto id = communication::bolt::Id::FromUint(edge.GidInAllCases().AsUint());
   auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
   auto type = db.EdgeTypeToName(edge.EdgeType());

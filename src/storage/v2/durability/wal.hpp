@@ -178,6 +178,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return true;  // TODO: Still true?
   }
+  return false;
 }
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {

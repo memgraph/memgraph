@@ -556,9 +556,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   constexpr bool kSharedAccess = false;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto const get_transaction = [storage, &commit_timestamp_and_accessor](
-                                   uint64_t commit_timestamp,
-                                   bool unique = kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
+  auto const get_transaction =
+      [storage, &commit_timestamp_and_accessor](
+          uint64_t commit_timestamp,
+          // TODO(gitbuda): GCC reports here -> kSharedAccess local variable may not appear in this context.
+          bool unique = false) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {

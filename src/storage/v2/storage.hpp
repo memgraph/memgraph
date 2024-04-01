@@ -147,9 +147,9 @@ class Storage {
   class Accessor {
    public:
     static constexpr struct SharedAccess {
-    } shared_access;
+    } shared_access{};
     static constexpr struct UniqueAccess {
-    } unique_access;
+    } unique_access{};
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              memgraph::replication_coordination_glue::ReplicationRole replication_role);

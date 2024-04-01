@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -128,7 +128,7 @@ class Client final {
                                                     const std::optional<std::string> &db);
 
  private:
-  using ClientEncoder = ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>;
+  using ClientEncoderX = ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>;
 
   template <typename TException = FailureResponseException>
   [[noreturn]] void HandleFailure(const std::map<std::string, Value> &response_map) {
@@ -159,7 +159,7 @@ class Client final {
 
   // encoder objects
   ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{output_stream_};
-  ClientEncoder encoder_{encoder_buffer_};
+  ClientEncoderX encoder_{encoder_buffer_};
 };
 
 }  // namespace memgraph::communication::bolt

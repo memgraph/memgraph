@@ -282,9 +282,10 @@ memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor 
     MG_ASSERT(edgeAcc.SetProperty(dba->NameToProperty(kv.first), kv.second).HasValue());
   }
   if (add_property_id) {
-    MG_ASSERT(
-        edgeAcc.SetProperty(dba->NameToProperty(kPropertyId), memgraph::storage::PropertyValue(edgeAcc.Gid().AsInt()))
-            .HasValue());
+    MG_ASSERT(edgeAcc
+                  .SetProperty(dba->NameToProperty(kPropertyId),
+                               memgraph::storage::PropertyValue(edgeAcc.GidInAllCases().AsInt()))
+                  .HasValue());
   }
   return edgeAcc;
 }

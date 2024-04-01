@@ -483,6 +483,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
   }
+  return std::nullopt;
 }
 
 namespace {
@@ -604,6 +605,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       return true;
     }
   }
+  return false;
 }
 
 [[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint64_t &property_size) {
@@ -846,6 +848,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       return *maybe_temporal_data == value.ValueTemporalData();
     }
   }
+  return false;
 }
 
 // Function used to encode a property (PropertyId, PropertyValue) into a byte

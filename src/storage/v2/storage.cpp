@@ -362,7 +362,7 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
     partial_src_vertices.insert(edge_accessor->from_vertex_);
     partial_dest_vertices.insert(edge_accessor->to_vertex_);
 
-    auto const edge_gid = edge_accessor->Gid();
+    auto const edge_gid = edge_accessor->GidInAllCases();
     src_edge_ids.insert(edge_gid);
     dest_edge_ids.insert(edge_gid);
   }

@@ -28,6 +28,7 @@ constexpr std::string_view GetSeverityLevelString(const SeverityLevel level) {
     case SeverityLevel::WARNING:
       return "WARNING"sv;
   }
+  throw 1;
 }
 
 constexpr std::string_view GetCodeString(const NotificationCode code) {
@@ -87,6 +88,7 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::STOP_ALL_STREAMS:
       return "StopAllStreams"sv;
   }
+  throw 1;
 }
 }  // namespace
 
@@ -122,6 +124,7 @@ std::string ExecutionStatsKeyToString(const ExecutionStats::Key key) {
     case ExecutionStats::Key::UPDATED_PROPERTIES:
       return std::string("properties-set");
   }
+  throw 1;
 }
 
 }  // namespace memgraph::query

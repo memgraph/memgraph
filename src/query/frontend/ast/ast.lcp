@@ -1466,6 +1466,7 @@ cpp<#
         case Type::SINGLE:
           return false;
       }
+      throw 1;
     }
     cpp<#)
   (:protected

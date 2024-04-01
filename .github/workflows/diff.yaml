@@ -52,7 +52,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build community binary 
+      - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -367,3 +367,25 @@ bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
 }
 
 }  // namespace memgraph::query::plan::impl
+
+namespace memgraph::query::plan {
+
+QueryParts ReconstructQueryParts(const QueryParts &old_query_parts,
+                                 const std::vector<SingleQueryPart> &single_query_parts_variation, uint64_t &index) {
+  auto reconstructed_query_parts = old_query_parts;
+  for (auto i = 0; i < old_query_parts.query_parts.size(); i++) {
+    const auto &old_query_part = old_query_parts.query_parts[i];
+    for (auto j = 0; j < old_query_part.single_query_parts.size(); j++) {
+      const auto &old_single_query_part = old_query_part.single_query_parts[j];
+      reconstructed_query_parts.query_parts[i].single_query_parts[j] = single_query_parts_variation[index++];
+      for (auto k = 0; k < old_single_query_part.subqueries.size(); k++) {
+        const auto &subquery = old_single_query_part.subqueries[k];
+        reconstructed_query_parts.query_parts[i].single_query_parts[j].subqueries[k] =
+            std::make_shared<QueryParts>(ReconstructQueryParts(*subquery, single_query_parts_variation, index));
+      }
+    }
+  }
+  return reconstructed_query_parts;
+}
+
+}  // namespace memgraph::query::plan

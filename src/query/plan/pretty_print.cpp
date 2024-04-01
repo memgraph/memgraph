@@ -282,6 +282,7 @@ std::string ToString(EdgeAtom::Direction dir) {
     case EdgeAtom::Direction::OUT:
       return "out";
   }
+  throw 1;
 }
 
 std::string ToString(EdgeAtom::Type type) {
@@ -297,6 +298,7 @@ std::string ToString(EdgeAtom::Type type) {
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
+  throw 1;
 }
 
 std::string ToString(Ordering ord) {
@@ -306,6 +308,7 @@ std::string ToString(Ordering ord) {
     case Ordering::DESC:
       return "desc";
   }
+  throw 1;
 }
 
 json ToJson(Expression *expression) {

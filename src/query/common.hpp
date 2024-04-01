@@ -100,6 +100,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         LOG_FATAL("Invalid type");
     }
   }
+  LOG_FATAL("Invalid implementation of the TypedValueCompare");
 }
 
 }  // namespace

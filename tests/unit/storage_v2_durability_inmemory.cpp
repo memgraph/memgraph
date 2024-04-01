@@ -165,7 +165,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
       ASSERT_TRUE(edgeRes.HasValue());
       auto edge = std::move(edgeRes.GetValue());
-      base_edge_gids_[i] = edge.Gid();
+      base_edge_gids_[i] = edge.GidInAllCases();
       if (properties_on_edges) {
         ASSERT_TRUE(
             edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
@@ -263,7 +263,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       auto edgeRes = acc->CreateEdge(&*vertex1, &*vertex2, et);
       ASSERT_TRUE(edgeRes.HasValue());
       auto edge = std::move(edgeRes.GetValue());
-      extended_edge_gids_[i] = edge.Gid();
+      extended_edge_gids_[i] = edge.GidInAllCases();
       if (!single_transaction) ASSERT_FALSE(acc->Commit().HasError());
     }
 
@@ -464,7 +464,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
         auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
           for (auto &edge : edges) {
-            if (edge.Gid() == base_edge_gids_[i]) {
+            if (edge.GidInAllCases() == base_edge_gids_[i]) {
               return edge;
             }
           }
@@ -598,7 +598,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
         auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
           for (auto &edge : edges) {
-            if (edge.Gid() == extended_edge_gids_[i]) {
+            if (edge.GidInAllCases() == extended_edge_gids_[i]) {
               return edge;
             }
           }
@@ -1616,7 +1616,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto e1Res = acc->CreateEdge(&v1, &v2, db.storage()->NameToEdgeType("e1"));
     ASSERT_TRUE(e1Res.HasValue());
     auto e1 = std::move(e1Res.GetValue());
-    gid_e1 = e1.Gid();
+    gid_e1 = e1.GidInAllCases();
     ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l11")).HasValue());
     ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l12")).HasValue());
     ASSERT_TRUE(v1.AddLabel(db.storage()->NameToLabel("l13")).HasValue());
@@ -1671,7 +1671,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(out_edges.HasValue());
       ASSERT_EQ(out_edges->edges.size(), 1);
       const auto &edge = out_edges->edges[0];
-      ASSERT_EQ(edge.Gid(), gid_e1);
+      ASSERT_EQ(edge.GidInAllCases(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
@@ -1695,7 +1695,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
       ASSERT_TRUE(in_edges.HasValue());
       ASSERT_EQ(in_edges->edges.size(), 1);
       const auto &edge = in_edges->edges[0];
-      ASSERT_EQ(edge.Gid(), gid_e1);
+      ASSERT_EQ(edge.GidInAllCases(), gid_e1);
       auto edge_props = edge.Properties(memgraph::storage::View::OLD);
       ASSERT_TRUE(edge_props.HasValue());
       if (GetParam()) {
@@ -3014,8 +3014,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient = {.items = {.properties_on_edges = GetParam()}}};
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3030,8 +3030,8 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient = {.items = {.properties_on_edges = GetParam()}}};
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
@@ -3053,8 +3053,8 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   }
   // Create snapshot.
   {
-    memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam()},
-                                     .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}};
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient = {.items = {.properties_on_edges = GetParam()}}};
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
     memgraph::dbms::Database db{config, repl_state};
     CreateBaseDataset(db.storage(), GetParam());
@@ -3067,8 +3067,9 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
-  memgraph::storage::Config config{.salient.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true},
-                                   .durability = {.storage_directory = storage_directory, .recover_on_startup = true}};
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_edges_metadata = true}}};
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());

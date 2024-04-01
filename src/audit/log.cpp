@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -80,6 +80,7 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
             return ss.str();
           }
         }
+        throw 1;
       };
       ret = to_string(temporal_data);
       break;
