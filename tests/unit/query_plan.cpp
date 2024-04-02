@@ -1704,6 +1704,13 @@ TYPED_TEST(TestPlanner, ScanAllById) {
   CheckPlan<TypeParam>(query, this->storage, ExpectScanAllById(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, ScanAllByEdgeId) {
+  // Test MATCH ()-[r]->() WHERE id(r) = 42 RETURN r
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r"), NODE("anon2"))),
+                                   WHERE(EQ(FN("id", IDENT("r")), LITERAL(42))), RETURN("r")));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAllByEdgeId(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, BfsToExisting) {
   // Test MATCH (n)-[r *bfs]-(m) WHERE id(m) = 42 RETURN r
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(

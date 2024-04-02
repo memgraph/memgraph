@@ -3178,7 +3178,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   memgraph::query::CoordinatorQuery::Action action_;
   std::string instance_name_{};
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  memgraph::query::Expression *coordinator_server_id_{nullptr};
+  memgraph::query::Expression *coordinator_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
@@ -3186,12 +3186,30 @@ class CoordinatorQuery : public memgraph::query::Query {
 
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->coordinator_server_id_ = coordinator_server_id_ ? coordinator_server_id_->Clone(storage) : nullptr;
+    object->coordinator_id_ = coordinator_id_ ? coordinator_id_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
     }
 
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropGraphQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropGraphQuery>();
     return object;
   }
 

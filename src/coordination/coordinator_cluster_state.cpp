@@ -91,7 +91,7 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
          it->second.instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void {
+auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
@@ -141,12 +141,6 @@ auto CoordinatorClusterState::DoAction(TRaftLog log_entry, RaftLogAction log_act
                     std::string{instance_uuid_change.uuid});
       break;
     }
-    case RaftLogAction::ADD_COORDINATOR_INSTANCE: {
-      auto const &config = std::get<CoordinatorToCoordinatorConfig>(log_entry);
-      coordinators_.emplace_back(CoordinatorInstanceState{config});
-      spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_server_id);
-      break;
-    }
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
       auto const instance_name = std::get<std::string>(log_entry);
       auto it = repl_instances_.find(instance_name);
@@ -174,6 +168,7 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
                       {"is_lock_opened", is_lock_opened_},
                       {"current_main_uuid", current_main_uuid_}};
   auto const log = j.dump();
+
   data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
   bs.put_str(log);
@@ -182,10 +177,12 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
 auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {
   buffer_serializer bs(data);
   auto const j = nlohmann::json::parse(bs.get_str());
-  auto instances = j["repl_instances"].get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
-  auto current_main_uuid = j["current_main_uuid"].get<utils::UUID>();
-  bool is_lock_opened = j["is_lock_opened"].get<int>();
-  return CoordinatorClusterState{std::move(instances), current_main_uuid, is_lock_opened};
+
+  auto repl_instances = j.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
+  auto current_main_uuid = j.at("current_main_uuid").get<utils::UUID>();
+  bool is_lock_opened = j.at("is_lock_opened").get<int>();
+
+  return CoordinatorClusterState{std::move(repl_instances), current_main_uuid, is_lock_opened};
 }
 
 auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
@@ -200,11 +197,6 @@ auto CoordinatorClusterState::GetInstanceUUID(std::string_view instance_name) co
   auto const it = repl_instances_.find(instance_name);
   MG_ASSERT(it != repl_instances_.end(), "Instance with that name doesn't exist.");
   return it->second.instance_uuid;
-}
-
-auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
-  auto lock = std::shared_lock{log_lock_};
-  return coordinators_;
 }
 
 auto CoordinatorClusterState::IsLockOpened() const -> bool {

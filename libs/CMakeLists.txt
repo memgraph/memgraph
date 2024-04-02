@@ -21,6 +21,9 @@ find_package(ZLIB 1.2.11 REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
+# An uncommon pattern we can safely use as list separator in ExternalProject
+set(LIST_SEP "-*-")
+
 # convenience functions
 function(import_header_library name include_dir)
   add_library(${name} INTERFACE IMPORTED GLOBAL)
@@ -35,17 +38,18 @@ endfunction(import_header_library)
 
 function(import_library name type location include_dir)
   add_library(${name} ${type} IMPORTED GLOBAL)
-
-  if(${ARGN})
+  # https://cmake.org/cmake/help/latest/command/function.html#arguments
+  if(ARGN)
     # Optional argument is the name of the external project that we need to
     # depend on.
-    add_dependencies(${name} ${ARGN0})
+    list(GET ARGN 0 dependency_name)
+    add_dependencies(${name} ${dependency_name})
+    message(STATUS "ADDED DEPENDENCY ${name} -> ${dependency_name}")
   else()
     add_dependencies(${name} ${name}-proj)
+    message(STATUS "ADDED DEPENDENCY ${name} -> ${name}-proj")
   endif()
-
   set_property(TARGET ${name} PROPERTY IMPORTED_LOCATION ${location})
-
   # We need to create the include directory first in order to be able to add it
   # as an include directory. The header files in the include directory will be
   # generated later during the build process.
@@ -53,20 +57,15 @@ function(import_library name type location include_dir)
   target_include_directories(${name} INTERFACE ${include_dir})
 endfunction(import_library)
 
-# Calls `ExternalProject_Add(${name}-proj` with default arguments for cmake
-# configuration. CMAKE_BUILD_TYPE is set to Release, CMAKE_C_COMPILER and
-# CMAKE_CXX_COMPILER are forwarded as used in this project. You can pass
-# NO_C_COMPILER option to avoid forwarding CMAKE_C_COMPILER. Installation is
-# done in SOURCE_DIR, which defaults to ${CMAKE_CURRENT_SOURCE_DIR}/${name}.
-# You can pass additional arguments via CMAKE_ARGS. Dependencies and
-# installation can be set as in regular ExternalProject_Add, via DEPENDS and
-# INSTALL_COMMAND arguments.
-function(add_external_project name)
+macro(add_external_project_arg_parse pos prefix)
   set(options NO_C_COMPILER)
-  set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE)
+  set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE CMAKE_PREFIX_PATH)
   set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
-    CONFIGURE_COMMAND)
-  cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
+          CONFIGURE_COMMAND BUILD_BYPRODUCTS)
+  cmake_parse_arguments(PARSE_ARGV ${pos} "${prefix}" "${options}" "${one_value_kwargs}" "${multi_value_kwargs}")
+endmacro()
+
+macro(add_external_project_impl name)
   set(source_dir ${CMAKE_CURRENT_SOURCE_DIR}/${name})
 
   if(KW_SOURCE_DIR)
@@ -83,22 +82,46 @@ function(add_external_project name)
     set(KW_CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} ${KW_CMAKE_ARGS})
   endif()
 
+  # Add MG_TOOLCHAIN_ROOT to KW_CMAKE_PREFIX_PATH
+  if(KW_CMAKE_PREFIX_PATH)
+    set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}${LIST_SEP}${KW_CMAKE_PREFIX_PATH}")
+  else ()
+    set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+  endif ()
+
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
-    PREFIX ${source_dir} SOURCE_DIR ${source_dir}
-    BUILD_IN_SOURCE ${build_in_source}
-    CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
-    CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DCMAKE_INSTALL_PREFIX=${source_dir}
-    ${KW_CMAKE_ARGS}
-    INSTALL_COMMAND ${KW_INSTALL_COMMAND}
-    BUILD_COMMAND ${KW_BUILD_COMMAND})
+      PREFIX ${source_dir} SOURCE_DIR ${source_dir}
+      BUILD_IN_SOURCE ${build_in_source}
+      LIST_SEPARATOR "${LIST_SEP}"
+      CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
+      CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_INSTALL_PREFIX=${source_dir}
+      $<$<BOOL:KW_CMAKE_PREFIX_PATH>:"-DCMAKE_PREFIX_PATH=${KW_CMAKE_PREFIX_PATH}">
+      ${KW_CMAKE_ARGS}
+      INSTALL_COMMAND ${KW_INSTALL_COMMAND}
+      BUILD_COMMAND ${KW_BUILD_COMMAND}
+      BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS})
+endmacro()
+
+# Calls `ExternalProject_Add(${name}-proj` with default arguments for cmake
+# configuration. CMAKE_BUILD_TYPE is set to Release, CMAKE_C_COMPILER and
+# CMAKE_CXX_COMPILER are forwarded as used in this project. You can pass
+# NO_C_COMPILER option to avoid forwarding CMAKE_C_COMPILER. Installation is
+# done in SOURCE_DIR, which defaults to ${CMAKE_CURRENT_SOURCE_DIR}/${name}.
+# You can pass additional arguments via CMAKE_ARGS. Dependencies and
+# installation can be set as in regular ExternalProject_Add, via DEPENDS and
+# INSTALL_COMMAND arguments. It's also possible to pass BUILD_BYPRODUCTS.
+function(add_external_project name)
+  add_external_project_arg_parse(1 KW)
+  add_external_project_impl(${name})
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
 # and adds the library via `import_library`.
-macro(import_external_library name type library_location include_dir)
-  add_external_project(${name} ${ARGN})
+function(import_external_library name type library_location include_dir)
+  add_external_project_arg_parse(4 KW)
+  add_external_project_impl(${name})
   string(TOUPPER ${name} _upper_name)
   set(${_upper_name}_LIBRARY ${library_location} CACHE FILEPATH
     "Path to ${name} library" FORCE)
@@ -106,7 +129,7 @@ macro(import_external_library name type library_location include_dir)
     "Path to ${name} include directory" FORCE)
   mark_as_advanced(${_upper_name}_LIBRARY ${_upper_name}_INCLUDE_DIR)
   import_library(${name} ${type} ${${_upper_name}_LIBRARY} ${${_upper_name}_INCLUDE_DIR})
-endmacro(import_external_library)
+endfunction(import_external_library)
 
 
 macro(set_path_external_library name type library_location include_dir)
@@ -136,7 +159,6 @@ import_external_library(antlr4 STATIC
 import_external_library(benchmark STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-
   # Skip testing. The tests don't compile with Clang 8.
   CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 
@@ -150,7 +172,8 @@ mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
 # setup google test
-add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest)
+add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
+  CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
 set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
   CACHE PATH "Path to gtest and gmock include directory" FORCE)
 set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
@@ -263,7 +286,7 @@ import_external_library(pulsar STATIC
   -DLINK_STATIC=ON
   -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
   -DBOOST_ROOT=${BOOST_ROOT}
-  -DCMAKE_PREFIX_PATH=${PROTOBUF_ROOT}
+  "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
   -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
   -DBUILD_PYTHON_WRAPPER=OFF
   -DBUILD_PERF_TOOLS=OFF
@@ -295,37 +318,23 @@ set_path_external_library(jemalloc STATIC
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
-ExternalProject_Add(mgcxx-proj
-  PREFIX         mgcxx-proj
-  GIT_REPOSITORY https://github.com/memgraph/mgcxx
-  GIT_TAG        "v0.0.4"
-  CMAKE_ARGS
-    "-DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>"
-    "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-    "-DENABLE_TESTS=OFF"
-    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-    "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-  INSTALL_DIR    "${PROJECT_BINARY_DIR}/mgcxx"
-)
-ExternalProject_Get_Property(mgcxx-proj install_dir)
-set(MGCXX_ROOT ${install_dir})
-
-add_library(tantivy_text_search STATIC IMPORTED GLOBAL)
-add_dependencies(tantivy_text_search mgcxx-proj)
-set_property(TARGET tantivy_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libtantivy_text_search.a)
-
-add_library(mgcxx_text_search STATIC IMPORTED GLOBAL)
-add_dependencies(mgcxx_text_search mgcxx-proj)
-set_property(TARGET mgcxx_text_search PROPERTY IMPORTED_LOCATION ${MGCXX_ROOT}/lib/libmgcxx_text_search.a)
-# We need to create the include directory first in order to be able to add it
-# as an include directory. The header files in the include directory will be
-# generated later during the build process.
-file(MAKE_DIRECTORY ${MGCXX_ROOT}/include)
-set_property(TARGET mgcxx_text_search PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${MGCXX_ROOT}/include)
-
 # Setup NuRaft
 import_external_library(nuraft STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
   ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
+
+# Setup mgcxx (provides: text search)
+set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+  CACHE PATH "Path to mgcxx include directory" FORCE)
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+add_external_project(mgcxx
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  CMAKE_ARGS -DENABLE_TESTS=OFF)
+mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)

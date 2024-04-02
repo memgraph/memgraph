@@ -64,7 +64,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges,
+                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config);
 

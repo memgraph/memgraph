@@ -1105,8 +1105,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
   }
 
-  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
-    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
+  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+    const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    if (!frame_pattern_comprehension_value.IsList()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Pattern Comprehension expected a list, got {}. Please report the problem on GitHub "
+          "issues",
+          frame_pattern_comprehension_value.type());
+    }
+    return frame_pattern_comprehension_value;
   }
 
  private:

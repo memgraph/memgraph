@@ -363,6 +363,12 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
   return edge_import_mode_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext * /*ctx*/) {
+  auto *drop_graph_query = storage_->Create<DropGraphQuery>();
+  query_ = drop_graph_query;
+  return drop_graph_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;
@@ -447,7 +453,7 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
   coordinator_query->action_ = CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE;
-  coordinator_query->coordinator_server_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+  coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
   coordinator_query->configs_ =
       std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
