@@ -17,7 +17,6 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "flags/general.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -447,18 +446,6 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   auto &query_execution = query_executions_[qid_value];
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
-
-  if (FLAGS_fail_by_mg_assert) {
-    MG_ASSERT(1 == 0, "I will fail deliberately here!");
-  }
-  if (FLAGS_fail_by_segfault) {
-    struct S {
-      int a;
-      int b;
-    };
-    S *s = nullptr;
-    s->a = 1;
-  }
 
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside

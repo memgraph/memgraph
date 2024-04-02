@@ -40,6 +40,7 @@
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -4341,6 +4342,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+
+  if (FLAGS_fail_by_mg_assert) {
+    MG_ASSERT(1 == 0, "I will fail deliberately here!");
+  }
+  if (FLAGS_fail_by_segfault) {
+    int *ptr = nullptr;  // Create a null pointer
+    *ptr = 42;
+  }
+
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
     if (trimmed_query == "BEGIN") {
       ResetInterpreter();
