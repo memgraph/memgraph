@@ -51,7 +51,9 @@ class PropertyValue {
     TemporalData = 7
   };
 
-  using map_t = boost::container::flat_map<std::string, PropertyValue>;
+  using string_t = std::string;
+  using map_t = boost::container::flat_map<string_t, PropertyValue>;
+  using list_t = std::vector<PropertyValue>;
 
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
@@ -69,14 +71,14 @@ class PropertyValue {
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValue(std::string value) : string_v{.val_ = std::move(value)} {}
+  explicit PropertyValue(string_t value) : string_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValue(std::string_view value) : string_v{.val_ = std::string(value)} {}
-  explicit PropertyValue(char const *value) : string_v{.val_ = std::string(value)} {}
+  explicit PropertyValue(std::string_view value) : string_v{.val_ = string_t(value)} {}
+  explicit PropertyValue(char const *value) : string_v{.val_ = string_t(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(std::vector<PropertyValue> value) : list_v{.val_ = std::move(value)} {}
+  explicit PropertyValue(list_t value) : list_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
   explicit PropertyValue(map_t value) : map_v{.val_ = std::move(value)} {}
 
@@ -165,7 +167,7 @@ class PropertyValue {
 
   // const value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::string &ValueString() const {
+  auto ValueString() const -> string_t const & {
     if (type_ != Type::String) [[unlikely]] {
       throw PropertyValueException("The value isn't a string!");
     }
@@ -173,7 +175,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::vector<PropertyValue> &ValueList() const {
+  auto ValueList() const -> list_t const & {
     if (type_ != Type::List) [[unlikely]] {
       throw PropertyValueException("The value isn't a list!");
     }
@@ -190,7 +192,7 @@ class PropertyValue {
 
   // reference value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
-  std::string &ValueString() {
+  auto ValueString() -> string_t & {
     if (type_ != Type::String) [[unlikely]] {
       throw PropertyValueException("The value isn't a string!");
     }
@@ -198,7 +200,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  std::vector<PropertyValue> &ValueList() {
+  auto ValueList() -> list_t & {
     if (type_ != Type::List) [[unlikely]] {
       throw PropertyValueException("The value isn't a list!");
     }
@@ -232,11 +234,11 @@ class PropertyValue {
     } double_v;
     struct {
       Type type_ = Type::String;
-      std::string val_;
+      string_t val_;
     } string_v;
     struct {
       Type type_ = Type::List;
-      std::vector<PropertyValue> val_;
+      list_t val_;
     } list_v;
     struct {
       Type type_ = Type::Map;
