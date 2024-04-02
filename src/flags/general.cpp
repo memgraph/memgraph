@@ -216,3 +216,8 @@ DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passw
 DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(fail_by_mg_assert, false, "Fail by mg assert");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(fail_by_segfault, false, "Fail by segfault");

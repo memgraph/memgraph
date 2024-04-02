@@ -130,3 +130,7 @@ DECLARE_string(auth_user_or_role_name_regex);
 DECLARE_bool(auth_password_permit_null);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(auth_password_strength_regex);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(fail_by_mg_assert);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(fail_by_segfault);
