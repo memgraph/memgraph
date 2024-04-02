@@ -3199,6 +3199,24 @@ class CoordinatorQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class DropGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropGraphQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropGraphQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class EdgeImportModeQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

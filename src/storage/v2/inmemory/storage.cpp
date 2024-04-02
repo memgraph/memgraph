@@ -317,6 +317,18 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
+  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
+      !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
+    storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+      if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
+        ++(it->second);
+        return;
+      }
+      edge_type_indices.insert({edge_type, 1});
+    });
+    transaction_.introduced_new_edge_type_index_.insert(edge_type);
+  }
+
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
@@ -830,6 +842,37 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+          for (auto &label : label_indices) {
+            --label.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific label, we only build the index
+            // when the last one commits.
+            if (label.second == 0) {
+              CreateIndex(label.first, false);
+              label_indices.erase(label.first);
+            }
+          }
+        });
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+          for (auto &edge_type : edge_type_indices) {
+            --edge_type.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific edge-type, we only build the index
+            // when the last one commits.
+            if (edge_type.second == 0) {
+              CreateIndex(edge_type.first, false);
+              edge_type_indices.erase(edge_type.first);
+            }
+          }
+        });
+      }
+
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
@@ -930,11 +973,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
-void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
-                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
+                                                            std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
@@ -990,6 +1031,16 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
 
   // STEP 2) this transactions deltas also mininal unlinking + remove + clear
   unlink_remove_clear(transaction_.deltas);
+}
+
+void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
+                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // STEP 1 + STEP 2
+  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
@@ -1234,6 +1285,20 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       /// before we unlink (aka. remove) vertices from storage
       /// this is because they point into vertices skip_list
 
+      // auto index creation cleanup
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        for (const auto label : transaction_.introduced_new_label_index_) {
+          storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { --label_indices.at(label); });
+        }
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
+          storage_->edge_types_to_auto_index_.WithLock(
+              [&](auto &edge_type_indices) { --edge_type_indices.at(edge_type); });
+        }
+      }
+
       // INDICES
       for (auto const &[label, vertices] : label_cleanup) {
         storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
@@ -1289,8 +1354,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    LabelId label, bool unique_access_needed) {
+  if (unique_access_needed) {
+    MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1318,8 +1386,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    EdgeTypeId edge_type, bool unique_access_needed) {
+  if (unique_access_needed) {
+    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->CreateIndex(edge_type, in_memory->vertices_.access())) {
@@ -2326,6 +2396,7 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
 
   static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
   static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+  static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
 
   // SkipList is already threadsafe
   vertices_.run_gc();
@@ -2455,6 +2526,24 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
+}
+
+void InMemoryStorage::InMemoryAccessor::DropGraph() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // we take the control from the GC to clear any deltas
+  auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+  mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
+
+  // also, we're the only transaction running, so we can safely remove the data as well
+  mem_storage->indices_.DropGraphClearIndices();
+  mem_storage->constraints_.DropGraphClearConstraints();
+
+  mem_storage->vertices_.clear();
+  mem_storage->edges_.clear();
+
+  memory::PurgeUnusedMemory();
 }
 
 }  // namespace memgraph::storage

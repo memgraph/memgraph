@@ -115,6 +115,8 @@ class InMemoryLabelIndex : public storage::LabelIndex {
 
   bool DeleteIndexStats(const storage::LabelId &label);
 
+  void DropGraphClearIndices() override;
+
  private:
   std::map<LabelId, utils::SkipList<Entry>> index_;
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
