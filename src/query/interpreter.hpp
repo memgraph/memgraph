@@ -447,6 +447,8 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
 
+  MG_ASSERT(1 == 0, "I will fail deliberately here!");
+
   // Each prepared query has its own summary so we need to somehow preserve
   // it after it finishes executing because it gets destroyed alongside
   // the prepared query and its execution memory.
