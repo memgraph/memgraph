@@ -199,6 +199,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Wno-c99-designator -Wmissing-field-initializers \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
 
+add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>)
+
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
