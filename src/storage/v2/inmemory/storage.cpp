@@ -30,7 +30,6 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
@@ -2477,8 +2476,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   };
 
   // Run the snapshot thread (if enabled)
-  if (storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL &&
-      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this, token = stop_source.get_token()]() {
       if (!token.stop_requested()) {
         this->create_snapshot_handler();
