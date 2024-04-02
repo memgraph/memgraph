@@ -119,6 +119,14 @@ modifications:
     value: "false"
     override: true
 
+  - name: "storage_automatic_label_index_creation_enabled"
+    value: "false"
+    override: true
+
+  - name: "storage_automatic_edge_type_index_creation_enabled"
+    value: "false"
+    override: true
+
   - name: "storage_enable_edges_metadata"
     value: "false"
     override: true
