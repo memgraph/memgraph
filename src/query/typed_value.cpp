@@ -300,7 +300,8 @@ TypedValue::operator storage::PropertyValue() const {
     case TypedValue::Type::List:
       return storage::PropertyValue(std::vector<storage::PropertyValue>(list_v.begin(), list_v.end()));
     case TypedValue::Type::Map: {
-      std::map<std::string, storage::PropertyValue> map;
+      storage::PropertyValue::map_t map{};
+      map.reserve(map_v.size());
       for (const auto &kv : map_v) map.emplace(kv.first, kv.second);
       return storage::PropertyValue(std::move(map));
     }

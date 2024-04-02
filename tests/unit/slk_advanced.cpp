@@ -50,7 +50,7 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
-  std::map<std::string, memgraph::storage::PropertyValue> original{
+  memgraph::storage::PropertyValue::map_t original{
       {"hello", memgraph::storage::PropertyValue("world")},
       {"number", memgraph::storage::PropertyValue(5)},
       {"real", memgraph::storage::PropertyValue(1.123423)},
@@ -69,7 +69,7 @@ TEST(SlkAdvanced, PropertyValueMap) {
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  std::map<std::string, memgraph::storage::PropertyValue> decoded;
+  memgraph::storage::PropertyValue::map_t decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 
@@ -91,7 +91,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(vec_v[4].type(), memgraph::storage::PropertyValue::Type::Null);
   ASSERT_EQ(vec_v[5].type(), memgraph::storage::PropertyValue::Type::TemporalData);
 
-  std::map<std::string, memgraph::storage::PropertyValue> map_v{
+  memgraph::storage::PropertyValue::map_t map_v{
       {"hello", memgraph::storage::PropertyValue("world")},
       {"number", memgraph::storage::PropertyValue(5)},
       {"real", memgraph::storage::PropertyValue(1.123423)},

@@ -74,8 +74,8 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(values))), "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"hello", memgraph::storage::PropertyValue(1)},
-                                                              {"there", memgraph::storage::PropertyValue(2)}};
+  memgraph::storage::PropertyValue::map_t map{{"hello", memgraph::storage::PropertyValue(1)},
+                                              {"there", memgraph::storage::PropertyValue(2)}};
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(map))), "{\"hello\": 1, \"there\": 2}");
 
   std::vector<memgraph::storage::PropertyValue> tt_vec{

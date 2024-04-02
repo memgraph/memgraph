@@ -3218,8 +3218,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query,
-                       const std::map<std::string, storage::PropertyValue> &user_parameters,
+Callback CreateTrigger(TriggerQuery *trigger_query, const storage::PropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
@@ -3273,7 +3272,7 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, CurrentDB &current_db,
                                   InterpreterContext *interpreter_context,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
+                                  const storage::PropertyValue::map_t &user_parameters,
                                   std::shared_ptr<QueryUserOrRole> user_or_role) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -4560,7 +4559,7 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 #endif
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params,
+                                                const storage::PropertyValue::map_t &params,
                                                 QueryExtras const &extras) {
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.

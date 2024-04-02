@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include <boost/container/flat_map.hpp>
+
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
 #include "utils/concepts.hpp"
@@ -263,6 +265,7 @@ inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
 
 MAKE_MAP_SAVE(std::map)
 MAKE_MAP_SAVE(std::unordered_map)
+MAKE_MAP_SAVE(boost::container::flat_map)
 
 #undef MAKE_MAP_SAVE
 
@@ -282,6 +285,20 @@ MAKE_MAP_SAVE(std::unordered_map)
 
 MAKE_MAP_LOAD(std::map)
 MAKE_MAP_LOAD(std::unordered_map)
+
+template <typename K, typename V>
+inline void Load(boost::container::flat_map<K, V> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->reserve(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    K key;
+    V value;
+    Load(&key, reader);
+    Load(&value, reader);
+    obj->emplace(std::move(key), std::move(value));
+  }
+}
 
 #undef MAKE_MAP_LOAD
 

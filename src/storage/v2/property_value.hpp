@@ -20,6 +20,8 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
+#include <boost/container/flat_map.hpp>
+
 namespace memgraph::storage {
 
 /// An exception raised by the PropertyValue. Typically when trying to perform
@@ -49,6 +51,8 @@ class PropertyValue {
     TemporalData = 7
   };
 
+  using map_t = boost::container::flat_map<std::string, PropertyValue>;
+
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
   }
@@ -74,7 +78,7 @@ class PropertyValue {
   /// @throw std::bad_alloc
   explicit PropertyValue(std::vector<PropertyValue> value) : list_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(std::map<std::string, PropertyValue> value) : map_v{.val_ = std::move(value)} {}
+  explicit PropertyValue(map_t value) : map_v{.val_ = std::move(value)} {}
 
   // copy constructor
   /// @throw std::bad_alloc
@@ -177,7 +181,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  const std::map<std::string, PropertyValue> &ValueMap() const {
+  auto ValueMap() const -> map_t const & {
     if (type_ != Type::Map) [[unlikely]] {
       throw PropertyValueException("The value isn't a map!");
     }
@@ -202,7 +206,7 @@ class PropertyValue {
   }
 
   /// @throw PropertyValueException if value isn't of correct type.
-  std::map<std::string, PropertyValue> &ValueMap() {
+  auto ValueMap() -> map_t & {
     if (type_ != Type::Map) [[unlikely]] {
       throw PropertyValueException("The value isn't a map!");
     }
@@ -236,7 +240,7 @@ class PropertyValue {
     } list_v;
     struct {
       Type type_ = Type::Map;
-      std::map<std::string, PropertyValue> val_;
+      map_t val_;
     } map_v;
     struct {
       Type type_ = Type::TemporalData;

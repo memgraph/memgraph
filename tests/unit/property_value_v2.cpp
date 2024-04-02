@@ -401,7 +401,7 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(123)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(123)}};
   memgraph::storage::PropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
@@ -455,7 +455,7 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(123)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(123)}};
   memgraph::storage::PropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
@@ -510,7 +510,7 @@ TEST(PropertyValue, MapMove) {
 TEST(PropertyValue, CopyConstructor) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -556,7 +556,7 @@ TEST(PropertyValue, CopyConstructor) {
 TEST(PropertyValue, MoveConstructor) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -604,7 +604,7 @@ TEST(PropertyValue, MoveConstructor) {
 TEST(PropertyValue, CopyAssignment) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -652,7 +652,7 @@ TEST(PropertyValue, CopyAssignment) {
 TEST(PropertyValue, MoveAssignment) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -723,7 +723,7 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 TEST(PropertyValue, Equal) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),          memgraph::storage::PropertyValue(true),
       memgraph::storage::PropertyValue(123),       memgraph::storage::PropertyValue(123.5),
@@ -744,7 +744,7 @@ TEST(PropertyValue, Equal) {
 TEST(PropertyValue, Less) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),          memgraph::storage::PropertyValue(true),
       memgraph::storage::PropertyValue(123),       memgraph::storage::PropertyValue(123.5),

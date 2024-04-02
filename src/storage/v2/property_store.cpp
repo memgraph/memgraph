@@ -580,8 +580,10 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
     case Type::MAP: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      std::map<std::string, PropertyValue> map;
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto const n = *size;
+      PropertyValue::map_t map;
+      map.reserve(n);
+      for (uint64_t i = 0; i < n; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);

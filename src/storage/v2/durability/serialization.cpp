@@ -307,8 +307,10 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::map<std::string, PropertyValue> value;
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto const n = *size;
+      PropertyValue::map_t value;
+      value.reserve(n);
+      for (uint64_t i = 0; i < n; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
         auto item = ReadPropertyValue();

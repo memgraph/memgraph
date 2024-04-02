@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,7 @@ nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyV
   return array;
 }
 
-nlohmann::json SerializePropertyValueMap(const std::map<std::string, storage::PropertyValue> &parameters) {
+nlohmann::json SerializePropertyValueMap(const storage::PropertyValue::map_t &parameters) {
   nlohmann::json data = nlohmann::json::object();
   data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
   data.emplace("value", nlohmann::json::object());
@@ -112,11 +112,12 @@ std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann:
   return property_values;
 }
 
-std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
+storage::PropertyValue::map_t DeserializePropertyValueMap(const nlohmann::json::object_t &data) {
   MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
-  std::map<std::string, storage::PropertyValue> property_values;
+  storage::PropertyValue::map_t property_values;
 
   const nlohmann::json::object_t &values = data.at("value");
+  property_values.reserve(values.size());
   for (const auto &[key, value] : values) {
     property_values.emplace(key, DeserializePropertyValue(value));
   }

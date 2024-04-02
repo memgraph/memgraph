@@ -50,8 +50,6 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
-
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
     return it;
@@ -534,7 +532,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       interpreter->Abort();
     }};
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static storage::PropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
