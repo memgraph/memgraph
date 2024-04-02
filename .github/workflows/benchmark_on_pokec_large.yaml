@@ -24,9 +24,12 @@ jobs:
     name: "Benchmark on pokec large dataset"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     env:
-        THREADS: 24
-        MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-        MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-11
+      TOOLCHAIN: v5
+      ARCH: amd
 
     steps:
         - name: Set up repository
