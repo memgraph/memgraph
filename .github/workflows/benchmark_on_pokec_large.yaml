@@ -53,13 +53,13 @@ jobs:
             --arch $ARCH \
             run
 
-        - name: Build debug binary
+        - name: Build binary
           run: |
             ./release/package/mgbuild.sh \
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
-            --build-type  ${{ github.event.inputs.build_type }} \
+            --build-type  ${{ github.event.inputs.build_type || 'Release' }} \
             --threads $THREADS \
             build-memgraph
 
