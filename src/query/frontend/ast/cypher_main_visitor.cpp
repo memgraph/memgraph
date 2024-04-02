@@ -363,6 +363,12 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
   return edge_import_mode_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext * /*ctx*/) {
+  auto *drop_graph_query = storage_->Create<DropGraphQuery>();
+  query_ = drop_graph_query;
+  return drop_graph_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetReplicationRoleContext *ctx) {
   auto *replication_query = storage_->Create<ReplicationQuery>();
   replication_query->action_ = ReplicationQuery::Action::SET_REPLICATION_ROLE;

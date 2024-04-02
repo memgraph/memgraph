@@ -154,6 +154,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction);
 
+  void DropGraphClearIndices() override;
+
  private:
   std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
   std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;

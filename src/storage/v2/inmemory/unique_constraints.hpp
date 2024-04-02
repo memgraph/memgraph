@@ -129,6 +129,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   void Clear() override;
 
+  void DropGraphClearConstraints();
+
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);
 
