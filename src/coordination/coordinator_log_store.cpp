@@ -34,9 +34,10 @@ CoordinatorLogStore::CoordinatorLogStore() : start_idx_(1) {
   logs_[0] = cs_new<log_entry>(0, buf);
 }
 
-CoordinatorLogStore::~CoordinatorLogStore() {}
+CoordinatorLogStore::~CoordinatorLogStore() = default;
 
 auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry> {
+  spdlog::debug("    find or default {}", index);
   auto entry = logs_.find(index);
   if (entry == logs_.end()) {
     entry = logs_.find(0);
@@ -46,12 +47,15 @@ auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry>
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
-  return start_idx_ + logs_.size() - 1;
+  auto slot = start_idx_ + logs_.size() - 1;
+  spdlog::trace("next slot is {}", slot);
+  return slot;
 }
 
 uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
 
 ptr<log_entry> CoordinatorLogStore::last_entry() const {
+  spdlog::trace("last entry called log store");
   auto lock = std::lock_guard{logs_lock_};
 
   uint64_t const last_idx = start_idx_ + logs_.size() - 1;
@@ -65,6 +69,7 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
 
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
+  spdlog::trace("append entry on slot {} in log store", next_slot);
   logs_[next_slot] = clone;
 
   return next_slot;
@@ -73,6 +78,7 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
 // TODO: (andi) I think this is used for resolving conflicts inside NuRaft, check...
 // different compared to in_memory_log_store.cxx
 void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
+  spdlog::trace("write ate {} index log store", index);
   ptr<log_entry> clone = MakeClone(entry);
 
   // Discard all logs equal to or greater than `index.
@@ -106,15 +112,18 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
 ptr<log_entry> CoordinatorLogStore::entry_at(uint64_t index) {
   auto lock = std::lock_guard{logs_lock_};
   ptr<log_entry> src = FindOrDefault_(index);
+  spdlog::trace("entry_at index  {} in log store", index);
   return MakeClone(src);
 }
 
 uint64_t CoordinatorLogStore::term_at(uint64_t index) {
   auto lock = std::lock_guard{logs_lock_};
+  spdlog::trace("term_at {} in log store", index);
   return FindOrDefault_(index)->get_term();
 }
 
 ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
+  spdlog::trace(" pack log store index {}  cnt {}", index, cnt);
   std::vector<ptr<buffer>> logs;
 
   size_t size_total = 0;
@@ -143,6 +152,7 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
 }
 
 void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
+  spdlog::trace("applied pack log store on index {}", index);
   pack.pos(0);
   int32 const num_logs = pack.get_int();
 
@@ -173,6 +183,7 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
+  spdlog::trace("compact called  {} ", last_log_index);
   auto lock = std::lock_guard{logs_lock_};
   for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);

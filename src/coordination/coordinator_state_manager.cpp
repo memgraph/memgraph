@@ -55,6 +55,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   // Just keep in memory in this example.
   // Need to write to disk here, if want to make it durable.
+  spdlog::trace("save state");
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
 }
@@ -62,6 +63,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
   // Just return in-memory data in this example.
   // May require reading from disk here, if it has been written to disk.
+  spdlog::trace("read state");
   return saved_state_;
 }
 

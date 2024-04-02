@@ -79,6 +79,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                         &CoordinatorInstance::DemoteFailCallback);
                 });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
+            thread_pool_.AddTask([this]() { raft_state_.AppendEmptyLog(raft_state_.InstanceName()); });
           },
           [this]() {
             thread_pool_.AddTask([this]() {

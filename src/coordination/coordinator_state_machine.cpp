@@ -46,6 +46,10 @@ auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
 }
 
+auto CoordinatorStateMachine::SerializeAppendEmptyLog(std::string_view name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::EMPTY_LOG}, {"info", std::string(name)}});
+}
+
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
@@ -99,6 +103,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
+    case RaftLogAction::EMPTY_LOG:
       return {info.get<std::string>(), action};
   }
   throw std::runtime_error("Unknown action");
@@ -174,7 +179,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
 
     auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
-    DMG_ASSERT(entry != snapshots_.end());
+    MG_ASSERT(entry != snapshots_.end());
     entry->second->cluster_state_ = cluster_state;
   }
   obj_id++;
@@ -188,6 +193,8 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   if (entry == snapshots_.end()) return false;
 
   cluster_state_ = entry->second->cluster_state_;
+  // TODO(antoniofilipovic) Is this true
+  // last_committed_idx_=s.get_last_log_idx();
   return true;
 }
 
@@ -197,13 +204,19 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
   spdlog::debug("last_snapshot");
   auto entry = snapshots_.rbegin();
-  if (entry == snapshots_.rend()) return nullptr;
+  if (entry == snapshots_.rend()) {
+    spdlog::trace("it is nullptr");
+    return nullptr;
+  }
 
   ptr<SnapshotCtx> ctx = entry->second;
   return ctx->snapshot_;
 }
 
-auto CoordinatorStateMachine::last_commit_index() -> ulong { return last_committed_idx_; }
+auto CoordinatorStateMachine::last_commit_index() -> ulong {
+  spdlog::trace("Last committed index from state machine {}", last_committed_idx_);
+  return last_committed_idx_;
+}
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   spdlog::debug("create_snapshot, last_log_idx: {}", s.get_last_log_idx());

@@ -68,6 +68,7 @@ auto RaftState::InitRaftServer() -> void {
   raft_server::init_options init_opts;
 
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
+    spdlog::trace("callback with type {}", int(event_type));
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
@@ -192,6 +193,24 @@ auto RaftState::AppendOpenLock() -> bool {
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
+    return false;
+  }
+
+  return true;
+}
+
+auto RaftState::AppendEmptyLog(std::string_view name) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeAppendEmptyLog(name);
+  auto const res = raft_server_->append_entries({new_log});
+
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept for empty log");
+    return false;
+  }
+  spdlog::trace("Accepted request for  empty log");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("failed to add empty log {}", int(res->get_result_code()));
     return false;
   }
 
