@@ -42,27 +42,6 @@ class CoordinatorInstanceTest : public ::testing::Test {
                                             "MG_tests_unit_coordinator_instance"};
 };
 
-// TEST_F(CoordinatorInstanceTest, RegisterReplicationInstance) {
-//   auto const init_config =
-//       CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
-//   auto instance1 = CoordinatorInstance{init_config};
-//
-//   auto const coord_to_replica_config =
-//       CoordinatorToReplicaConfig{.instance_name = "instance3",
-//                                  .mgt_server = Endpoint{"0.0.0.0", 10112},
-//                                  .bolt_server = Endpoint{"0.0.0.0", 7687},
-//                                  .replication_client_info = {.instance_name = "instance_name",
-//                                                              .replication_mode = ReplicationMode::ASYNC,
-//                                                              .replication_server = Endpoint{"0.0.0.0", 10001}},
-//                                  .instance_health_check_frequency_sec = std::chrono::seconds{1},
-//                                  .instance_down_timeout_sec = std::chrono::seconds{5},
-//                                  .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-//                                  .ssl = std::nullopt};
-//
-//   auto status = instance1.RegisterReplicationInstance(coord_to_replica_config);
-//   EXPECT_EQ(status, RegisterInstanceCoordinatorStatus::RPC_FAILED);
-// }
-
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
   auto const init_config =
@@ -70,7 +49,7 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
-  ASSERT_EQ(instances.size(), 0);
+  ASSERT_EQ(instances.size(), 1);
 }
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {

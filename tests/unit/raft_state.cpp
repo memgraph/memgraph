@@ -51,7 +51,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   ASSERT_TRUE(raft_state.GetReplicationInstances().empty());
 
   auto const coords = raft_state.GetCoordinatorInstances();
-  ASSERT_EQ(coords.size(), 0);
+  ASSERT_EQ(coords.size(), 1);
 }
 
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
@@ -67,7 +67,8 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   ASSERT_EQ(routing_table.size(), 1);
 
   auto const routers = routing_table[0];
-  ASSERT_TRUE(routers.first.empty());
+  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7688"};
+  ASSERT_EQ(routers.first, expected_routers);
   ASSERT_EQ(routers.second, "ROUTE");
 }
 
@@ -102,12 +103,6 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10003}}});
 
-  leader.AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 2, .bolt_server = Endpoint{"0.0.0.0", 7691}, .coordinator_server = Endpoint{"0.0.0.0", 10114}});
-
-  leader.AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 3, .bolt_server = Endpoint{"0.0.0.0", 7692}, .coordinator_server = Endpoint{"0.0.0.0", 10115}});
-
   leader.AppendSetInstanceAsMainLog("instance1", UUID{});
 
   auto const routing_table = leader.GetRoutingTable();
@@ -125,6 +120,6 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   auto const &routers = routing_table[2];
   ASSERT_EQ(routers.second, "ROUTE");
-  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7691", "0.0.0.0:7692"};
+  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7690"};
   ASSERT_EQ(routers.first, expected_routers);
 }

@@ -76,11 +76,6 @@ auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate 
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
 
-auto CoordinatorStateMachine::SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
-    -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::ADD_COORDINATOR_INSTANCE}, {"info", config}});
-}
-
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
@@ -101,13 +96,10 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
       return {info.get<InstanceUUIDUpdate>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
-      [[fallthrough]];
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
       return {info.get<std::string>(), action};
-    case RaftLogAction::ADD_COORDINATOR_INSTANCE:
-      return {info.get<CoordinatorToCoordinatorConfig>(), action};
   }
   throw std::runtime_error("Unknown action");
 }
@@ -245,19 +237,12 @@ auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return
 auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) const -> bool {
   return cluster_state_.IsCurrentMain(instance_name);
 }
-auto CoordinatorStateMachine::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
-  return cluster_state_.GetCoordinatorInstances();
-}
 
 auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
   return cluster_state_.GetInstanceUUID(instance_name);
 }
 
 auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.IsLockOpened(); }
-
-auto CoordinatorStateMachine::CoordinatorExists(uint32_t coordinator_id) const -> bool {
-  return cluster_state_.CoordinatorExists(coordinator_id);
-}
 
 }  // namespace memgraph::coordination
 #endif
