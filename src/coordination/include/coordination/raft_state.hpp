@@ -60,7 +60,8 @@ class RaftState {
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
@@ -74,12 +75,9 @@ class RaftState {
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendOpenLock() -> bool;
   auto AppendCloseLock() -> bool;
-  auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
-  auto GetAllCoordinators() const -> std::vector<ptr<srv_config>>;
 
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;

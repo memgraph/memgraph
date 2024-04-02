@@ -524,4 +524,8 @@ void InMemoryUniqueConstraints::Clear() {
 }
 bool InMemoryUniqueConstraints::empty() const { return constraints_.empty() && constraints_by_label_.empty(); }
 
+void InMemoryUniqueConstraints::DropGraphClearConstraints() {
+  constraints_.clear();
+  constraints_by_label_.clear();
+}
 }  // namespace memgraph::storage

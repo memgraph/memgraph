@@ -159,6 +159,7 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropGraphQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -531,3 +532,5 @@ createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
+
+dropGraphQuery : DROP GRAPH ;

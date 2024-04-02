@@ -38,8 +38,8 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb)
     : raft_endpoint_("0.0.0.0", config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>(config)),
-      state_manager_(cs_new<CoordinatorStateManager>(coordinator_id_, raft_endpoint_.SocketAddress())),
+      state_machine_(cs_new<CoordinatorStateMachine>()),
+      state_manager_(cs_new<CoordinatorStateManager>(config)),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
@@ -90,6 +90,7 @@ auto RaftState::InitRaftServer() -> void {
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
   }
+
   auto maybe_stop = utils::ResettableCounter<20>();
   do {
     if (raft_server_->is_initialized()) {
@@ -126,11 +127,12 @@ auto RaftState::InstanceName() const -> std::string { return fmt::format("coordi
 
 auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
 
-auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
   auto const endpoint = config.coordinator_server.SocketAddress();
-  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), endpoint);
+  auto const aux = nlohmann::json(config).dump();
+  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, endpoint, aux, false);
 
   auto cmd_result = raft_server_->add_srv(srv_config_to_add);
 
@@ -160,6 +162,18 @@ auto RaftState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorCon
     throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
                                  max_tries * waiting_period);
   }
+}
+
+auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig> {
+  std::vector<ptr<srv_config>> srv_configs;
+  raft_server_->get_srv_config_all(srv_configs);
+
+  return ranges::views::transform(
+             srv_configs,
+             [](auto const &srv_config) {
+               return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+             }) |
+         ranges::to<std::vector>();
 }
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
@@ -307,28 +321,6 @@ auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
   return true;
 }
 
-auto RaftState::AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeAddCoordinatorInstance(config);
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for adding coordinator instance {}. Most likely the reason is that the instance is "
-        "not the leader.",
-        config.coordinator_id);
-    return false;
-  }
-
-  spdlog::info("Request for adding coordinator instance {} accepted", config.coordinator_id);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to add coordinator instance {} with error code {}", config.coordinator_id,
-                  static_cast<int>(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
 auto RaftState::AppendInstanceNeedsDemote(std::string_view instance_name) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeInstanceNeedsDemote(instance_name);
   auto const res = raft_server_->append_entries({new_log});
@@ -392,16 +384,6 @@ auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::
   return state_machine_->GetInstanceUUID(instance_name);
 }
 
-auto RaftState::GetAllCoordinators() const -> std::vector<ptr<srv_config>> {
-  std::vector<ptr<srv_config>> all_srv_configs;
-  raft_server_->get_srv_config_all(all_srv_configs);
-  return all_srv_configs;
-}
-
-auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
-  return state_machine_->GetCoordinatorInstances();
-}
-
 auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto res = RoutingTable{};
 
@@ -434,8 +416,8 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     res.emplace_back(std::move(bolt_replicas), "READ");
   }
 
-  auto const coord_instance_to_bolt = [](CoordinatorInstanceState const &instance) {
-    return instance.config.bolt_server.SocketAddress();
+  auto const coord_instance_to_bolt = [](CoordinatorToCoordinatorConfig const &instance) {
+    return instance.bolt_server.SocketAddress();
   };
 
   auto const &raft_log_coord_instances = GetCoordinatorInstances();

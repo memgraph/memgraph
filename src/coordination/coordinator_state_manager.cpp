@@ -21,11 +21,14 @@ using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
 
-CoordinatorStateManager::CoordinatorStateManager(int srv_id, std::string const &endpoint)
-    : my_id_(srv_id), my_endpoint_(endpoint), cur_log_store_(cs_new<CoordinatorLogStore>()) {
-  my_srv_config_ = cs_new<srv_config>(srv_id, endpoint);
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config)
+    : my_id_(static_cast<int>(config.coordinator_id)), cur_log_store_(cs_new<CoordinatorLogStore>()) {
+  auto const c2c =
+      CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
+                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id, 0, c2c.coordinator_server.SocketAddress(),
+                                      nlohmann::json(c2c).dump(), false);
 
-  // Initial cluster config: contains only one server (myself).
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
 }
