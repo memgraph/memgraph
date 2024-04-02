@@ -1,0 +1,14 @@
+drop_graph_cluster: &drop_graph_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "drop_graph.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Drop graph"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["drop_graph/drop_graph.py"]
+    <<: *drop_graph_cluster
