@@ -95,8 +95,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
               repl_instances_.clear();
               spdlog::info("Stopped all replication instance frequent checks.");
             });
-          })),
-      config_{config} {
+          })) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
 
@@ -125,10 +124,10 @@ auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_i
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  auto const coord_instance_to_status = [](CoordinatorInstanceState const &instance) -> InstanceStatus {
-    spdlog::trace("Instance {} is coordinator", instance.config.coordinator_id);
-    return {.instance_name = fmt::format("coordinator_{}", instance.config.coordinator_id),
-            .raft_socket_address = instance.config.coordinator_server.SocketAddress(),
+  auto const coord_instance_to_status = [](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+    spdlog::trace("Instance {} is coordinator", instance.coordinator_id);
+    return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
+            .raft_socket_address = instance.coordinator_server.SocketAddress(),
             .cluster_role = "coordinator",
             .health = "unknown"};
   };
@@ -158,9 +157,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     }
   } else {
-    auto const stringify_inst_status = [raft_state_ptr = &raft_state_](
-                                           utils::UUID const &main_uuid,
-                                           ReplicationInstanceState const &instance) -> std::string {
+    auto const stringify_inst_status = [raft_state_ptr =
+                                            &raft_state_](ReplicationInstanceState const &instance) -> std::string {
       if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
         return "main";
       }
@@ -172,9 +170,9 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
 
     // TODO: (andi) Add capability that followers can also return socket addresses
     auto process_repl_instance_as_follower =
-        [this, &stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
+        [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
-              .cluster_role = stringify_inst_status(raft_state_.GetCurrentMainUUID(), instance),
+              .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };
 
@@ -575,16 +573,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
-  if (!raft_state_.CoordinatorExists(config_.coordinator_id)) {
-    auto const self_c2c_config = CoordinatorToCoordinatorConfig{
-        .coordinator_id = config_.coordinator_id,
-        .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.bolt_port)},
-        .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.coordinator_port)}};
-    if (!raft_state_.AppendAddCoordinatorInstanceLog(self_c2c_config)) {
-      spdlog::error("Failed to append add coordinator instance log for self!");
-    }
-  }
-
   utils::OnScopeExit do_reset{[this]() {
     if (raft_state_.IsLockOpened() && raft_state_.IsLeader()) {
       spdlog::trace(
@@ -693,25 +681,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_.InstanceName());
 
-  if (!raft_state_.CoordinatorExists(config_.coordinator_id)) {
-    auto const self_c2c_config = CoordinatorToCoordinatorConfig{
-        .coordinator_id = config_.coordinator_id,
-        .bolt_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.bolt_port)},
-        .coordinator_server = io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config_.coordinator_port)}};
-    if (!raft_state_.AppendAddCoordinatorInstanceLog(self_c2c_config)) {
-      spdlog::error("Failed to append self config to raft log!");
-    }
-  }
-
   raft_state_.AddCoordinatorInstance(config);
-  // NOTE: We ignore error we added coordinator instance to networking stuff but not in raft log.
-  if (!raft_state_.AppendAddCoordinatorInstanceLog(config)) {
-    spdlog::error("Failed to append add coordinator instance log");
-  }
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
