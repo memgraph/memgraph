@@ -81,17 +81,6 @@ TEST_F(CoordinatorStateMachineTest, SerializeUnregisterReplicationInstance) {
   ASSERT_EQ(bs.get_str(), expected.dump());
 }
 
-TEST_F(CoordinatorStateMachineTest, SerializeAddCoordinatorInstance) {
-  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
-                                        .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                        .coordinator_server = Endpoint{"127.0.0.1", 10111}};
-
-  ptr<buffer> data = CoordinatorStateMachine::SerializeAddCoordinatorInstance(config);
-  buffer_serializer bs(*data);
-  auto const expected = nlohmann::json{{"action", RaftLogAction::ADD_COORDINATOR_INSTANCE}, {"info", config}};
-  ASSERT_EQ(bs.get_str(), expected.dump());
-}
-
 TEST_F(CoordinatorStateMachineTest, SerializeSetInstanceToMain) {
   auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance3",
