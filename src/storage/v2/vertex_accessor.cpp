@@ -118,6 +118,18 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
 
+  if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+      !storage_->indices_.label_index_->IndexExists(label)) {
+    storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+      if (auto it = label_indices.find(label); it != label_indices.end()) {
+        ++(it->second);
+        return;
+      }
+      label_indices.insert({label, 1});
+    });
+    transaction_->introduced_new_label_index_.insert(label);
+  }
+
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);

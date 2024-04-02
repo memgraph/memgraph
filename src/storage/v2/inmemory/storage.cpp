@@ -317,6 +317,18 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
+  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
+      !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
+    storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+      if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
+        ++(it->second);
+        return;
+      }
+      edge_type_indices.insert({edge_type, 1});
+    });
+    transaction_.introduced_new_edge_type_index_.insert(edge_type);
+  }
+
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
@@ -830,6 +842,37 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     {
       std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+          for (auto &label : label_indices) {
+            --label.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific label, we only build the index
+            // when the last one commits.
+            if (label.second == 0) {
+              CreateIndex(label.first, false);
+              label_indices.erase(label.first);
+            }
+          }
+        });
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+          for (auto &edge_type : edge_type_indices) {
+            --edge_type.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific edge-type, we only build the index
+            // when the last one commits.
+            if (edge_type.second == 0) {
+              CreateIndex(edge_type.first, false);
+              edge_type_indices.erase(edge_type.first);
+            }
+          }
+        });
+      }
+
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
       commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
@@ -1234,6 +1277,20 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       /// before we unlink (aka. remove) vertices from storage
       /// this is because they point into vertices skip_list
 
+      // auto index creation cleanup
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        for (const auto label : transaction_.introduced_new_label_index_) {
+          storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { --label_indices.at(label); });
+        }
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
+          storage_->edge_types_to_auto_index_.WithLock(
+              [&](auto &edge_type_indices) { --edge_type_indices.at(edge_type); });
+        }
+      }
+
       // INDICES
       for (auto const &[label, vertices] : label_cleanup) {
         storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
@@ -1289,8 +1346,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    LabelId label, bool unique_access_needed) {
+  if (unique_access_needed) {
+    MG_ASSERT(unique_guard_.owns_lock(), "Creating label index requires a unique access to the storage!");
+  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
   if (!mem_label_index->CreateIndex(label, in_memory->vertices_.access(), std::nullopt)) {
@@ -1318,8 +1378,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    EdgeTypeId edge_type, bool unique_access_needed) {
+  if (unique_access_needed) {
+    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  }
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->CreateIndex(edge_type, in_memory->vertices_.access())) {
