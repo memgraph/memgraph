@@ -14,6 +14,4 @@ import helpers
 
 class BenchmarkResults:
     def __init__(self) -> None:
-        self.in_memory_txn_results = helpers.RecursiveDict()
-        self.in_memory_analytical_results = helpers.RecursiveDict()
-        self.disk_results = helpers.RecursiveDict()
+        self.results = helpers.RecursiveDict()

@@ -57,8 +57,6 @@ class BenchmarkContext:
         self.no_load_query_counts = no_load_query_counts
         self.no_save_query_counts = no_save_query_counts
         self.export_results = export_results
-        self.export_results_in_memory_analytical = export_results_in_memory_analytical
-        self.export_results_on_disk_txn = export_results_on_disk_txn
         self.temporary_directory = temporary_directory
 
         assert (

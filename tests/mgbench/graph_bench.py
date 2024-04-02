@@ -23,7 +23,7 @@ def parse_arguments():
     )
     parser.add_argument(
         "--vendor",
-        nargs=2,
+        nargs="+",
         action="append",
         metavar=("vendor_name", "vendor_binary"),
         help="Forward name and paths to vendors binary"
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     realistic = args.realistic
     mixed = args.mixed
 
-    vendor_names = {"memgraph", "neo4j"}
+    vendor_names = {"memgraph-inmemory-transactional", "memgraph-inmemory-analytical", "memgraph-ondisk" "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
         if vendor_name.lower() in vendor_names and path.is_file():

@@ -207,7 +207,7 @@ def parse_args():
     parser_vendor_native.add_argument(
         "--vendor-name",
         default="memgraph",
-        choices=["memgraph", "neo4j"],
+        choices=["memgraph-inmemory-transactional", "memgraph-inmemory-analytical", "memgraph-ondisk" "neo4j"],
         help="Input vendor binary name (memgraph, neo4j)",
     )
     parser_vendor_native.add_argument(
@@ -632,7 +632,7 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    if benchmark_context.vendor_name == "memgraph":
+    if benchmark_context.vendor_name.startswith("memgraph"):
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
@@ -696,17 +696,15 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
         benchmark_context.set_active_workload(workload.NAME)
         benchmark_context.set_active_variant(workload.get_variant())
 
-        if workload.is_disk_workload() and benchmark_context.export_results_on_disk_txn:
-            run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.disk_results)
-        else:
-            run_in_memory_transactional_benchmark(
-                benchmark_context, workload, bench_queries, bench_results.in_memory_txn_results
-            )
-
-            if benchmark_context.export_results_in_memory_analytical:
-                run_in_memory_analytical_benchmark(
-                    benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
-                )
+        if benchmark_context.export_results and benchmark_context.vendor_name in [
+            "memgraph-inmemory-transactional",
+            "neo4j",
+        ]:
+            run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.results)
+        elif benchmark_context.export_results and benchmark_context.vendor_name == "memgraph-inmemory-analytical":
+            run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, bench_results.results)
+        elif benchmark_context.export_results and benchmark_context.vendor_name == "memgraph-ondisk":
+            run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, bench_results.results)
 
 
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
@@ -844,7 +842,7 @@ if __name__ == "__main__":
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
         vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
-        vendor_name=args.vendor_name.replace("-", ""),
+        vendor_name=args.vendor_name,
         client_binary=args.client_binary if args.run_option == "vendor-native" else None,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
@@ -891,9 +889,16 @@ if __name__ == "__main__":
     on_disk_transactional_run_config[STORAGE_MODE] = ON_DISK_TRANSACTIONAL
 
     bench_results = BenchmarkResults()
-    bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
-    bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
-    bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
+    if benchmark_context.vendor_name in ["memgraph-inmemory-transactional", "neo4j"]:
+        bench_results.results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
+    elif benchmark_context.vendor_name == "memgraph-inmemory-analytical":
+        bench_results.results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
+    elif benchmark_context.vendor_name == "memgraph-ondisk":
+        bench_results.results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
+
+    # bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
+    # bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
+    # bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -909,17 +914,7 @@ if __name__ == "__main__":
     if not benchmark_context.no_save_query_counts:
         cache.save_config(config)
 
-    log_benchmark_summary(bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL)
+    log_benchmark_summary(bench_results.results.get_data(), benchmark_context.vendor_name.replace("-", "_").upper())
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
-            json.dump(bench_results.in_memory_txn_results.get_data(), f)
-
-    log_benchmark_summary(bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL)
-    if benchmark_context.export_results_in_memory_analytical:
-        with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
-            json.dump(bench_results.in_memory_analytical_results.get_data(), f)
-
-    log_benchmark_summary(bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL)
-    if benchmark_context.export_results_on_disk_txn:
-        with open(benchmark_context.export_results_on_disk_txn, "w") as f:
-            json.dump(bench_results.disk_results.get_data(), f)
+            json.dump(bench_results.results.get_data(), f)
