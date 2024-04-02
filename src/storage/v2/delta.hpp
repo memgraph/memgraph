@@ -284,6 +284,12 @@ struct Delta {
   };
 };
 
+static_assert(sizeof(Delta::old_disk_key) == 16);
+static_assert(sizeof(Delta::label) == 8);
+static_assert(sizeof(Delta::property) == 16);
+static_assert(sizeof(Delta::vertex_edge) == 24);
+static_assert(sizeof(storage::PropertyValue) == 40);
+
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
 }  // namespace memgraph::storage

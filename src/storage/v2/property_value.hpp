@@ -37,7 +37,10 @@ class PropertyValueException : public utils::BasicException {
 ///
 /// Values can be of a number of predefined types that are enumerated in
 /// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
-class PropertyValue {
+template <typename Alloc>
+class PropertyValueImpl {
+  using allocator_type = std::allocator_traits<Alloc>::template rebind_alloc<PropertyValueImpl>;
+
  public:
   /// A value type, each type corresponds to exactly one C++ type.
   enum class Type : uint8_t {
@@ -51,55 +54,51 @@ class PropertyValue {
     TemporalData = 7
   };
 
-  using string_t = std::basic_string<char, std::char_traits<char>, std::allocator<char>>;
-  using map_t = boost::container::flat_map<string_t, PropertyValue, std::less<>,
-                                           std::allocator<std::pair<string_t, PropertyValue>>>;
-  using list_t = std::vector<PropertyValue, std::allocator<PropertyValue>>;
+  using string_t = std::basic_string<char, std::char_traits<char>,
+                                     typename std::allocator_traits<allocator_type>::template rebind_alloc<char>>;
+  using map_t = boost::container::flat_map<
+      string_t, PropertyValueImpl, std::less<>,
+      typename std::allocator_traits<allocator_type>::template rebind_alloc<std::pair<string_t, PropertyValueImpl>>>;
+  using list_t = std::vector<PropertyValueImpl, allocator_type>;
 
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
   }
 
   /// Make a Null value
-  PropertyValue() : type_(Type::Null) {}
+  PropertyValueImpl() : type_(Type::Null) {}
 
   // constructors for primitive types
-  explicit PropertyValue(const bool value) : bool_v{.val_ = value} {}
-  explicit PropertyValue(const int value) : int_v{.val_ = value} {}
-  explicit PropertyValue(const int64_t value) : int_v{.val_ = value} {}
-  explicit PropertyValue(const double value) : double_v{.val_ = value} {}
-  explicit PropertyValue(const TemporalData value) : temporal_data_v{.val_ = value} {}
+  explicit PropertyValueImpl(const bool value) : bool_v{.val_ = value} {}
+  explicit PropertyValueImpl(const int value) : int_v{.val_ = value} {}
+  explicit PropertyValueImpl(const int64_t value) : int_v{.val_ = value} {}
+  explicit PropertyValueImpl(const double value) : double_v{.val_ = value} {}
+  explicit PropertyValueImpl(const TemporalData value) : temporal_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValue(string_t value) : string_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(string_t value) : string_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValue(std::string_view value) : string_v{.val_ = string_t(value)} {}
-  explicit PropertyValue(char const *value) : string_v{.val_ = string_t(value)} {}
+  explicit PropertyValueImpl(std::string_view value) : string_v{.val_ = string_t(value)} {}
+  explicit PropertyValueImpl(char const *value) : string_v{.val_ = string_t(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(list_t value) : list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(list_t value) : list_v{.val_ = std::move(value)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValue(map_t value) : map_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(map_t value) : map_v{.val_ = std::move(value)} {}
 
-  // copy constructor
-  /// @throw std::bad_alloc
-  PropertyValue(const PropertyValue &other);
+  PropertyValueImpl(const PropertyValueImpl &other);
 
-  // move constructor
-  PropertyValue(PropertyValue &&other) noexcept;
+  PropertyValueImpl(PropertyValueImpl &&other) noexcept;
 
-  // copy assignment
-  /// @throw std::bad_alloc
-  PropertyValue &operator=(const PropertyValue &other);
+  PropertyValueImpl &operator=(const PropertyValueImpl &other);
 
-  // move assignment
-  PropertyValue &operator=(PropertyValue &&other) noexcept;
+  PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept;
   // TODO: Implement copy assignment operators for primitive types.
   // TODO: Implement copy and move assignment operators for non-primitive types.
 
-  ~PropertyValue() {
+  ~PropertyValueImpl() {
     switch (type_) {
       // destructor for primitive types does nothing
       case Type::Null:
@@ -250,7 +249,19 @@ class PropertyValue {
       TemporalData val_;
     } temporal_data_v;
   };
+
+  // size + pmr safe
+  static_assert(sizeof(PropertyValueImpl::bool_v) == 2);            // ✅
+  static_assert(sizeof(PropertyValueImpl::int_v) == 16);            // ✅
+  static_assert(sizeof(PropertyValueImpl::double_v) == 16);         // ✅
+  static_assert(sizeof(PropertyValueImpl::temporal_data_v) == 24);  // ✅
+  static_assert(sizeof(PropertyValueImpl::list_v) == 32);           // ❌
+  static_assert(sizeof(PropertyValueImpl::map_v) == 32);            // ❌
+  static_assert(sizeof(PropertyValueImpl::string_v) == 40);         // ❌
 };
+
+using PropertyValue = PropertyValueImpl<std::allocator<void>>;
+static_assert(sizeof(PropertyValue) == 40);  // total ❌
 
 // stream output
 /// @throw anything std::ostream::operator<< may throw.
@@ -369,7 +380,8 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
 /// NOLINTNEXTLINE(bugprone-exception-escape)
 inline bool operator>(const PropertyValue &first, const PropertyValue &second) noexcept { return second < first; }
 
-inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
+template <typename Alloc>
+PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl const &other) : type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       return;
@@ -397,7 +409,8 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
   }
 }
 
-inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(other.type_) {
+template <typename Alloc>
+PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other) noexcept : type_(other.type_) {
   switch (type_) {
     case Type::Null:
       break;
@@ -425,7 +438,8 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(othe
   }
 }
 
-inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
+template <typename Alloc>
+PropertyValueImpl<Alloc> &PropertyValueImpl<Alloc>::operator=(PropertyValueImpl const &other) {
   if (type_ == other.type_) {
     if (this == &other) return *this;
     switch (other.type_) {
@@ -510,7 +524,8 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
   }
 }
 
-inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
+template <typename Alloc>
+PropertyValueImpl<Alloc> &PropertyValueImpl<Alloc>::operator=(PropertyValueImpl &&other) noexcept {
   if (type_ == other.type_) {
     // maybe the same object, check if no work is required
     if (this == &other) return *this;
