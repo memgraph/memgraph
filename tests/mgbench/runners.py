@@ -375,11 +375,20 @@ class BaseRunner(ABC):
         return
 
     @classmethod
-    def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.vendor_name not in cls.subclasses:
-            raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
+    def _name_helper(cls, name):
+        if name.startswith("memgraph"):
+            return "memgraph"
+        if name.startswith("neo4j"):
+            return "neo4j"
+        return name
 
-        return cls.subclasses[benchmark_context.vendor_name](
+    @classmethod
+    def create(cls, benchmark_context: BenchmarkContext):
+        vendor_name = cls._name_helper(benchmark_context.vendor_name)
+        if vendor_name not in cls.subclasses:
+            raise ValueError("Missing runner with name: {}".format(vendor_name))
+
+        return cls.subclasses[vendor_name](
             benchmark_context=benchmark_context,
         )
 
