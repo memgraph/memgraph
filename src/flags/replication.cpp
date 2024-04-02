@@ -10,14 +10,19 @@
 // licenses/APL.txt.
 
 #include "replication.hpp"
+#include "utils/flag_validation.hpp"
+
+#include <limits>
 
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(coordinator_server_port, 0, "Port on which coordinator servers will be started.");
+DEFINE_VALIDATED_int32(management_port, 0, "Port on which coordinator servers will be started.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(raft_server_port, 0, "Port on which raft servers will be started.");
+DEFINE_VALIDATED_int32(coordinator_port, 0, "Port on which raft servers will be started.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(raft_server_id, 0, "Unique ID of the raft server.");
+DEFINE_uint32(coordinator_id, 0, "Unique ID of the raft server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(instance_down_timeout_sec, 5, "Time duration after which an instance is considered down.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

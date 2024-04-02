@@ -16,7 +16,7 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import add_coordinator, connect, execute_and_fetch_all, safe_execute
+from common import connect, execute_and_fetch_all, safe_execute
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -36,7 +36,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7687",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10011",
             "--also-log-to-stderr",
             "--instance-health-check-frequency-sec",
@@ -55,7 +55,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7688",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10012",
             "--also-log-to-stderr",
             "--instance-health-check-frequency-sec",
@@ -74,7 +74,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "7689",
             "--log-level",
             "TRACE",
-            "--coordinator-server-port",
+            "--management-port",
             "10013",
             "--also-log-to-stderr",
             "--instance-health-check-frequency-sec",
@@ -92,8 +92,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7690",
             "--log-level=TRACE",
-            "--raft-server-id=1",
-            "--raft-server-port=10111",
+            "--coordinator-id=1",
+            "--coordinator-port=10111",
         ],
         "log_file": "coordinator1.log",
         "setup_queries": [],
@@ -104,8 +104,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7691",
             "--log-level=TRACE",
-            "--raft-server-id=2",
-            "--raft-server-port=10112",
+            "--coordinator-id=2",
+            "--coordinator-port=10112",
         ],
         "log_file": "coordinator2.log",
         "setup_queries": [],
@@ -116,8 +116,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--bolt-port",
             "7692",
             "--log-level=TRACE",
-            "--raft-server-id=3",
-            "--raft-server-port=10113",
+            "--coordinator-id=3",
+            "--coordinator-port=10113",
             "--also-log-to-stderr",
         ],
         "log_file": "coordinator3.log",
@@ -133,30 +133,37 @@ def test_writing_disabled_on_main_restart():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     execute_and_fetch_all(
-        coordinator3_cursor, "REGISTER INSTANCE instance_3 ON '127.0.0.1:10013' WITH '127.0.0.1:10003'"
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 1 ON '127.0.0.1:10111'")
-    assert add_coordinator(coordinator3_cursor, "ADD COORDINATOR 2 ON '127.0.0.1:10112'")
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+    )
 
     def check_coordinator3():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_3", "", "127.0.0.1:10013", False, "unknown"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -173,10 +180,10 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", True, "coordinator"),
-        ("coordinator_3", "127.0.0.1:10113", "", True, "coordinator"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)

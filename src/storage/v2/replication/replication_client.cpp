@@ -13,6 +13,7 @@
 
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -53,25 +54,60 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 #endif
 
   std::optional<uint64_t> branching_point;
+  // different epoch id, replica was main
+  // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
+  // we need then just to check commit timestamp
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
+    spdlog::trace(
+        "REPLICA: epoch UUID: {} and last_commit_timestamp: {}; MAIN: epoch UUID {} and last_commit_timestamp {}",
+        std::string(replica.epoch_id), replica.current_commit_timestamp, std::string(replStorageState.epoch_.id()),
+        replStorageState.last_commit_timestamp_);
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
+    // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
+      spdlog::info("Couldn't find epoch {} in MAIN, setting branching point", std::string(replica.epoch_id));
       branching_point = 0;
-    } else if (epoch_info_iter->second != replica.current_commit_timestamp) {
+    } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
+      spdlog::info("Found epoch {} on MAIN with last_commit_timestamp {}, REPLICA's last_commit_timestamp {}",
+                   std::string(epoch_info_iter->first), epoch_info_iter->second, replica.current_commit_timestamp);
       branching_point = epoch_info_iter->second;
     }
   }
   if (branching_point) {
-    spdlog::error(
-        "You cannot register Replica {} to this Main because at one point "
-        "Replica {} acted as the Main instance. Both the Main and Replica {} "
-        "now hold unique data. Please resolve data conflicts and start the "
-        "replication on a clean instance.",
-        client_.name_, client_.name_, client_.name_);
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::DIVERGED_FROM_MAIN; });
+    auto replica_state = replica_state_.Lock();
+    if (*replica_state == replication::ReplicaState::DIVERGED_FROM_MAIN) {
+      return;
+    }
+    *replica_state = replication::ReplicaState::DIVERGED_FROM_MAIN;
+
+    auto log_error = [client_name = client_.name_]() {
+      spdlog::error(
+          "You cannot register Replica {} to this Main because at one point "
+          "Replica {} acted as the Main instance. Both the Main and Replica {} "
+          "now hold unique data. Please resolve data conflicts and start the "
+          "replication on a clean instance.",
+          client_name, client_name, client_name);
+    };
+#ifdef MG_ENTERPRISE
+    if (!FLAGS_management_port) {
+      log_error();
+      return;
+    }
+    client_.thread_pool_.AddTask([storage, gk = std::move(db_acc), this] {
+      const auto [success, timestamp] = this->ForceResetStorage(storage);
+      if (success) {
+        spdlog::info("Successfully reset storage of REPLICA {} to timestamp {}.", client_.name_, timestamp);
+        return;
+      }
+      spdlog::error("You cannot register REPLICA {} to this MAIN because MAIN couldn't reset REPLICA's storage.",
+                    client_.name_);
+    });
+#else
+    log_error();
+#endif
     return;
   }
 
@@ -95,7 +131,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
-  info.current_number_of_timestamp_behind_master = 0;
+  info.current_number_of_timestamp_behind_main = 0;
 
   try {
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
@@ -104,9 +140,9 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
 
     auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
-    info.current_number_of_timestamp_behind_master = response.current_commit_timestamp - main_time_stamp;
+    info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
 
-    if (!is_success || info.current_number_of_timestamp_behind_master != 0) {
+    if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
       replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
     }
@@ -190,9 +226,6 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   }
 }
 
-//////// AF: you can't finialize transaction replication if you are not replicating
-/////// AF: if there is no stream or it is Defunct than we need to set replica in MAYBE_BEHIND -> is that even used
-/////// AF:
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -215,10 +248,12 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
     try {
       auto response = replica_stream_->Finalize();
+      // NOLINTNEXTLINE
       return replica_state_.WithLock([storage, response, db_acc = std::move(db_acc), this](auto &state) mutable {
         replica_stream_.reset();
         if (!response.success || state == replication::ReplicaState::RECOVERY) {
           state = replication::ReplicaState::RECOVERY;
+          // NOLINTNEXTLINE
           client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
             this->RecoverReplica(response.current_commit_timestamp, storage);
           });
@@ -325,6 +360,21 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   }
 }
 
+std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) {
+  utils::OnScopeExit set_to_maybe_behind{
+      [this]() { replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; }); }};
+  try {
+    auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
+    const auto res = stream.AwaitResponse();
+    return std::pair{res.success, res.current_commit_timestamp};
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::error(
+        utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));
+  }
+
+  return {false, 0};
+}
+
 ////// ReplicaStream //////
 ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num,
                              utils::UUID main_uuid)
@@ -356,8 +406,15 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
                                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, label, properties, stats, property_stats,
-                  timestamp);
+  // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2) -> text index name not sent here
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, std::nullopt, label, properties, stats,
+                  property_stats, timestamp);
+}
+
+void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                    uint64_t timestamp) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,8 @@ struct RecoveredIndicesAndConstraints {
     std::vector<std::pair<LabelId, PropertyId>> label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
     std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<EdgeTypeId> edge;
+    std::vector<std::pair<std::string, LabelId>> text_indices;
   } indices;
 
   struct ConstraintsMetadata {

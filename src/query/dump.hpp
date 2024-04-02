@@ -55,6 +55,7 @@ struct PullPlanDump {
 
   PullChunk CreateLabelIndicesPullChunk();
   PullChunk CreateLabelPropertyIndicesPullChunk();
+  PullChunk CreateTextIndicesPullChunk();
   PullChunk CreateExistenceConstraintsPullChunk();
   PullChunk CreateUniqueConstraintsPullChunk();
   PullChunk CreateInternalIndexPullChunk();
@@ -63,5 +64,6 @@ struct PullPlanDump {
   PullChunk CreateDropInternalIndexPullChunk();
   PullChunk CreateInternalIndexCleanupPullChunk();
   PullChunk CreateTriggersPullChunk();
+  PullChunk CreateEdgeTypeIndicesPullChunk();
 };
 }  // namespace memgraph::query

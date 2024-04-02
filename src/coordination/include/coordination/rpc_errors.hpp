@@ -11,4 +11,5 @@
 
 namespace memgraph::coordination {
 enum class GetInstanceUUIDError { NO_RESPONSE, RPC_EXCEPTION };
+enum class GetInstanceTimestampsError { NO_RESPONSE, RPC_EXCEPTION };
 }  // namespace memgraph::coordination

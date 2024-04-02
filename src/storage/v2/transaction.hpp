@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 
+#include "storage/v2/id_types.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -41,7 +42,7 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active)
+              StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -50,6 +51,8 @@ struct Transaction {
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
+        constraint_verification_info{(has_constraints) ? std::optional<ConstraintVerificationInfo>{std::in_place}
+                                                       : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                       ? std::optional<utils::SkipList<Vertex>>{std::in_place}
                       : std::nullopt},
@@ -99,7 +102,7 @@ struct Transaction {
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache{};
-  mutable ConstraintVerificationInfo constraint_verification_info{};
+  mutable std::optional<ConstraintVerificationInfo> constraint_verification_info{};
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
@@ -116,6 +119,8 @@ struct Transaction {
   std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
   std::map<std::string, std::string> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
+  std::set<LabelId> introduced_new_label_index_;
+  std::set<EdgeTypeId> introduced_new_edge_type_index_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

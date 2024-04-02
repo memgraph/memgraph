@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,6 +31,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -118,6 +119,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
+      spdlog::trace("Getting wal file with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {} ",
+                    info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp);
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
@@ -148,7 +151,8 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                            const std::optional<std::filesystem::path> &storage_dir) {
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
@@ -197,9 +201,38 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
-  spdlog::info("Indices are recreated.");
+  // Recover edge-type indices.
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+  for (const auto &item : indices_metadata.edge) {
+    if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
+      throw RecoveryFailure("The edge-type index must be created here!");
+    }
+    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+  }
+  spdlog::info("Edge-type indices are recreated.");
 
-  spdlog::info("Recreating constraints from metadata.");
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    // Recover text indices.
+    spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
+    auto &mem_text_index = indices->text_index_;
+    for (const auto &[index_name, label] : indices_metadata.text_indices) {
+      try {
+        if (!storage_dir.has_value()) {
+          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
+        }
+
+        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
+      } catch (...) {
+        throw RecoveryFailure("The text index must be created here!");
+      }
+      spdlog::info("Text index {} on :{} is recreated from metadata", index_name,
+                   name_id_mapper->IdToName(label.AsUint()));
+    }
+    spdlog::info("Text indices are recreated.");
+  }
+
+  spdlog::info("Indices are recreated.");
 }
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
@@ -267,6 +300,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const R
 
 std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
                                                   utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                  utils::SkipList<EdgeMetadata> *edges_metadata,
                                                   std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                                   Indices *indices, Constraints *constraints, const Config &config,
                                                   uint64_t *wal_seq_num) {
@@ -301,7 +335,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
+        recovered_snapshot =
+            LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -319,8 +354,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory_)) {
+      std::optional<std::filesystem::path> storage_dir = std::nullopt;
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        storage_dir = config.durability.storage_directory;
+      }
+
       RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                             GetParallelExecInfoIndices(recovery_info, config));
+                             GetParallelExecInfoIndices(recovery_info, config), storage_dir);
       RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                          GetParallelExecInfo(recovery_info, config));
       return recovered_snapshot->recovery_info;
@@ -410,22 +450,17 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     std::optional<uint64_t> previous_seq_num;
     auto last_loaded_timestamp = snapshot_timestamp;
     spdlog::info("Trying to load WAL files.");
+
+    if (last_loaded_timestamp) {
+      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
+    }
+
     for (auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
       previous_seq_num = wal_file.seq_num;
 
-      if (wal_file.epoch_id != repl_storage_state.epoch_.id()) {
-        // This way we skip WALs finalized only because of role change.
-        // We can also set the last timestamp to 0 if last loaded timestamp
-        // is nullopt as this can only happen if the WAL file with seq = 0
-        // does not contain any deltas and we didn't find any snapshots.
-        if (last_loaded_timestamp) {
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-        }
-        repl_storage_state.epoch_.SetEpoch(std::move(wal_file.epoch_id));
-      }
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items);
@@ -434,12 +469,23 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
         recovery_info.last_commit_timestamp = info.last_commit_timestamp;
+
+        if (recovery_info.next_timestamp != 0) {
+          last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
+        }
+
+        auto last_loaded_timestamp_value = last_loaded_timestamp.value_or(0);
+        if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
+          // no history or new epoch, add it
+          epoch_history->emplace_back(wal_file.epoch_id, last_loaded_timestamp_value);
+          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+        } else if (epoch_history->back().second < last_loaded_timestamp_value) {
+          // existing epoch, update with newer timestamp
+          epoch_history->back().second = last_loaded_timestamp_value;
+        }
+
       } catch (const RecoveryFailure &e) {
         LOG_FATAL("Couldn't recover WAL deltas from {} because of: {}", wal_file.path, e.what());
-      }
-
-      if (recovery_info.next_timestamp != 0) {
-        last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
       }
     }
     // The sequence number needs to be recovered even though `LoadWal` didn't
@@ -449,14 +495,24 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
+  std::optional<std::filesystem::path> storage_dir = std::nullopt;
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    storage_dir = config.durability.storage_directory;
+  }
+
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                         GetParallelExecInfoIndices(recovery_info, config));
+                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  spdlog::trace("Set epoch id: {}  with commit timestamp {}", std::string(repl_storage_state.epoch_.id()),
+                repl_storage_state.last_commit_timestamp_);
 
+  std::for_each(repl_storage_state.history.begin(), repl_storage_state.history.end(), [](auto &history) {
+    spdlog::trace("epoch id: {}  with commit timestamp {}", std::string(history.first), history.second);
+  });
   return recovery_info;
 }
 

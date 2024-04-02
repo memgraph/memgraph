@@ -44,10 +44,10 @@ def test_coordinator_show_instances():
         return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
 
     expected_data = [
-        ("coordinator_1", "127.0.0.1:10111", "", True, "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", True, "replica"),
-        ("instance_2", "", "127.0.0.1:10012", True, "replica"),
-        ("instance_3", "", "127.0.0.1:10013", True, "main"),
+        ("coordinator_1", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 
@@ -79,7 +79,7 @@ def test_main_and_replicas_cannot_register_coord_server(port):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             cursor,
-            "REGISTER INSTANCE instance_1 ON '127.0.0.1:10001' WITH '127.0.0.1:10011';",
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
         )
     assert str(e.value) == "Only coordinator can register coordinator server!"
 

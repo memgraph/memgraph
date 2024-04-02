@@ -13,8 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_communication_config.hpp"
+#include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/raft_log_action.hpp"
+
 #include <spdlog/spdlog.h>
 #include <libnuraft/nuraft.hxx>
+
+#include <variant>
 
 namespace memgraph::coordination {
 
@@ -34,11 +40,21 @@ class CoordinatorStateMachine : public state_machine {
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine &&) = delete;
-  ~CoordinatorStateMachine() override {}
+  ~CoordinatorStateMachine() override = default;
 
-  static auto EncodeRegisterReplicationInstance(const std::string &name) -> ptr<buffer>;
+  static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
+  static auto SerializeOpenLock() -> ptr<buffer>;
+  static auto SerializeCloseLock() -> ptr<buffer>;
+  static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
+  static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
+  static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
+  static auto SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
+  static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
+  static auto SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer>;
 
-  static auto DecodeRegisterReplicationInstance(buffer &data) -> std::string;
+  static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -64,11 +80,39 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
+
+  // Getters
+  auto MainExists() const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
+
+  auto GetCurrentMainUUID() const -> utils::UUID;
+  auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
+  auto IsLockOpened() const -> bool;
+  auto CoordinatorExists(uint32_t coordinator_id) const -> bool;
+
  private:
+  struct SnapshotCtx {
+    SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
+        : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+    ptr<snapshot> snapshot_;
+    CoordinatorClusterState cluster_state_;
+  };
+
+  auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
+
+  CoordinatorClusterState cluster_state_;
   std::atomic<uint64_t> last_committed_idx_{0};
 
-  ptr<snapshot> last_snapshot_;
+  std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
+  std::mutex snapshots_lock_;
 
+  ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 };
 

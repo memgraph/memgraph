@@ -72,6 +72,10 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
+    EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
@@ -88,6 +92,8 @@ class DiskStorage final : public Storage {
                                     const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
       return 10;
     }
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
@@ -140,6 +146,8 @@ class DiskStorage final : public Storage {
       return disk_storage->indices_.label_property_index_->IndexExists(label, property);
     }
 
+    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
@@ -154,13 +162,19 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                      bool unique_access_needed = true) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                      bool unique_access_needed = true) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -291,6 +305,8 @@ class DiskStorage final : public Storage {
 
   EdgeImportMode GetEdgeImportMode() const;
 
+  DurableMetadata *GetDurableMetadata() { return &durable_metadata_; }
+
  private:
   void LoadPersistingMetadataInfo();
 
@@ -310,7 +326,7 @@ class DiskStorage final : public Storage {
   StorageInfo GetBaseInfo() override;
   StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
-  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/) override {}
+  void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
 

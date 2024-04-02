@@ -57,6 +57,17 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
         spdlog::info("Received GetInstanceUUIDRpc on coordinator server");
         CoordinatorHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
       });
+
+  server.Register<coordination::GetDatabaseHistoriesRpc>(
+      [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        spdlog::info("Received GetDatabasesHistoryRpc on coordinator server");
+        CoordinatorHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
+      });
+}
+
+void CoordinatorHandlers::GetDatabaseHistoriesHandler(replication::ReplicationHandler &replication_handler,
+                                                      slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
+  slk::Save(coordination::GetDatabaseHistoriesRes{replication_handler.GetDatabasesHistories()}, res_builder);
 }
 
 void CoordinatorHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -84,8 +95,8 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
   slk::Load(&req, req_reader);
 
   const replication::ReplicationServerConfig clients_config{
-      .ip_address = req.replication_client_info.replication_ip_address,
-      .port = req.replication_client_info.replication_port};
+      .ip_address = req.replication_client_info.replication_server.address,
+      .port = req.replication_client_info.replication_server.port};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");
@@ -125,8 +136,8 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
     return replication::ReplicationClientConfig{
         .name = repl_info_config.instance_name,
         .mode = repl_info_config.replication_mode,
-        .ip_address = repl_info_config.replication_ip_address,
-        .port = repl_info_config.replication_port,
+        .ip_address = repl_info_config.replication_server.address,
+        .port = repl_info_config.replication_server.port,
     };
   };
 

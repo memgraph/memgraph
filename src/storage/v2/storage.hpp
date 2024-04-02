@@ -20,6 +20,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_server.hpp"
@@ -30,6 +31,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -52,6 +54,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveTextIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -61,6 +64,8 @@ class EdgeAccessor;
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
+  std::vector<EdgeTypeId> edge_type;
+  std::vector<std::pair<std::string, LabelId>> text_indices;
 };
 
 struct ConstraintsInfo {
@@ -76,6 +81,7 @@ struct StorageInfo {
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
+  uint64_t text_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -93,6 +99,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
+  res["text_indices"] = info.text_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -172,6 +179,10 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
+
+    virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
+
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
     virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
@@ -191,6 +202,8 @@ class Storage {
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId id) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
@@ -223,6 +236,30 @@ class Storage {
     virtual bool LabelIndexExists(LabelId label) const = 0;
 
     virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
+
+    virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
+
+    bool TextIndexExists(const std::string &index_name) const {
+      return storage_->indices_.text_index_.IndexExists(index_name);
+    }
+
+    void TextIndexAddVertex(const VertexAccessor &vertex) {
+      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
+    }
+
+    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
+      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
+    }
+
+    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                     text_search_mode search_mode) const {
+      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
+    }
+
+    std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                   const std::string &aggregation_query) const {
+      return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
@@ -264,13 +301,23 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
+
+    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db);
+
+    void DropTextIndex(const std::string &index_name);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
@@ -283,6 +330,8 @@ class Storage {
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
+
+    auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
    protected:
     Storage *storage_;
@@ -336,9 +385,15 @@ class Storage {
 
   StorageMode GetStorageMode() const noexcept;
 
-  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
+  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) = 0;
 
-  void FreeMemory() { FreeMemory({}); }
+  void FreeMemory() {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      FreeMemory(std::unique_lock{main_lock_}, false);
+    } else {
+      FreeMemory({}, false);
+    }
+  }
 
   virtual std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                            std::optional<IsolationLevel> override_isolation_level) = 0;
@@ -414,6 +469,17 @@ class Storage {
   // TODO(gvolfing): check if this would be faster with flat_maps.
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
+
+  // Maps that hold onto labels and edge-types that have to be created.
+  // Used only if the label/edge-type auto-creation flags are enabled,
+  // does not affect index creation otherwise. The counter in the maps
+  // are needed because it is possible that two concurrent transactions
+  // are introducing the same label/edge-type in which case we do only
+  // build the index when the last transaction is commiting. The counter
+  // is used trace if the currently commiting transaction is the last one
+  // that would like to introduce a new index.
+  utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
+  utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
