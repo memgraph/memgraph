@@ -70,15 +70,19 @@ jobs:
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  Package:
+  PackageAndUpload:
     if: github.ref_type == 'tag'
     needs: [TestIndividual]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd, arm]
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
-      arch: "amd"
-      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      os: 'debian-12'
+      toolchain: 'v5'
+      arch: "${{ matrix.arch }}"
+      build_type: 'Release'
       push_to_s3: 'true'
       s3_bucket: "deps.memgraph.io"
       s3_region: "eu-west-1"
