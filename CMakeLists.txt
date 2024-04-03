@@ -219,6 +219,10 @@ string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
 separate_arguments(LD_LIBS)
 link_directories(${LD_LIBS})
 
+# This is used to so that 3rd party libs can find the
+# correct libraries from our toolchain
+set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
+
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
