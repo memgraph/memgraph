@@ -15,7 +15,7 @@
 #include "system/include/system/system.hpp"
 namespace memgraph::query {
 
-std::unique_ptr<InterpreterContext> InterpreterContext::instance = nullptr;
+std::unique_ptr<InterpreterContextHolder> InterpreterContextHolder::instance = nullptr;
 
 InterpreterContext::InterpreterContext(
     InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,

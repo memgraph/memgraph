@@ -55,33 +55,6 @@ struct QueryUserOrRole;
  *
  */
 struct InterpreterContext {
-  // singleton interpreter context
-  static std::unique_ptr<InterpreterContext> instance;
-
-  static InterpreterContext *getInstance() {
-    MG_ASSERT(instance != nullptr, "Interpreter context has not been initialized!");
-    return instance.get();
-  }
-
-  static InterpreterContext *getInstance(
-      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
-      memgraph::system::System &system,
-#ifdef MG_ENTERPRISE
-      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
-#endif
-      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-      ReplicationQueryHandler *replication_handler = nullptr) {
-    if (instance == nullptr) {
-      instance = std::make_unique<InterpreterContext>(interpreter_config, dbms_handler, rs, system,
-#ifdef MG_ENTERPRISE
-                                                      coordinator_state,
-#endif
-                                                      ah, ac, replication_handler);
-    }
-
-    return instance.get();
-  }
-
   memgraph::dbms::DbmsHandler *dbms_handler;
 
   // Internal
@@ -127,5 +100,33 @@ struct InterpreterContext {
 #endif
                      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
                      ReplicationQueryHandler *replication_handler = nullptr);
+};
+
+// singleton object that holds the interpreter context for the application
+class InterpreterContextHolder {
+ public:
+  static std::unique_ptr<InterpreterContextHolder> instance;
+  explicit InterpreterContextHolder(
+      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
+      memgraph::system::System &system,
+#ifdef MG_ENTERPRISE
+      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+#endif
+      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr, ReplicationQueryHandler *replication_handler = nullptr)
+      : interpreter_context_(interpreter_config, dbms_handler, rs, system,
+#ifdef MG_ENTERPRISE
+                             coordinator_state,
+#endif
+                             ah, ac, replication_handler) {
+  }
+  InterpreterContextHolder(const InterpreterContextHolder &) = delete;
+  InterpreterContextHolder &operator=(const InterpreterContextHolder &) = delete;
+  InterpreterContextHolder(InterpreterContextHolder &&) = delete;
+  InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
+
+  InterpreterContext &Instance() { return interpreter_context_; }
+
+ private:
+  InterpreterContext interpreter_context_;
 };
 }  // namespace memgraph::query
