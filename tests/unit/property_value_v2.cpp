@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <memory_resource>
 #include <sstream>
 
 #include "storage/v2/property_value.hpp"
@@ -809,4 +810,91 @@ TEST(PropertyValue, NestedNumeralTypesComparison) {
   ASSERT_FALSE(v2 < v1alt);
   ASSERT_FALSE(v3alt < v2);
   ASSERT_FALSE(v3 < v1alt);
+}
+
+TEST(PMRPropertyValue, GivenNullAllocatorFailsIfTriesToAllocate) {
+  auto const nmr = std::pmr::null_memory_resource();
+  using sut_t = memgraph::storage::pmr::PropertyValue;
+
+  auto test_number = sut_t{42, std::pmr::new_delete_resource()};
+
+  auto test_string = sut_t::string_t{"long long long long long string", std::pmr::new_delete_resource()};
+  EXPECT_THROW(sut_t(test_string, nmr), std::bad_alloc);
+
+  auto test_list = sut_t::list_t{{test_number}, std::pmr::new_delete_resource()};
+  EXPECT_THROW(sut_t(test_list, nmr), std::bad_alloc);
+
+  auto test_map = sut_t::map_t{{std::pair(test_string, test_number)}, std::pmr::new_delete_resource()};
+  EXPECT_THROW(sut_t(test_map, nmr), std::bad_alloc);
+
+  {
+    auto sut = sut_t{std::pmr::polymorphic_allocator<>(nmr)};
+    auto string_cpy = sut_t(test_string, std::pmr::new_delete_resource());
+    EXPECT_THROW((sut = string_cpy), std::bad_alloc);
+    EXPECT_THROW((sut = std::move(string_cpy)), std::bad_alloc);
+  }
+
+  {
+    auto sut = sut_t{std::pmr::polymorphic_allocator<>(nmr)};
+    auto list_cpy = sut_t(test_list, std::pmr::new_delete_resource());
+    EXPECT_THROW((sut = list_cpy), std::bad_alloc);
+    EXPECT_THROW((sut = std::move(list_cpy)), std::bad_alloc);
+  }
+
+  {
+    auto sut = sut_t{std::pmr::polymorphic_allocator<>(nmr)};
+    auto map_cpy = sut_t(test_map, std::pmr::new_delete_resource());
+    EXPECT_THROW((sut = map_cpy), std::bad_alloc);
+    EXPECT_THROW((sut = std::move(map_cpy)), std::bad_alloc);
+  }
+}
+
+TEST(PMRPropertyValue, InteropWithPropertyValue) {
+  using sut_t = memgraph::storage::pmr::PropertyValue;
+
+  auto const raw_test_string = "long long long long long string";
+  auto const raw_test_int = 42;
+
+  auto const test_string = sut_t{raw_test_string};
+  auto const test_number = sut_t{raw_test_int};
+  auto const test_list = sut_t{sut_t::list_t{test_number, test_number}};
+  auto const test_map = sut_t{sut_t::map_t{std::pair{raw_test_string, test_number}}};
+
+  {
+    /// String -> pmr to regular
+    auto const as_pv = memgraph::storage::PropertyValue(test_string);
+    ASSERT_EQ(as_pv.ValueString(), raw_test_string);
+
+    /// String -> regular to pmr
+    auto const as_pmr_pv = sut_t{as_pv};
+    ASSERT_EQ(as_pmr_pv.ValueString(), raw_test_string);
+  }
+
+  {
+    /// List -> pmr to regular
+    auto const as_pv = memgraph::storage::PropertyValue(test_list);
+    ASSERT_EQ(as_pv.ValueList().size(), 2);
+    ASSERT_EQ(as_pv.ValueList()[0].ValueInt(), raw_test_int);
+    ASSERT_EQ(as_pv.ValueList()[1].ValueInt(), raw_test_int);
+
+    /// String -> regular to pmr
+    auto const as_pmr_pv = sut_t{as_pv};
+    ASSERT_EQ(as_pmr_pv.ValueList().size(), 2);
+    ASSERT_EQ(as_pmr_pv.ValueList()[0].ValueInt(), raw_test_int);
+    ASSERT_EQ(as_pmr_pv.ValueList()[1].ValueInt(), raw_test_int);
+  }
+
+  {
+    /// Map -> pmr to regular
+    auto const as_pv = memgraph::storage::PropertyValue(test_map);
+    ASSERT_EQ(as_pv.ValueMap().size(), 1);
+    ASSERT_TRUE(as_pv.ValueMap().contains(raw_test_string));
+    ASSERT_EQ(as_pv.ValueMap().at(raw_test_string).ValueInt(), raw_test_int);
+
+    /// Map -> regular to pmr
+    auto const as_pmr_pv = sut_t{as_pv};
+    ASSERT_EQ(as_pmr_pv.ValueMap().size(), 1);
+    ASSERT_TRUE(as_pmr_pv.ValueMap().contains(raw_test_string));
+    ASSERT_EQ(as_pmr_pv.ValueMap().at(raw_test_string).ValueInt(), raw_test_int);
+  }
 }

@@ -32,6 +32,17 @@ class PropertyValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
 };
 
+enum class PropertyValueType : uint8_t {
+  Null = 0,
+  Bool = 1,
+  Int = 2,
+  Double = 3,
+  String = 4,
+  List = 5,
+  Map = 6,
+  TemporalData = 7
+};
+
 /// Encapsulation of a value and its type in a class that has no compile-time
 /// info about the type.
 ///
@@ -43,16 +54,7 @@ class PropertyValueImpl {
 
  public:
   /// A value type, each type corresponds to exactly one C++ type.
-  enum class Type : uint8_t {
-    Null = 0,
-    Bool = 1,
-    Int = 2,
-    Double = 3,
-    String = 4,
-    List = 5,
-    Map = 6,
-    TemporalData = 7
-  };
+  using Type = PropertyValueType;
 
   using string_t = std::basic_string<char, std::char_traits<char>,
                                      typename std::allocator_traits<allocator_type>::template rebind_alloc<char>>;
@@ -66,27 +68,87 @@ class PropertyValueImpl {
   }
 
   /// Make a Null value
-  PropertyValueImpl() : type_(Type::Null) {}
+  PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
+
+  template <typename Alloc2>
+  friend class PropertyValueImpl;
+
+  /// Copy accross allocators
+  template <typename Alloc2>
+  requires(!std::same_as<Alloc, Alloc2>)
+      PropertyValueImpl(PropertyValueImpl<Alloc2> const &other, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, type_{other.type_} {
+    switch (other.type_) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        this->bool_v.val_ = other.bool_v.val_;
+        return;
+      case Type::Int:
+        this->int_v.val_ = other.int_v.val_;
+        return;
+      case Type::Double:
+        this->double_v.val_ = other.double_v.val_;
+        return;
+      case Type::String:
+        std::construct_at(&string_v.val_, other.string_v.val_, alloc_);
+        return;
+      case Type::List: {
+        auto converted_val = list_t(alloc_);
+        converted_val.reserve(other.list_v.val_.size());
+        for (auto const &val : other.list_v.val_) {
+          converted_val.emplace_back(val, alloc_);
+        }
+        std::construct_at(&list_v.val_, std::move(converted_val));
+        return;
+      }
+      case Type::Map: {
+        auto converted_val = map_t(alloc_);
+        converted_val.reserve(other.map_v.val_.size());
+        for (auto const &[k, v] : other.map_v.val_) {
+          converted_val.emplace(string_t(k, alloc_), PropertyValueImpl(v, alloc_));
+        }
+        std::construct_at(&map_v.val_, std::move(converted_val));
+        return;
+      }
+      case Type::TemporalData:
+        this->temporal_data_v.val_ = other.temporal_data_v.val_;
+        return;
+    }
+  }
 
   // constructors for primitive types
-  explicit PropertyValueImpl(const bool value) : bool_v{.val_ = value} {}
-  explicit PropertyValueImpl(const int value) : int_v{.val_ = value} {}
-  explicit PropertyValueImpl(const int64_t value) : int_v{.val_ = value} {}
-  explicit PropertyValueImpl(const double value) : double_v{.val_ = value} {}
-  explicit PropertyValueImpl(const TemporalData value) : temporal_data_v{.val_ = value} {}
+  explicit PropertyValueImpl(const bool value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, bool_v{.val_ = value} {}
+  explicit PropertyValueImpl(const int value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, int_v{.val_ = value} {}
+  explicit PropertyValueImpl(const int64_t value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, int_v{.val_ = value} {}
+  explicit PropertyValueImpl(const double value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, double_v{.val_ = value} {}
+  explicit PropertyValueImpl(const TemporalData value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, temporal_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(string_t value) : string_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(string_t &&value) : alloc_{value.get_allocator()}, string_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(string_t const &value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc_}} {}
   /// @throw std::bad_alloc
   /// @throw std::length_error if length of value exceeds
   ///        std::string::max_length().
-  explicit PropertyValueImpl(std::string_view value) : string_v{.val_ = string_t(value)} {}
-  explicit PropertyValueImpl(char const *value) : string_v{.val_ = string_t(value)} {}
+  explicit PropertyValueImpl(std::string_view value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc_}} {}
+  explicit PropertyValueImpl(char const *value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc_}} {}
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(list_t value) : list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(list_t &&value) : alloc_{value.get_allocator()}, list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, list_v{.val_ = list_t(value, alloc_)} {}
   /// @throw std::bad_alloc
-  explicit PropertyValueImpl(map_t value) : map_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(map_t &&value) : alloc_{value.get_allocator()}, map_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(map_t const &value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, map_v{.val_ = map_t(value, alloc_)} {}
 
   PropertyValueImpl(const PropertyValueImpl &other);
 
@@ -94,7 +156,9 @@ class PropertyValueImpl {
 
   PropertyValueImpl &operator=(const PropertyValueImpl &other);
 
-  PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept;
+  PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept(
+      std::allocator_traits<Alloc>::is_always_equal::value ||
+      std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value);
   // TODO: Implement copy assignment operators for primitive types.
   // TODO: Implement copy and move assignment operators for non-primitive types.
 
@@ -216,8 +280,10 @@ class PropertyValueImpl {
   }
 
  private:
+  [[no_unique_address]] allocator_type alloc_;
   // NOTE: this may look strange but it is for better data layout
   //       https://eel.is/c++draft/class.union#general-note-1
+
   union {
     Type type_;
     struct {
@@ -249,19 +315,16 @@ class PropertyValueImpl {
       TemporalData val_;
     } temporal_data_v;
   };
-
-  // size + pmr safe
-  static_assert(sizeof(PropertyValueImpl::bool_v) == 2);            // ✅
-  static_assert(sizeof(PropertyValueImpl::int_v) == 16);            // ✅
-  static_assert(sizeof(PropertyValueImpl::double_v) == 16);         // ✅
-  static_assert(sizeof(PropertyValueImpl::temporal_data_v) == 24);  // ✅
-  static_assert(sizeof(PropertyValueImpl::list_v) == 32);           // ❌
-  static_assert(sizeof(PropertyValueImpl::map_v) == 32);            // ❌
-  static_assert(sizeof(PropertyValueImpl::string_v) == 40);         // ❌
 };
 
 using PropertyValue = PropertyValueImpl<std::allocator<void>>;
-static_assert(sizeof(PropertyValue) == 40);  // total ❌
+
+namespace pmr {
+using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>>;
+}
+
+static_assert(sizeof(PropertyValue) == 40);
+static_assert(sizeof(pmr::PropertyValue) <= 56);
 
 // stream output
 /// @throw anything std::ostream::operator<< may throw.
@@ -381,7 +444,7 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
 inline bool operator>(const PropertyValue &first, const PropertyValue &second) noexcept { return second < first; }
 
 template <typename Alloc>
-PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl const &other) : type_(other.type_) {
+PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl const &other) : alloc_{other.alloc_}, type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
       return;
@@ -395,13 +458,13 @@ PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl const &other) : ty
       this->double_v.val_ = other.double_v.val_;
       return;
     case Type::String:
-      std::construct_at(&string_v.val_, other.string_v.val_);
+      std::construct_at(&string_v.val_, other.string_v.val_, alloc_);
       return;
     case Type::List:
-      std::construct_at(&list_v.val_, other.list_v.val_);
+      std::construct_at(&list_v.val_, other.list_v.val_, alloc_);
       return;
     case Type::Map:
-      std::construct_at(&map_v.val_, other.map_v.val_);
+      std::construct_at(&map_v.val_, other.map_v.val_, alloc_);
       return;
     case Type::TemporalData:
       this->temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -410,7 +473,8 @@ PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl const &other) : ty
 }
 
 template <typename Alloc>
-PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other) noexcept : type_(other.type_) {
+PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
+    : alloc_{other.alloc_}, type_(other.type_) {
   switch (type_) {
     case Type::Null:
       break;
@@ -424,13 +488,13 @@ PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other) noexcept 
       double_v.val_ = other.double_v.val_;
       break;
     case Type::String:
-      std::construct_at(&string_v.val_, std::move(other.string_v.val_));
+      std::construct_at(&string_v.val_, std::move(other.string_v.val_), alloc_);
       break;
     case Type::List:
-      std::construct_at(&list_v.val_, std::move(other.list_v.val_));
+      std::construct_at(&list_v.val_, std::move(other.list_v.val_), alloc_);
       break;
     case Type::Map:
-      std::construct_at(&map_v.val_, std::move(other.map_v.val_));
+      std::construct_at(&map_v.val_, std::move(other.map_v.val_), alloc_);
       break;
     case Type::TemporalData:
       temporal_data_v.val_ = other.temporal_data_v.val_;
@@ -440,175 +504,217 @@ PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other) noexcept 
 
 template <typename Alloc>
 PropertyValueImpl<Alloc> &PropertyValueImpl<Alloc>::operator=(PropertyValueImpl const &other) {
-  if (type_ == other.type_) {
-    if (this == &other) return *this;
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        bool_v.val_ = other.bool_v.val_;
-        break;
-      case Type::Int:
-        int_v.val_ = other.int_v.val_;
-        break;
-      case Type::Double:
-        double_v.val_ = other.double_v.val_;
-        break;
-      case Type::String:
-        string_v.val_ = other.string_v.val_;
-        break;
-      case Type::List:
-        list_v.val_ = other.list_v.val_;
-        break;
-      case Type::Map:
-        map_v.val_ = other.map_v.val_;
-        break;
-      case Type::TemporalData:
-        temporal_data_v.val_ = other.temporal_data_v.val_;
-        break;
-    }
-    return *this;
-  } else {
-    // destroy
-    switch (type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        break;
-      case Type::Int:
-        break;
-      case Type::Double:
-        break;
-      case Type::String:
-        std::destroy_at(&string_v.val_);
-        break;
-      case Type::List:
-        std::destroy_at(&list_v.val_);
-        break;
-      case Type::Map:
-        std::destroy_at(&map_v.val_);
-        break;
-      case Type::TemporalData:
-        break;
-    }
-    // construct
-    auto *new_this = std::launder(this);
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        new_this->bool_v.val_ = other.bool_v.val_;
-        break;
-      case Type::Int:
-        new_this->int_v.val_ = other.int_v.val_;
-        break;
-      case Type::Double:
-        new_this->double_v.val_ = other.double_v.val_;
-        break;
-      case Type::String:
-        std::construct_at(&new_this->string_v.val_, other.string_v.val_);
-        break;
-      case Type::List:
-        std::construct_at(&new_this->list_v.val_, other.list_v.val_);
-        break;
-      case Type::Map:
-        std::construct_at(&new_this->map_v.val_, other.map_v.val_);
-        break;
-      case Type::TemporalData:
-        new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
-        break;
-    }
+  auto do_copy = [&]() -> PropertyValueImpl<Alloc> & {
+    if (type_ == other.type_) {
+      if (this == &other) return *this;
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          string_v.val_ = string_t{other.string_v.val_, alloc_};
+          break;
+        case Type::List:
+          list_v.val_ = list_t(other.list_v.val_, alloc_);
+          break;
+        case Type::Map:
+          map_v.val_ = map_t(other.map_v.val_, alloc_);
+          break;
+        case Type::TemporalData:
+          temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+      }
+      return *this;
+    } else {
+      // destroy
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          break;
+        case Type::Int:
+          break;
+        case Type::Double:
+          break;
+        case Type::String:
+          std::destroy_at(&string_v.val_);
+          break;
+        case Type::List:
+          std::destroy_at(&list_v.val_);
+          break;
+        case Type::Map:
+          std::destroy_at(&map_v.val_);
+          break;
+        case Type::TemporalData:
+          break;
+      }
+      // construct
+      auto *new_this = std::launder(this);
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          new_this->bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          new_this->int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          new_this->double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          std::construct_at(&new_this->string_v.val_, other.string_v.val_, alloc_);
+          break;
+        case Type::List:
+          std::construct_at(&new_this->list_v.val_, other.list_v.val_, alloc_);
+          break;
+        case Type::Map:
+          std::construct_at(&new_this->map_v.val_, other.map_v.val_, alloc_);
+          break;
+        case Type::TemporalData:
+          new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+      }
 
-    new_this->type_ = other.type_;
-    return *new_this;
+      new_this->type_ = other.type_;
+      return *new_this;
+    }
+  };
+
+  if constexpr (std::allocator_traits<Alloc>::is_always_equal::value) {
+    return do_copy();
+  } else {
+    if (other.alloc_ == alloc_) {
+      return do_copy();
+    } else {
+      if constexpr (std::allocator_traits<Alloc>::propagate_on_container_copy_assignment::value) {
+        auto oldalloc = alloc_;
+        try {
+          alloc_ = other.alloc_;
+          return do_copy();
+        } catch (...) {
+          alloc_ = oldalloc;
+          throw;
+        }
+      }
+      return do_copy();
+    }
   }
 }
 
 template <typename Alloc>
-PropertyValueImpl<Alloc> &PropertyValueImpl<Alloc>::operator=(PropertyValueImpl &&other) noexcept {
-  if (type_ == other.type_) {
-    // maybe the same object, check if no work is required
-    if (this == &other) return *this;
+PropertyValueImpl<Alloc> &PropertyValueImpl<Alloc>::operator=(PropertyValueImpl &&other) noexcept(
+    std::allocator_traits<Alloc>::is_always_equal::value ||
+    std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
+  auto do_move = [&]() -> PropertyValueImpl<Alloc> & {
+    if (type_ == other.type_) {
+      // maybe the same object, check if no work is required
+      if (this == &other) return *this;
 
-    switch (type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        bool_v.val_ = other.bool_v.val_;
-        break;
-      case Type::Int:
-        int_v.val_ = other.int_v.val_;
-        break;
-      case Type::Double:
-        double_v.val_ = other.double_v.val_;
-        break;
-      case Type::String:
-        string_v.val_ = std::move(other.string_v.val_);
-        break;
-      case Type::List:
-        list_v.val_ = std::move(other.list_v.val_);
-        break;
-      case Type::Map:
-        map_v.val_ = std::move(other.map_v.val_);
-        break;
-      case Type::TemporalData:
-        temporal_data_v.val_ = other.temporal_data_v.val_;
-        break;
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          string_v.val_ = std::move(other.string_v.val_);
+          break;
+        case Type::List:
+          list_v.val_ = std::move(other.list_v.val_);
+          break;
+        case Type::Map:
+          map_v.val_ = std::move(other.map_v.val_);
+          break;
+        case Type::TemporalData:
+          temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+      }
+      return *this;
+    } else {
+      // destroy
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          break;
+        case Type::Int:
+          break;
+        case Type::Double:
+          break;
+        case Type::String:
+          std::destroy_at(&string_v.val_);
+          break;
+        case Type::List:
+          std::destroy_at(&list_v.val_);
+          break;
+        case Type::Map:
+          std::destroy_at(&map_v.val_);
+          break;
+        case Type::TemporalData:
+          break;
+      }
+      // construct (no need to destroy moved from type)
+      auto *new_this = std::launder(this);
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          new_this->bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          new_this->int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          new_this->double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          std::construct_at(&new_this->string_v.val_, std::move(other.string_v.val_));
+          break;
+        case Type::List:
+          std::construct_at(&new_this->list_v.val_, std::move(other.list_v.val_));
+          break;
+        case Type::Map:
+          std::construct_at(&new_this->map_v.val_, std::move(other.map_v.val_));
+          break;
+        case Type::TemporalData:
+          new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+      }
+
+      new_this->type_ = other.type_;
+      return *new_this;
     }
-    return *this;
+  };
+
+  if constexpr (std::allocator_traits<Alloc>::is_always_equal::value) {
+    return do_move();
   } else {
-    // destroy
-    switch (type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        break;
-      case Type::Int:
-        break;
-      case Type::Double:
-        break;
-      case Type::String:
-        std::destroy_at(&string_v.val_);
-        break;
-      case Type::List:
-        std::destroy_at(&list_v.val_);
-        break;
-      case Type::Map:
-        std::destroy_at(&map_v.val_);
-        break;
-      case Type::TemporalData:
-        break;
+    if (other.alloc_ == alloc_) {
+      return do_move();
+    } else {
+      if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
+        std::swap(alloc_, other.alloc_);
+        return do_move();  //???
+      } else {
+        // fall back to copy
+        return operator=(other);
+      }
     }
-    // construct (no need to destroy moved from type)
-    auto *new_this = std::launder(this);
-    switch (other.type_) {
-      case Type::Null:
-        break;
-      case Type::Bool:
-        new_this->bool_v.val_ = other.bool_v.val_;
-        break;
-      case Type::Int:
-        new_this->int_v.val_ = other.int_v.val_;
-        break;
-      case Type::Double:
-        new_this->double_v.val_ = other.double_v.val_;
-        break;
-      case Type::String:
-        std::construct_at(&new_this->string_v.val_, std::move(other.string_v.val_));
-        break;
-      case Type::List:
-        std::construct_at(&new_this->list_v.val_, std::move(other.list_v.val_));
-        break;
-      case Type::Map:
-        std::construct_at(&new_this->map_v.val_, std::move(other.map_v.val_));
-        break;
-      case Type::TemporalData:
-        new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
-        break;
-    }
-
-    new_this->type_ = other.type_;
-    return *new_this;
   }
 }
 
