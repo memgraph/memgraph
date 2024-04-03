@@ -124,7 +124,7 @@ class InterpreterContextHolder {
   InterpreterContextHolder(InterpreterContextHolder &&) = delete;
   InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
 
-  InterpreterContext &Instance() { return interpreter_context_; }
+  InterpreterContext &Context() { return interpreter_context_; }
 
  private:
   InterpreterContext interpreter_context_;

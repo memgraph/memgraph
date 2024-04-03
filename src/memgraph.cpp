@@ -477,7 +477,7 @@ int main(int argc, char **argv) {
                         : std::nullopt,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
-  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::instance->Instance();
+  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::instance->Context();
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
