@@ -747,6 +747,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return Pattern*
    */
+  antlrcpp::Any visitForcePatternPart(MemgraphCypher::ForcePatternPartContext *ctx) override;
+
+  /**
+   * @return Pattern*
+   */
   antlrcpp::Any visitPatternElement(MemgraphCypher::PatternElementContext *ctx) override;
 
   /**
