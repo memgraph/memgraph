@@ -55,7 +55,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     }
 
     int pattern_comprehension_index = 0;
-    for (auto &named_expr : body_.named_expressions) {
+    for (const auto &named_expr : body_.named_expressions) {
       output_symbols_.emplace_back(symbol_table_.at(*named_expr));
       named_expr->Accept(*this);
       named_expressions_.emplace_back(named_expr);
@@ -67,8 +67,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         pc_ops.erase(it);
         ++pattern_comprehension_index;
       }
-      MG_ASSERT(pc_ops.empty(), "Unexpected pattern comprehension left in named expressions");
     }
+    MG_ASSERT(pc_ops.empty(), "Unexpected pattern comprehension left in named expressions");
+
     // Collect symbols used in group by expressions.
     if (!aggregations_.empty()) {
       UsedSymbolsCollector collector(symbol_table_);
