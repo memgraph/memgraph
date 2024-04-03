@@ -38,6 +38,7 @@ struct CoordinatorInstanceInitConfig {
   uint32_t coordinator_id{0};
   int coordinator_port{0};
   int bolt_port{0};
+  std::filesystem::path durability_dir;
 };
 
 struct ReplicationClientInfo {

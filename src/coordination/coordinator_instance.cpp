@@ -79,7 +79,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                         &CoordinatorInstance::DemoteFailCallback);
                 });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
-            thread_pool_.AddTask([this]() { raft_state_.AppendEmptyLog(raft_state_.InstanceName()); });
           },
           [this]() {
             thread_pool_.AddTask([this]() {
@@ -579,6 +578,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after registration of instance.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
   }};

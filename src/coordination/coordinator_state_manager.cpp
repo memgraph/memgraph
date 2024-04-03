@@ -12,6 +12,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include "kvstore/kvstore.hpp"
+#include "utils/file.hpp"
 
 namespace memgraph::coordination {
 
@@ -31,25 +33,55 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
+  const auto durability_dir = config.durability_dir / "high_availability";
+  utils::EnsureDirOrDie(config.durability_dir);
+  utils::EnsureDirOrDie(durability_dir);
+  durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   // Just return in-memory data in this example.
   // May require reading from disk here, if it has been written to disk.
   spdlog::trace("Loading cluster config");
+  MG_ASSERT(durability_);
+  auto servers = durability_->Get("servers");
+  if (!servers.has_value()) {
+    spdlog::trace("Didn't find anything stored in durability");
+    return cluster_config_;
+  }
+  spdlog::trace("Recreating cluster config");
+  auto json = nlohmann::json::parse(servers.value());
+  std::cout << "!!!! JSON" << json << std::endl;
+  auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
+  cluster_config_->get_servers().clear();
+
+  for (auto &real_server : real_servers) {
+    auto one_server_config =
+        cs_new<srv_config>(std::get<0>(real_server), 0, std::get<1>(real_server), std::get<2>(real_server), false);
+    spdlog::trace("Recreating cluster config {} {} {}", std::get<0>(real_server), std::get<1>(real_server),
+                  std::get<2>(real_server));
+    cluster_config_->get_servers().push_back(one_server_config);
+  }
+
   return cluster_config_;
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
   // Just keep in memory in this example.
   // Need to write to disk here, if want to make it durable.
+  MG_ASSERT(durability_);
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   spdlog::info("Saving cluster config.");
   auto servers = cluster_config_->get_servers();
+  std::vector<std::tuple<int, std::string, std::string>> servers_vec;
   for (auto const &server : servers) {
-    spdlog::trace("Server id: {}, endpoint: {}", server->get_id(), server->get_endpoint());
+    servers_vec.emplace_back(static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
+    spdlog::trace("storing cluster config {} {} {}", static_cast<int>(server->get_id()), server->get_endpoint(),
+                  server->get_aux());
   }
+  nlohmann::json json(servers_vec);
+  durability_->Put("servers", json.dump());
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {

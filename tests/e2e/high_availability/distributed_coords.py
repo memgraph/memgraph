@@ -2045,7 +2045,8 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
             coord_cursor_1,
-            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': '127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
+            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': '127.0.0.1:7680', 'management_server': "
+            "'127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
         )
 
     assert "Couldn't register replica instance because because the last action didn't finish successfully!" == str(
