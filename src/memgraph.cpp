@@ -444,10 +444,8 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
-                                                            .coordinator_port = FLAGS_coordinator_port,
-                                                            .bolt_port = FLAGS_bolt_port,
-                                                            .durability_dir = FLAGS_data_directory});
+    coordinator_state.emplace(CoordinatorInstanceInitConfig{
+        FLAGS_coordinator_id, FLAGS_coordinator_port, FLAGS_bolt_port, FLAGS_data_directory + "/high_availability"});
   } else {
     coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
   }

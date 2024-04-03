@@ -34,9 +34,15 @@ using memgraph::io::network::Endpoint;
 
 class CoordinatorInstanceTest : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(main_data_directory)) return;
+    std::filesystem::remove_all(main_data_directory);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(main_data_directory)) return;
+    std::filesystem::remove_all(main_data_directory);
+  }
 
   std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
                                             "MG_tests_unit_coordinator_instance"};
@@ -44,8 +50,7 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
-  auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
+  auto const init_config = CoordinatorInstanceInitConfig{4, 10110, 7686, main_data_directory / "high_availability"};
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -58,18 +63,15 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     }
   };
 
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7687};
+  auto const init_config1 = CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7688};
+  auto const init_config2 = CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7689};
+  auto const init_config3 = CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
@@ -125,18 +127,15 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     }
   };
 
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7687};
+  auto const init_config1 = CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7688};
+  auto const init_config2 = CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7689};
+  auto const init_config3 = CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 

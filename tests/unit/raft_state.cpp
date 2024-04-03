@@ -30,9 +30,15 @@ using nuraft::ptr;
 
 class RaftStateTest : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_raft_state"};
 };
@@ -41,7 +47,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const config = CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 1234, .bolt_port = 7688};
+  auto const config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability"};
 
   auto raft_state = RaftState::MakeRaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
 
@@ -57,8 +63,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10112, .bolt_port = 7688};
+  auto const init_config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability"};
 
   auto const raft_state =
       RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
@@ -75,8 +80,7 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
 TEST_F(RaftStateTest, GetMixedRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10113, .bolt_port = 7690};
+  auto const init_config = CoordinatorInstanceInitConfig{1, 10113, 7690, test_folder_ / "high_availability"};
   auto leader = RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
   leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{

@@ -33,7 +33,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
-  const auto durability_dir = config.durability_dir / "high_availability";
+  const auto durability_dir = config.durability_dir;
   utils::EnsureDirOrDie(config.durability_dir);
   utils::EnsureDirOrDie(durability_dir);
   durability_ = std::make_unique<kvstore::KVStore>(durability_dir);
@@ -51,7 +51,6 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   }
   spdlog::trace("Recreating cluster config");
   auto json = nlohmann::json::parse(servers.value());
-  std::cout << "!!!! JSON" << json << std::endl;
   auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
   cluster_config_->get_servers().clear();
 
