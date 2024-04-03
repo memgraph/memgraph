@@ -470,14 +470,15 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContextHolder::instance = std::make_unique<memgraph::query::InterpreterContextHolder>(
+  memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config, &dbms_handler, &repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
-  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::instance->Context();
+
+  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

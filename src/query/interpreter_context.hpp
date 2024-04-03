@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -105,28 +106,52 @@ struct InterpreterContext {
 // singleton object that holds the interpreter context for the application
 class InterpreterContextHolder {
  public:
-  static std::unique_ptr<InterpreterContextHolder> instance;
-  explicit InterpreterContextHolder(
-      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
-      memgraph::system::System &system,
+  static InterpreterContext &GetInstance() {
+    assert(instance);
+    return *instance;
+  }
+
+ private:
+  static void Initialize(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                         replication::ReplicationState *rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
-      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+                         std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
-      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr, ReplicationQueryHandler *replication_handler = nullptr)
-      : interpreter_context_(interpreter_config, dbms_handler, rs, system,
+                         AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                         ReplicationQueryHandler *replication_handler = nullptr) {
+    assert(!instance);
+    instance.emplace(interpreter_config, dbms_handler, rs, system,
 #ifdef MG_ENTERPRISE
-                             coordinator_state,
+                     coordinator_state,
 #endif
-                             ah, ac, replication_handler) {
+                     ah, ac, replication_handler);
   }
   InterpreterContextHolder(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder &operator=(const InterpreterContextHolder &) = delete;
   InterpreterContextHolder(InterpreterContextHolder &&) = delete;
   InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
 
-  InterpreterContext &Context() { return interpreter_context_; }
+  static void destroy() { instance.reset(); }
+  static std::optional<InterpreterContext> instance;
 
- private:
-  InterpreterContext interpreter_context_;
+  friend struct InterpreterContextLifetimeControl;
+};
+
+struct InterpreterContextLifetimeControl {
+  InterpreterContextLifetimeControl(
+      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
+      memgraph::system::System &system,
+#ifdef MG_ENTERPRISE
+      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+#endif
+      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+      ReplicationQueryHandler *replication_handler = nullptr) {
+    InterpreterContextHolder::Initialize(interpreter_config, dbms_handler, rs, system,
+#ifdef MG_ENTERPRISE
+                                         coordinator_state,
+#endif
+                                         ah, ac, replication_handler);
+  }
+  ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
 };
 }  // namespace memgraph::query

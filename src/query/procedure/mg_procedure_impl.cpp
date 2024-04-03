@@ -4246,7 +4246,7 @@ struct mgp_execution_result::pImplMgpExecutionResult {
 
 mgp_execution_result::mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
     : pImpl(std::make_unique<pImplMgpExecutionResult>()), memory(memory) {
-  auto &instance = memgraph::query::InterpreterContextHolder::instance->Context();
+  auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
   pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(
       &instance, instance.dbms_handler->Get(graph->getImpl()->DatabaseName()));
 }
@@ -4254,7 +4254,7 @@ mgp_execution_result::mgp_execution_result(mgp_graph *graph, memgraph::utils::Me
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }
 
 mgp_execution_result::~mgp_execution_result() {
-  auto &instance = memgraph::query::InterpreterContextHolder::instance->Context();
+  auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
   instance.interpreters.WithLock([this](auto &interpreters) { interpreters.erase(pImpl->interpreter.get()); });
   // interpreter will delete itself because it's a smart pointer
 }
@@ -4264,7 +4264,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
   return WrapExceptions(
       [query, params, graph, memory]() {
         auto query_string = std::string(query);
-        auto &instance = memgraph::query::InterpreterContextHolder::instance->Context();
+        auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
         auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph, memory->impl);
         result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
