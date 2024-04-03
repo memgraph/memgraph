@@ -67,6 +67,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         pc_ops.erase(it);
         ++pattern_comprehension_index;
       }
+      MG_ASSERT(pc_ops.empty(), "Unexpected pattern comprehension left in named expressions");
     }
     // Collect symbols used in group by expressions.
     if (!aggregations_.empty()) {
