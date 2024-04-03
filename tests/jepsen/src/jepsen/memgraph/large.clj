@@ -7,6 +7,7 @@
              [checker :as checker]
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
+            [jepsen.memgraph.utils :as utils]
             [jepsen.memgraph.client :as client]))
 
 (def node-num 100000)
@@ -27,12 +28,12 @@
                                   (client/replication-open-connection this node node-config))
                            (setup! [this test]
                                    (when (= replication-role :main)
-                                     (client/with-session conn session
+                                     (utils/with-session conn session
                                        (client/detach-delete-all session)
                                        (create-nodes session))))
                            (invoke! [this test op]
                                     (client/replication-invoke-case (:f op)
-                                                                    :read   (client/with-session conn session
+                                                                    :read   (utils/with-session conn session
                                                                               (assoc op
                                                                                      :type :ok
                                                                                      :value {:count (->> (get-node-count session)
@@ -40,7 +41,7 @@
                                                                                                          :c)
                                                                                              :node node}))
                                                                     :add    (if (= replication-role :main)
-                                                                              (client/with-session conn session
+                                                                              (utils/with-session conn session
                                                                                 (try
                                                                                   ((create-nodes session)
                                                                                    (assoc op :type :ok))
@@ -52,7 +53,7 @@
                                                                               (assoc op :type :fail))))
                            (teardown! [this test]
                                       (when (= replication-role :main)
-                                        (client/with-session conn session
+                                        (utils/with-session conn session
                                           (try
                                             (client/detach-delete-all session)
                                             (catch Exception e
@@ -115,4 +116,4 @@
               :timeline (timeline/html)})
    :generator (client/replication-gen
                (gen/mix [read-nodes add-nodes]))
-   :final-generator {:gen (gen/once read-nodes) :recovery-time 40}})
+   :final-generator {:clients (gen/once read-nodes) :recovery-time 40}})

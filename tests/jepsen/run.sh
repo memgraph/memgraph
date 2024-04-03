@@ -276,7 +276,7 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        RUN_JEPSEN "$CONTROL_LEIN_RUN_ARGS"
+        RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
         PROCESS_RESULTS "$start_time" "$end_time"
