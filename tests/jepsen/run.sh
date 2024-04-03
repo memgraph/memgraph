@@ -45,7 +45,7 @@ if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
     HELP_EXIT
 fi
 
-if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/null 2>&1; then
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
@@ -240,6 +240,9 @@ case $1 in
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
+        PROCESS_ARGS "$@"
+        PRINT_CONTEXT
+        COPY_BINARIES
         CLUSTER_UP
     ;;
 

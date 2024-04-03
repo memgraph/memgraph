@@ -134,6 +134,7 @@ struct Recovery {
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
                                           utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                          utils::SkipList<EdgeMetadata> *edges_metadata,
                                           std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                           Indices *indices, Constraints *constraints, const Config &config,
                                           uint64_t *wal_seq_num);

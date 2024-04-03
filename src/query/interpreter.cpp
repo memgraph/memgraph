@@ -500,7 +500,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
@@ -1227,7 +1227,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
                      bolt_server = bolt_server_it->second,
@@ -3323,6 +3323,27 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
+  Callback callback;
+  callback.fn = [&db, dba]() mutable {
+    auto storage_mode = db->GetStorageMode();
+    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
+    }
+    dba->DropGraph();
+
+    auto *trigger_store = db->trigger_store();
+    trigger_store->DropAll();
+
+    auto *streams = db->streams();
+    streams->DropAll();
+
+    return std::vector<std::vector<TypedValue>>();
+  };
+
+  return callback;
+}
+
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
     return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
@@ -3364,6 +3385,28 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
+  MG_ASSERT(drop_graph_query);
+
+  std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4302,8 +4345,10 @@ void Interpreter::RollbackTransaction() {
 
 #ifdef MG_ENTERPRISE
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
-  // TODO: (andi) Test
-  if (!FLAGS_coordinator_id) {
+  if (!interpreter_context_->coordinator_state_) {
+    throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
+  }
+  if (FLAGS_management_port) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4318,7 +4363,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
 }
 #endif
 
@@ -4424,8 +4469,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
@@ -4434,6 +4479,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
@@ -4551,6 +4597,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EdgeImportModeModificationInMulticommandTxException();
       }
       prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw DropGraphInMulticommandTxException();
+      }
+      prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

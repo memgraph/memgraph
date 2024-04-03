@@ -49,8 +49,12 @@ constexpr utils::TypeInfo query::plan::ScanAllByLabelProperty::kType{
 
 constexpr utils::TypeInfo query::plan::ScanAllById::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllById",
                                                           &query::plan::ScanAll::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{utils::TypeId::SCAN_ALL_BY_EDGE_TYPE,
                                                                 "ScanAllByEdgeType", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllByEdgeId",
+                                                              &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ExpandCommon::kType{utils::TypeId::EXPAND_COMMON, "ExpandCommon", nullptr};
 

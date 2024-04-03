@@ -300,6 +300,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const R
 
 std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
                                                   utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+                                                  utils::SkipList<EdgeMetadata> *edges_metadata,
                                                   std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                                   Indices *indices, Constraints *constraints, const Config &config,
                                                   uint64_t *wal_seq_num) {
@@ -334,7 +335,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
+        recovered_snapshot =
+            LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count, config);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
