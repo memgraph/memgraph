@@ -72,6 +72,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         pc_ops.erase(it);
         ++pattern_comprehension_index;
       }
+      MG_ASSERT(pc_ops.empty(), "Unexpected pattern comprehension left in named expressions");
     }
     if (!pc_ops.empty()) {
       throw SemanticException("Unexpected pattern comprehensions left in named expressions! Please contact support.");
