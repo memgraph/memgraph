@@ -361,7 +361,6 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
   if (update) {
     MultiDatabaseAuth(user_or_role_.get(), db);
     interpreter_.SetCurrentDB(db, in_explicit_db_);
-    interpreter_.current_db_name_ = db;
   }
 #endif
 }

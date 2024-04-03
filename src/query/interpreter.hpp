@@ -15,7 +15,6 @@
 
 #include <gflags/gflags.h>
 
-#include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "memory/query_memory_control.hpp"
@@ -260,7 +259,6 @@ class Interpreter final {
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
-  std::string current_db_name_{memgraph::dbms::kDefaultDB};
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
