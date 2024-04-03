@@ -14,7 +14,7 @@
 
 (defn full-nemesis
   "Can kill and restart all processess and initiate network partitions."
-  [opts]
+  []
   (nemesis/compose
    {{:kill-node    :start
      :restart-node :stop} (node-killer)
@@ -52,7 +52,7 @@
 (defn nemesis
   "Composite nemesis and generator"
   [opts]
-  {:nemesis (full-nemesis opts)
+  {:nemesis (full-nemesis)
    :generator (full-generator opts)
    :final-generator
    (->> [(when (:partition-halves? opts) :stop-partition-halves)

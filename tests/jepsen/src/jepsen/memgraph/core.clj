@@ -18,10 +18,6 @@
     [nemesis :as nemesis]
     [edn :as e]]))
 
-(defn r   [_ _] {:type :invoke, :f :read, :value nil})
-(defn w   [_ _] {:type :invoke, :f :write, :value (rand-int 5)})
-(defn cas [_ _] {:type :invoke, :f :cas, :value [(rand-int 5) (rand-int 5)]})
-
 (defrecord HAClient [conn]
   client/Client
   (open! [this test node]
@@ -79,14 +75,12 @@
     (merge tests/noop-test
            opts
            {:pure-generators true
-            :nodes           (keys (:node-config opts))
             :name            (str "test-" (name (:workload opts)))
             :db              (support/db opts)
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (checker/unhandled-exceptions)
-                                ;:perf       (checker/perf) really exepnsive
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))

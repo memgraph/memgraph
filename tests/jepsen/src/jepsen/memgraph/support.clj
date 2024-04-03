@@ -14,7 +14,7 @@
 (def mgpid  (str mgdir "/memgraph.pid"))
 
 (defn start-node!
-  [test]
+  [test _]
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -67,7 +67,7 @@
    :--management-port (get node-config :management-port)))
 
 (defn stop-node!
-  [test]
+  [test _]
   (cu/stop-daemon! (:local-binary test) mgpid))
 
 
@@ -87,12 +87,12 @@
           (start-coordinator-node! test node-config)
           (if (:management-port node-config)
             (start-data-node! test node-config)
-            (start-node! test)))
+            (start-node! test _)))
         (info "Memgraph instance started")
         (Thread/sleep 5000))) ;; TODO(gitbuda): The sleep after Jepsen starting Memgraph is for sure questionable.
     (teardown! [_ test node] ; Each DB must support teardown! method.
       (info node "Tearing down Memgraph")
-      (stop-node! test)
+      (stop-node! test _)
       (c/su
        (c/exec :rm :-rf mgdata)
        (c/exec :rm :-rf mglog)))

@@ -102,8 +102,8 @@
                                                      :replica)
                                                  node-config)]
                                                  (try
-                                             (c/with-session conn session
-                                               ((c/create-register-replica-query
+                                             (client/with-session conn session
+                                               ((client/create-register-replica-query
                                                   (first n)
                                                   (second n)) session))
                                                   (catch Exception e)))
