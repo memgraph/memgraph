@@ -1613,6 +1613,7 @@ class QueryExecution {
  public:
   QueryExecution(mgp_graph *graph);
   ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
+  ExecutionResult ExecuteQuery(std::string query, Map params = Map()) const;
 
  private:
   mgp_graph *graph_;
@@ -4402,6 +4403,10 @@ inline std::string ExecutionHeaders::At(size_t index) const {
 inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
 
 inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp::Map params) const {
+  return ExecuteQuery(std::string(query), params);
+}
+
+inline ExecutionResult QueryExecution::ExecuteQuery(std::string query, mgp::Map params) const {
   return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data(), params.ptr_), graph_);
 }
 

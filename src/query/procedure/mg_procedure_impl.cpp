@@ -4220,6 +4220,8 @@ struct MgProcedureResultStream final {
 
   void Result(const Row &row) {
     PmrRow pmr_row(memory->impl);
+    pmr_row.reserve(row.size());
+
     for (const auto &val : row) {
       pmr_row.emplace_back(val);
     }
