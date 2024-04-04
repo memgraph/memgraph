@@ -5810,7 +5810,7 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)) {
   if (list_collection_symbols.size() != 1) {
-    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Contact support.");
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
   }
   list_collection_symbol_ = list_collection_symbols[0];
 }
