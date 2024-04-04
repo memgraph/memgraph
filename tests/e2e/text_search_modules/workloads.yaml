@@ -8,7 +8,7 @@ text_search_cluster: &text_search_cluster
           "--log-level=TRACE",
           "--experimental-enabled=text-search",
         ]
-      log_file: "text_search.log"
+      log_file: "text_search_modules.log"
       setup_queries: []
       validation_queries: []
 
@@ -16,7 +16,7 @@ text_search_disabled_cluster: &text_search_disabled_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "text_search.log"
+      log_file: "text_search_modules.log"
       setup_queries: []
       validation_queries: []
 
@@ -24,10 +24,10 @@ workloads:
   - name: "Test behavior of text search in Memgraph"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
-    args: ["text_search/test_text_search.py"]
+    args: ["text_search_modules/test_text_search.py"]
     <<: *text_search_cluster
   - name: "Test behavior of text search in Memgraph when disabled"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
-    args: ["text_search/test_text_search_disabled.py"]
+    args: ["text_search_modules/test_text_search_disabled.py"]
     <<: *text_search_disabled_cluster

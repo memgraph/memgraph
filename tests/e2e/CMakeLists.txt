@@ -81,7 +81,7 @@ add_subdirectory(drop_graph)
 add_subdirectory(concurrent_write)
 add_subdirectory(concurrency)
 add_subdirectory(index_auto_creation)
-add_subdirectory(text_search)
+add_subdirectory(text_search_modules)
 
 add_subdirectory(replication_experimental)
 
