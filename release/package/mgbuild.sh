@@ -315,7 +315,7 @@ build_memgraph () {
     docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
     docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
-    project_files=$(dir -A1 "$PROJECT_ROOT")
+    project_files=$(ls -A1 "$PROJECT_ROOT")
     while IFS= read -r f; do
       # Skip build directory when copying project files
       if [[ "$f" != "build" ]]; then
