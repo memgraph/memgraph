@@ -81,7 +81,7 @@ jobs:
             --arch $ARCH \
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench
+            test-memgraph mgbench large
 
         - name: Upload mgbench results
           run: |
