@@ -53,18 +53,30 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // before regular named expressions.
       ExpandUserSymbols();
     }
-    for (auto &named_expr : body_.named_expressions) {
+
+    int pattern_comprehension_index = 0;
+    for (const auto &named_expr : body_.named_expressions) {
       output_symbols_.emplace_back(symbol_table_.at(*named_expr));
       named_expr->Accept(*this);
       named_expressions_.emplace_back(named_expr);
 
       // Pattern comprehension can be filled during named expression traversion
       if (auto it = pc_ops.find(named_expr->name_); it != pc_ops.end()) {
-        MG_ASSERT(pattern_comprehension_data_.pattern_comprehension != nullptr);
-        pattern_comprehension_data_.op = std::move(it->second.op);
+        auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
+        if (!curr_pc.pattern_comprehension) {
+          throw SemanticException(
+              "Pattern comprehension matched to name was not initialiazed! Please contact support.");
+        }
+
+        curr_pc.op = std::move(it->second.op);
         pc_ops.erase(it);
+        ++pattern_comprehension_index;
       }
     }
+    if (!pc_ops.empty()) {
+      throw SemanticException("Unexpected pattern comprehensions left in named expressions! Please contact support.");
+    }
+
     // Collect symbols used in group by expressions.
     if (!aggregations_.empty()) {
       UsedSymbolsCollector collector(symbol_table_);
@@ -409,8 +421,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       has_aggregation_.pop_back();
     }
     has_aggregation_.emplace_back(has_aggr);
-    pattern_comprehension_data_.pattern_comprehension = &pattern_comprehension;
-    pattern_comprehension_data_.result_symbol = symbol_table_.at(pattern_comprehension);
+    pattern_comprehension_datas_.emplace_back(&pattern_comprehension, symbol_table_.at(pattern_comprehension));
     return true;
   }
 
@@ -468,9 +479,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // named_expressions.
   const auto &output_symbols() const { return output_symbols_; }
 
-  const bool has_pattern_comprehension() const { return pattern_comprehension_data_.pattern_comprehension != nullptr; }
+  bool has_pattern_comprehension() const { return !pattern_comprehension_datas_.empty(); }
 
-  const PatternComprehensionData pattern_comprehension_data() const { return pattern_comprehension_data_; }
+  std::vector<PatternComprehensionData> pattern_comprehension_data() const { return pattern_comprehension_datas_; }
 
   const SymbolTable &symbol_table() const { return symbol_table_; }
 
@@ -495,7 +506,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   //                      group by it.
   std::list<bool> has_aggregation_;
   std::vector<NamedExpression *> named_expressions_;
-  PatternComprehensionData pattern_comprehension_data_;
+  std::vector<PatternComprehensionData> pattern_comprehension_datas_;
   size_t aggregations_start_index_ = 0;
 };
 
@@ -516,10 +527,12 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   }
 
   if (body.has_pattern_comprehension()) {
-    auto list_collection_data = body.pattern_comprehension_data();
-    auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
-    last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
-                                            list_collection_symbols, list_collection_data.result_symbol);
+    auto list_collection_datas = body.pattern_comprehension_data();
+    for (auto &list_collection_data : list_collection_datas) {
+      auto list_collection_symbols = list_collection_data.op->ModifiedSymbols(body.symbol_table());
+      last_op = std::make_unique<RollUpApply>(std::move(last_op), std::move(list_collection_data.op),
+                                              list_collection_symbols, list_collection_data.result_symbol);
+    }
   }
 
   last_op = std::make_unique<Produce>(std::move(last_op), body.named_expressions());
