@@ -21,6 +21,7 @@
 
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/delta_container.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -46,6 +47,7 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
+        delta_store{},
         md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),
@@ -91,7 +93,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
   uint64_t command_id{};
 
-  std::deque<Delta> deltas;
+  delta_container delta_store;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort{};
   IsolationLevel isolation_level{};
@@ -114,7 +116,7 @@ struct Transaction {
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
-  std::vector<std::list<Delta>> index_deltas_storage_{};
+  std::vector<delta_container> index_deltas_storage_{};
   std::optional<utils::SkipList<Edge>> edges_{};
   std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
   std::map<std::string, std::string> vertices_to_delete_{};

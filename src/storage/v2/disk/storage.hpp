@@ -239,13 +239,13 @@ class DiskStorage final : public Storage {
   void LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction *transaction, LabelId label);
   void HandleLoadingLabelForEdgeImportCache(Transaction *transaction, LabelId label);
   void LoadVerticesFromDiskLabelIndex(Transaction *transaction, LabelId label,
-                                      const std::unordered_set<storage::Gid> &gids, std::list<Delta> &index_deltas,
+                                      const std::unordered_set<storage::Gid> &gids, delta_container &index_deltas,
                                       utils::SkipList<Vertex> *indexed_vertices);
   std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
       Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
       utils::SkipList<storage::Vertex>::Accessor index_accessor);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelIndexCache(Transaction *transaction, LabelId label,
-                                                                        View view, std::list<Delta> &index_deltas,
+                                                                        View view, delta_container &index_deltas,
                                                                         utils::SkipList<Vertex> *indexed_vertices);
 
   /// Label-property-index
@@ -253,27 +253,27 @@ class DiskStorage final : public Storage {
                                                                   PropertyId property);
   void HandleLoadingLabelPropertyForEdgeImportCache(Transaction *transaction, LabelId label, PropertyId property);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
+      Transaction *transaction, LabelId label, PropertyId property, View view, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
   void LoadVerticesFromDiskLabelPropertyIndex(Transaction *transaction, LabelId label, PropertyId property,
                                               const std::unordered_set<storage::Gid> &gids,
-                                              std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices,
+                                              delta_container &index_deltas, utils::SkipList<Vertex> *indexed_vertices,
                                               const auto &label_property_filter);
   std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
       Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
       utils::SkipList<storage::Vertex>::Accessor index_accessor);
   void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
       Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
-      const PropertyValue &value, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
+      const PropertyValue &value, delta_container &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, View view,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices);
   void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices);
 
   VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,

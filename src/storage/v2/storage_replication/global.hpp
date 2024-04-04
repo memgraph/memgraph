@@ -18,7 +18,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "replication/config.hpp"
-#include "storage/v2/replication/enums.hpp"
+#include "storage/v2/storage_replication/enums.hpp"
 #include "utils/uuid.hpp"
 
 // TODO: move to replication namespace and unify

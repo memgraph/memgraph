@@ -1,7 +1,11 @@
 add_library(mg-replication STATIC)
 add_library(mg::replication ALIAS mg-replication)
 target_sources(mg-replication
+
         PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS include
+        FILES
         include/replication/state.hpp
         include/replication/epoch.hpp
         include/replication/config.hpp
@@ -17,7 +21,7 @@ target_sources(mg-replication
         replication_client.cpp
         replication_server.cpp
 )
-target_include_directories(mg-replication PUBLIC include)
+#target_include_directories(mg-replication PUBLIC include)
 
 find_package(fmt REQUIRED)
 target_link_libraries(mg-replication

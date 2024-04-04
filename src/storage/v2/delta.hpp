@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory_resource>
 
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -20,6 +21,87 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
+
+// This allocator is designed for just holding deltas and their values.
+// Aim is to ensure deltas allocations, which have shorter lifetimes,
+// are not sharing same pages as storage objects, whihc have a longer lifetime.
+// To do this, the allocator will obtain whole memory pages at a time.
+// Also for simplicity all allocations will be for 8B aligned objects.
+// Assumes single threaded use.
+constexpr size_t PAGE_SIZE = 4096;
+
+struct DeltaMemoryResource : std::pmr::memory_resource {
+  DeltaMemoryResource() = default;
+
+  DeltaMemoryResource(DeltaMemoryResource const &) = delete;
+  DeltaMemoryResource &operator=(DeltaMemoryResource const &) = delete;
+
+  DeltaMemoryResource(DeltaMemoryResource &&other) noexcept {
+    std::swap(pages, other.pages);
+    std::swap(ptr, other.ptr);
+    std::swap(space, other.space);
+  }
+  DeltaMemoryResource &operator=(DeltaMemoryResource &&other) noexcept {
+    if (this == &other) return *this;
+    std::swap(*this, other);
+    return *this;
+  }
+
+  ~DeltaMemoryResource() override {
+    auto current = pages;
+    while (current) {
+      auto next = current->next;
+      free(current);
+      current = next;
+    }
+  }
+
+ private:
+  struct header {
+    explicit header(header *next) : next(next) {}
+    header *next = nullptr;
+  };
+
+  constexpr static size_t alignSize(size_t size, size_t alignment) { return (size + alignment - 1) & ~(alignment - 1); }
+
+  void *do_allocate(size_t bytes, size_t alignment) final {
+    // 1. could this fit inside a page slab?
+    auto earlest_slab_position = alignSize(sizeof(header), alignment);
+    auto max_slab_capacity = PAGE_SIZE - earlest_slab_position;
+    if (max_slab_capacity < bytes) [[unlikely]] {
+      auto required_bytes = bytes + earlest_slab_position;
+      auto *newmem = reinterpret_cast<header *>(aligned_alloc(alignment, required_bytes));
+      if (!newmem) throw std::bad_alloc{};
+      // add to the allocation list
+      pages = std::construct_at<header>(newmem, pages);
+      return pages + earlest_slab_position;
+    }
+
+    // 2. can it fit in existing slab?
+    if (!std::align(alignment, bytes, ptr, space)) {
+      auto *newmem = reinterpret_cast<header *>(aligned_alloc(PAGE_SIZE, PAGE_SIZE));
+      if (!newmem) throw std::bad_alloc{};
+      pages = std::construct_at<header>(newmem, pages);
+      ptr = reinterpret_cast<std::byte *>(pages) + sizeof(header);
+      space = PAGE_SIZE - sizeof(header);
+      std::align(alignment, bytes, ptr, space);
+    }
+
+    // 3. use current slab
+    void *res = ptr;
+    ptr = reinterpret_cast<std::byte *>(ptr) + bytes;
+    space -= bytes;
+    return res;
+  }
+  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) final { /*noop*/
+  }
+  bool do_is_equal(memory_resource const &other) const noexcept final { return std::addressof(other) == this; }
+
+ private:
+  header *pages = nullptr;
+  void *ptr = nullptr;
+  size_t space = 0;
+};
 
 // Forward declarations because we only store pointers here.
 struct Vertex;
@@ -124,9 +206,11 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
 
 struct opt_str {
-  opt_str(std::optional<std::string> const &other) : str_{other ? new_cstr(*other) : nullptr} {}
+  opt_str(std::optional<std::string> const &other, std::pmr::memory_resource *res)
+      : str_{other ? new_cstr(*other, res) : nullptr} {}
 
-  ~opt_str() { delete[] str_; }
+  // not freed as allocator cleanup will deal with that
+  ~opt_str() = default;
 
   auto as_opt_str() const -> std::optional<std::string> {
     if (!str_) return std::nullopt;
@@ -134,9 +218,10 @@ struct opt_str {
   }
 
  private:
-  static auto new_cstr(std::string_view str) -> char const * {
+  static auto new_cstr(std::string_view str, std::pmr::memory_resource *res) -> char const * {
     auto const n = str.size() + 1;
-    auto *mem = new char[n];
+    auto alloc = std::pmr::polymorphic_allocator<>{res};
+    auto *mem = (std::string_view::pointer)alloc.allocate_bytes(n, 1);
     std::copy(str.cbegin(), str.cend(), mem);
     mem[n - 1] = '\0';
     return mem;
@@ -181,48 +266,58 @@ struct Delta {
   // DELETE_DESERIALIZED_OBJECT is used to load data from disk committed by past txs.
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
-  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
-      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> const &old_disk_key,
+        std::pmr::memory_resource *res)
+      : timestamp(std::pmr::polymorphic_allocator<>{res}.new_object<std::atomic<uint64_t>>(ts)),
+        command_id(0),
+        old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
-  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id,
+        std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
 
-  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id,
+        std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp), command_id(command_id), action(Action::RECREATE_OBJECT) {}
 
-  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id,
+        std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
 
-  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
+  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id,
+        std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
   Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue value, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, std::pmr::memory_resource *res)
       : timestamp(timestamp),
         command_id(command_id),
         property{
-            .action = Action::SET_PROPERTY, .key = key, .value = std::make_unique<PropertyValue>(std::move(value))} {}
+            .action = Action::SET_PROPERTY,
+            .key = key,
+            .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(value),
+        } {}
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, std::pmr::memory_resource * /*res*/)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
@@ -232,27 +327,7 @@ struct Delta {
   Delta &operator=(const Delta &) = delete;
   Delta &operator=(Delta &&) = delete;
 
-  ~Delta() {
-    switch (action) {
-      case Action::DELETE_OBJECT:
-      case Action::RECREATE_OBJECT:
-      case Action::ADD_LABEL:
-      case Action::REMOVE_LABEL:
-      case Action::ADD_IN_EDGE:
-      case Action::ADD_OUT_EDGE:
-      case Action::REMOVE_IN_EDGE:
-      case Action::REMOVE_OUT_EDGE:
-        break;
-      case Action::DELETE_DESERIALIZED_OBJECT:
-        std::destroy_at(&old_disk_key.value);
-        delete timestamp;
-        timestamp = nullptr;
-        break;
-      case Action::SET_PROPERTY:
-        property.value.reset();
-        break;
-    }
-  }
+  ~Delta() = default;
 
   // TODO: optimize with in-place copy
   std::atomic<uint64_t> *timestamp;
@@ -273,7 +348,7 @@ struct Delta {
     struct {
       Action action;
       PropertyId key;
-      std::unique_ptr<storage::PropertyValue> value;
+      storage::pmr::PropertyValue *value = nullptr;
     } property;
     struct {
       Action action;
@@ -284,11 +359,14 @@ struct Delta {
   };
 };
 
-static_assert(sizeof(Delta::old_disk_key) == 16);
+// This is important, we want fast discard of unlinked deltas,
+static_assert(std::is_trivially_destructible_v<Delta>);
+
 static_assert(sizeof(Delta::label) == 8);
+static_assert(sizeof(Delta::old_disk_key) == 16);
 static_assert(sizeof(Delta::property) == 16);
-static_assert(sizeof(Delta::vertex_edge) == 24);
-static_assert(sizeof(storage::PropertyValue) == 40);
+static_assert(sizeof(Delta::vertex_edge) == 24);  // worst union member
+static_assert(sizeof(Delta) == 56);               // 24B union + 16B navigation + 16B applicability
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 

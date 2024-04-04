@@ -28,7 +28,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/storage_replication/replication_storage_state.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 

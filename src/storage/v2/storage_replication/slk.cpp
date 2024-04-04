@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/slk.hpp"
+#include "storage/v2/storage_replication/slk.hpp"
 
 #include <type_traits>
 

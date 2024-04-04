@@ -18,7 +18,7 @@
 #include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/replication/slk.hpp"
+#include "storage/v2/storage_replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
 
 using memgraph::io::network::Endpoint;

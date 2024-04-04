@@ -16,7 +16,7 @@
 #include <type_traits>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/replication/recovery.hpp"
+#include "storage/v2/storage_replication/recovery.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"

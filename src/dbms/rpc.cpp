@@ -12,7 +12,7 @@
 #include "dbms/rpc.hpp"
 
 #include "slk/streams.hpp"
-#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_replication/rpc.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
 

@@ -4230,9 +4230,10 @@ struct MgProcedureResultStream final {
   }
 };
 
-std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_map *params) {
-  std::map<std::string, memgraph::storage::PropertyValue> query_params;
-  for (auto &[k, v] : params->items) {
+auto CreateQueryParams(mgp_map *params) -> memgraph::storage::PropertyValue::map_t {
+  memgraph::storage::PropertyValue::map_t query_params;
+  query_params.reserve(params->items.size());
+  for (auto const &[k, v] : params->items) {
     query_params.emplace(k, ToPropertyValue(v));
   }
 

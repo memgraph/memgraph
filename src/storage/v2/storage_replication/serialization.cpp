@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_replication/serialization.hpp"
 
 namespace memgraph::storage::replication {
 ////// Encoder //////
