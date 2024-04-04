@@ -62,9 +62,9 @@ install(PROGRAMS $<TARGET_FILE:schema>
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
 add_library(text_search SHARED text_search_module.cpp)
+set_target_properties(text_search PROPERTIES PREFIX "")
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
-set_target_properties(text_search PROPERTIES PREFIX "")
 target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
 # Strip C++ example in release build.
 if (lower_build_type STREQUAL "release")
