@@ -4075,11 +4075,13 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
       case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
         return;
       default:
         throw QueryRuntimeException(
-            "Only boolean, numeric and string values are allowed in "
-            "MIN and MAX aggregations.");
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX aggregations.");
     }
   }
 
@@ -5808,7 +5810,7 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)) {
   if (list_collection_symbols.size() != 1) {
-    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Contact support.");
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
   }
   list_collection_symbol_ = list_collection_symbols[0];
 }

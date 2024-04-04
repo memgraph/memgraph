@@ -80,10 +80,10 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_decla
 }
 
 void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
-  auto &scope = scopes_.back();
   for (auto &expr : body.named_expressions) {
     expr->Accept(*this);
   }
+  auto &scope = scopes_.back();
 
   SetEvaluationModeOnPropertyLookups(body);
 
@@ -266,7 +266,10 @@ bool SymbolGenerator::PreVisit(Return &ret) {
   scope.has_return = true;
 
   VisitReturnBody(ret.body_);
-  scope.in_return = false;
+
+  // We should retake scope for current level after visiting other nodes,
+  // because they can add more scopes to the end and reallocate the vector.
+  scopes_.back().in_return = false;
   return false;  // We handled the traversal ourselves.
 }
 
@@ -281,7 +284,10 @@ bool SymbolGenerator::PreVisit(With &with) {
   auto &scope = scopes_.back();
   scope.in_with = true;
   VisitReturnBody(with.body_, with.where_);
-  scope.in_with = false;
+
+  // We should retake scope for current level after visiting other nodes,
+  // because they can add more scopes to the end and reallocate the vector.
+  scopes_.back().in_with = false;
   return false;  // We handled the traversal ourselves.
 }
 
@@ -787,12 +793,17 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
     throw utils::NotYetImplemented("IF operator cannot be used with Pattern Comprehension!");
   }
 
+  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
+
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
   return true;
 }
 
-bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) { return true; }
+bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+  scopes_.pop_back();
+  return true;
+}
 
 void SymbolGenerator::VisitWithIdentifiers(Expression *expr, const std::vector<Identifier *> &identifiers) {
   auto &scope = scopes_.back();

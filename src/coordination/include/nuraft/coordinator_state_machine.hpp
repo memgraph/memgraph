@@ -35,7 +35,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(CoordinatorInstanceInitConfig const &config);
+  CoordinatorStateMachine() = default;
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -81,8 +81,6 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
   // Getters
   auto MainExists() const -> bool;

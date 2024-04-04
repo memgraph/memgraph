@@ -40,6 +40,7 @@
 #include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/signals.hpp"
@@ -335,8 +336,18 @@ int main(int argc, char **argv) {
                         .enable_edges_metadata =
                             FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
+                        .enable_edge_type_index_auto_creation =
+                            FLAGS_storage_properties_on_edges ? FLAGS_storage_automatic_edge_type_index_creation_enabled
+                                                              : false,
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+  if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
+    spdlog::warn(
+        "Automatic index creation on edge-types has been set but properties on edges are disabled. This will "
+        "implicitly disallow automatic edge-type index creation. If you wish to use automatic edge-type index "
+        "creation, enable properties on edges as well.");
+  }
   if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
@@ -348,23 +359,31 @@ int main(int argc, char **argv) {
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
                                [] { memgraph::memory::PurgeUnusedMemory(); });
 
-  if (FLAGS_storage_snapshot_interval_sec == 0) {
-    if (FLAGS_storage_wal_enabled) {
-      LOG_FATAL(
-          "In order to use write-ahead-logging you must enable "
-          "periodic snapshots by setting the snapshot interval to a "
-          "value larger than 0!");
-      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+  using namespace std::chrono_literals;
+  using enum memgraph::storage::StorageMode;
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+
+  if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+    if (db_config.durability.snapshot_interval == 0s) {
+      if (FLAGS_storage_wal_enabled) {
+        LOG_FATAL(
+            "In order to use write-ahead-logging you must enable "
+            "periodic snapshots by setting the snapshot interval to a "
+            "value larger than 0!");
+      }
+      db_config.durability.snapshot_wal_mode = DISABLED;
+    } else {
+      if (FLAGS_storage_wal_enabled) {
+        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+      } else {
+        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+      }
     }
   } else {
-    if (FLAGS_storage_wal_enabled) {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    } else {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
-    }
-    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+    db_config.durability.snapshot_wal_mode = DISABLED;
+    db_config.durability.snapshot_interval = 0s;
   }
 
   // Default interpreter configuration
