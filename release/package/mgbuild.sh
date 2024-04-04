@@ -312,7 +312,8 @@ build_memgraph () {
 
   if [[ "$copy_from_host" == "true" ]]; then
     # Ensure we have a clean build directory
-    docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
+    docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
     project_files=$(dir -A1 "$PROJECT_ROOT")
     while IFS= read -r f; do
