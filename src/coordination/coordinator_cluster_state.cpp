@@ -102,11 +102,6 @@ auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction 
                               ReplicationInstanceState{config, ReplicationRole::REPLICA, utils::UUID{}, false});
       break;
     }
-    case RaftLogAction::EMPTY_LOG: {
-      auto const &name = std::get<std::string>(log_entry);
-      spdlog::trace("DoAction: empty log {}", name);
-      break;
-    }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
       auto const instance_name = std::get<std::string>(log_entry);
       spdlog::trace("DoAction: unregister replication instance {}", instance_name);

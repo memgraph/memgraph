@@ -61,7 +61,7 @@ class CoordinatorStateManager : public state_mgr {
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
-  std::unique_ptr<kvstore::KVStore> durability_;
+  std::unique_ptr<kvstore::KVStore> kv_store_;
 };
 
 }  // namespace memgraph::coordination

@@ -46,10 +46,6 @@ auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
 }
 
-auto CoordinatorStateMachine::SerializeAppendEmptyLog(std::string_view name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::EMPTY_LOG}, {"info", std::string(name)}});
-}
-
 auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
@@ -103,7 +99,6 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-    case RaftLogAction::EMPTY_LOG:
       return {info.get<std::string>(), action};
   }
   throw std::runtime_error("Unknown action");
@@ -202,10 +197,10 @@ auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
-  spdlog::debug("last_snapshot");
+  spdlog::debug("Getting last snapshot from state machine.");
   auto entry = snapshots_.rbegin();
   if (entry == snapshots_.rend()) {
-    spdlog::trace("it is nullptr");
+    spdlog::debug("There is no snapshot.");
     return nullptr;
   }
 

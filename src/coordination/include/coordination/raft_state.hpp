@@ -76,7 +76,6 @@ class RaftState {
   auto AppendOpenLock() -> bool;
   auto AppendCloseLock() -> bool;
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
-  auto AppendEmptyLog(std::string_view name) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
