@@ -4,3 +4,5 @@ endfunction()
 
 copy_auto_index_queries_e2e_python_files(common.py)
 copy_auto_index_queries_e2e_python_files(index_auto_creation.py)
+
+copy_e2e_files(index_auto_creation workloads.yaml)
