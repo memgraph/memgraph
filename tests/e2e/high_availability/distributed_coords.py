@@ -2132,5 +2132,4 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_multiple_failovers_in_row_no_leadership_change", "-vv"]))
     sys.exit(pytest.main([__file__, "-rA"]))
