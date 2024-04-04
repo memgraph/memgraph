@@ -1185,6 +1185,17 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
+      const auto *single_query = call_subquery->cypher_query_->single_query_;
+      if (single_query) {
+        has_update |= single_query->has_update;
+        for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
+          if (has_update) break;
+          const auto *single_query = cypher_union->single_query_;
+          if (single_query) {
+            has_update |= single_query->has_update;
+          }
+        }
+      }
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       check_write_procedure("UNWIND");
       if (has_update || has_return) {
@@ -1255,6 +1266,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       }
     }
   }
+
+  single_query->has_update = has_update;
   return single_query;
 }
 
