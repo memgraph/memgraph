@@ -314,7 +314,13 @@ build_memgraph () {
     # Ensure we have a clean build directory
     docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
-    docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+    project_files=$(dir -A1 "$PROJECT_ROOT")
+    while IFS= read -r f; do
+      # Skip build directory when copying project files
+      if [[ "$f" != "build" ]]; then
+        docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+      fi
+    done <<< "$project_files"
     # Change ownership of copied files so the mg user inside container can access them
     docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
   fi
