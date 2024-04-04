@@ -136,6 +136,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_return{false};
     bool in_set_labels{false};
     bool in_remove_labels{false};
+    bool in_pattern_comprehension{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
