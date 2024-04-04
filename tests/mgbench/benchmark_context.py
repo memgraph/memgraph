@@ -21,6 +21,13 @@ class BenchmarkContext:
     Class for holding information on what type of benchmark is being executed
     """
 
+    def _get_vendor(self, name):
+        if name.startswith("memgraph"):
+            return "memgraph"
+        if name.startswith("neo4j"):
+            return "neo4j"
+        return name
+
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
@@ -34,8 +41,6 @@ class BenchmarkContext:
         no_load_query_counts: bool = False,
         no_save_query_counts: bool = False,
         export_results: str = None,
-        export_results_in_memory_analytical: str = None,
-        export_results_on_disk_txn: str = None,
         temporary_directory: str = None,
         workload_mixed: str = None,  # Default mode is isolated, mixed None
         workload_realistic: str = None,  # Default mode is isolated, realistic None
@@ -49,6 +54,7 @@ class BenchmarkContext:
         self.benchmark_target_workload = benchmark_target_workload
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
+        self.vendor = self._get_vendor(vendor_name)
         self.client_binary = client_binary
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark

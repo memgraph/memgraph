@@ -103,7 +103,7 @@ class Workload(ABC):
         """
         self.benchmark_context = benchmark_context
         self._variant = variant
-        self._vendor = benchmark_context.vendor_name
+        self._vendor = benchmark_context.vendor
         self._file = None
         self._node_file = None
         self._edge_file = None
@@ -200,7 +200,7 @@ class Workload(ABC):
 
     def _set_url_index_file(self) -> None:
         if self.URL_INDEX_FILE is not None:
-            self._url_index = self.URL_INDEX_FILE.get(helpers.get_vendor_name(self._vendor), None)
+            self._url_index = self.URL_INDEX_FILE.get(self._vendor, None)
         else:
             self._url_index = None
 

@@ -23,7 +23,6 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
-from helpers import get_vendor_name
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -377,11 +376,10 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        vendor_name = get_vendor_name(benchmark_context.vendor_name)
-        if vendor_name not in cls.subclasses:
-            raise ValueError("Missing runner with name: {}".format(vendor_name))
+        if benchmark_context.vendor not in cls.subclasses:
+            raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor))
 
-        return cls.subclasses[vendor_name](
+        return cls.subclasses[benchmark_context.vendor](
             benchmark_context=benchmark_context,
         )
 

@@ -850,8 +850,6 @@ if __name__ == "__main__":
         query_count_lower_bound=args.query_count_lower_bound,
         no_load_query_counts=args.no_load_query_counts,
         export_results=args.export_results,
-        export_results_in_memory_analytical=args.export_results_in_memory_analytical,
-        export_results_on_disk_txn=args.export_results_on_disk_txn,
         temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,
