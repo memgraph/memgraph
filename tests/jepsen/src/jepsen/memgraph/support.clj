@@ -26,6 +26,7 @@
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
+   :--data-recovery-on-startup
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
@@ -44,6 +45,7 @@
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
+   :--data-recovery-on-startup
    :--storage-properties-on-edges
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)))
@@ -63,6 +65,7 @@
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
+   :--data-recovery-on-startup
    :--storage-properties-on-edges
    :--management-port (get node-config :management-port)))
 

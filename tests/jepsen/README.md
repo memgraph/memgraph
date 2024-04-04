@@ -7,7 +7,7 @@ Jepsen run under CI:
 ```
 cd tests/jepsen
 ./run.sh test --binary ../../build/memgraph --run-args "test-all --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
-./run.sh test --binary ../../build/memgraph --run-args "test --workload bank --node-configs resources/node-config.edn" --ignore-run-stdout-logs --ignore-run-stderr-logs
+./run.sh test --binary ../../build/memgraph --run-args "--workload bank --node-configs resources/node-config.edn --time-limit 120" --ignore-run-stdout-logs --ignore-run-stderr-logs
 ```
 
 Local run of each test (including setup):

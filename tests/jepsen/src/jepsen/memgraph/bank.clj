@@ -54,7 +54,7 @@
       (update-balance tx {:id to :amount amount}))))
 
 (client/replication-client Client []
-                           ; Open connection to the node. Setup config on each node.
+                           ; Open connection to the node. Setup each node.
                            (open! [this test node]
                                   (client/replication-open-connection this node node-config))
                            ; On main detach-delete-all and create accounts.
@@ -97,7 +97,7 @@
                                                                                     (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
                                                                                       (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
                                                                                       (assoc op :type :fail :info (str e)))))
-                                                                                (assoc op :type :fail))))
+                                                                                (assoc op :type :fail :info "Not main node."))))
                            ; On teardown! only main will detach-delete-all.
                            (teardown! [this test]
                                       (when (= replication-role :main)

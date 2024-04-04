@@ -70,7 +70,7 @@
                                (gen/nemesis (:final-generator nemesis))
                                (gen/log "Waiting for recovery")
                                (gen/sleep (:recovery-time final-generator))
-                               (gen/clients (:gen final-generator)))
+                               (gen/clients (:clients final-generator)))
                    gen)]
     (merge tests/noop-test
            opts
@@ -170,8 +170,7 @@
       ;; Use node-config directly for high availability workload
       (memgraph-ha-test (assoc opts :node-config node-config :workload workload))
       ;; Use node-config for other workloads
-      (let [test-opts (assoc opts :node-config node-config :workload workload)]
-        (memgraph-test test-opts)))))
+      (memgraph-test (assoc opts :node-config node-config :workload workload)))))
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
