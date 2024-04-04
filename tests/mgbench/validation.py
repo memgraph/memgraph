@@ -242,11 +242,11 @@ if __name__ == "__main__":
             db_1_values = set()
             for index, value in results_db_1[key]:
                 db_1_values.add(value)
-            neo4j_values = set()
+            db_2_values = set()
             for index, value in results_db_2[key]:
-                neo4j_values.add(value)
+                db_2_values.add(value)
 
-            if db_1_values == neo4j_values:
+            if db_1_values == db_2_values:
                 validation[key] = "Identical results"
             else:
                 validation[key] = "Different results, check manually."
