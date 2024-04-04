@@ -49,7 +49,7 @@ jobs:
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
-      mgdeps_cache_host: "${{ inputs.arch == 'arm' && '100.116.34.131' || 'mgdeps-cache' }}"
+      mgdeps_cache_host: "${{ inputs.arch == 'arm' && '100.116.34.131' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
     steps:
       - name: "Set up repository"
         uses: actions/checkout@v4
