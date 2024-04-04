@@ -297,3 +297,11 @@ class Cache:
     def save_config(self, config):
         with open(self._config, "w") as f:
             json.dump(config.get_data(), f)
+
+
+def get_vendor_name(name):
+    if name.startswith("memgraph"):
+        return "memgraph"
+    if name.startswith("neo4j"):
+        return "neo4j"
+    return name

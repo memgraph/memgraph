@@ -23,6 +23,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
+from helpers import get_vendor_name
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -375,16 +376,8 @@ class BaseRunner(ABC):
         return
 
     @classmethod
-    def _name_helper(cls, name):
-        if name.startswith("memgraph"):
-            return "memgraph"
-        if name.startswith("neo4j"):
-            return "neo4j"
-        return name
-
-    @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        vendor_name = cls._name_helper(benchmark_context.vendor_name)
+        vendor_name = get_vendor_name(benchmark_context.vendor_name)
         if vendor_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(vendor_name))
 

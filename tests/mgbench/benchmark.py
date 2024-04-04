@@ -896,10 +896,6 @@ if __name__ == "__main__":
     elif benchmark_context.vendor_name == "memgraph-ondisk":
         bench_results.results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
 
-    # bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
-    # bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
-    # bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
-
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
     # Filter out the workloads based on the pattern
