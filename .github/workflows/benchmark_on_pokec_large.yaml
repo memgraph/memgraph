@@ -14,6 +14,7 @@ jobs:
   benchmark_on_pokec_large:
     name: "Benchmark on pokec large dataset"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
+    timeout-minutes: 720
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
