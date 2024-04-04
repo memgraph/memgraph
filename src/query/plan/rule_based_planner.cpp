@@ -62,13 +62,20 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
       // Pattern comprehension can be filled during named expression traversion
       if (auto it = pc_ops.find(named_expr->name_); it != pc_ops.end()) {
-        MG_ASSERT(pattern_comprehension_datas_[pattern_comprehension_index].pattern_comprehension != nullptr);
-        pattern_comprehension_datas_[pattern_comprehension_index].op = std::move(it->second.op);
+        auto &curr_pc = pattern_comprehension_datas_[pattern_comprehension_index];
+        if (!curr_pc.pattern_comprehension) {
+          throw SemanticException(
+              "Pattern comprehension matched to name was not initialiazed! Please contact support.");
+        }
+
+        curr_pc.op = std::move(it->second.op);
         pc_ops.erase(it);
         ++pattern_comprehension_index;
       }
     }
-    MG_ASSERT(pc_ops.empty(), "Unexpected pattern comprehension left in named expressions");
+    if (!pc_ops.empty()) {
+      throw SemanticException("Unexpected pattern comprehensions left in named expressions! Please contact support.");
+    }
 
     // Collect symbols used in group by expressions.
     if (!aggregations_.empty()) {
