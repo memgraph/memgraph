@@ -502,12 +502,8 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  local POKEC_SIZE="medium"
+  local POKEC_SIZE=${2:-'medium'}
   echo "Running $1 test on $build_container..."
-
-  if [ ! -z "$2" ]; then
-    POKEC_SIZE="$2"
-  fi
 
   case "$1" in
     unit)

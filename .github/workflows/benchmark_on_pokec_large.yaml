@@ -10,19 +10,10 @@ on:
       - "CODEOWNERS"
       - "licenses/*"
 
-    inputs:
-      build_type:
-        type: choice
-        description: "Memgraph Build type."
-        default: 'Release'
-        options:
-          - Release
-          - RelWithDebInfo
-
 jobs:
   benchmark_on_pokec_large:
     name: "Benchmark on pokec large dataset"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
     env:
       THREADS: 24
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
@@ -30,6 +21,7 @@ jobs:
       OS: debian-11
       TOOLCHAIN: v5
       ARCH: amd
+      BUILD_TYPE: Release
 
     steps:
         - name: Set up repository
@@ -59,7 +51,7 @@ jobs:
             --toolchain $TOOLCHAIN \
             --os $OS \
             --arch $ARCH \
-            --build-type  ${{ github.event.inputs.build_type || 'Release' }} \
+            --build-type $BUILD_TYPE \
             --threads $THREADS \
             build-memgraph
 
