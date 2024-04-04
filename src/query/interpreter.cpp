@@ -4963,7 +4963,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
-      query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
+      if (current_db_.db_acc_) {
+        query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
+      } else {
+        query_execution->prepared_query->db = "";
+      }
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
