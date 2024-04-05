@@ -279,7 +279,7 @@ if __name__ == "__main__":
     realistic = args.realistic
     mixed = args.mixed
 
-    vendor_names = {"memgraph-inmemory-transactional", "memgraph-inmemory-analytical", "memgraph-ondisk" "neo4j"}
+    vendor_names = {"memgraph-inmemory-transactional", "memgraph-inmemory-analytical", "memgraph-ondisk", "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
         if vendor_name.lower() in vendor_names and path.is_file():
