@@ -47,7 +47,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability"};
+  auto const config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability" / "coordinator"};
 
   auto raft_state = RaftState::MakeRaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
 
@@ -63,7 +63,8 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability"};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability" / "coordinator"};
 
   auto const raft_state =
       RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
@@ -80,7 +81,8 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
 TEST_F(RaftStateTest, GetMixedRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config = CoordinatorInstanceInitConfig{1, 10113, 7690, test_folder_ / "high_availability"};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{1, 10113, 7690, test_folder_ / "high_availability" / "coordinator"};
   auto leader = RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
   leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{

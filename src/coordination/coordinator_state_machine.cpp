@@ -188,8 +188,6 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   if (entry == snapshots_.end()) return false;
 
   cluster_state_ = entry->second->cluster_state_;
-  // TODO(antoniofilipovic) Is this true
-  // last_committed_idx_=s.get_last_log_idx();
   return true;
 }
 

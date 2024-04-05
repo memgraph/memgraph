@@ -50,7 +50,8 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
-  auto const init_config = CoordinatorInstanceInitConfig{4, 10110, 7686, main_data_directory / "high_availability"};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{4, 10110, 7686, main_data_directory / "high_availability" / "coordinator"};
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -63,15 +64,18 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     }
   };
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
@@ -127,15 +131,18 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     }
   };
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 

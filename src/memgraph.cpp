@@ -444,7 +444,7 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability";
+    auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
     memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
     coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
                                                             FLAGS_bolt_port, high_availability_data_dir});
