@@ -16,6 +16,7 @@
 
 #include "mg_procedure.h"
 
+#include <memory>
 #include <optional>
 #include <ostream>
 
@@ -24,6 +25,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/view.hpp"
@@ -33,6 +35,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
+
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = memgraph::utils::MemoryResource`, but that's
@@ -1000,3 +1003,32 @@ struct mgp_messages {
 bool ContainsDeleted(const mgp_value *val);
 
 memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
+
+struct mgp_execution_headers {
+  using allocator_type = memgraph::utils::Allocator<mgp_execution_headers>;
+  using storage_type = memgraph::utils::pmr::vector<memgraph::utils::pmr::string>;
+  explicit mgp_execution_headers(storage_type &&storage);
+
+  ~mgp_execution_headers() = default;
+
+  storage_type headers;
+};
+
+struct mgp_execution_rows {
+  explicit mgp_execution_rows(
+      memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> &&tv_rows);
+  ~mgp_execution_rows() = default;
+
+  memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> rows;
+};
+
+struct mgp_execution_result {
+  explicit mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
+  ~mgp_execution_result();
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+
+  struct pImplMgpExecutionResult;
+  std::unique_ptr<pImplMgpExecutionResult> pImpl;
+  memgraph::utils::MemoryResource *memory;
+};
