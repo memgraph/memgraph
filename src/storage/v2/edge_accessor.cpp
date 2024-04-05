@@ -254,7 +254,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          *value = *delta.property.value;
+          value = *delta.property.value;
         }
         break;
       }

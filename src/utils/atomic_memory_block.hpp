@@ -22,7 +22,7 @@ namespace memgraph::utils {
 template <typename Callable>
 class [[nodiscard]] AtomicMemoryBlock {
  public:
-  explicit AtomicMemoryBlock(Callable &&function) : function_{std::forward<Callable>(function)} {}
+  explicit AtomicMemoryBlock(Callable function) : function_{std::move(function)} {}
   AtomicMemoryBlock(AtomicMemoryBlock const &) = delete;
   AtomicMemoryBlock(AtomicMemoryBlock &&) = delete;
   AtomicMemoryBlock &operator=(AtomicMemoryBlock const &) = delete;
