@@ -117,6 +117,24 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
   return false;
 }
 
+auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
+                                                struct ReplicationClientInfo replication_client_info) const -> bool {
+  auto const &instance_name = replication_client_info.instance_name;
+  try {
+    auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for registering replica instance {} on main!",
+                    instance_name);
+      return false;
+    }
+    spdlog::info("Sent request RPC from coordinator to register replica instance on main!");
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to register instance {} to replica!", instance_name);
+  }
+  return false;
+}
+
 auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
   try {
     auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};

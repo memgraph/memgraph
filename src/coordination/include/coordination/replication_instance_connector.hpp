@@ -60,6 +60,8 @@ class ReplicationInstanceConnector {
   auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
       -> bool;
 
+  auto RegisterReplica(utils::UUID const &uuid, struct ReplicationClientInfo replication_client_info) -> bool;
+
   auto StartFrequentCheck() -> void;
   auto StopFrequentCheck() -> void;
   auto PauseFrequentCheck() -> void;

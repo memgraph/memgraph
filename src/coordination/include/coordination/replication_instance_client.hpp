@@ -63,6 +63,8 @@ class ReplicationInstanceClient {
 
   virtual auto SendEnableWritingOnMainRpc() const -> bool;
 
+  auto RegisterReplica(utils::UUID const &uuid, struct ReplicationClientInfo replication_client_info) const -> bool;
+
   auto SendFrequentHeartbeat() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const

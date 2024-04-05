@@ -591,9 +591,19 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 
   if (!new_instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
                                      &CoordinatorInstance::ReplicaFailCallback)) {
-    // TODO(antoniofilipovic) We don't need to do here force reset, only close lock later on
     spdlog::error("Failed to send demote to replica rpc for instance {}", config.instance_name);
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  auto main_name = raft_state_.TryGetCurrentMainName();
+
+  if (main_name.has_value()) {
+    auto &current_main = FindReplicationInstance(*main_name);
+
+    if (!current_main.RegisterReplica(raft_state_.GetCurrentMainUUID(), new_instance->ReplicationClientInfo())) {
+      spdlog::error("Failed to register replica instance.");
+      return;
+    }
   }
 
   if (!raft_state_.AppendRegisterReplicationInstanceLog(config)) {
