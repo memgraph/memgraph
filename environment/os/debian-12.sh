@@ -123,7 +123,7 @@ install() {
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
-                apt-get update
+                apt-get update -y
                 apt-get install -y apt-transport-https dotnet-sdk-8.0
             fi
             continue
