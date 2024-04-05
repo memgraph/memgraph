@@ -380,7 +380,10 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
     db = db_info.ValueString();
     const auto &current = GetCurrentDB();
     update = db != current;
-    if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+    if (!in_explicit_db_) {
+      implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+      update = true;
+    }
     in_explicit_db_ = true;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
   } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
@@ -389,16 +392,7 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
     } else {
       db = GetDefaultDB();
     }
-    auto should_update = [&]() {
-      const auto current_db = GetCurrentDB();
-      if (db) {
-        // We should be connected to a DB and it is different from the current one.
-        return *db != current_db;
-      }
-      // We should NOT be connected to a DB, but are
-      return !current_db.empty();
-    };
-    update = should_update();
+    update = true;  // We have to update in order to update the explicit flag
     in_explicit_db_ = false;
   }
 
