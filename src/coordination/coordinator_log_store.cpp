@@ -46,8 +46,7 @@ auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry>
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
-  auto slot = start_idx_ + logs_.size() - 1;
-  return slot;
+  return start_idx_ + logs_.size() - 1;
 }
 
 uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }

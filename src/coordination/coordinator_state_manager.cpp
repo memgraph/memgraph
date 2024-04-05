@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include <range/v3/view.hpp>
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
@@ -40,20 +41,20 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   MG_ASSERT(kv_store_, "Durability folder should be created.");
   spdlog::trace("Loading cluster config from RocksDb");
-  auto servers = kv_store_->Get("servers");
+  auto const servers = kv_store_->Get("servers");
   if (!servers.has_value()) {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
   }
   spdlog::trace("Loading cluster config from disk.");
   auto const json = nlohmann::json::parse(servers.value());
-  auto const real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
+  auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
   cluster_config_->get_servers().clear();
-  for (auto const &real_server : real_servers) {
-    auto const &[coord_id, endpoint, aux] = real_server;
+  for (auto &real_server : real_servers) {
+    auto &[coord_id, endpoint, aux] = real_server;
     spdlog::trace("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.", coord_id, endpoint,
                   aux);
-    auto one_server_config = cs_new<srv_config>(coord_id, 0, endpoint, aux, false);
+    auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
     cluster_config_->get_servers().push_back(std::move(one_server_config));
   }
 
@@ -65,15 +66,16 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   spdlog::info("Saving cluster config to disk.");
-  auto servers = cluster_config_->get_servers();
-  std::vector<std::tuple<int, std::string, std::string>> servers_vec;
-  for (auto const &server : servers) {
-    servers_vec.emplace_back(static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
-    spdlog::trace("Stored cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
-                  static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
-  }
-  nlohmann::json json(servers_vec);
-  kv_store_->Put("servers", json.dump());
+  auto const servers_vec =
+      ranges::views::transform(
+          cluster_config_->get_servers(),
+          [](auto const &server) {
+            spdlog::trace("Created cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
+                          static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
+            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
+          }) |
+      ranges::to<std::vector>();
+  kv_store_->Put("servers", nlohmann::json(servers_vec).dump());
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
