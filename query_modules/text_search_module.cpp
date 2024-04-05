@@ -77,7 +77,7 @@ void TextSearch::SearchAllProperties(mgp_list *args, mgp_graph *memgraph_graph, 
 
   try {
     const auto *index_name = arguments[0].ValueString().data();
-    const auto *search_query = fmt::format("{}:{}", kSearchAllPrefix, arguments[1].ValueString()).data();
+    std::string search_query = fmt::format("{}:{}", kSearchAllPrefix, arguments[1].ValueString());
     for (const auto &node :
          mgp::SearchTextIndex(memgraph_graph, index_name, search_query, text_search_mode::ALL_PROPERTIES)) {
       auto record = record_factory.NewRecord();
@@ -106,7 +106,7 @@ void TextSearch::Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
   }
 }
 
-extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
 
@@ -115,21 +115,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, module, memory);
+                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, query_module, memory);
 
     AddProcedure(TextSearch::RegexSearch, TextSearch::kProcedureRegexSearch, mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, module, memory);
+                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, query_module, memory);
 
     AddProcedure(TextSearch::SearchAllProperties, TextSearch::kProcedureSearchAllProperties, mgp::ProcedureType::Read,
                  {
                      mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, module, memory);
+                 {mgp::Return(TextSearch::kReturnNode, mgp::Type::Node)}, query_module, memory);
 
     AddProcedure(TextSearch::Aggregate, TextSearch::kProcedureAggregate, mgp::ProcedureType::Read,
                  {
@@ -137,7 +137,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
                      mgp::Parameter(TextSearch::kParameterAggregationQuery, mgp::Type::String),
                  },
-                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, module, memory);
+                 {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << std::endl;
     return 1;
