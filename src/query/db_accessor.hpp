@@ -621,6 +621,8 @@ class DbAccessor final {
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
 
+  const std::string &DatabaseName() const { return accessor_->id(); }
+
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
   utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {},
