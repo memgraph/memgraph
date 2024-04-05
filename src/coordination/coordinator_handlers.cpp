@@ -66,7 +66,7 @@ void CoordinatorHandlers::Register(memgraph::coordination::CoordinatorServer &se
   server.Register<coordination::RegisterReplicaOnMainRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received RegisterReplicaOnMainRpc on coordinator server");
-        CoordinatorHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
+        CoordinatorHandlers::RegisterReplicaOnMainHandler(replication_handler, req_reader, res_builder);
       });
 }
 

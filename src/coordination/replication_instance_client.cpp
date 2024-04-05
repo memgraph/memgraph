@@ -119,7 +119,7 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
 
 auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
                                                 struct ReplicationClientInfo replication_client_info) const -> bool {
-  auto const &instance_name = replication_client_info.instance_name;
+  auto const instance_name = replication_client_info.instance_name;
   try {
     auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
     if (!stream.AwaitResponse().success) {

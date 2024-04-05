@@ -602,7 +602,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 
     if (!current_main.RegisterReplica(raft_state_.GetCurrentMainUUID(), new_instance->ReplicationClientInfo())) {
       spdlog::error("Failed to register replica instance.");
-      return;
+      return RegisterInstanceCoordinatorStatus::RPC_FAILED;
     }
   }
 
