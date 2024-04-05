@@ -169,11 +169,11 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
   ReplicationInstance instance2{storage2_config, instance2_config};
   ReplicationInstance instance3{storage3_config, instance3_config};
   CoordinatorInstance coordinator1{
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7690}};
+      CoordinatorInstanceInitConfig{1, 10111, 7690, storage_directories[0] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator2{
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7691}};
+      CoordinatorInstanceInitConfig{2, 10112, 7691, storage_directories[1] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator3{
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7692}};
+      CoordinatorInstanceInitConfig{3, 10113, 7692, storage_directories[2] / "high_availability" / "coordinator"}};
 
  private:
   void Clear() {
