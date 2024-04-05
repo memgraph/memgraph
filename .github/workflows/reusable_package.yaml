@@ -1,0 +1,210 @@
+name: Reusable package make and upload
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        description: "Target os. Default value is debian-12."
+        default: 'debian-12'
+      arch:
+        type: string
+        description: "Target architecture. Default value is amd."
+        default: 'amd'
+      toolchain:
+        type: string
+        description: "Toolchain version. Default value is v5."
+        default: 'v5'
+      build_type:
+        type: string
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+      artifact_name:
+        type: string
+        description: "Unique artifact name, pass it in to override the default artifact name setting."
+        default: ''
+      additional_build_args:
+        type: string
+        description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
+        default: ''
+      push_to_s3:
+        type: string 
+        description: "Should the final package be pushed to an S3 bucket. Default value is false"
+        default: false
+      s3_bucket:
+        type: string
+        description: "Name of the target S3 bucket."
+        default: ''
+      s3_region:
+        type: string
+        description: "Region for the target S3 bucket."
+        default: 'eu-west-1'
+      s3_dest_dir:
+        type: string
+        description: "Target dir path in S3 bucket."
+        default: ''
+
+jobs:
+  package:
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
+    env:
+      mgdeps_cache_host: "${{ inputs.arch == 'arm' && '100.116.34.131' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
+    steps:
+      - name: "Set up repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Required because of release/get_version.py
+
+      - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
+        if: ${{ inputs.arch == 'arm' }}
+        run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
+
+      - name: "Log in to Docker Hub"
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: "Set artifact name and dir"
+        run: |
+          if [[ -z "${{ inputs.artifact_name }}" ]]; then
+            if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
+              artifact_name='docker'
+              echo "FOR_DOCKER=true" >> $GITHUB_ENV
+            elif [[ "${{ inputs.additional_build_args }}" == *"--for-platform" ]]; then
+              artifact_name="${{ inputs.os }}-platform"
+            else
+              artifact_name=${{ inputs.os }}
+              artifact_name=${artifact_name%*-arm}
+            fi
+            if [[ "${{ inputs.arch }}" == 'arm' ]]; then
+              artifact_name="${artifact_name}-aarch64"
+            fi
+          else
+            artifact_name=${{ inputs.artifact_name }}
+          fi
+          echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
+          echo "ARTIFACT_DIR=build/output/$artifact_name" >> $GITHUB_ENV
+
+      - name: "Spin up mgbuild container"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          run
+
+      - name: "Build Memgraph binaries"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          --build-type ${{ inputs.build_type }} \
+          --mgdeps-cache-host ${{ env.mgdeps_cache_host }} \
+          build-memgraph ${{ inputs.additional_build_args }}
+
+      - name: "Make package"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          --build-type ${{ inputs.build_type }} \
+          package-memgraph
+
+      - name: "Copy package"
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          copy \
+          --package \
+          --dest-dir "${{ env.ARTIFACT_DIR }}"
+
+      - name: "Create docker package"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          package-docker \
+          --src-dir "${{ env.ARTIFACT_DIR }}" \
+          --dest-dir "${{ env.ARTIFACT_DIR }}"
+
+      - name: "Upload regular package"
+        if: ${{ env.FOR_DOCKER != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "${{ env.ARTIFACT_DIR }}/memgraph*"
+
+      - name: "Upload docker package"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "${{ env.ARTIFACT_DIR }}/memgraph*.tar.gz"
+
+      - name: "Stop mgbuild container"
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          stop --remove
+
+  upload-to-s3:
+    if: ${{ inputs.push_to_s3 == 'true' }}
+    needs: [package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate dest_dir
+        if: ${{ inputs.s3_bucket == 'download.memgraph.com' }}
+        run: |
+          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/[0-9]\.[0-9]+\.[0-9]+$ ]]; then
+            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/X.Y.Z'!"
+            exit 1
+          else
+            echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
+          fi
+
+      - name: "Set artifact name"
+        run: |
+          if [[ -z "${{ inputs.artifact_name }}" ]]; then
+            if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
+              artifact_name='docker'
+              echo "FOR_DOCKER=true" >> $GITHUB_ENV
+            elif [[ "${{ inputs.additional_build_args }}" == *"--for-platform" ]]; then
+              artifact_name="${{ inputs.os }}-platform"
+            else
+              artifact_name=${{ inputs.os }}
+              artifact_name=${artifact_name%*-arm}
+            fi
+            if [[ "${{ inputs.arch }}" == 'arm' ]]; then
+              artifact_name="${artifact_name}-aarch64"
+            fi
+          else
+            artifact_name=${{ inputs.artifact_name }}
+          fi
+          echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "build/output/release"
+
+      - name: Upload to S3
+        uses: jakejarvis/s3-sync-action@v0.5.1
+        env:
+          AWS_S3_BUCKET: ${{ inputs.s3_bucket }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ inputs.s3_region }}
+          SOURCE_DIR: "build/output/release"
+          DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"

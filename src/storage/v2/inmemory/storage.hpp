@@ -109,6 +109,8 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     /// Return approximate number of all vertices in the database.
@@ -241,7 +243,8 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                      bool unique_access_needed = true) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -257,7 +260,8 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                      bool unique_access_needed = true) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
@@ -322,6 +326,8 @@ class InMemoryStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
+    void DropGraph() override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -332,6 +338,7 @@ class InMemoryStorage final : public Storage {
     /// Duiring commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
+    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges);
     SalientConfig::Items config_;
   };
 
@@ -424,9 +431,12 @@ class InMemoryStorage final : public Storage {
 
   void PrepareForNewEpoch() override;
 
+  void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;
+  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

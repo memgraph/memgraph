@@ -409,9 +409,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
       case LOCK_OPENED:
         throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
-      case OPEN_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't register instance as cluster didn't accept entering unregistration state!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -477,9 +478,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case LOCK_OPENED:
         throw QueryRuntimeException(
             "Couldn't register replica instance because because the last action didn't finish successfully!");
-      case OPEN_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance because cluster didn't accept registration query!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -498,7 +500,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_server_id = coordinator_id,
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
@@ -525,14 +527,15 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
       case SWAP_UUID_FAILED:
         throw QueryRuntimeException("Couldn't set replica instance to main. Replicas didn't swap uuid of new main.");
-      case OPEN_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't set replica instance to main as cluster didn't accept setting instance state.");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
       case LOCK_OPENED:
         throw QueryRuntimeException(
             "Couldn't register replica instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -1224,7 +1227,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      auto coord_server_id = coordinator_query->coordinator_server_id_->Accept(evaluator).ValueInt();
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
                      bolt_server = bolt_server_it->second,
@@ -1786,10 +1789,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.user_or_role = user_or_role;
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user_or_role), dba);
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
@@ -3320,6 +3324,27 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
+  Callback callback;
+  callback.fn = [&db, dba]() mutable {
+    auto storage_mode = db->GetStorageMode();
+    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
+    }
+    dba->DropGraph();
+
+    auto *trigger_store = db->trigger_store();
+    trigger_store->DropAll();
+
+    auto *streams = db->streams();
+    streams->DropAll();
+
+    return std::vector<std::vector<TypedValue>>();
+  };
+
+  return callback;
+}
+
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
     return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
@@ -3361,6 +3386,28 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
+  MG_ASSERT(drop_graph_query);
+
+  std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4299,8 +4346,10 @@ void Interpreter::RollbackTransaction() {
 
 #ifdef MG_ENTERPRISE
 auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
-  // TODO: (andi) Test
-  if (!FLAGS_coordinator_id) {
+  if (!interpreter_context_->coordinator_state_) {
+    throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
+  }
+  if (FLAGS_management_port) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4315,7 +4364,7 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->GetRoutingTable(routing)};
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
 }
 #endif
 
@@ -4421,8 +4470,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
@@ -4431,6 +4480,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
@@ -4548,6 +4598,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EdgeImportModeModificationInMulticommandTxException();
       }
       prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw DropGraphInMulticommandTxException();
+      }
+      prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

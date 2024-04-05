@@ -682,11 +682,10 @@ static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, A
   }
 }
 
-static void ParseReturn(query::Return &ret, AstStorage &storage, SymbolTable &symbol_table,
-                        std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
-  PatternVisitor visitor(symbol_table, storage);
-
-  for (auto *expr : ret.body_.named_expressions) {
+static void ParseReturnBody(query::ReturnBody &retBody, AstStorage &storage, SymbolTable &symbol_table,
+                            std::unordered_map<std::string, PatternComprehensionMatching> &matchings) {
+  for (auto *expr : retBody.named_expressions) {
+    PatternVisitor visitor(symbol_table, storage);
     expr->Accept(visitor);
     auto pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
     for (auto &matching : pattern_comprehension_matchings) {
@@ -702,6 +701,7 @@ void PatternVisitor::Visit(PatternComprehension &op) {
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
+  matching.result_symbol = symbol_table_.at(op);
 
   pattern_comprehension_matchings_.push_back(std::move(matching));
 }
@@ -731,14 +731,18 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
             std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_)));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
-      } else if (utils::IsSubtype(*clause, With::kType) || utils::IsSubtype(*clause, query::Unwind::kType) ||
+      } else if (auto *with = utils::Downcast<With>(clause)) {
+        ParseReturnBody(with->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        query_parts.emplace_back(SingleQueryPart{});
+        query_part = &query_parts.back();
+      } else if (utils::IsSubtype(*clause, query::Unwind::kType) ||
                  utils::IsSubtype(*clause, query::CallProcedure::kType) ||
                  utils::IsSubtype(*clause, query::LoadCsv::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
       } else if (auto *ret = utils::Downcast<Return>(clause)) {
-        ParseReturn(*ret, storage, symbol_table, query_part->pattern_comprehension_matchings);
+        ParseReturnBody(ret->body_, storage, symbol_table, query_part->pattern_comprehension_matchings);
         return query_parts;
       }
     }

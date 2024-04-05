@@ -24,7 +24,7 @@ namespace memgraph::replication_coordination_glue {
 struct DatabaseHistory {
   memgraph::utils::UUID db_uuid;
   std::vector<std::pair<std::string, uint64_t>> history;
-  std::string name;
+  std::string name;  // db name
 };
 
 using DatabaseHistories = std::vector<DatabaseHistory>;

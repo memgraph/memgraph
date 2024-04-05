@@ -111,6 +111,7 @@ class ShowDatabasesQuery;
 class EdgeImportModeQuery;
 class PatternComprehension;
 class CoordinatorQuery;
+class DropGraphQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -150,6 +151,6 @@ class QueryVisitor
                             ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery,
                             CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
                             TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
-                            ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery> {};
+                            ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery> {};
 
 }  // namespace memgraph::query
