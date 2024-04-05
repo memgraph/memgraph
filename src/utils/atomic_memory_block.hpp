@@ -20,23 +20,10 @@ namespace memgraph::utils {
 // Use it in case you need block which will be executed atomically considering memory execution
 // but will check after block is executed if OOM exceptions needs to be thrown
 template <typename Callable>
-class [[nodiscard]] AtomicMemoryBlock {
- public:
-  explicit AtomicMemoryBlock(Callable function) : function_{std::move(function)} {}
-  AtomicMemoryBlock(AtomicMemoryBlock const &) = delete;
-  AtomicMemoryBlock(AtomicMemoryBlock &&) = delete;
-  AtomicMemoryBlock &operator=(AtomicMemoryBlock const &) = delete;
-  AtomicMemoryBlock &operator=(AtomicMemoryBlock &&) = delete;
-  ~AtomicMemoryBlock() = default;
-
-  auto operator()() -> std::invoke_result_t<Callable> {
-    auto check_on_exit = OnScopeExit{[&] { total_memory_tracker.DoCheck(); }};
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    return function_();
-  }
-
- private:
-  Callable function_;
-};
+auto AtomicMemoryBlock(Callable &&function) noexcept(false) -> std::invoke_result_t<Callable> {
+  auto check_on_exit = OnScopeExit{[] { total_memory_tracker.DoCheck(); }};
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+  return std::invoke(std::forward<Callable>(function));
+}
 
 }  // namespace memgraph::utils
