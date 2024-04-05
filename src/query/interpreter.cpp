@@ -3329,7 +3329,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
       throw utils::BasicException(
-          "Drop graph can only be used in the analytics mode. Switch to analytics by executing 'STORAGE MODE "
+          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
           "IN_MEMORY_ANALYTICAL'");
     }
     dba->DropGraph();
