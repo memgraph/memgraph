@@ -24,8 +24,14 @@ using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
 
+namespace {
+constexpr std::string_view kServersKey = "servers";  // Key prefix for servers durability
+}  // namespace
+
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config)
-    : my_id_(static_cast<int>(config.coordinator_id)), cur_log_store_(cs_new<CoordinatorLogStore>()) {
+    : my_id_(static_cast<int>(config.coordinator_id)),
+      cur_log_store_(cs_new<CoordinatorLogStore>()),
+      kv_store_(config.durability_dir) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
                                      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
@@ -34,14 +40,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
-  utils::EnsureDirOrDie(config.durability_dir);
-  kv_store_ = std::make_unique<kvstore::KVStore>(config.durability_dir);
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
-  MG_ASSERT(kv_store_, "Durability folder should be created.");
   spdlog::trace("Loading cluster config from RocksDb");
-  auto const servers = kv_store_->Get("servers");
+  auto const servers = kv_store_.Get(kServersKey);
   if (!servers.has_value()) {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
@@ -62,7 +65,6 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
-  MG_ASSERT(kv_store_, "Disk folder should be created");
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   spdlog::info("Saving cluster config to disk.");
@@ -75,7 +77,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
             return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
           }) |
       ranges::to<std::vector>();
-  kv_store_->Put("servers", nlohmann::json(servers_vec).dump());
+  kv_store_.Put(kServersKey, nlohmann::json(servers_vec).dump());
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
