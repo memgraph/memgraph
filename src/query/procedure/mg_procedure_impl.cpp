@@ -4247,8 +4247,11 @@ struct mgp_execution_result::pImplMgpExecutionResult {
 mgp_execution_result::mgp_execution_result(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
     : pImpl(std::make_unique<pImplMgpExecutionResult>()), memory(memory) {
   auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
-  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(
-      &instance, instance.dbms_handler->Get(graph->getImpl()->DatabaseName()));
+  pImpl->interpreter = std::make_unique<memgraph::query::Interpreter>(&instance, instance.dbms_handler->Get(
+#ifdef MG_ENTERPRISE
+                                                                                     graph->getImpl()->DatabaseName()
+#endif
+                                                                                         ));
 }
 
 void mgp_execution_result_destroy(mgp_execution_result *exec_result) { DeleteRawMgpObject(exec_result); }

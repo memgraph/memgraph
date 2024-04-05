@@ -509,7 +509,7 @@ int main(int argc, char **argv) {
     // the triggers
     auto storage_accessor = db_acc->Access();
     auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db_acc->trigger_store()->RestoreTriggers(interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
+    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
                                              interpreter_context_.auth_checker);
   }
 
