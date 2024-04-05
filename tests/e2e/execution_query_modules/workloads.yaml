@@ -1,0 +1,20 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+execution_query_modules_cluster: &execution_query_modules_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "execution-query-modules-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Execution query modules"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/execution_query_modules/procedures/"
+    args: ["execution_query_modules/verify_behaviour.py"]
+    <<: *execution_query_modules_cluster
