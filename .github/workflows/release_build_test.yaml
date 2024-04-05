@@ -79,7 +79,7 @@ jobs:
         arch: [amd, arm]
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: 'debian-12'
+      os: 'debian-11'
       toolchain: 'v5'
       arch: "${{ matrix.arch }}"
       build_type: 'Release'
