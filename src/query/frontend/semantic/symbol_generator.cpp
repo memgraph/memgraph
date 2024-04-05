@@ -781,10 +781,6 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
     throw utils::NotYetImplemented("Pattern Comprehension cannot be used within SET clause.!");
   }
 
-  if (scope.in_with) {
-    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within WITH!");
-  }
-
   if (scope.in_reduce) {
     throw utils::NotYetImplemented("Pattern Comprehension cannot be used within REDUCE!");
   }
