@@ -192,12 +192,11 @@ auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<Rep
 
 auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std::string> {
   auto lock = std::shared_lock{log_lock_};
-  for (auto const &repl_instance : repl_instances_) {
-    if (IsCurrentMain(repl_instance.first)) {
-      return repl_instance.first;
-    }
-  }
-  return std::nullopt;
+  auto repl_instance_key_value = std::ranges::find_if(repl_instances_, [this](auto const &repl_instance_key_value) {
+    return IsCurrentMain(repl_instance_key_value.first);
+  });
+  return repl_instance_key_value == repl_instances_.end() ? std::nullopt
+                                                          : std::make_optional(repl_instance_key_value->first);
 }
 
 auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }

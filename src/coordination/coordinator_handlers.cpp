@@ -137,44 +137,10 @@ void CoordinatorHandlers::PromoteReplicaToMainHandler(replication::ReplicationHa
     return;
   }
 
-  auto const converter = [](const auto &repl_info_config) {
-    return replication::ReplicationClientConfig{
-        .name = repl_info_config.instance_name,
-        .mode = repl_info_config.replication_mode,
-        .ip_address = repl_info_config.replication_server.address,
-        .port = repl_info_config.replication_server.port,
-    };
-  };
-
   // registering replicas
-  for (auto const &config : req.replication_clients_info | ranges::views::transform(converter)) {
-    auto instance_client = replication_handler.RegisterReplica(config);
-    if (instance_client.HasError()) {
-      using enum memgraph::replication::RegisterReplicaError;
-      switch (instance_client.GetError()) {
-        // Can't happen, checked on the coordinator side
-        case memgraph::query::RegisterReplicaError::NAME_EXISTS:
-          spdlog::error("Replica with the same name already exists!");
-          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-          return;
-        // Can't happen, checked on the coordinator side
-        case memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS:
-          spdlog::error("Replica with the same endpoint already exists!");
-          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-          return;
-        // We don't handle disk issues
-        case memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-          spdlog::error("Registered replica could not be persisted!");
-          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-          return;
-        case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
-          spdlog::error("Replica didn't accept change of main!");
-          slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-          return;
-        case memgraph::query::RegisterReplicaError::CONNECTION_FAILED:
-          // Connection failure is not a fatal error
-          break;
-      }
+  for (auto const &config : req.replication_clients_info) {
+    if (!DoRegisterReplica<coordination::PromoteReplicaToMainRes>(replication_handler, config, res_builder)) {
+      return;
     }
   }
   spdlog::info("Promote replica to main was success {}", std::string(req.main_uuid));
@@ -193,7 +159,7 @@ void CoordinatorHandlers::RegisterReplicaOnMainHandler(replication::ReplicationH
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
-  auto const main_uuid = replication_handler.GetReplState().GetMainRole().uuid_;
+  auto const &main_uuid = replication_handler.GetReplState().GetMainRole().uuid_;
   if (req.main_uuid != main_uuid) {
     spdlog::error("Registering replica to main failed because MAIN has uuid {} and coordinator has sent uuid {}!",
                   std::string(req.main_uuid), std::string(main_uuid));
@@ -201,44 +167,9 @@ void CoordinatorHandlers::RegisterReplicaOnMainHandler(replication::ReplicationH
     return;
   }
 
-  auto const converter = [](const auto &repl_info_config) {
-    return replication::ReplicationClientConfig{
-        .name = repl_info_config.instance_name,
-        .mode = repl_info_config.replication_mode,
-        .ip_address = repl_info_config.replication_server.address,
-        .port = repl_info_config.replication_server.port,
-    };
-  };
-
-  // registering replicas
-
-  auto instance_client = replication_handler.RegisterReplica(converter(req.replication_client_info));
-  if (instance_client.HasError()) {
-    using enum memgraph::replication::RegisterReplicaError;
-    switch (instance_client.GetError()) {
-      // Can't happen, checked on the coordinator side
-      case memgraph::query::RegisterReplicaError::NAME_EXISTS:
-        spdlog::error("Replica with the same name already exists!");
-        slk::Save(coordination::RegisterReplicaOnMainRes{false}, res_builder);
-        return;
-      // Can't happen, checked on the coordinator side
-      case memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS:
-        spdlog::error("Replica with the same endpoint already exists!");
-        slk::Save(coordination::RegisterReplicaOnMainRes{false}, res_builder);
-        return;
-      // We don't handle disk issues
-      case memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-        spdlog::error("Registered replica could not be persisted!");
-        slk::Save(coordination::RegisterReplicaOnMainRes{false}, res_builder);
-        return;
-      case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
-        spdlog::error("Replica didn't accept change of main!");
-        slk::Save(coordination::RegisterReplicaOnMainRes{false}, res_builder);
-        return;
-      case memgraph::query::RegisterReplicaError::CONNECTION_FAILED:
-        // Connection failure is not a fatal error
-        break;
-    }
+  if (!DoRegisterReplica<coordination::RegisterReplicaOnMainRes>(replication_handler, req.replication_client_info,
+                                                                 res_builder)) {
+    return;
   }
 
   spdlog::info("Registering replica {} to main was success ", req.replication_client_info.instance_name);
