@@ -172,38 +172,41 @@ def generate_remarkup(fields, data, results_reference=None, results_other=None):
         )
 
     wanted_stats = ["throughput", "memory", "max", "p99", "p90", "mean"]
+    fields_dict = {field["name"]: field for field in fields}
 
-    ret += "<html>\n"
-    ret += "<table>\n"
-    ret += "  <tr>\n"
-    ret += "    <th>Testcode</th>\n"
-    for vendor_id in range(len(data)):
-        ret += f"    <th>Vendor {vendor_id}</th>\n"
-    ret += "  </tr>\n"
-
-    # Iterate over each wanted stat
     for wanted_stat in wanted_stats:
-        ret += f"  <tr>\n    <td colspan='{len(data) + 1}'><h2>Benchmark results: Comparison for {wanted_stat.capitalize()}</h2></td>\n  </tr>\n"
+        ret += f"<h2>Benchmark results: {wanted_stat}</h2>"
+        ret += "<table>\n"
+        ret += "  <tr>\n"
+        ret += "    <th>Testcode</th>\n"
+        for vendor_id in range(len(data)):
+            ret += f"    <th>Vendor {vendor_id}</th>\n"
+        ret += "  </tr>\n"
 
-        # Iterate over each testcode for the first vendor to ensure all vendors have the same testcodes
         for testcode in sorted(data[0].keys()):
             ret += "  <tr>\n"
             ret += f"    <td>{testcode}</td>\n"
 
-            # Iterate over each vendor and compare their stats for the current wanted_stat
             for vendor_id, comparison in enumerate(data):
                 vendor_stat = comparison.get(testcode)
 
                 if vendor_stat is not None and wanted_stat in vendor_stat:
-                    value_diff = vendor_stat[wanted_stat]["diff"]
+                    diff = vendor_stat[wanted_stat].get("diff", None)
                     value = vendor_stat[wanted_stat]["value"]
-                    ret += f"    <td>{value} ({value_diff:.3f})</td>\n"
+
+                    if diff is not None:
+                        if not (fields_dict[wanted_stat]["positive_diff_better"] ^ (diff >= 0)):
+                            color = "green"
+                        else:
+                            color = "red"
+                        ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
+                            color, value, fields_dict[wanted_stat]["unit"], diff
+                        )
                 else:
                     ret += "    <td>No data available</td>\n"
 
             ret += "  </tr>\n"
-
-    ret += "</table>\n"
+        ret += "</table>\n"
     ret += "</html>\n"
 
     for vendor_id, comparison in enumerate(data):
@@ -231,12 +234,10 @@ def generate_remarkup(fields, data, results_reference=None, results_other=None):
                         value = result["value"] * field["scaling"]
                         if "diff" in result:
                             diff = result["diff"]
-                            arrow = "arrow-up" if diff >= 0 else "arrow-down"
                             if not (field["positive_diff_better"] ^ (diff >= 0)):
                                 color = "green"
                             else:
                                 color = "red"
-                            sign = "{{icon {} color={}}}".format(arrow, color)
                             ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
                                 color, value, field["unit"], diff
                             )
