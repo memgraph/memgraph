@@ -387,6 +387,7 @@ auto CoordinatorInstance::TryFailover() -> void {
     if (raft_state_.IsLockOpened() && raft_state_.IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster as lock is still opened after failover.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
     }
     spdlog::trace("Failover done, lock is not opened anymore or coordinator is not leader.");
   }};
@@ -485,6 +486,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after setting instance to MAIN.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader, after setting instance to MAIN.");
   }};
@@ -578,6 +580,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after registration of instance.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
   }};
@@ -649,6 +652,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after unregistration of instance.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
     }
     spdlog::trace("Unregistration done. Lock is not opened anymore or coordinator is not leader.");
   }};
