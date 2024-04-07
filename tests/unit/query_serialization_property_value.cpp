@@ -63,16 +63,16 @@ TEST(PropertyValueSerializationTest, TemporalData) {
 }
 
 TEST(PropertyValueSerializationTest, ZonedTemporalData) {
-  const auto test_temporal_data_conversion = [](const auto type, const auto microseconds,
-                                                const memgraph::utils::Timezone &timezone) {
+  const auto test_zoned_temporal_data_conversion = [](const auto type, const auto microseconds,
+                                                      const memgraph::utils::Timezone &timezone) {
     CheckJsonConversion(
         memgraph::storage::PropertyValue{memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
   };
 
-  test_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
-                                memgraph::utils::Timezone("Europe/Zagreb"));
-  test_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
-                                memgraph::utils::Timezone(std::chrono::minutes{60}));
+  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
+                                      memgraph::utils::Timezone("Europe/Zagreb"));
+  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
+                                      memgraph::utils::Timezone(std::chrono::minutes{60}));
 }
 
 namespace {
