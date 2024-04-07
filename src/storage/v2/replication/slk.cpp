@@ -101,11 +101,17 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::PropertyValue::Type::ZonedTemporalData: {
-      // TODO antepusic: ZonedTemporalData
-      // slk::Save(storage::PropertyValue::Type::TemporalData, builder);
-      // const auto temporal_data = value.ValueTemporalData();
-      // slk::Save(temporal_data.type, builder);
-      // slk::Save(temporal_data.microseconds, builder);
+      slk::Save(storage::PropertyValue::Type::ZonedTemporalData, builder);
+      const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      slk::Save(zoned_temporal_data.type, builder);
+      slk::Save(zoned_temporal_data.microseconds, builder);
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        slk::Save(storage::PropertyValue::Type::String, builder);
+        slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
+      } else {
+        slk::Save(storage::PropertyValue::Type::Int, builder);
+        slk::Save(zoned_temporal_data.timezone.DefiningOffset(), builder);
+      }
       return;
     }
   }
@@ -173,12 +179,30 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::PropertyValue::Type::ZonedTemporalData: {
-      // TODO antepusic: ZonedTemporalData
-      // storage::TemporalType temporal_type{};
-      // slk::Load(&temporal_type, reader);
-      // int64_t microseconds{0};
-      // slk::Load(&microseconds, reader);
-      // *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      storage::ZonedTemporalType temporal_type{};
+      slk::Load(&temporal_type, reader);
+      int64_t microseconds{0};
+      slk::Load(&microseconds, reader);
+      storage::PropertyValue::Type timezone_representation_type{};
+      slk::Load(&timezone_representation_type, reader);
+      switch (timezone_representation_type) {
+        case storage::PropertyValue::Type::String: {
+          std::string timezone_name;
+          slk::Load(&timezone_name, reader);
+          *value = storage::PropertyValue(
+              storage::ZonedTemporalData{temporal_type, microseconds, utils::Timezone(timezone_name)});
+          return;
+        }
+        case storage::PropertyValue::Type::Int: {
+          int64_t offset_minutes{0};
+          slk::Load(&offset_minutes, reader);
+          *value = storage::PropertyValue(
+              storage::ZonedTemporalData{temporal_type, microseconds, utils::Timezone(offset_minutes)});
+          return;
+        }
+        default:
+          throw slk::SlkDecodeException("Trying to load ZonedTemporalData with invalid timezone representation!");
+      }
       return;
     }
   }
