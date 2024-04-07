@@ -172,7 +172,6 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
       PrintObject(out, value.ValueTemporalData());
       break;
 
-    // TODO antepusic check
     case storage::PropertyValue::Type::ZonedTemporalData:
       PrintObject(out, value.ValueZonedTemporalData());
       break;
