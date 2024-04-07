@@ -175,6 +175,8 @@ def generate_remarkup(fields, data, results_reference=None, results_other=None):
     fields_dict = {field["name"]: field for field in fields}
 
     for wanted_stat in wanted_stats:
+        field = fields_dict[wanted_stat]
+
         ret += f"<h2>Benchmark results: {wanted_stat}</h2>"
         ret += "<table>\n"
         ret += "  <tr>\n"
@@ -192,15 +194,15 @@ def generate_remarkup(fields, data, results_reference=None, results_other=None):
 
                 if vendor_stat is not None and wanted_stat in vendor_stat:
                     diff = vendor_stat[wanted_stat].get("diff", None)
-                    value = vendor_stat[wanted_stat]["value"]
+                    value = vendor_stat[wanted_stat]["value"] * field["scaling"]
 
                     if diff is not None:
-                        if not (fields_dict[wanted_stat]["positive_diff_better"] ^ (diff >= 0)):
+                        if not (field["positive_diff_better"] ^ (diff >= 0)):
                             color = "green"
                         else:
                             color = "red"
                         ret += '    <td bgcolor="{}">{:.3f}{} ({:+.2%})</td>\n'.format(
-                            color, value, fields_dict[wanted_stat]["unit"], diff
+                            color, value, field["unit"], diff
                         )
                 else:
                     ret += "    <td>No data available</td>\n"
