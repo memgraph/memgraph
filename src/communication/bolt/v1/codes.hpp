@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,8 @@ enum class Signature : uint8_t {
   Duration = 0x45,
   LocalDateTime = 0x64,
   LocalTime = 0x74,
+  DateTime = 0x49,
+  DateTimeZoneId = 0x69,
 };
 
 enum class Marker : uint8_t {
@@ -60,7 +62,7 @@ enum class Marker : uint8_t {
   // TinyStructX represents the value of TinyStruct + X
   // This is defined to make decoding easier. To check if a marker is equal
   // to TinyStruct + 1 you should use something like:
-  //   underyling_cast(marker) == underyling_cast(Marker::TinyStruct) + 1
+  //   underlying_cast(marker) == underlying_cast(Marker::TinyStruct) + 1
   // This way you can just use:
   //   marker == Marker::TinyStruct1
   TinyStruct1 = 0xB1,

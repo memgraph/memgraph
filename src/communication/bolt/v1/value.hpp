@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -152,6 +152,7 @@ class Value {
     Date,
     LocalTime,
     LocalDateTime,
+    ZonedDateTime,
     Duration
   };
 
@@ -178,6 +179,9 @@ class Value {
     new (&local_date_time_v) utils::LocalDateTime(date_time);
   }
   Value(const utils::Duration &dur) : type_(Type::Duration) { new (&duration_v) utils::Duration(dur); }
+  Value(const utils::ZonedDateTime &zoned_date_time) : type_(Type::ZonedDateTime) {
+    new (&zoned_date_time_v) utils::ZonedDateTime(zoned_date_time);
+  }
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
@@ -225,6 +229,7 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalTime, utils::LocalTime)
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
+  DECL_GETTER_BY_REFERENCE(ZonedDateTime, utils::ZonedDateTime)
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -244,6 +249,7 @@ class Value {
   TYPE_CHECKER(LocalTime)
   TYPE_CHECKER(LocalDateTime)
   TYPE_CHECKER(Duration)
+  TYPE_CHECKER(ZonedDateTime)
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -267,6 +273,7 @@ class Value {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
+    utils::ZonedDateTime zoned_date_time_v;
   };
 };
 /**

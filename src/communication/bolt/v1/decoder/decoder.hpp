@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -131,6 +131,10 @@ class Decoder {
             return ReadUnboundedEdge(data);
           case Signature::Path:
             return ReadPath(data);
+          case Signature::DateTime:
+            return ReadDateTime(data);
+          case Signature::DateTimeZoneId:
+            return ReadDateTimeZoneId(data);
           default:
             return false;
         }
@@ -628,6 +632,61 @@ class Decoder {
     const auto nanos = chrono::nanoseconds(values[3]);
     const auto micros = months + days + secs + chrono::duration_cast<chrono::microseconds>(nanos);
     *data = Value(utils::Duration(micros.count()));
+    return true;
+  }
+
+  bool ComputeTimeSinceEpoch(int64_t *time_since_epoch) {
+    Value secs;
+    if (!ReadValue(&secs, Value::Type::Int)) {
+      return false;
+    }
+
+    Value nanos;
+    if (!ReadValue(&nanos, Value::Type::Int)) {
+      return false;
+    }
+
+    const auto sys_seconds = std::chrono::sys_seconds(std::chrono::seconds(secs.ValueInt()));
+    // The highest precision Memgraph supports for temporal values is microsecond
+    const auto leftover_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::nanoseconds(nanos.ValueInt()));
+
+    *time_since_epoch = (sys_seconds + leftover_us).time_since_epoch().count();
+    return true;
+  }
+
+  bool ReadDateTime(Value *data) {
+    int64_t time_since_epoch;
+    if (!ComputeTimeSinceEpoch(&time_since_epoch)) {
+      return false;
+    }
+
+    Value tz_offset_secs;
+    if (!ReadValue(&tz_offset_secs, Value::Type::Int)) {
+      return false;
+    }
+
+    // The highest precision Cypher supports for timezone offsets is minute
+    const auto tz_offset =
+        std::chrono::duration_cast<std::chrono::minutes>(std::chrono::seconds(tz_offset_secs.ValueInt()));
+
+    *data = utils::ZonedDateTime(time_since_epoch, utils::Timezone(tz_offset));
+
+    return true;
+  }
+
+  bool ReadDateTimeZoneId(Value *data) {
+    int64_t time_since_epoch;
+    if (!ComputeTimeSinceEpoch(&time_since_epoch)) {
+      return false;
+    }
+
+    Value tz_id;
+    if (!ReadValue(&tz_id, Value::Type::String)) {
+      return false;
+    }
+
+    *data = utils::ZonedDateTime(time_since_epoch, utils::Timezone(tz_id.ValueString()));
     return true;
   }
 };

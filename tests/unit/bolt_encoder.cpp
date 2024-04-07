@@ -540,3 +540,65 @@ TEST_F(BoltEncoder, LocalDateTime) {
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
+
+TEST_F(BoltEncoder, ZonedDateTime) {
+  auto check_per_timezone_format = [](const auto &timezone, const std::vector<uint8_t> &expected_timezone_bytes) {
+    output.clear();
+    std::vector<Value> vals;
+
+    const auto date_params = memgraph::utils::DateParameters{1970, 1, 1};
+    const auto lt_params = memgraph::utils::LocalTimeParameters{0, 0, 30, 1, 0};
+    const auto zdt_params = memgraph::utils::ZonedDateTimeParameters(date_params, lt_params, timezone);
+
+    const auto value = Value(memgraph::utils::ZonedDateTime(zdt_params));
+    const auto &zoned_date_time = value.ValueZonedDateTime();
+    vals.push_back(value);
+    ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
+    const auto secs = zoned_date_time.SecondsSinceEpoch();
+    ASSERT_EQ(secs, 30);
+    const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
+    const auto nanos = zoned_date_time.SubSecondsAsNanoseconds();
+    ASSERT_EQ(nanos, 1000000);
+    const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
+    // 0x91 denotes the size of vals (it’s 0x91 because it's ANDed – see WriteTypeSize in base_encoder.hpp).
+    // The rest of the expected results follow logically from LocalTime and Date test cases
+    using Marker = memgraph::communication::bolt::Marker;
+    using Sig = memgraph::communication::bolt::Signature;
+    std::vector<uint8_t> expected{
+        Cast(Marker::TinyStruct1),
+        Cast(Sig::Record),
+        0x91,
+        Cast(Marker::TinyStruct3),
+        timezone.InTzDatabase() ? Cast(Sig::DateTimeZoneId) : Cast(Sig::DateTime),
+        // seconds (0)
+        sec_bytes[0],
+        // nanoseconds (1000000)
+        Cast(Marker::Int32),
+        nano_bytes[3],
+        nano_bytes[2],
+        nano_bytes[1],
+        nano_bytes[0],
+    };
+    expected.insert(expected.end(), expected_timezone_bytes.begin(), expected_timezone_bytes.end());
+    CheckOutput(output, expected.data(), expected.size());
+  };
+
+  const std::array cases{
+      std::make_pair(memgraph::utils::Timezone(std::chrono::minutes{0}), std::vector<uint8_t>{0x00}),
+      std::make_pair(memgraph::utils::Timezone("Etc/UTC"),
+                     std::vector<uint8_t>{
+                         0x87 /*TinyString with 7 chars*/,
+                         'E',
+                         't',
+                         'c',
+                         '/',
+                         'U',
+                         'T',
+                         'C',
+                     }),
+  };
+
+  for (const auto &[tz, expected_timezone_bytes] : cases) {
+    check_per_timezone_format(tz, expected_timezone_bytes);
+  }
+}

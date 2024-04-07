@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -697,4 +697,64 @@ TEST_F(BoltDecoder, LocalDateTime) {
   ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
   AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
   AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
+}
+
+TEST_F(BoltDecoder, ZonedDateTime) {
+  auto check_per_timezone_format = [](const auto &timezone, const std::vector<uint8_t> &expected_timezone_bytes) {
+    TestDecoderBuffer buffer;
+    DecoderT decoder(buffer);
+
+    Value dv;
+
+    const auto date_params = memgraph::utils::DateParameters{1970, 1, 1};
+    const auto lt_params = memgraph::utils::LocalTimeParameters{0, 0, 30, 1, 0};
+    const auto zdt_params = memgraph::utils::ZonedDateTimeParameters(date_params, lt_params, timezone);
+    const auto value = Value(memgraph::utils::ZonedDateTime(zdt_params));
+    const auto &zoned_date_time = value.ValueZonedDateTime();
+    const auto secs = zoned_date_time.SecondsSinceEpoch();
+    ASSERT_EQ(secs, 30);
+    const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
+    const auto nanos = zoned_date_time.SubSecondsAsNanoseconds();
+    ASSERT_EQ(nanos, 1000000);
+    const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
+    using Marker = memgraph::communication::bolt::Marker;
+    using Sig = memgraph::communication::bolt::Signature;
+    std::vector<uint8_t> data{
+        Cast(Marker::TinyStruct3),
+        timezone.InTzDatabase() ? Cast(Sig::DateTimeZoneId) : Cast(Sig::DateTime),
+        // seconds (0)
+        sec_bytes[0],
+        // nanoseconds (1000000)
+        Cast(Marker::Int32),
+        nano_bytes[3],
+        nano_bytes[2],
+        nano_bytes[1],
+        nano_bytes[0],
+    };
+    data.insert(data.end(), expected_timezone_bytes.begin(), expected_timezone_bytes.end());
+
+    buffer.Clear();
+    buffer.Write(data.data(), data.size());
+    ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::ZonedDateTime), true);
+    ASSERT_EQ(dv.ValueZonedDateTime(), zoned_date_time);
+  };
+
+  const std::array cases{
+      std::make_pair(memgraph::utils::Timezone(std::chrono::minutes{0}), std::vector<uint8_t>{0x00}),
+      std::make_pair(memgraph::utils::Timezone("Etc/UTC"),
+                     std::vector<uint8_t>{
+                         0x87 /*TinyString with 7 chars*/,
+                         'E',
+                         't',
+                         'c',
+                         '/',
+                         'U',
+                         'T',
+                         'C',
+                     }),
+  };
+
+  for (const auto &[tz, expected_timezone_bytes] : cases) {
+    check_per_timezone_format(tz, expected_timezone_bytes);
+  }
 }

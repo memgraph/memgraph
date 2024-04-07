@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@ namespace memgraph::communication::bolt {
 /**
  * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
  * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex,
- * Edge, Date, LocalDate, LocalDateTime, Duration.
+ * Edge, Date, LocalDate, LocalDateTime, Duration, and ZonedDateTime.
  *
  * The purpose of this class is to stream bolt data into the given Buffer.
  *
@@ -243,6 +243,21 @@ class BaseEncoder {
     WriteInt(duration.SubSecondsAsNanoseconds());
   }
 
+  void WriteZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    if (zoned_date_time.GetTimezone().InTzDatabase()) {
+      WriteRAW(utils::UnderlyingCast(Signature::DateTimeZoneId));
+      WriteInt(zoned_date_time.SecondsSinceEpoch());
+      WriteInt(zoned_date_time.SubSecondsAsNanoseconds());
+      WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
+    } else {
+      WriteRAW(utils::UnderlyingCast(Signature::DateTime));
+      WriteInt(zoned_date_time.SecondsSinceEpoch());
+      WriteInt(zoned_date_time.SubSecondsAsNanoseconds());
+      WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());
+    }
+  }
+
   void WriteValue(const Value &value) {
     switch (value.type()) {
       case Value::Type::Null:
@@ -286,6 +301,9 @@ class BaseEncoder {
         break;
       case Value::Type::LocalDateTime:
         WriteLocalDateTime(value.ValueLocalDateTime());
+        break;
+      case Value::Type::ZonedDateTime:
+        WriteZonedDateTime(value.ValueZonedDateTime());
         break;
       case Value::Type::Duration:
         WriteDuration(value.ValueDuration());
