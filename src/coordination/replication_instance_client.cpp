@@ -81,7 +81,7 @@ void ReplicationInstanceClient::StartFrequentCheck() {
 void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
-auto ReplicationInstanceClient::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
 }
 
@@ -118,7 +118,7 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
 }
 
 auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
-                                                struct ReplicationClientInfo replication_client_info) const -> bool {
+                                                ReplicationClientInfo replication_client_info) const -> bool {
   auto const instance_name = replication_client_info.instance_name;
   try {
     auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
