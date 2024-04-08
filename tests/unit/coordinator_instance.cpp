@@ -32,6 +32,7 @@ using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::io::network::Endpoint;
 
+// Networking is used in this test, be careful with ports used.
 class CoordinatorInstanceTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -46,12 +47,16 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
   std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
                                             "MG_tests_unit_coordinator_instance"};
+
+  std::vector<uint32_t> const coordinator_ids = {41, 42, 43};
+  std::vector<uint16_t> const bolt_ports = {2687, 2688, 2689};
+  std::vector<uint16_t> const coordinator_ports = {40112, 40113, 40114};
 };
 
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
-  auto const init_config =
-      CoordinatorInstanceInitConfig{4, 10110, 7686, main_data_directory / "high_availability" / "coordinator"};
+  auto const init_config = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                                         main_data_directory / "high_availability" / "coordinator"};
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -64,63 +69,76 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     }
   };
 
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
+  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                                          main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 =
-      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
+  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
+                                                          main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 =
-      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
+  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
+                                                          main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
-  instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 2, .bolt_server = Endpoint{"0.0.0.0", 7688}, .coordinator_server = Endpoint{"0.0.0.0", 10112}});
+  instance1.AddCoordinatorInstance(
+      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
+                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[1]},
+                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[1]}});
 
-  instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 3, .bolt_server = Endpoint{"0.0.0.0", 7689}, .coordinator_server = Endpoint{"0.0.0.0", 10113}});
+  instance1.AddCoordinatorInstance(
+      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
+                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[2]},
+                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[2]}});
   {
     wait_until_added(instance1);
     auto const instances = instance1.ShowInstances();
-    auto const coord1_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_1"; });
+    auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
+    });
     ASSERT_NE(coord1_it, instances.end());
-    auto const coord2_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_2"; });
+    auto const coord2_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[1]);
+    });
     ASSERT_NE(coord2_it, instances.end());
-    auto const coord3_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_3"; });
+    auto const coord3_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
+    });
     ASSERT_NE(coord3_it, instances.end());
   }
   {
     wait_until_added(instance2);
     auto const instances = instance2.ShowInstances();
-    auto const coord1_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_1"; });
+    auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
+    });
     ASSERT_NE(coord1_it, instances.end());
-    auto const coord2_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_2"; });
+    auto const coord2_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[1]);
+    });
     ASSERT_NE(coord2_it, instances.end());
-    auto const coord3_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_3"; });
+    auto const coord3_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
+    });
     ASSERT_NE(coord3_it, instances.end());
   }
   {
     wait_until_added(instance3);
     auto const instances = instance3.ShowInstances();
-    auto const coord1_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_1"; });
+    auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
+    });
     ASSERT_NE(coord1_it, instances.end());
-    auto const coord2_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_2"; });
+    auto const coord2_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[1]);
+    });
     ASSERT_NE(coord2_it, instances.end());
-    auto const coord3_it =
-        std::ranges::find_if(instances, [](auto const &instance) { return instance.instance_name == "coordinator_3"; });
+    auto const coord3_it = std::ranges::find_if(instances, [this](auto const &instance) {
+      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
+    });
     ASSERT_NE(coord3_it, instances.end());
   }
 }
@@ -131,26 +149,30 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     }
   };
 
-  auto const init_config1 =
-      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
+  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                                          main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 =
-      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
+  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
+                                                          main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 =
-      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
+  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
+                                                          main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
-  instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 2, .bolt_server = Endpoint{"0.0.0.0", 7688}, .coordinator_server = Endpoint{"0.0.0.0", 10112}});
+  instance1.AddCoordinatorInstance(
+      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
+                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[1]},
+                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[1]}});
 
-  instance1.AddCoordinatorInstance(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 3, .bolt_server = Endpoint{"0.0.0.0", 7689}, .coordinator_server = Endpoint{"0.0.0.0", 10113}});
+  instance1.AddCoordinatorInstance(
+      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
+                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[2]},
+                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[2]}});
 
   {
     wait_until_added(instance1);
@@ -159,14 +181,14 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     auto const &routers = routing_table[0];
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
-    auto const coord1_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7687"; });
+    auto const coord1_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
-    auto const coord2_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7688"; });
+    auto const coord2_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
-    auto const coord3_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7689"; });
+    auto const coord3_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 
@@ -177,14 +199,14 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     auto const &routers = routing_table[0];
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
-    auto const coord1_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7687"; });
+    auto const coord1_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
-    auto const coord2_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7688"; });
+    auto const coord2_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
-    auto const coord3_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7689"; });
+    auto const coord3_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 
@@ -195,14 +217,14 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     auto const &routers = routing_table[0];
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
-    auto const coord1_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7687"; });
+    auto const coord1_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
-    auto const coord2_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7688"; });
+    auto const coord2_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
-    auto const coord3_route_it =
-        std::ranges::find_if(routers.first, [](auto const &route) { return route == "0.0.0.0:7689"; });
+    auto const coord3_route_it = std::ranges::find_if(
+        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 }
