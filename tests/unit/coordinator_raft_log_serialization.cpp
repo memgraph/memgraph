@@ -28,6 +28,7 @@ using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::utils::UUID;
 
+// No networking communication in this test.
 class RaftLogSerialization : public ::testing::Test {
  protected:
   void SetUp() override {}

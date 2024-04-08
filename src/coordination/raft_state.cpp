@@ -384,6 +384,10 @@ auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::
   return state_machine_->GetInstanceUUID(instance_name);
 }
 
+auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
+  return state_machine_->TryGetCurrentMainName();
+}
+
 auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto res = RoutingTable{};
 

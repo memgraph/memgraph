@@ -92,6 +92,8 @@ class CoordinatorStateMachine : public state_machine {
   auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
   auto IsLockOpened() const -> bool;
 
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
  private:
   struct SnapshotCtx {
     SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
