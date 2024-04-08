@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_communication_config.hpp"
+#include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 
 #include <spdlog/spdlog.h>
@@ -28,7 +30,7 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(int srv_id, std::string const &endpoint);
+  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -55,11 +57,11 @@ class CoordinatorStateManager : public state_mgr {
 
  private:
   int my_id_;
-  std::string my_endpoint_;
   ptr<CoordinatorLogStore> cur_log_store_;
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
+  kvstore::KVStore kv_store_;
 };
 
 }  // namespace memgraph::coordination

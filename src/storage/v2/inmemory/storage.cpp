@@ -973,11 +973,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
-void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
-                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
+                                                            std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
@@ -1033,6 +1031,16 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
 
   // STEP 2) this transactions deltas also mininal unlinking + remove + clear
   unlink_remove_clear(transaction_.deltas);
+}
+
+void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
+                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // STEP 1 + STEP 2
+  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
@@ -2518,6 +2526,24 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
   return res;
+}
+
+void InMemoryStorage::InMemoryAccessor::DropGraph() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // we take the control from the GC to clear any deltas
+  auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+  mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
+
+  // also, we're the only transaction running, so we can safely remove the data as well
+  mem_storage->indices_.DropGraphClearIndices();
+  mem_storage->constraints_.DropGraphClearConstraints();
+
+  mem_storage->vertices_.clear();
+  mem_storage->edges_.clear();
+
+  memory::PurgeUnusedMemory();
 }
 
 }  // namespace memgraph::storage

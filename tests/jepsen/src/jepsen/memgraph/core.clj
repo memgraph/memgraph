@@ -1,27 +1,43 @@
 (ns jepsen.memgraph.core
   (:gen-class)
-  (:require [clojure.tools.logging :refer :all]
-            [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
-            [jepsen [cli :as cli]
-                    [checker :as checker]
-                    [control :as c]
-                    [core :as jepsen]
-                    [generator :as gen]
-                    [tests :as tests]]
-            [slingshot.slingshot :refer [try+ throw+]]
-            [jepsen.memgraph [basic :as basic]
-                             [bank :as bank]
-                             [large :as large]
-                             [support :as s]
-                             [nemesis :as nemesis]
-                             [edn :as e]]))
+  (:import (java.net URI))
+  (:require
+   [neo4j-clj.core :as dbclient]
+   [clojure.tools.logging :refer :all]
+   [clojure.java.shell :refer [sh]]
+   [jepsen [cli :as cli]
+    [checker :as checker]
+    [client :as client]
+    [generator :as gen]
+    [tests :as tests]]
+   [jepsen.memgraph
+    [utils :as utils]
+    [bank :as bank]
+    [large :as large]
+    [support :as support]
+    [nemesis :as nemesis]
+    [edn :as e]]))
+
+(defrecord HAClient [conn]
+  client/Client
+  (open! [this test node]
+    (dbclient/connect (URI. (utils/get-instance-url node 7687)) "" "")
+    this)
+
+  (setup! [this test])
+
+  (invoke! [_ test op])
+
+  (teardown! [this test])
+
+  (close! [_ test]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
-   {:bank       bank/workload
-    :large      large/workload})
+  {:bank                      bank/workload
+   :large                     large/workload
+   :high_availability         (fn [] (println "High Availability workload"))})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -29,9 +45,19 @@
    :kill-node?        true
    :partition-halves? true})
 
+(defn memgraph-ha-test
+  "Given an options map from the command line runner constructs a test map for HA tests."
+  [opts]
+  (merge tests/noop-test
+         opts
+         {:pure-generators true
+          :name            (str "test-" (name (:workload opts)))
+          :nodes           (keys (:node-config opts))
+          :db              (support/db opts)
+          :client          (HAClient. nil)}))
+
 (defn memgraph-test
-  "Given an options map from the command line runner (e.g. :nodes, :ssh,
-  :concurrency, ...), constructs a test map."
+  "Given an options map from the command line runner constructs a test map."
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
         nemesis  (nemesis/nemesis nemesis-configuration)
@@ -44,19 +70,18 @@
                                (gen/nemesis (:final-generator nemesis))
                                (gen/log "Waiting for recovery")
                                (gen/sleep (:recovery-time final-generator))
-                               (gen/clients (:gen final-generator)))
+                               (gen/clients (:clients final-generator)))
                    gen)]
     (merge tests/noop-test
            opts
            {:pure-generators true
             :name            (str "test-" (name (:workload opts)))
-            :db              (s/db opts)
+            :db              (support/db opts)
             :client          (:client workload)
             :checker         (checker/compose
-                               {:stats      (checker/stats)
-                                :exceptions (checker/unhandled-exceptions)
-                                ;:perf       (checker/perf) really exepnsive
-                                :workload   (:checker workload)})
+                              {:stats      (checker/stats)
+                               :exceptions (checker/unhandled-exceptions)
+                               :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
 
@@ -64,9 +89,9 @@
   "Resolve hostnames to ip address"
   [host]
   (first
-    (re-find
-      #"(\d{1,3}(.\d{1,3}){3})"
-      (:out (sh "getent" "hosts" host)))))
+   (re-find
+    #"(\d{1,3}(.\d{1,3}){3})"
+    (:out (sh "getent" "hosts" host)))))
 
 (defn resolve-all-node-hostnames
   "Resolve all hostnames in config and assign it to the node"
@@ -85,47 +110,36 @@
   (when-not (every? #(contains? % key) map-coll)
     (throw (Exception. error-msg))))
 
-(defn merge-node-configurations
-  "Merge user defined configuration with default configuration.
-  Check if the configuration is valid."
-  [nodes node-configs]
-
+(defn validate-node-configurations
+  "Validate that configuration of node configs is valid."
+  [node-configs]
 
   (when-not (every? (fn [config]
                       (= 1
                          (count
-                             (filter
-                               #(= (:replication-role %) :main)
-                               (vals config)))))
+                          (filter
+                           #(= (:replication-role %) :main)
+                           (vals config)))))
                     node-configs)
     (throw (Exception. "Invalid node configuration. There can only be one :main.")))
 
-
   (doseq [node-config node-configs]
-    (when-not (= (count node-config) (count nodes))
-      (throw (Exception. "Invalid node configuration. Configuration not specified for all nodes. Check your .edn file.")))
-
-    (when-not (every? #(contains? node-config %) nodes)
-      (throw (Exception. "Invalid node configuration. Configuration missing for some of nodes [:n1 :n2 :n3 :n4 :n5]. Check your .edn file.")))
-
     (let [replica-nodes-configs (filter
-                                  #(= (:replication-role %) :replica)
-                                  (vals node-config))]
+                                 #(= (:replication-role %) :replica)
+                                 (vals node-config))]
       (throw-if-key-missing-in-any
-        replica-nodes-configs
-        :port
-        (str "Invalid node configuration. "
-             "Every replication node requires "
-             ":port to be defined."))
+       replica-nodes-configs
+       :port
+       (str "Invalid node configuration. "
+            "Every replication node requires "
+            ":port to be defined."))
       (throw-if-key-missing-in-any
-        replica-nodes-configs
-        :replication-mode
-        (str "Invalid node configuration. "
-             "Every replication node requires "
-             ":replication-mode to be defined."))))
-
-  (map (fn [node-config] (resolve-all-node-hostnames node-config))
-       node-configs))
+       replica-nodes-configs
+       :replication-mode
+       (str "Invalid node configuration. "
+            "Every replication node requires "
+            ":replication-mode to be defined."))))
+  node-configs)
 
 (def cli-opts
   "CLI options for tests."
@@ -142,31 +156,33 @@
     :parse-fn #(-> % e/load-configuration)]])
 
 (defn single-test
-  "Takes base CLI options and constructs a single test."
+  "Takes base CLI options and constructs a single test. If node-configs is a list, only the 1st config is used."
   [opts]
   (let [workload (if (:workload opts)
                    (:workload opts)
-                   (throw (Exception. "Workload undefined")))
+                   (throw (Exception. "Workload undefined!")))
         node-config (if (:node-configs opts)
-                      (first (merge-node-configurations (:nodes opts) (list (first (:node-configs opts)))))
-                      (throw (Exception. "Node configs undefined")))
-        test-opts (assoc opts
-                         :node-config node-config
-                         :workload workload)]
-    (memgraph-test test-opts)))
+                      (first (if (= workload :high_availability)
+                               (:node-configs opts) ; If high availability, no need to resolve hostnames and validate yet
+                               (map resolve-all-node-hostnames (validate-node-configurations (:node-configs opts)))))
+                      (throw (Exception. "Node configs undefined!")))]
+    (if (= workload :high_availability)
+      ;; Use node-config directly for high availability workload
+      (memgraph-ha-test (assoc opts :node-config node-config :workload workload))
+      ;; Use node-config for other workloads
+      (memgraph-test (assoc opts :node-config node-config :workload workload)))))
 
 (defn all-tests
   "Takes base CLI options and constructs a sequence of test options."
   [opts]
-  (let [counts    (range (:test-count opts))
-        workloads (if-let [w (:workload opts)] [w] (keys workloads))
+  (let [workloads (if-let [w (:workload opts)] [w] (keys workloads))
         node-configs (if (:node-configs opts)
-                       (merge-node-configurations (:nodes opts) (:node-configs opts))
+                       (map resolve-all-node-hostnames (validate-node-configurations (:node-configs opts)))
                        (throw (Exception. "Node config is missing")))
-        test-opts (for [i counts c node-configs w workloads]
-                   (assoc opts
-                          :node-config c
-                          :workload w))]
+        test-opts (for [node-config node-configs workload workloads]
+                    (assoc opts
+                           :node-config node-config
+                           :workload workload))]
     (map memgraph-test test-opts)))
 
 (defn -main

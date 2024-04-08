@@ -57,6 +57,10 @@ SUPPORTED_TESTS=(
 DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
+DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
+DEFAULT_BENCH_GRAPH_PORT="9001"
+DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
+DEFAULT_MGDEPS_CACHE_PORT="8000"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -79,8 +83,12 @@ print_help () {
 
   echo -e "\nGlobal options:"
   echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
+  echo -e "  --bench-graph-host string     Specify ip address for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_HOST\")"
+  echo -e "  --bench-graph-port string     Specify port for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_PORT\")"
   echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
+  echo -e "  --mgdeps-cache-host string    Specify ip address for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_HOST\")"
+  echo -e "  --mgdeps-cache-port string    Specify port for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_PORT\")"
   echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
@@ -313,9 +321,16 @@ build_memgraph () {
 
   if [[ "$copy_from_host" == "true" ]]; then
     # Ensure we have a clean build directory
-    docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
+    docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
-    docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+    project_files=$(ls -A1 "$PROJECT_ROOT")
+    while IFS= read -r f; do
+      # Skip build directory when copying project files
+      if [[ "$f" != "build" ]]; then
+        docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+      fi
+    done <<< "$project_files"
     # Change ownership of copied files so the mg user inside container can access them
     docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
   fi
@@ -325,9 +340,10 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
+  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./init --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init --ci"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
@@ -580,7 +596,8 @@ test_memgraph() {
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
       local SETUP_VE3_ENV="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
+      local SETUP_BENCH_GRAPH_SERVER_ENDPOINT="export BENCH_GRAPH_SERVER_ENDPOINT=$bench_graph_host:$bench_graph_port"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_BENCH_GRAPH_SERVER_ENDPOINT && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
     ;;
     code-analysis)
       shift 1
@@ -627,6 +644,10 @@ organization_name=$DEFAULT_ORGANIZATION_NAME
 os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
+bench_graph_host=$DEFAULT_BENCH_GRAPH_HOST
+bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
+mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
+mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -636,6 +657,14 @@ while [[ $# -gt 0 ]]; do
         check_support arch $arch
         shift 2
     ;;
+    --bench-graph-host)
+        bench_graph_host=$2
+        shift 2
+    ;;
+    --bench-graph-port)
+        bench_graph_port=$2
+        shift 2
+    ;;
     --build-type)
         build_type=$2
         check_support build_type $build_type
@@ -643,6 +672,14 @@ while [[ $# -gt 0 ]]; do
     ;;
     --enterprise-license)
         enterprise_license=$2
+        shift 2
+    ;;
+    --mgdeps-cache-host)
+        mgdeps_cache_host=$2
+        shift 2
+    ;;
+    --mgdeps-cache-port)
+        mgdeps_cache_port=$2
         shift 2
     ;;
     --organization-name)

@@ -30,9 +30,15 @@ using nuraft::ptr;
 
 class RaftStateTest : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_raft_state"};
 };
@@ -41,7 +47,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const config = CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 1234, .bolt_port = 7688};
+  auto const config = CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability" / "coordinator"};
 
   auto raft_state = RaftState::MakeRaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
 
@@ -51,14 +57,14 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   ASSERT_TRUE(raft_state.GetReplicationInstances().empty());
 
   auto const coords = raft_state.GetCoordinatorInstances();
-  ASSERT_EQ(coords.size(), 0);
+  ASSERT_EQ(coords.size(), 1);
 }
 
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
   auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10112, .bolt_port = 7688};
+      CoordinatorInstanceInitConfig{1, 1234, 7688, test_folder_ / "high_availability" / "coordinator"};
 
   auto const raft_state =
       RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
@@ -67,7 +73,8 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   ASSERT_EQ(routing_table.size(), 1);
 
   auto const routers = routing_table[0];
-  ASSERT_TRUE(routers.first.empty());
+  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7688"};
+  ASSERT_EQ(routers.first, expected_routers);
   ASSERT_EQ(routers.second, "ROUTE");
 }
 
@@ -75,7 +82,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
   auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10113, .bolt_port = 7690};
+      CoordinatorInstanceInitConfig{1, 10113, 7690, test_folder_ / "high_availability" / "coordinator"};
   auto leader = RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
   leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
@@ -102,12 +109,6 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10003}}});
 
-  leader.AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 2, .bolt_server = Endpoint{"0.0.0.0", 7691}, .coordinator_server = Endpoint{"0.0.0.0", 10114}});
-
-  leader.AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig{
-      .coordinator_id = 3, .bolt_server = Endpoint{"0.0.0.0", 7692}, .coordinator_server = Endpoint{"0.0.0.0", 10115}});
-
   leader.AppendSetInstanceAsMainLog("instance1", UUID{});
 
   auto const routing_table = leader.GetRoutingTable();
@@ -125,6 +126,6 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   auto const &routers = routing_table[2];
   ASSERT_EQ(routers.second, "ROUTE");
-  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7691", "0.0.0.0:7692"};
+  auto const expected_routers = std::vector<std::string>{"0.0.0.0:7690"};
   ASSERT_EQ(routers.first, expected_routers);
 }

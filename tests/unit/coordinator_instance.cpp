@@ -34,43 +34,28 @@ using memgraph::io::network::Endpoint;
 
 class CoordinatorInstanceTest : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(main_data_directory)) return;
+    std::filesystem::remove_all(main_data_directory);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(main_data_directory)) return;
+    std::filesystem::remove_all(main_data_directory);
+  }
 
   std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
                                             "MG_tests_unit_coordinator_instance"};
 };
 
-// TEST_F(CoordinatorInstanceTest, RegisterReplicationInstance) {
-//   auto const init_config =
-//       CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
-//   auto instance1 = CoordinatorInstance{init_config};
-//
-//   auto const coord_to_replica_config =
-//       CoordinatorToReplicaConfig{.instance_name = "instance3",
-//                                  .mgt_server = Endpoint{"0.0.0.0", 10112},
-//                                  .bolt_server = Endpoint{"0.0.0.0", 7687},
-//                                  .replication_client_info = {.instance_name = "instance_name",
-//                                                              .replication_mode = ReplicationMode::ASYNC,
-//                                                              .replication_server = Endpoint{"0.0.0.0", 10001}},
-//                                  .instance_health_check_frequency_sec = std::chrono::seconds{1},
-//                                  .instance_down_timeout_sec = std::chrono::seconds{5},
-//                                  .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-//                                  .ssl = std::nullopt};
-//
-//   auto status = instance1.RegisterReplicationInstance(coord_to_replica_config);
-//   EXPECT_EQ(status, RegisterInstanceCoordinatorStatus::RPC_FAILED);
-// }
-
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
   auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = 4, .coordinator_port = 10110, .bolt_port = 7686};
+      CoordinatorInstanceInitConfig{4, 10110, 7686, main_data_directory / "high_availability" / "coordinator"};
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
-  ASSERT_EQ(instances.size(), 0);
+  ASSERT_EQ(instances.size(), 1);
 }
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
@@ -80,17 +65,17 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   };
 
   auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7687};
+      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
   auto const init_config2 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7688};
+      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
   auto const init_config3 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7689};
+      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
@@ -147,17 +132,17 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   };
 
   auto const init_config1 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7687};
+      CoordinatorInstanceInitConfig{1, 10111, 7687, main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
   auto const init_config2 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7688};
+      CoordinatorInstanceInitConfig{2, 10112, 7688, main_data_directory / "high_availability2" / "coordinator"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
   auto const init_config3 =
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7689};
+      CoordinatorInstanceInitConfig{3, 10113, 7689, main_data_directory / "high_availability3" / "coordinator"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
