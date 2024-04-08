@@ -298,11 +298,10 @@ class Timezone {
   std::variant<std::chrono::minutes, const std::chrono::time_zone *> offset_;
 
  public:
+  explicit Timezone(const uint64_t offset) : offset_{std::chrono::minutes{offset}} {}
   explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
-  explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {
-    // TODO antepusic: handle offsets in strings
-  }
+  explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
   const Timezone *operator->() const { return this; }
 
@@ -310,7 +309,9 @@ class Timezone {
 
   // Sole sensible comparison; can’t compare by offset since the same timezone may have varying offsets through the year
   // (standard vs. daylight saving time)
-  std::strong_ordering operator<=>(const Timezone &other) const { return TimezoneName() <=> other.TimezoneName(); }
+  auto operator<=>(const Timezone &other) const { return TimezoneName() <=> other.TimezoneName(); }
+
+  std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }
 
   template <class DurationT>
   std::chrono::minutes OffsetInMinutes(std::chrono::sys_time<DurationT> time_point) const {
@@ -363,6 +364,28 @@ class Timezone {
       return "";
     }
     return std::get<const std::chrono::time_zone *>(offset_)->name();
+  }
+
+  // TODO antepusic better name
+  int64_t DefiningOffset() const {
+    if (InTzDatabase()) {
+      throw utils::BasicException("tz database timezones are not defined by offset");
+    }
+    return std::get<std::chrono::minutes>(offset_).count();
+  }
+
+  int64_t DefiningOffsetSeconds() const {
+    if (InTzDatabase()) {
+      throw utils::BasicException("tz database timezones are not defined by offset");
+    }
+    return std::chrono::duration_cast<std::chrono::seconds>(std::get<std::chrono::minutes>(offset_)).count();
+  }
+
+  std::string ToString() const {
+    if (!InTzDatabase()) {
+      return std::to_string(std::get<std::chrono::minutes>(offset_).count());
+    }
+    return std::string{std::get<const std::chrono::time_zone *>(offset_)->name()};
   }
 };
 }  // namespace memgraph::utils

@@ -745,8 +745,7 @@ int64_t ZonedDateTime::SecondsSinceEpoch() const {
 int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
   const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
   const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
-
-  return (time_since_epoch - full_seconds).count();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch - full_seconds).count();
 }
 
 std::string ZonedDateTime::ToString() const {
