@@ -218,11 +218,11 @@ check_support() {
       fi
     ;;
     pokec_size)
-      if [[ "$3" == "small" || "$3" == "medium" || "$3" == "large" ]]; then
+      if [[ "$2" == "small" || "$2" == "medium" || "$2" == "large" ]]; then
         is_supported=true
       fi
       if [[ "$is_supported" == false ]]; then
-        echo -e "Error: Pokec size $3 isn't supported!\nChoose from small, medium, large"
+        echo -e "Error: Pokec size $2 isn't supported!\nChoose from small, medium, large"
         exit 1
       fi
     ;;
