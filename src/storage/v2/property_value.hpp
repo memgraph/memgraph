@@ -47,7 +47,7 @@ class PropertyValue {
     List = 5,
     Map = 6,
     TemporalData = 7,
-    ZonedTemporalData = 8
+    ZonedTemporalData = 8,
   };
 
   static bool AreComparableTypes(Type a, Type b) {
@@ -102,7 +102,8 @@ class PropertyValue {
       case Type::Int:
       case Type::Double:
       case Type::TemporalData:
-      case Type::ZonedTemporalData:  // primitive even though it may contain a chrono::time_zone pointers
+      case Type::ZonedTemporalData:
+        // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
         return;
       // destructor for non primitive types since we used placement new
       case Type::String:
@@ -312,8 +313,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
     case PropertyValue::Type::ZonedTemporalData:
       auto temp_value = value.ValueZonedTemporalData();
       return os << fmt::format("type: {}, microseconds: {}, timezone: {}", ZonedTemporalTypeToString(temp_value.type),
-                               temp_value.microseconds, temp_value.timezone.TimezoneName());
-      // TODO antepusic: check ^
+                               temp_value.microseconds, temp_value.timezone.ToString());
   }
 }
 

@@ -519,7 +519,13 @@ TEST(PropertyValue, CopyConstructor) {
       memgraph::storage::PropertyValue("nandare"),
       memgraph::storage::PropertyValue(vec),
       memgraph::storage::PropertyValue(map),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+  };
 
   for (const auto &item : data) {
     memgraph::storage::PropertyValue pv(item);
@@ -548,6 +554,10 @@ TEST(PropertyValue, CopyConstructor) {
         break;
       case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
+        break;
+      case memgraph::storage::PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), item.ValueZonedTemporalData());
+        break;
     }
   }
 }
@@ -565,7 +575,13 @@ TEST(PropertyValue, MoveConstructor) {
       memgraph::storage::PropertyValue("nandare"),
       memgraph::storage::PropertyValue(vec),
       memgraph::storage::PropertyValue(map),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+  };
 
   for (auto &item : data) {
     memgraph::storage::PropertyValue copy(item);
@@ -596,6 +612,9 @@ TEST(PropertyValue, MoveConstructor) {
       case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
         break;
+      case memgraph::storage::PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), copy.ValueZonedTemporalData());
+        break;
     }
   }
 }
@@ -613,7 +632,13 @@ TEST(PropertyValue, CopyAssignment) {
       memgraph::storage::PropertyValue("nandare"),
       memgraph::storage::PropertyValue(vec),
       memgraph::storage::PropertyValue(map),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+  };
 
   for (const auto &item : data) {
     memgraph::storage::PropertyValue pv(123);
@@ -644,6 +669,9 @@ TEST(PropertyValue, CopyAssignment) {
       case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), item.ValueTemporalData());
         break;
+      case memgraph::storage::PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), item.ValueZonedTemporalData());
+        break;
     }
   }
 }
@@ -661,7 +689,13 @@ TEST(PropertyValue, MoveAssignment) {
       memgraph::storage::PropertyValue("nandare"),
       memgraph::storage::PropertyValue(vec),
       memgraph::storage::PropertyValue(map),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
+      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+  };
 
   for (auto &item : data) {
     memgraph::storage::PropertyValue copy(item);
@@ -692,6 +726,9 @@ TEST(PropertyValue, MoveAssignment) {
         break;
       case memgraph::storage::PropertyValue::Type::TemporalData:
         ASSERT_EQ(pv.ValueTemporalData(), copy.ValueTemporalData());
+        break;
+      case memgraph::storage::PropertyValue::Type::ZonedTemporalData:
+        ASSERT_EQ(pv.ValueZonedTemporalData(), copy.ValueZonedTemporalData());
         break;
     }
   }
