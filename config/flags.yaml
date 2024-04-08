@@ -107,10 +107,6 @@ modifications:
     value: "true"
     override: false
 
-  - name: "storage_parallel_index_recovery"
-    value: "false"
-    override: true
-
   - name: "storage_parallel_schema_recovery"
     value: "false"
     override: true
