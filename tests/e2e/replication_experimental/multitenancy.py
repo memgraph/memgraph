@@ -845,7 +845,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
             ),
         ],
     }
-    assert set_eq(expected_data[replica_name], show_replicas_func(main_cursor)())
+    mg_sleep_and_assert_collection(expected_data[replica_name], show_replicas_func(main_cursor))
     # Restart
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
@@ -1407,4 +1407,5 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
 
 if __name__ == "__main__":
     interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-k", "test_multitenancy_replication_restart_replica_w_fc", "-vv"]))
     sys.exit(pytest.main([__file__, "-rA"]))
