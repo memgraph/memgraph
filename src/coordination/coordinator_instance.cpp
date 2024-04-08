@@ -79,6 +79,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                         &CoordinatorInstance::DemoteFailCallback);
                 });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
+            semaphore_leader.release();
           },
           [this]() {
             thread_pool_.AddTask([this]() {
@@ -354,6 +355,7 @@ void CoordinatorInstance::ForceResetCluster() {
   std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
 
   MG_ASSERT(!raft_state_.IsLockOpened(), "After force reset we need to be in healthy state.");
+  semaphore_leader.release();
 }
 
 auto CoordinatorInstance::TryFailover() -> void {
@@ -541,7 +543,25 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
+  if (!raft_state_.IsLeader()) {
+    if (!raft_state_.RequestLeadership()) {
+      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+    }
+    // TODO wait:
+    // TODO problem can't take lock here
+    // test if we get here after we are leader
+    // First we execute set leader
+    // then is callback executed
+    using namespace std::chrono_literals;
+    if (!semaphore_leader.try_acquire_for(1s)) {
+      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+    }
+    MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
+              "Instance needs to become leader and not have lock opened");
+  }
+
   auto lock = std::lock_guard{coord_instance_lock_};
+
   if (raft_state_.IsLockOpened()) {
     return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
@@ -564,11 +584,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
         return instance.ReplicationSocketAddress() == config.ReplicationSocketAddress();
       })) {
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
-  }
-
-  // TODO(antoniofilipovic) Check if this is an issue
-  if (!raft_state_.RequestLeadership()) {
-    return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
   if (!raft_state_.AppendOpenLock()) {
