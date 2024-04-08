@@ -477,6 +477,7 @@ jobs:
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Copy build logs
+        if: always()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
