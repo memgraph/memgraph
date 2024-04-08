@@ -402,10 +402,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       // MarkEdgeAsDeleted allocates additional memory
       // and CreateAndLinkDelta needs memory
-      utils::AtomicMemoryBlock atomic_memory_block{[&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order,
-                                                    &vertex_ptr, &deleted_edges, deletion_delta = deletion_delta,
-                                                    edge_type = edge_type, opposing_vertex = opposing_vertex,
-                                                    edge_ref = edge_ref, this]() {
+      utils::AtomicMemoryBlock([&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr,
+                                &deleted_edges, deletion_delta = deletion_delta, edge_type = edge_type,
+                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, this]() {
         attached_edges_to_vertex->pop_back();
         if (this->storage_->config_.salient.items.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
@@ -421,8 +420,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
-      }};
-      std::invoke(atomic_memory_block);
+      });
     }
 
     return std::make_optional<ReturnType>();
@@ -468,9 +466,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
     // Creating deltas and erasing edge only at the end -> we might have incomplete state as
     // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
-    utils::AtomicMemoryBlock atomic_memory_block{[&mid, &edges_attached_to_vertex, &deleted_edges,
-                                                  &partially_detached_edge_ids, this, vertex_ptr, deletion_delta,
-                                                  reverse_vertex_order]() {
+    utils::AtomicMemoryBlock([&mid, &edges_attached_to_vertex, &deleted_edges, &partially_detached_edge_ids, this,
+                              vertex_ptr, deletion_delta, reverse_vertex_order]() {
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
@@ -494,9 +491,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         }
       }
       edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
-    }};
+    });
 
-    std::invoke(atomic_memory_block);
     return std::make_optional<ReturnType>();
   };
 

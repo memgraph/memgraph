@@ -45,6 +45,7 @@ install(PROGRAMS $<TARGET_FILE:example_cpp>
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
 add_library(schema SHARED schema.cpp)
+set_target_properties(schema PROPERTIES PREFIX "")
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(schema PRIVATE -Wall)
 target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
