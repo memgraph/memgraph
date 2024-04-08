@@ -1,0 +1,61 @@
+name: Build Memgraph
+on:
+  workflow_call:
+    inputs:
+      build_name:
+        description: Which build type will be used (community, debug, release ...)?
+        required: true
+        type: string
+      threads:
+        description: How many threads will be used to build memgraph?
+        default: 24
+        type: number
+      os:
+        description: Base image with which os will be used?
+        default: debian-10
+        type: string
+      toolchain_version:
+        description: Which toolchain version will be used in the build?
+        default: 4
+        type: number
+
+env:
+  TAG: "memgraph/mgbuilder:${{ github.sha }}-${{ inputs.build_name }}"
+  OS: ${{ inputs.os }}
+  TOOLCHAIN_VERSION: ${{ inputs.toolchain_version }}
+  THREADS: ${{ inputs.threads }}
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+jobs:
+  build:
+    name: "${{ github.sha }}-${{ inputs.build_name }}"
+    runs-on: [self-hosted, Linux, X64, Diff]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build memgraph/mgbuilder:${{ github.sha }}-${{ inputs.build_name }}
+        run: ./docker/ci.bash build ${{ inputs.build_name }}
+
+      - name: Push mgbuilder image
+        run: docker push $TAG
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          docker container prune -f
+          docker image prune -f
+          docker builder prune -f
+          docker image rm $TAG
