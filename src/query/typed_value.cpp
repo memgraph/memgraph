@@ -759,8 +759,9 @@ void TypedValue::DestroyValue() {
     case Type::Date:
     case Type::LocalTime:
     case Type::LocalDateTime:
-    case Type::ZonedDateTime:
     case Type::Duration:
+    case Type::ZonedDateTime:
+      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
       break;
     case Type::Function:
       std::destroy_at(&function_v);
@@ -1266,8 +1267,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::LocalDateTime:
       return utils::LocalDateTimeHash{}(value.ValueLocalDateTime());
     case TypedValue::Type::ZonedDateTime:
-      // TODO antepusic: research how to hash ZonedDateTime
-      return 31;
+      return utils::ZonedDateTimeHash{}(value.ValueZonedDateTime());
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
       break;
