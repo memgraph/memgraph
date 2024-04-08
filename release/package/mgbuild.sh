@@ -209,6 +209,15 @@ check_support() {
         exit 1
       fi
     ;;
+    pokec_size)
+      if [[ "$3" == "small" || "$3" == "medium" || "$3" == "large" ]]; then
+        is_supported=true
+      fi
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Pokec size $3 isn't supported!\nChoose from small, medium, large"
+        exit 1
+      fi
+    ;;
     *)
       echo -e "Error: This function can only check arch, build_type, os, toolchain version and os toolchain combination"
       exit 1
@@ -502,7 +511,6 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  local POKEC_SIZE=${2:-'medium'}
   echo "Running $1 test on $build_container..."
 
   case "$1" in
@@ -563,6 +571,9 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
     ;;
     mgbench)
+      shift 1
+      local POKEC_SIZE=${1:-'medium'}
+      check_support pokec_size $POKEC_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/$POKEC_SIZE/*/*"
     ;;
     upload-to-bench-graph)
