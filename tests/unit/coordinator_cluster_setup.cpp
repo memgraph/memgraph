@@ -33,7 +33,6 @@ using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
-using memgraph::coordination::InstanceStatus;
 using memgraph::coordination::RegisterInstanceCoordinatorStatus;
 using memgraph::coordination::ReplicationInstanceInitConfig;
 using memgraph::coordination::SetInstanceToMainCoordinatorStatus;
@@ -64,6 +63,7 @@ struct ReplicationInstance {
   CoordinatorState coordinator_state;
 };
 
+// Networking is used in this test, be careful with ports used.
 class HighAvailabilityClusterSetupTest : public ::testing::Test {
  public:
   HighAvailabilityClusterSetupTest() {

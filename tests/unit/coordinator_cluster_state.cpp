@@ -22,8 +22,6 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorClusterState;
-using memgraph::coordination::CoordinatorInstanceInitConfig;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::coordination::RaftLogAction;
@@ -35,6 +33,7 @@ using memgraph::utils::UUID;
 using nuraft::buffer;
 using nuraft::ptr;
 
+// No networking communication in this test.
 class CoordinatorClusterStateTest : public ::testing::Test {
  protected:
   void SetUp() override {}
