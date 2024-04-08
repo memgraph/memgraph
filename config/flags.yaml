@@ -59,7 +59,7 @@ modifications:
     value: "true"
     override: true
 
-  - name: "storage_recover_on_startup"
+  - name: "data_recovery_on_startup"
     value: "true"
     override: true
 

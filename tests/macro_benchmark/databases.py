@@ -45,7 +45,7 @@ class Memgraph:
         argp.add_argument("--port", default="7687", help="Database and client port")
         argp.add_argument("--data-directory", default=None)
         argp.add_argument("--storage-snapshot-on-exit", action="store_true")
-        argp.add_argument("--storage-recover-on-startup", action="store_true")
+        argp.add_argument("--data-recovery-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.num_workers = num_workers
@@ -61,7 +61,7 @@ class Memgraph:
         if self.args.data_directory:
             database_args += ["--data-directory", self.args.data_directory]
         if self.args.storage_recover_on_startup:
-            database_args += ["--storage-recover-on-startup"]
+            database_args += ["--data-recovery-on-startup"]
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
 

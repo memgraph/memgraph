@@ -74,10 +74,6 @@ DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
-                   "Controls whether the storage recovers persisted data on startup.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "

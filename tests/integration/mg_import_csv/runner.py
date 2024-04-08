@@ -54,7 +54,7 @@ def verify_lifetime(memgraph_binary, mg_import_csv_binary):
     common_args = ["--data-directory", storage_directory.name, "--storage-properties-on-edges=false"]
 
     # Start the memgraph binary
-    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
+    memgraph_args = [memgraph_binary, "--data-recovery-on-startup"] + common_args
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
@@ -137,7 +137,7 @@ def execute_test(name, test_path, test_config, memgraph_binary, mg_import_csv_bi
             raise Exception("The import should have succeeded, but it " "failed instead!")
 
     # Start the memgraph binary
-    memgraph_args = [memgraph_binary, "--storage-recover-on-startup"] + common_args
+    memgraph_args = [memgraph_binary, "--data-recovery-on-startup"] + common_args
     memgraph = subprocess.Popen(list(map(str, memgraph_args)))
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
