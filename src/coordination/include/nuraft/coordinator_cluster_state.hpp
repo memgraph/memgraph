@@ -96,6 +96,8 @@ class CoordinatorClusterState {
 
   auto IsLockOpened() const -> bool;
 
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
   friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
     return lhs.repl_instances_ == rhs.repl_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
   }

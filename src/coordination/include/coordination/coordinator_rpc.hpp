@@ -29,11 +29,11 @@ struct PromoteReplicaToMainReq {
   static void Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 
   explicit PromoteReplicaToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
-      : main_uuid_(uuid), replication_clients_info(std::move(replication_clients_info)) {}
+      : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
   PromoteReplicaToMainReq() = default;
 
   // get uuid here
-  utils::UUID main_uuid_;
+  utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
 };
 
@@ -51,6 +51,36 @@ struct PromoteReplicaToMainRes {
 };
 
 using PromoteReplicaToMainRpc = rpc::RequestResponse<PromoteReplicaToMainReq, PromoteReplicaToMainRes>;
+
+struct RegisterReplicaOnMainReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
+
+  explicit RegisterReplicaOnMainReq(const utils::UUID &uuid, ReplicationClientInfo replication_client_info)
+      : main_uuid(uuid), replication_client_info(std::move(replication_client_info)) {}
+  RegisterReplicaOnMainReq() = default;
+
+  utils::UUID main_uuid;
+  ReplicationClientInfo replication_client_info;
+};
+
+struct RegisterReplicaOnMainRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
+  static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
+
+  explicit RegisterReplicaOnMainRes(bool success) : success(success) {}
+  RegisterReplicaOnMainRes() = default;
+
+  bool success;
+};
+
+using RegisterReplicaOnMainRpc = rpc::RequestResponse<RegisterReplicaOnMainReq, RegisterReplicaOnMainRes>;
 
 struct DemoteMainToReplicaReq {
   static const utils::TypeInfo kType;
@@ -197,6 +227,12 @@ void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph:
 void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
+
+// RegisterReplicaOnMainRpc
+void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
 
 // DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
