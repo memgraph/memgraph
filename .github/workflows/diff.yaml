@@ -4,9 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - master
+  merge_group:
   workflow_dispatch:
   pull_request:
     paths-ignore:
