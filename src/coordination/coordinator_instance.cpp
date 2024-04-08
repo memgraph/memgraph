@@ -296,7 +296,7 @@ void CoordinatorInstance::ForceResetCluster() {
     return repl_instance.InstanceName() != new_main.InstanceName();
   };
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -415,7 +415,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main.PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -511,7 +511,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   }
 
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstanceConnector::ReplicationClientInfo) |
+                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
   if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
@@ -591,9 +591,19 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 
   if (!new_instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
                                      &CoordinatorInstance::ReplicaFailCallback)) {
-    // TODO(antoniofilipovic) We don't need to do here force reset, only close lock later on
     spdlog::error("Failed to send demote to replica rpc for instance {}", config.instance_name);
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  auto const main_name = raft_state_.TryGetCurrentMainName();
+
+  if (main_name.has_value()) {
+    auto &current_main = FindReplicationInstance(*main_name);
+
+    if (!current_main.RegisterReplica(raft_state_.GetCurrentMainUUID(), new_instance->GetReplicationClientInfo())) {
+      spdlog::error("Failed to register replica instance.");
+      return RegisterInstanceCoordinatorStatus::RPC_FAILED;
+    }
   }
 
   if (!raft_state_.AppendRegisterReplicationInstanceLog(config)) {
