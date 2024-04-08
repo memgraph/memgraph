@@ -453,6 +453,10 @@ struct ZonedDateTime {
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };
 
+struct ZonedDateTimeHash {
+  size_t operator()(const ZonedDateTime &zoned_date_time) const;
+};
+
 Date CurrentDate();
 LocalTime CurrentLocalTime();
 LocalDateTime CurrentLocalDateTime();

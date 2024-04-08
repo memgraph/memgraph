@@ -776,6 +776,18 @@ std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) cons
   return timezone_name_ordering;
 }
 
+size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
+  utils::HashCombine<uint64_t, uint64_t> hasher;
+  size_t result = hasher(0, zoned_date_time.MicrosecondsSinceEpoch());
+  const auto offset = zoned_date_time.GetTimezone().GetOffset();
+  if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {
+    result = hasher(result, reinterpret_cast<uintptr_t>(std::get<const std::chrono::time_zone *>(offset)));
+    return result;
+  }
+  result = hasher(result, std::get<std::chrono::minutes>(offset).count());
+  return result;
+}
+
 namespace {
 std::optional<DurationParameters> TryParseDurationString(std::string_view string) {
   DurationParameters duration_parameters;
