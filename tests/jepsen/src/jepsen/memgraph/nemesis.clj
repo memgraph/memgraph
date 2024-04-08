@@ -14,7 +14,7 @@
 
 (defn full-nemesis
   "Can kill and restart all processess and initiate network partitions."
-  [opts]
+  []
   (nemesis/compose
    {{:kill-node    :start
      :restart-node :stop} (node-killer)
@@ -26,34 +26,23 @@
   [f]
   {:type :info :f f})
 
-
-(defn nemesis-events
-  "Constructs events for nemesis based on provided options."
-  [opts]
-  (apply concat
-      [(when (:kill-node? opts)
-          [(cycle (map op [:kill-node :restart-node]))])
-      (when (:partition-halves? opts)
-          [(cycle (map op [:start-partition-halves :stop-partition-halves]))])]
-  ))
-
-
 (defn full-generator
   "Construct nemesis generator."
-  [opts]
-  (gen/phases
-   (gen/log "Waiting replicas to get data from main.")
-   (gen/sleep 40)
-   (->>
-    (gen/mix (nemesis-events opts))
-    (gen/stagger (:interval opts)))))
-
+  []
+  (gen/phases (cycle [(gen/sleep 5)
+                      {:type :info, :f :kill-node}
+                      (gen/sleep 5)
+                      {:type :info, :f :restart-node}
+                      (gen/sleep 5)
+                      {:type :info, :f :start-partition-halves}
+                      (gen/sleep 5)
+                      {:type :info, :f :stop-partition-halves}])))
 
 (defn nemesis
   "Composite nemesis and generator"
   [opts]
-  {:nemesis (full-nemesis opts)
-   :generator (full-generator opts)
+  {:nemesis (full-nemesis)
+   :generator (full-generator)
    :final-generator
    (->> [(when (:partition-halves? opts) :stop-partition-halves)
          (when (:kill-node? opts) :restart-node)]

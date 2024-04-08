@@ -444,9 +444,10 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
-                                                            .coordinator_port = FLAGS_coordinator_port,
-                                                            .bolt_port = FLAGS_bolt_port});
+    auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+    memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+    coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
+                                                            FLAGS_bolt_port, high_availability_data_dir});
   } else {
     coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
   }
@@ -479,13 +480,15 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(
+  memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config, &dbms_handler, &repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
+
+  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

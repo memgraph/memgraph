@@ -174,7 +174,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
 
     auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
-    DMG_ASSERT(entry != snapshots_.end());
+    MG_ASSERT(entry != snapshots_.end());
     entry->second->cluster_state_ = cluster_state;
   }
   obj_id++;
@@ -195,15 +195,21 @@ auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
-  spdlog::debug("last_snapshot");
+  spdlog::debug("Getting last snapshot from state machine.");
   auto entry = snapshots_.rbegin();
-  if (entry == snapshots_.rend()) return nullptr;
+  if (entry == snapshots_.rend()) {
+    spdlog::debug("There is no snapshot.");
+    return nullptr;
+  }
 
   ptr<SnapshotCtx> ctx = entry->second;
   return ctx->snapshot_;
 }
 
-auto CoordinatorStateMachine::last_commit_index() -> ulong { return last_committed_idx_; }
+auto CoordinatorStateMachine::last_commit_index() -> ulong {
+  spdlog::trace("Last committed index from state machine {}", last_committed_idx_);
+  return last_committed_idx_;
+}
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   spdlog::debug("create_snapshot, last_log_idx: {}", s.get_last_log_idx());

@@ -12,6 +12,9 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include <range/v3/view.hpp>
+#include "kvstore/kvstore.hpp"
+#include "utils/file.hpp"
 
 namespace memgraph::coordination {
 
@@ -21,8 +24,14 @@ using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
 
+namespace {
+constexpr std::string_view kServersKey = "servers";  // Key prefix for servers durability
+}  // namespace
+
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config)
-    : my_id_(static_cast<int>(config.coordinator_id)), cur_log_store_(cs_new<CoordinatorLogStore>()) {
+    : my_id_(static_cast<int>(config.coordinator_id)),
+      cur_log_store_(cs_new<CoordinatorLogStore>()),
+      kv_store_(config.durability_dir) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
                                      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
@@ -34,34 +43,53 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
-  // Just return in-memory data in this example.
-  // May require reading from disk here, if it has been written to disk.
-  spdlog::trace("Loading cluster config");
+  spdlog::trace("Loading cluster config from RocksDb");
+  auto const servers = kv_store_.Get(kServersKey);
+  if (!servers.has_value()) {
+    spdlog::trace("Didn't find anything stored on disk for cluster config.");
+    return cluster_config_;
+  }
+  spdlog::trace("Loading cluster config from disk.");
+  auto const json = nlohmann::json::parse(servers.value());
+  auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
+  cluster_config_->get_servers().clear();
+  for (auto &real_server : real_servers) {
+    auto &[coord_id, endpoint, aux] = real_server;
+    spdlog::trace("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.", coord_id, endpoint,
+                  aux);
+    auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
+    cluster_config_->get_servers().push_back(std::move(one_server_config));
+  }
+
   return cluster_config_;
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
-  // Just keep in memory in this example.
-  // Need to write to disk here, if want to make it durable.
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
-  spdlog::info("Saving cluster config.");
-  auto servers = cluster_config_->get_servers();
-  for (auto const &server : servers) {
-    spdlog::trace("Server id: {}, endpoint: {}", server->get_id(), server->get_endpoint());
-  }
+  spdlog::info("Saving cluster config to disk.");
+  auto const servers_vec =
+      ranges::views::transform(
+          cluster_config_->get_servers(),
+          [](auto const &server) {
+            spdlog::trace("Created cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
+                          static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
+            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
+          }) |
+      ranges::to<std::vector>();
+  kv_store_.Put(kServersKey, nlohmann::json(servers_vec).dump());
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
-  // Just keep in memory in this example.
-  // Need to write to disk here, if want to make it durable.
+  // TODO(antoniofilipovic): Implement storing of server state to disk. For now
+  // as server state is just term and voted_for, we don't have to store it
+  spdlog::trace("Saving server state in coordinator state manager.");
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
 }
 
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
-  // Just return in-memory data in this example.
-  // May require reading from disk here, if it has been written to disk.
+  spdlog::trace("Reading server state in coordinator state manager.");
   return saved_state_;
 }
 
