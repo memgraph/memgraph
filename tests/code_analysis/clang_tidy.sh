@@ -22,7 +22,7 @@ cd $PROJECT_ROOT
 git diff -U0 $BASE_BRANCH... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
 # Fail if any warning is reported
 if  cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null; then
-    echo "ba"
+    exit 1
 fi
 
 cd $SCRIPT_DIR
