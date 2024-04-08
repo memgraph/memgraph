@@ -206,7 +206,7 @@ def parse_args():
     )
     parser_vendor_native.add_argument(
         "--vendor-name",
-        default="memgraph",
+        default="memgraph-inmemory-transactional",
         choices=["memgraph-inmemory-transactional", "memgraph-inmemory-analytical", "memgraph-ondisk" "neo4j"],
         help="Input vendor binary name (memgraph, neo4j)",
     )
