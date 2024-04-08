@@ -141,7 +141,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  utils::AtomicMemoryBlock atomic_memory_block{
+  utils::AtomicMemoryBlock(
       [&current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
         current_value.emplace(edge.ptr->properties.GetProperty(property));
         if (skip_duplicate_write && current_value == value) {
@@ -155,8 +155,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         // transactions get a SERIALIZATION_ERROR.
         CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
         edge.ptr->properties.SetProperty(property, value);
-      }};
-  std::invoke(atomic_memory_block);
+      });
 
   if (transaction_->IsDiskStorage()) {
     ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
@@ -177,12 +176,11 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  utils::AtomicMemoryBlock atomic_memory_block{[&properties, transaction_ = transaction_, edge_ = edge_]() {
+  utils::AtomicMemoryBlock([&properties, transaction_ = transaction_, edge_ = edge_]() {
     for (const auto &[property, _] : properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
     }
-  }};
-  std::invoke(atomic_memory_block);
+  });
 
   return true;
 }
@@ -201,15 +199,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock atomic_memory_block{
+  utils::AtomicMemoryBlock(
       [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change, skip_duplicate_write]() {
         id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
         for (auto &[property, old_value, new_value] : *id_old_new_change) {
           if (skip_duplicate_write && old_value == new_value) continue;
           CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
         }
-      }};
-  std::invoke(atomic_memory_block);
+      });
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
@@ -225,15 +222,14 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock atomic_memory_block{[&properties, transaction_ = transaction_, edge_ = edge_]() {
+  utils::AtomicMemoryBlock([&properties, transaction_ = transaction_, edge_ = edge_]() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
     }
 
     edge_.ptr->properties.ClearProperties();
-  }};
-  std::invoke(atomic_memory_block);
+  });
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
@@ -254,7 +250,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          *value = *delta.property.value;
+          value = *delta.property.value;
         }
         break;
       }
