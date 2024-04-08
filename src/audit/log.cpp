@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -82,6 +82,21 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
         }
       };
       ret = to_string(temporal_data);
+      break;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto zoned_temporal_data = pv.ValueZonedTemporalData();
+      auto to_string = [](auto zoned_temporal_data) {
+        std::stringstream ss;
+        switch (zoned_temporal_data.type) {
+          case storage::ZonedTemporalType::ZonedDateTime: {
+            const auto zdt = utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+            ss << zdt;
+            return ss.str();
+          }
+        }
+      };
+      ret = to_string(zoned_temporal_data);
       break;
     }
   }
