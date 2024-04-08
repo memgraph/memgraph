@@ -72,10 +72,12 @@
                                                                     ; Read always succeeds and returns all accounts.
                                                                     ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
                                                                     :read (utils/with-session conn session
-                                                                            (assoc op
-                                                                                   :type :ok
-                                                                                   :value {:accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
-                                                                                           :node node}))
+                                                                            (let [accounts (get-all-accounts session)]
+                                                                              (assoc op
+                                                                                     :type :ok
+                                                                                     :value {:accounts (->> accounts (map :n) (reduce conj []))
+                                                                                             :node node :total (->> accounts (map :balance) (reduce +))})))
+
                                                                     ; Transfer money from one account to another. Only executed on main.
                                                                     ; If the transferring succeeds, return :ok, otherwise return :fail.
                                                                     ; Transfer will fail if the account doesn't exist or if the account doesn't have enough or if update-balance
