@@ -293,12 +293,14 @@ struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;
 };
 
+constexpr int64_t MAX_OFFSET_MINUTES = 1080;
+
 class Timezone {
  private:
   std::variant<std::chrono::minutes, const std::chrono::time_zone *> offset_;
 
  public:
-  explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
+  explicit Timezone(const std::chrono::minutes offset);
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
 
@@ -484,4 +486,6 @@ struct ZonedDateTimeHash {
 Date CurrentDate();
 LocalTime CurrentLocalTime();
 LocalDateTime CurrentLocalDateTime();
+ZonedDateTime CurrentZonedDateTime();
+Timezone DefaultTimezone();
 }  // namespace memgraph::utils

@@ -196,8 +196,8 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
         case storage::PropertyValue::Type::Int: {
           int64_t offset_minutes{0};
           slk::Load(&offset_minutes, reader);
-          *value = storage::PropertyValue(
-              storage::ZonedTemporalData{temporal_type, microseconds, utils::Timezone(offset_minutes)});
+          *value = storage::PropertyValue(storage::ZonedTemporalData{
+              temporal_type, microseconds, utils::Timezone(std::chrono::minutes{offset_minutes})});
           return;
         }
         default:

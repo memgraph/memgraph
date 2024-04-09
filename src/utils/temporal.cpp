@@ -90,6 +90,14 @@ LocalDateTime CurrentLocalDateTime() {
   return LocalDateTime(ts.time_since_epoch().count());
 }
 
+Timezone DefaultTimezone() { return Timezone("Z"); }
+
+ZonedDateTime CurrentZonedDateTime() {
+  namespace chrono = std::chrono;
+  auto ts = chrono::time_point_cast<chrono::microseconds>(chrono::system_clock::now());
+  return ZonedDateTime(chrono::zoned_time{utils::DefaultTimezone(), ts});
+}
+
 namespace {
 inline constexpr auto *kSupportedDateFormatsHelpMessage = R"help(
 String representing the date should be in one of the following formats:
@@ -513,6 +521,13 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
   size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
   result = hasher(result, DateHash{}(local_date_time.date));
   return result;
+}
+
+Timezone::Timezone(const std::chrono::minutes offset) {
+  if (std::abs(offset.count()) > MAX_OFFSET_MINUTES) {
+    throw utils::BasicException("Zone offset not in valid range: -18:00 to +18:00");
+  }
+  offset_ = offset;
 }
 
 namespace {

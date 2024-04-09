@@ -290,7 +290,7 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
       auto offset_minutes = decoder.ReadUint();
       if (!offset_minutes) return std::nullopt;
       return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds),
-                               utils::Timezone(*offset_minutes)};
+                               utils::Timezone(std::chrono::minutes{*offset_minutes})};
     }
     default:
       break;

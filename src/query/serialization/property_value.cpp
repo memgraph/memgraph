@@ -122,7 +122,7 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
     case ObjectType::OFFSET_ZONED_TEMPORAL_DATA:
       return storage::PropertyValue(storage::ZonedTemporalData{
           data["value"]["type"].get<storage::ZonedTemporalType>(), data["value"]["microseconds"].get<int64_t>(),
-          utils::Timezone(data["value"]["timezone"].get<int64_t>())});
+          utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
   }
 }
 
