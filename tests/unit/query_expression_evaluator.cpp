@@ -105,7 +105,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ExpressionEvaluatorTest, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorTest, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorTest, OrOperator) {
   auto *op = this->storage.template Create<OrOperator>(this->storage.template Create<PrimitiveLiteral>(true),
@@ -1240,7 +1240,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
   }
 };
 
-TYPED_TEST_CASE(ExpressionEvaluatorPropertyLookup, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
@@ -1391,6 +1391,52 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   EXPECT_EQ(mic.ValueInt(), 40);
 }
 
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, ZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  this->frame[this->symbol] = TypedValue(zdt);
+
+  const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
+  const auto y = this->Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 2024);
+
+  const std::pair month = std::make_pair("month", this->dba.NameToProperty("month"));
+  const auto m = this->Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 3);
+
+  const std::pair day = std::make_pair("day", this->dba.NameToProperty("day"));
+  const auto d = this->Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 25);
+
+  const std::pair hour = std::make_pair("hour", this->dba.NameToProperty("hour"));
+  const auto h = this->Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 14);
+
+  const std::pair minute = std::make_pair("minute", this->dba.NameToProperty("minute"));
+  const auto min = this->Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 18);
+
+  const std::pair second = std::make_pair("second", this->dba.NameToProperty("second"));
+  const auto sec = this->Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 13);
+
+  const std::pair millis = std::make_pair("millisecond", this->dba.NameToProperty("millisecond"));
+  const auto mil = this->Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 206);
+
+  const std::pair micros = std::make_pair("microsecond", this->dba.NameToProperty("microsecond"));
+  const auto mic = this->Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 22);
+}
+
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = this->dba.InsertVertex();
   auto v2 = this->dba.InsertVertex();
@@ -1432,7 +1478,7 @@ class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<St
   }
 };
 
-TYPED_TEST_CASE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
@@ -1481,6 +1527,14 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
   this->frame[this->symbol] = TypedValue(ldt);
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
+}
+
+// TODO antepusic
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, ZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  this->frame[this->symbol] = TypedValue(zdt);
+  ASSERT_THROW(this->Value(), QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Null) {
@@ -1533,7 +1587,7 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(FunctionTest, StorageTypes);
+TYPED_TEST_SUITE(FunctionTest, StorageTypes);
 
 template <class... TArgs>
 static TypedValue MakeTypedValueList(TArgs &&...args) {
@@ -2106,6 +2160,12 @@ TYPED_TEST(FunctionTest, ToStringDuration) {
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", duration).ValueString(), "P0DT0H2M2.000033S");
 }
 
+TYPED_TEST(FunctionTest, ToStringZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", zdt).ValueString(), "2024-03-25T14:18:13.206022+01:00[Europe/Zagreb]");
+}
+
 TYPED_TEST(FunctionTest, ToStringExceptions) {
   EXPECT_THROW(this->EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException);
 }
@@ -2137,6 +2197,16 @@ TYPED_TEST(FunctionTest, TimestampDuration) {
   this->ctx.timestamp = 42;
   const memgraph::utils::Duration time(20000);
   EXPECT_EQ(this->EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
+}
+
+// TODO antepusic
+TYPED_TEST(FunctionTest, TimestampZonedDateTime) {
+  this->ctx.timestamp = 42;
+
+  const int64 microseconds = 20000;
+  const auto los_angeles_offset = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{-8}).count();
+  const auto zdt = memgraph::utils::ZonedDateTime(microseconds, memgraph::utils::Timezone("America/Los_Angeles"));
+  EXPECT_EQ(this->EvaluateFunction("TIMESTAMP", zdt).ValueInt(), microseconds - los_angeles_offset);
 }
 
 TYPED_TEST(FunctionTest, TimestampExceptions) {
@@ -2386,4 +2456,7 @@ TYPED_TEST(FunctionTest, Duration) {
   EXPECT_EQ(this->EvaluateFunction("DURATION", "P3DT4H5M6.100110S").ValueDuration(),
             memgraph::utils::Duration({3, 4, 5, 6, 100, 110}));
 }
+
+TYPED_TEST(FunctionTest, ZonedDateTime) {}
+// TODO antepusic
 }  // namespace

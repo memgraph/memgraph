@@ -104,6 +104,7 @@ struct Date {};
 struct LocalTime {};
 struct LocalDateTime {};
 struct Duration {};
+struct ZonedDateTime {};
 struct Graph {};
 
 template <class ArgType>
@@ -144,6 +145,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsLocalDateTime();
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return arg.IsDuration();
+  } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
+    return arg.IsZonedDateTime();
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, void>) {
@@ -196,6 +199,8 @@ constexpr const char *ArgTypeName() {
     return "LocalDateTime";
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return "Duration";
+  } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
+    return "ZonedDateTime";
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return "graph";
   } else {
@@ -588,8 +593,8 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime, Duration,
-           Graph>>("type", args, nargs);
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
+           ZonedDateTime, Duration, Graph>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -621,6 +626,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("LOCAL_DATE_TIME", ctx.memory);
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
+    case TypedValue::Type::ZonedDateTime:
+      return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
       return TypedValue("GRAPH", ctx.memory);
     case TypedValue::Type::Function:
@@ -979,7 +986,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, Bool>>("toString", args, nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool>>("toString", args,
+                                                                                                 nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
@@ -1007,12 +1015,15 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
   }
+  if (arg.IsZonedDateTime()) {
+    return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+  }
 
   return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<Date, LocalTime, LocalDateTime, Duration>>>("timestamp", args, nargs);
+  FType<Optional<Or<Date, LocalTime, LocalDateTime, ZonedDateTime, Duration>>>("timestamp", args, nargs);
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
@@ -1025,6 +1036,9 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
   }
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
+  }
+  if (arg.IsZonedDateTime()) {
+    return TypedValue(arg.ValueZonedDateTime().MicrosecondsSinceEpoch(), ctx.memory);
   }
   return TypedValue(ctx.timestamp, ctx.memory);
 }
@@ -1432,6 +1446,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "DATE") return Date;
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
+  // if (function_name == "DATETIME") return DateTime;
   if (function_name == "DURATION") return Duration;
 
   const auto &maybe_found =
