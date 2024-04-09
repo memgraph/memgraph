@@ -63,6 +63,8 @@ class ReplicationInstanceClient {
 
   virtual auto SendEnableWritingOnMainRpc() const -> bool;
 
+  auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
+
   auto SendFrequentHeartbeat() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const
@@ -72,7 +74,7 @@ class ReplicationInstanceClient {
 
   virtual auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
 
-  auto ReplicationClientInfo() const -> ReplicationClientInfo;
+  auto GetReplicationClientInfo() const -> ReplicationClientInfo;
 
   auto RpcClient() -> rpc::Client & { return rpc_client_; }
 

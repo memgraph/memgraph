@@ -20,11 +20,12 @@
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "TRACE"
+   :--log-level "INFO"
    :--also-log-to-stderr
    :--storage-recover-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
+   :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges))

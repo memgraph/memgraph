@@ -845,7 +845,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
             ),
         ],
     }
-    assert set_eq(expected_data[replica_name], show_replicas_func(main_cursor)())
+    mg_sleep_and_assert_collection(expected_data[replica_name], show_replicas_func(main_cursor))
     # Restart
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 

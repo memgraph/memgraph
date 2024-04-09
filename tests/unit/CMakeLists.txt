@@ -434,16 +434,16 @@ target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)
 
 # Test coordination
 if(MG_ENTERPRISE)
-add_unit_test(coordination_utils.cpp)
-target_link_libraries(${test_prefix}coordination_utils gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}coordination_utils PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_utils.cpp)
+target_link_libraries(${test_prefix}coordinator_utils gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_utils PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
 # Test Raft log serialization
 if(MG_ENTERPRISE)
-add_unit_test(raft_log_serialization.cpp)
-target_link_libraries(${test_prefix}raft_log_serialization gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}raft_log_serialization PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_raft_log_serialization.cpp)
+target_link_libraries(${test_prefix}coordinator_raft_log_serialization gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_raft_log_serialization PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
 # Test CoordinatorClusterState
@@ -462,9 +462,9 @@ endif()
 
 # Test RAFT state
 if(MG_ENTERPRISE)
-add_unit_test(raft_state.cpp)
-target_link_libraries(${test_prefix}raft_state gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_raft_state.cpp)
+target_link_libraries(${test_prefix}coordinator_raft_state gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
 # Test coordinator instance
@@ -483,7 +483,7 @@ endif()
 
 # Test HA cluster setup
 if(MG_ENTERPRISE)
-add_unit_test(high_availability_cluster_setup.cpp)
-target_link_libraries(${test_prefix}high_availability_cluster_setup gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}high_availability_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_cluster_setup.cpp)
+target_link_libraries(${test_prefix}coordinator_cluster_setup gflags mg-coordination mg-repl_coord_glue)
+target_include_directories(${test_prefix}coordinator_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
