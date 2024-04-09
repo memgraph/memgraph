@@ -977,6 +977,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
                              TemporalData{TemporalType::LocalDateTime, 20}};
+  const std::array zoned_temporals{
+      ZonedTemporalData{ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(20000),
+                        memgraph::utils::DefaultTimezone()},
+      ZonedTemporalData{ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(30000),
+                        memgraph::utils::DefaultTimezone()},
+      ZonedTemporalData{ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(40000),
+                        memgraph::utils::DefaultTimezone()}};
 
   std::vector<PropertyValue> values = {
       PropertyValue(false),
@@ -1005,6 +1012,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       PropertyValue(temporals[0]),
       PropertyValue(temporals[1]),
       PropertyValue(temporals[2]),
+      PropertyValue(zoned_temporals[0]),
+      PropertyValue(zoned_temporals[1]),
+      PropertyValue(zoned_temporals[2]),
   };
 
   // Create vertices, each with one of the values above.
@@ -1126,6 +1136,18 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          memgraph::utils::MakeBoundInclusive(PropertyValue(temporals[2])),
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
 
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[2])),
+         {PropertyValue(zoned_temporals[0]), PropertyValue(zoned_temporals[1]), PropertyValue(zoned_temporals[2])});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[0])),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[2])), {PropertyValue(zoned_temporals[1])});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[0])),
+         memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[2])),
+         {PropertyValue(zoned_temporals[1]), PropertyValue(zoned_temporals[2])});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])),
+         memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[2])),
+         {PropertyValue(zoned_temporals[0]), PropertyValue(zoned_temporals[1])});
+
   // Range iteration with one unspecified bound should only yield items that
   // have the same type as the specified bound.
   verify(memgraph::utils::MakeBoundInclusive(PropertyValue(false)), std::nullopt,
@@ -1161,6 +1183,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
   verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(TemporalData(TemporalType::Duration, 0))),
          {PropertyValue(temporals[0]), PropertyValue(temporals[1]), PropertyValue(temporals[2])});
+  verify(memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])), std::nullopt,
+         {PropertyValue(zoned_temporals[0]), PropertyValue(zoned_temporals[1]), PropertyValue(zoned_temporals[2])});
+  verify(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(zoned_temporals[0])),
+         {PropertyValue(zoned_temporals[0])});
+  verify(memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[0])), std::nullopt,
+         {PropertyValue(zoned_temporals[1]), PropertyValue(zoned_temporals[2])});
+  verify(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(zoned_temporals[0])), {});
 
   // Range iteration with two specified bounds that don't have the same type
   // should yield no items.
