@@ -21,6 +21,13 @@
 
 using testing::UnorderedElementsAre;
 
+memgraph::storage::ZonedTemporalData GetSampleZonedTemporal() {
+  const auto common_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count();
+  const auto named_timezone = memgraph::utils::Timezone("America/Los_Angeles");
+  return memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime, common_duration,
+                                              named_timezone};
+}
+
 const memgraph::storage::PropertyValue kSampleValues[] = {
     memgraph::storage::PropertyValue(),
     memgraph::storage::PropertyValue(false),
@@ -53,6 +60,7 @@ const memgraph::storage::PropertyValue kSampleValues[] = {
         {"map", memgraph::storage::PropertyValue(std::string("sample"))},
         {"item", memgraph::storage::PropertyValue(-33.33)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+    memgraph::storage::PropertyValue(GetSampleZonedTemporal()),
 };
 
 void TestIsPropertyEqual(const memgraph::storage::PropertyStore &store, memgraph::storage::PropertyId property,
@@ -256,11 +264,13 @@ TEST(PropertyStore, EmptySet) {
                                                     memgraph::storage::PropertyValue()};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
+  const auto zoned_temporal = GetSampleZonedTemporal();
+
   std::vector<memgraph::storage::PropertyValue> data{
-      memgraph::storage::PropertyValue(true),    memgraph::storage::PropertyValue(123),
-      memgraph::storage::PropertyValue(123.5),   memgraph::storage::PropertyValue("nandare"),
-      memgraph::storage::PropertyValue(vec),     memgraph::storage::PropertyValue(map),
-      memgraph::storage::PropertyValue(temporal)};
+      memgraph::storage::PropertyValue(true),     memgraph::storage::PropertyValue(123),
+      memgraph::storage::PropertyValue(123.5),    memgraph::storage::PropertyValue("nandare"),
+      memgraph::storage::PropertyValue(vec),      memgraph::storage::PropertyValue(map),
+      memgraph::storage::PropertyValue(temporal), memgraph::storage::PropertyValue(zoned_temporal)};
 
   auto prop = memgraph::storage::PropertyId::FromInt(42);
   for (const auto &value : data) {
@@ -295,6 +305,8 @@ TEST(PropertyStore, FullSet) {
                                                     memgraph::storage::PropertyValue()};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
+  const auto zoned_temporal = GetSampleZonedTemporal();
+
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data{
       {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
       {memgraph::storage::PropertyId::FromInt(2), memgraph::storage::PropertyValue(123)},
@@ -302,7 +314,9 @@ TEST(PropertyStore, FullSet) {
       {memgraph::storage::PropertyId::FromInt(4), memgraph::storage::PropertyValue("nandare")},
       {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue(vec)},
       {memgraph::storage::PropertyId::FromInt(6), memgraph::storage::PropertyValue(map)},
-      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)}};
+      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)},
+      {memgraph::storage::PropertyId::FromInt(8), memgraph::storage::PropertyValue(zoned_temporal)},
+  };
 
   std::vector<memgraph::storage::PropertyValue> alt{memgraph::storage::PropertyValue(),
                                                     memgraph::storage::PropertyValue(std::string()),
@@ -651,12 +665,48 @@ TEST(PropertyStore, IsPropertyEqualTemporalData) {
                                                memgraph::storage::TemporalType::Date, 30})));
 }
 
+TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
+  const std::array timezone_offset_encoding_cases{
+      memgraph::utils::Timezone("America/Los_Angeles"),     memgraph::utils::Timezone(std::chrono::minutes{-360}),
+      memgraph::utils::Timezone(std::chrono::minutes{-60}), memgraph::utils::Timezone(std::chrono::minutes{0}),
+      memgraph::utils::Timezone(std::chrono::minutes{60}),  memgraph::utils::Timezone(std::chrono::minutes{360}),
+  };
+
+  auto check_case = [](const memgraph::utils::Timezone &timezone) {
+    using namespace memgraph::storage;
+
+    PropertyStore props;
+    const auto common_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count();
+
+    const auto zoned_temporal =
+        PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, common_duration, timezone});
+    const auto unequal_type = PropertyValue(TemporalData{TemporalType::Duration, 23});
+    const auto unequal_value =
+        PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, common_duration + 1, timezone});
+
+    auto prop = PropertyId::FromInt(42);
+
+    ASSERT_TRUE(props.SetProperty(prop, zoned_temporal));
+    ASSERT_TRUE(props.IsPropertyEqual(prop, zoned_temporal));
+    // Different type.
+    ASSERT_FALSE(props.IsPropertyEqual(prop, unequal_type));
+    // Same type, different value.
+    ASSERT_FALSE(props.IsPropertyEqual(prop, unequal_value));
+  };
+
+  for (const auto &timezone : timezone_offset_encoding_cases) {
+    check_case(timezone);
+  }
+}
+
 TEST(PropertyStore, SetMultipleProperties) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123),
                                                     memgraph::storage::PropertyValue()};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
+  const auto zoned_temporal = GetSampleZonedTemporal();
+
   // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
   const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{
       {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
@@ -665,7 +715,8 @@ TEST(PropertyStore, SetMultipleProperties) {
       {memgraph::storage::PropertyId::FromInt(4), memgraph::storage::PropertyValue("nandare")},
       {memgraph::storage::PropertyId::FromInt(12), memgraph::storage::PropertyValue(vec)},
       {memgraph::storage::PropertyId::FromInt(6), memgraph::storage::PropertyValue(map)},
-      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)}};
+      {memgraph::storage::PropertyId::FromInt(7), memgraph::storage::PropertyValue(temporal)},
+      {memgraph::storage::PropertyId::FromInt(5), memgraph::storage::PropertyValue(zoned_temporal)}};
 
   const std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data_in_map{data.begin(), data.end()};
 
