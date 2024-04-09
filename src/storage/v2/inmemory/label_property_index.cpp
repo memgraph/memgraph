@@ -236,7 +236,7 @@ const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 const PropertyValue kSmallestZonedTemporalData =
     PropertyValue(ZonedTemporalData{static_cast<ZonedTemporalType>(0), std::numeric_limits<int64_t>::min(),
-                                    utils::Timezone(std::chrono::minutes{std::numeric_limits<int64_t>::min()})});
+                                    utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
