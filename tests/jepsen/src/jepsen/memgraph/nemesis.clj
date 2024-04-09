@@ -1,6 +1,7 @@
 (ns jepsen.memgraph.nemesis
   "Memgraph nemesis"
   (:require [jepsen [nemesis :as nemesis]
+             [util :as util]
              [generator :as gen]]
             [jepsen.memgraph.support :as s]))
 
@@ -8,7 +9,7 @@
   "Responds to :start by killing a random node, and to :stop
   by resuming them."
   []
-  (nemesis/node-start-stopper identity
+  (nemesis/node-start-stopper util/random-nonempty-subset
                               s/stop-node!
                               s/start-node!))
 
