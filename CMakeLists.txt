@@ -68,7 +68,7 @@ set(MEMGRAPH_OVERRIDE_VERSION "2.16.0")
 
 # Custom suffix that this version should have. The suffix can be any arbitrary
 # string. Primarily used when building a version for a specific customer.
-set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "rc3")
+set(MEMGRAPH_OVERRIDE_VERSION_SUFFIX "rc4")
 
 # Variables used to generate the versions.
 if (MG_ENTERPRISE)
