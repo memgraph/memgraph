@@ -469,6 +469,26 @@ Feature: Match
             | P12DT3M  |
             | P13DT12H |
 
+    Scenario: Test match with order by and datetime
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: DATETIME('2024-01-22T08:11:31[Etc/UTC]')}),
+                  ({a: DATETIME('2024-01-22T08:12:31[Etc/UTC]')}),
+                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Zurich]')}),
+                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Warsaw]')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a                                 |
+            | 2024-01-22T08:11:31.000000000+00:00 |
+            | 2024-01-22T08:12:31.000000000+00:00 |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+
     Scenario: Test distinct
         Given an empty graph
         And having executed:
