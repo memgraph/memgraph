@@ -97,8 +97,8 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
                                                memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(ztt_vec))),
-            "[ZONEDDATETIME(\"1970-01-01T00:00:00.000003+00:00[Etc/UTC]\"), "
-            "ZONEDDATETIME(\"1970-01-01T00:00:00.000003-01:00\")]");
+            "[DATETIME(\"1970-01-01T00:00:00.000003+00:00[Etc/UTC]\"), "
+            "DATETIME(\"1970-01-01T00:00:00.000003-01:00\")]");
 
   // map {literalEntry: 10, variableSelector: a, .map, .*}
   auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{

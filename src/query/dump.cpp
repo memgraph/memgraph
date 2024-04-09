@@ -116,7 +116,7 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
 
 void DumpZonedDateTime(std::ostream &os, const storage::ZonedTemporalData &value) {
   utils::ZonedDateTime zdt(value.microseconds, value.timezone);
-  os << "ZONEDDATETIME(\"" << zdt << "\")";
+  os << "DATETIME(\"" << zdt << "\")";
 }
 
 void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &value) {

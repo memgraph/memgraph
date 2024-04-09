@@ -69,7 +69,7 @@ struct ZonedTemporalData {
   friend std::ostream &operator<<(std::ostream &os, const ZonedTemporalData &t) {
     switch (t.type) {
       case ZonedTemporalType::ZonedDateTime:
-        return os << "ZONEDDATETIME(\"" << utils::ZonedDateTime(t.microseconds, t.timezone) << "\")";
+        return os << "DATETIME(\"" << utils::ZonedDateTime(t.microseconds, t.timezone) << "\")";
     }
   }
   ZonedTemporalType type;
