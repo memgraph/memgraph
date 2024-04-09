@@ -28,6 +28,7 @@
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
+   :--storage-wal-file-flush-every-n-tx 1
    :--telemetry-enabled false
    :--storage-properties-on-edges))
 

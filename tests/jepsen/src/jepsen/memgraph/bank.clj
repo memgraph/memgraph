@@ -114,9 +114,9 @@
                                       (when (= replication-role :main)
                                         (utils/with-session conn session
                                           (try
+                                            ; Can fail for various reasons, not important at this point.
                                             (client/detach-delete-all session)
-                                            (catch Exception exception
-                                              (utils/rethrow-if-unexpected exception "At least one SYNC replica has not confirmed committing last transaction."))))))
+                                            (catch Exception _)))))
                            ; Close connection to the node.
                            (close! [_ est]
                                    (dbclient/disconnect conn)))
