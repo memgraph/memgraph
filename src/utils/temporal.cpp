@@ -604,6 +604,9 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
     throw temporal::InvalidArgumentException("Invalid hour value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
   }
+  if (maybe_hours.value() > 18) {
+    throw temporal::InvalidArgumentException("Zone offset not in valid range: -18:00 to +18:00");
+  }
   timezone_offset_string.remove_prefix(2);
 
   if (timezone_offset_string.empty()) {
@@ -628,6 +631,10 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   if (!maybe_minutes) {
     throw temporal::InvalidArgumentException("Invalid minute value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
+  }
+  if (maybe_minutes.value() > 59) {
+    throw temporal::InvalidArgumentException(
+        "Zone offset minutes not in valid range: value is not in the range -59 to 59");
   }
   timezone_offset_string.remove_prefix(2);
 
