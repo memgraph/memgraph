@@ -10,7 +10,9 @@
             [jepsen.memgraph.utils :as utils]
             [jepsen.memgraph.client :as client]))
 
-(def node-num 100000)
+; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
+; enough time to apply all deltas.
+(def node-num 5000)
 
 (dbclient/defquery get-node-count
   "MATCH (n:Node) RETURN count(n) as c;")
@@ -51,8 +53,7 @@
                                                                                    (assoc op :type :ok :value "Nodes created."))
                                                                                   (catch Exception e
                                                                                     (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                                                                                      ((info "Exception: " e)
-                                                                                       (assoc op :type :ok :value (str e))); Exception due to down sync replica is accepted/expected
+                                                                                      (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
                                                                                       (assoc op :type :fail :value (str e))))))
 
                                                                               (assoc op :type :fail :info "Not main node"))))
@@ -101,6 +102,7 @@
             empty-nodes (let [all-nodes (->> ok-reads
                                              (map #(-> % :value :node))
                                              (reduce conj #{}))]
+                          ; This code filters all-nodes to include only those nodes for which all associated ok-reads have a :count of 0.
                           (->> all-nodes
                                (filter (fn [node]
                                          (every?
