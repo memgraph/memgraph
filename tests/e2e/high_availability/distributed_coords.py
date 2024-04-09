@@ -2646,14 +2646,4 @@ def test_request_leadership_and_force_reset_works_after_failed_registration_and_
 
 
 if __name__ == "__main__":
-    sys.exit(
-        pytest.main(
-            [
-                __file__,
-                "-k",
-                "test_request_leadership_and_force_reset_works_after_failed_registration_and_2_coordinators_down",
-                "-vv",
-            ]
-        )
-    )
     sys.exit(pytest.main([__file__, "-rA"]))
