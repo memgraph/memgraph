@@ -298,7 +298,6 @@ class Timezone {
   std::variant<std::chrono::minutes, const std::chrono::time_zone *> offset_;
 
  public:
-  explicit Timezone(const uint64_t offset) : offset_{std::chrono::minutes{offset}} {}
   explicit Timezone(const std::chrono::minutes offset) : offset_{offset} {}
   explicit Timezone(const std::chrono::time_zone *timezone) : offset_{timezone} {}
   explicit Timezone(std::string_view timezone_name) : offset_{std::chrono::locate_zone(timezone_name)} {}
@@ -412,6 +411,17 @@ struct ZonedDateTimeParameters {
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 
 struct ZonedDateTime {
+ private:
+  std::chrono::year_month_day YMD() const {
+    return std::chrono::year_month_day{floor<std::chrono::days>(zoned_time.get_local_time())};
+  }
+
+  std::chrono::hh_mm_ss<std::chrono::microseconds> HMS() const {
+    const auto &tp = zoned_time.get_local_time();
+    return std::chrono::hh_mm_ss{floor<std::chrono::microseconds>(tp - floor<std::chrono::days>(tp))};
+  }
+
+ public:
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
   explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
   explicit ZonedDateTime(const int64_t microseconds, const Timezone timezone);
@@ -451,6 +461,20 @@ struct ZonedDateTime {
   }
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
+
+  int64_t Year() const { return int(YMD().year()); }
+  int64_t Month() const { return static_cast<unsigned>(YMD().month()); }
+  int64_t Day() const { return static_cast<unsigned>(YMD().day()); }
+  int64_t Hour() const { return HMS().hours().count(); }
+  int64_t Minute() const { return HMS().minutes().count(); }
+  int64_t Second() const { return HMS().seconds().count(); }
+  int64_t Millisecond() const {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(HMS().subseconds()).count();
+  }
+  int64_t Microsecond() const {
+    const auto subseconds = HMS().subseconds();
+    return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
+  }
 };
 
 struct ZonedDateTimeHash {
