@@ -25,6 +25,7 @@
    :--storage-recover-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
+   :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges))
