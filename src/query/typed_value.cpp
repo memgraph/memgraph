@@ -341,7 +341,7 @@ TypedValue::operator storage::PropertyValue() const {
           storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
     case Type::ZonedDateTime:
       return storage::PropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
-                                                               zoned_date_time_v.MicrosecondsSinceEpoch(),
+                                                               zoned_date_time_v.SysTimeSinceEpoch(),
                                                                zoned_date_time_v.GetTimezone()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});

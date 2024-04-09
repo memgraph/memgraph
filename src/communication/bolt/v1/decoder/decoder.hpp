@@ -666,11 +666,11 @@ class Decoder {
       return false;
     }
 
-    // The highest precision Cypher supports for timezone offsets is minute
+    // The highest precision Cypher supports for timezone offsets is minutes
     const auto tz_offset =
         std::chrono::duration_cast<std::chrono::minutes>(std::chrono::seconds(tz_offset_secs.ValueInt()));
 
-    *data = utils::ZonedDateTime(time_since_epoch, utils::Timezone(tz_offset));
+    *data = utils::ZonedDateTime(utils::AsSysTime(time_since_epoch), utils::Timezone(tz_offset));
 
     return true;
   }
@@ -686,7 +686,7 @@ class Decoder {
       return false;
     }
 
-    *data = utils::ZonedDateTime(time_since_epoch, utils::Timezone(tz_id.ValueString()));
+    *data = utils::ZonedDateTime(utils::AsSysTime(time_since_epoch), utils::Timezone(tz_id.ValueString()));
     return true;
   }
 };

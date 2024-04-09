@@ -498,7 +498,8 @@ TYPED_TEST(DumpTest, PropertyValue) {
         memgraph::storage::TemporalType::Duration, memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
     auto zdt = memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
-        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch(),
+        memgraph::utils::AsSysTime(
+            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles")));
     auto list_value = memgraph::storage::PropertyValue({map_value, null_value, double_value, dt, lt, ldt, dur, zdt});
     CreateVertex(dba.get(), {}, {{"p1", list_value}, {"p2", str_value}}, false);
@@ -517,7 +518,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
                   "`prop``2```: true}, Null, -1.2, DATE(\"1994-12-07\"), "
                   "LOCALTIME(\"14:10:44.099099\"), LOCALDATETIME(\"1994-12-07T14:10:44.099099\"), "
-                  "DURATION(\"P3DT4H5M6.010011S\"), DATETIME(\"1994-12-07T14:10:44.099099-08:00[America/Los_Angeles]\")"
+                  "DURATION(\"P3DT4H5M6.010011S\"), DATETIME(\"1994-12-07T06:10:44.099099-08:00[America/Los_Angeles]\")"
                   "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
@@ -796,7 +797,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                      {{"name", memgraph::storage::PropertyValue("Buha")}, {"id", memgraph::storage::PropertyValue(1)}});
     auto zdt = memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
-        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch(),
+        memgraph::utils::AsSysTime(
+            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles"));
 
     CreateEdge(dba.get(), &u, &v, "Knows", {});

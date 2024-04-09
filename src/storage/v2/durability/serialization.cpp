@@ -132,7 +132,7 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
-      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.microseconds));
+      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         WriteString(zoned_temporal_data.timezone.TimezoneName());
       } else {
@@ -283,13 +283,13 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
     case Marker::TYPE_STRING: {
       auto timezone_name = decoder.ReadString();
       if (!timezone_name) return std::nullopt;
-      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds),
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::AsSysTime(*microseconds),
                                utils::Timezone(*timezone_name)};
     }
     case Marker::TYPE_INT: {
       auto offset_minutes = decoder.ReadUint();
       if (!offset_minutes) return std::nullopt;
-      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds),
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::AsSysTime(*microseconds),
                                utils::Timezone(std::chrono::minutes{*offset_minutes})};
     }
     default:

@@ -1038,7 +1038,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
   }
   if (arg.IsZonedDateTime()) {
-    return TypedValue(arg.ValueZonedDateTime().MicrosecondsSinceEpoch(), ctx.memory);
+    return TypedValue(arg.ValueZonedDateTime().SysMicrosecondsSinceEpoch(), ctx.memory);
   }
   return TypedValue(ctx.timestamp, ctx.memory);
 }
@@ -1335,7 +1335,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Optional<Or<String, Map>>>("datetime", args, nargs);
 
   if (nargs == 0) {
-    return TypedValue(utils::ZonedDateTime(ctx.timestamp, utils::DefaultTimezone()), ctx.memory);
+    return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
   }
 
   if (args[0].IsString()) {

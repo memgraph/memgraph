@@ -69,9 +69,10 @@ TEST(PropertyValueSerializationTest, ZonedTemporalData) {
         memgraph::storage::PropertyValue{memgraph::storage::ZonedTemporalData{type, microseconds, timezone}});
   };
 
-  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
+  const auto sample_duration = memgraph::utils::AsSysTime(20);
+  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
                                       memgraph::utils::Timezone("Europe/Zagreb"));
-  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, 20,
+  test_zoned_temporal_data_conversion(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
                                       memgraph::utils::Timezone(std::chrono::minutes{60}));
 }
 

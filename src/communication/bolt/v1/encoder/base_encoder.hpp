@@ -247,13 +247,13 @@ class BaseEncoder {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     if (zoned_date_time.GetTimezone().InTzDatabase()) {
       WriteRAW(utils::UnderlyingCast(Signature::DateTimeZoneId));
-      WriteInt(zoned_date_time.SecondsSinceEpoch());
-      WriteInt(zoned_date_time.SubSecondsAsNanoseconds());
+      WriteInt(zoned_date_time.SysSecondsSinceEpoch());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds());
       WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
     } else {
       WriteRAW(utils::UnderlyingCast(Signature::DateTime));
-      WriteInt(zoned_date_time.SecondsSinceEpoch());
-      WriteInt(zoned_date_time.SubSecondsAsNanoseconds());
+      WriteInt(zoned_date_time.SysSecondsSinceEpoch());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds());
       WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());
     }
   }

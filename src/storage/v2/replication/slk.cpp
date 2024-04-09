@@ -104,7 +104,7 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       slk::Save(storage::PropertyValue::Type::ZonedTemporalData, builder);
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       slk::Save(zoned_temporal_data.type, builder);
-      slk::Save(zoned_temporal_data.microseconds, builder);
+      slk::Save(zoned_temporal_data.IntMicroseconds(), builder);
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         slk::Save(storage::PropertyValue::Type::String, builder);
         slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
@@ -189,15 +189,15 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
         case storage::PropertyValue::Type::String: {
           std::string timezone_name;
           slk::Load(&timezone_name, reader);
-          *value = storage::PropertyValue(
-              storage::ZonedTemporalData{temporal_type, microseconds, utils::Timezone(timezone_name)});
+          *value = storage::PropertyValue(storage::ZonedTemporalData{temporal_type, utils::AsSysTime(microseconds),
+                                                                     utils::Timezone(timezone_name)});
           return;
         }
         case storage::PropertyValue::Type::Int: {
           int64_t offset_minutes{0};
           slk::Load(&offset_minutes, reader);
           *value = storage::PropertyValue(storage::ZonedTemporalData{
-              temporal_type, microseconds, utils::Timezone(std::chrono::minutes{offset_minutes})});
+              temporal_type, utils::AsSysTime(microseconds), utils::Timezone(std::chrono::minutes{offset_minutes})});
           return;
         }
         default:

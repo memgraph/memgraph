@@ -63,7 +63,8 @@ constexpr std::string_view ZonedTemporalTypeToString(const ZonedTemporalType typ
 }
 
 struct ZonedTemporalData {
-  explicit ZonedTemporalData(ZonedTemporalType type, int64_t microseconds, utils::Timezone timezone);
+  explicit ZonedTemporalData(ZonedTemporalType type, std::chrono::sys_time<std::chrono::microseconds> microseconds,
+                             utils::Timezone timezone);
 
   auto operator<=>(const ZonedTemporalData &) const = default;
   friend std::ostream &operator<<(std::ostream &os, const ZonedTemporalData &t) {
@@ -72,8 +73,11 @@ struct ZonedTemporalData {
         return os << "DATETIME(\"" << utils::ZonedDateTime(t.microseconds, t.timezone) << "\")";
     }
   }
+
+  int64_t IntMicroseconds() const;
+
   ZonedTemporalType type;
-  int64_t microseconds;
+  std::chrono::sys_time<std::chrono::microseconds> microseconds;
   utils::Timezone timezone;
 };
 

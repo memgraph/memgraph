@@ -25,6 +25,7 @@
 using memgraph::io::network::Endpoint;
 
 TEST(SlkAdvanced, PropertyValueList) {
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> original{
       memgraph::storage::PropertyValue("hello world!"),
       memgraph::storage::PropertyValue(5),
@@ -33,7 +34,7 @@ TEST(SlkAdvanced, PropertyValueList) {
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
                                                memgraph::utils::Timezone(std::chrono::minutes{60})))};
   ASSERT_EQ(original[0].type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(original[1].type(), memgraph::storage::PropertyValue::Type::Int);
@@ -55,6 +56,7 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
   std::map<std::string, memgraph::storage::PropertyValue> original{
       {"hello", memgraph::storage::PropertyValue("world")},
       {"number", memgraph::storage::PropertyValue(5)},
@@ -63,9 +65,9 @@ TEST(SlkAdvanced, PropertyValueMap) {
       {"nothing", memgraph::storage::PropertyValue()},
       {"date",
        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal",
-       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-           memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Europe/Zagreb")))}};
+      {"zoned_temporal", memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+                             memgraph::utils::Timezone("Europe/Zagreb")))}};
   ASSERT_EQ(original["hello"].type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(original["number"].type(), memgraph::storage::PropertyValue::Type::Int);
   ASSERT_EQ(original["real"].type(), memgraph::storage::PropertyValue::Type::Double);
@@ -86,6 +88,7 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> vec_v{
       memgraph::storage::PropertyValue("hello world!"),
       memgraph::storage::PropertyValue(5),
@@ -93,8 +96,9 @@ TEST(SlkAdvanced, PropertyValueComplex) {
       memgraph::storage::PropertyValue(true),
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
-      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Europe/Zagreb")))};
+      memgraph::storage::PropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+                                               memgraph::utils::Timezone("Europe/Zagreb")))};
   ASSERT_EQ(vec_v[0].type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(vec_v[1].type(), memgraph::storage::PropertyValue::Type::Int);
   ASSERT_EQ(vec_v[2].type(), memgraph::storage::PropertyValue::Type::Double);
@@ -111,9 +115,9 @@ TEST(SlkAdvanced, PropertyValueComplex) {
       {"nothing", memgraph::storage::PropertyValue()},
       {"date",
        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
-      {"zoned_temporal",
-       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-           memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Europe/Zagreb")))}};
+      {"zoned_temporal", memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+                             memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration,
+                             memgraph::utils::Timezone("Europe/Zagreb")))}};
   ASSERT_EQ(map_v["hello"].type(), memgraph::storage::PropertyValue::Type::String);
   ASSERT_EQ(map_v["number"].type(), memgraph::storage::PropertyValue::Type::Int);
   ASSERT_EQ(map_v["real"].type(), memgraph::storage::PropertyValue::Type::Double);

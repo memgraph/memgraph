@@ -286,7 +286,7 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::ZonedDateTime: {
       const auto &temp_value = value.ValueZonedDateTime();
       return storage::PropertyValue(storage::ZonedTemporalData(
-          storage::ZonedTemporalType::ZonedDateTime, temp_value.MicrosecondsSinceEpoch(), temp_value.GetTimezone()));
+          storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
     }
   }
 }

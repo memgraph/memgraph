@@ -345,10 +345,12 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
 
   // Zoned temporal types
   // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
   const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(1, tz)) + TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::ZonedDateTime(1, tz)));
-  EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(1, tz)) + TypedValue(memgraph::utils::ZonedDateTime(1, tz)),
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) +
+                   TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
                TypedValueException);
 }
 
@@ -383,11 +385,12 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
 
   // Zoned temporal types
   // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
   const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(1, tz)) - TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(1, tz)) -
-                  TypedValue(memgraph::utils::ZonedDateTime(1, tz)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(1, tz)),
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) -
+                  TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
                TypedValueException);
 }
 

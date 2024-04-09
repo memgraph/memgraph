@@ -511,6 +511,7 @@ TEST(PropertyValue, CopyConstructor) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -521,9 +522,9 @@ TEST(PropertyValue, CopyConstructor) {
       memgraph::storage::PropertyValue(map),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
       memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur,
                                                memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
 
@@ -567,6 +568,7 @@ TEST(PropertyValue, MoveConstructor) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -577,9 +579,9 @@ TEST(PropertyValue, MoveConstructor) {
       memgraph::storage::PropertyValue(map),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
       memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur,
                                                memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
 
@@ -624,6 +626,7 @@ TEST(PropertyValue, CopyAssignment) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -634,9 +637,9 @@ TEST(PropertyValue, CopyAssignment) {
       memgraph::storage::PropertyValue(map),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
       memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur,
                                                memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
 
@@ -681,6 +684,7 @@ TEST(PropertyValue, MoveAssignment) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123)};
   std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(),
       memgraph::storage::PropertyValue(true),
@@ -691,9 +695,9 @@ TEST(PropertyValue, MoveAssignment) {
       memgraph::storage::PropertyValue(map),
       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 23, memgraph::utils::Timezone("Etc/UTC"))),
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur, memgraph::utils::Timezone("Etc/UTC"))),
       memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 23,
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, zdt_dur,
                                                memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
 

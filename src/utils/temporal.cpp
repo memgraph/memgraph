@@ -741,6 +741,10 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   };
 }
 
+std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds) {
+  return std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
+}
+
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
   std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
@@ -750,21 +754,26 @@ ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_para
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}
 
-ZonedDateTime::ZonedDateTime(const int64_t microseconds, const Timezone timezone) {
-  std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(microseconds)};
-  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+ZonedDateTime::ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone) {
+  zoned_time = std::chrono::zoned_time(timezone, duration);
 }
 
 ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
     : zoned_time(zoned_time) {}
 
-int64_t ZonedDateTime::MicrosecondsSinceEpoch() const { return zoned_time.get_sys_time().time_since_epoch().count(); }
+std::chrono::sys_time<std::chrono::microseconds> ZonedDateTime::SysTimeSinceEpoch() const {
+  return zoned_time.get_sys_time();
+}
 
-int64_t ZonedDateTime::SecondsSinceEpoch() const {
+int64_t ZonedDateTime::SysMicrosecondsSinceEpoch() const {
+  return zoned_time.get_sys_time().time_since_epoch().count();
+}
+
+int64_t ZonedDateTime::SysSecondsSinceEpoch() const {
   return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch()).count();
 }
 
-int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
+int64_t ZonedDateTime::SysSubSecondsAsNanoseconds() const {
   const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
   const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
   return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch - full_seconds).count();
@@ -779,12 +788,12 @@ std::string ZonedDateTime::ToString() const {
 }
 
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
-  return MicrosecondsSinceEpoch() == other.MicrosecondsSinceEpoch() && OffsetInMinutes() == other.OffsetInMinutes() &&
-         TimezoneName() == other.TimezoneName();
+  return SysMicrosecondsSinceEpoch() == other.SysMicrosecondsSinceEpoch() &&
+         OffsetInMinutes() == other.OffsetInMinutes() && TimezoneName() == other.TimezoneName();
 }
 
 std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) const {
-  const auto duration_ordering = MicrosecondsSinceEpoch() <=> other.MicrosecondsSinceEpoch();
+  const auto duration_ordering = SysMicrosecondsSinceEpoch() <=> other.SysMicrosecondsSinceEpoch();
   if (duration_ordering != 0) {
     return duration_ordering;
   }
@@ -800,7 +809,7 @@ std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) cons
 
 size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
   utils::HashCombine<uint64_t, uint64_t> hasher;
-  size_t result = hasher(0, zoned_date_time.MicrosecondsSinceEpoch());
+  size_t result = hasher(0, zoned_date_time.SysMicrosecondsSinceEpoch());
   const auto offset = zoned_date_time.GetTimezone().GetOffset();
   if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {
     result = hasher(result, reinterpret_cast<uintptr_t>(std::get<const std::chrono::time_zone *>(offset)));

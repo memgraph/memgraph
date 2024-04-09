@@ -547,18 +547,18 @@ TEST_F(BoltEncoder, ZonedDateTime) {
     std::vector<Value> vals;
 
     const auto date_params = memgraph::utils::DateParameters{1970, 1, 1};
-    const auto lt_params = memgraph::utils::LocalTimeParameters{0, 0, 30, 1, 0};
+    const auto lt_params = memgraph::utils::LocalTimeParameters{0, 0, 30, 1, 3};
     const auto zdt_params = memgraph::utils::ZonedDateTimeParameters(date_params, lt_params, timezone);
 
     const auto value = Value(memgraph::utils::ZonedDateTime(zdt_params));
     const auto &zoned_date_time = value.ValueZonedDateTime();
     vals.push_back(value);
     ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
-    const auto secs = zoned_date_time.SecondsSinceEpoch();
+    const auto secs = zoned_date_time.SysSecondsSinceEpoch();
     ASSERT_EQ(secs, 30);
     const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
-    const auto nanos = zoned_date_time.SubSecondsAsNanoseconds();
-    ASSERT_EQ(nanos, 1000000);
+    const auto nanos = zoned_date_time.SysSubSecondsAsNanoseconds();
+    ASSERT_EQ(nanos, 1003000);
     const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
     // 0x91 denotes the size of vals (it’s 0x91 because it's ANDed – see WriteTypeSize in base_encoder.hpp).
     // The rest of the expected results follow logically from LocalTime and Date test cases
@@ -572,7 +572,7 @@ TEST_F(BoltEncoder, ZonedDateTime) {
         timezone.InTzDatabase() ? Cast(Sig::DateTimeZoneId) : Cast(Sig::DateTime),
         // seconds (0)
         sec_bytes[0],
-        // nanoseconds (1000000)
+        // nanoseconds (1003000)
         Cast(Marker::Int32),
         nano_bytes[3],
         nano_bytes[2],

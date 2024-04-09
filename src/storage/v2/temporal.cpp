@@ -14,7 +14,11 @@
 namespace memgraph::storage {
 TemporalData::TemporalData(TemporalType type, int64_t microseconds) : type{type}, microseconds{microseconds} {}
 
-ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type, int64_t microseconds, utils::Timezone timezone)
+ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type,
+                                     std::chrono::sys_time<std::chrono::microseconds> microseconds,
+                                     utils::Timezone timezone)
     : type{type}, microseconds{microseconds}, timezone{timezone} {}
+
+int64_t ZonedTemporalData::IntMicroseconds() const { return microseconds.time_since_epoch().count(); }
 
 }  // namespace memgraph::storage

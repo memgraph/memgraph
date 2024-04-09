@@ -22,7 +22,8 @@
 using testing::UnorderedElementsAre;
 
 memgraph::storage::ZonedTemporalData GetSampleZonedTemporal() {
-  const auto common_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count();
+  const auto common_duration =
+      memgraph::utils::AsSysTime(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count());
   const auto named_timezone = memgraph::utils::Timezone("America/Los_Angeles");
   return memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime, common_duration,
                                               named_timezone};
@@ -678,11 +679,11 @@ TEST(PropertyStore, IsPropertyEqualZonedTemporalData) {
     PropertyStore props;
     const auto common_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{10}).count();
 
-    const auto zoned_temporal =
-        PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, common_duration, timezone});
+    const auto zoned_temporal = PropertyValue(
+        ZonedTemporalData{ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(common_duration), timezone});
     const auto unequal_type = PropertyValue(TemporalData{TemporalType::Duration, 23});
-    const auto unequal_value =
-        PropertyValue(ZonedTemporalData{ZonedTemporalType::ZonedDateTime, common_duration + 1, timezone});
+    const auto unequal_value = PropertyValue(
+        ZonedTemporalData{ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(common_duration + 1), timezone});
 
     auto prop = PropertyId::FromInt(42);
 

@@ -508,7 +508,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
       if (!type_size) return std::nullopt;
 
-      auto microseconds_size = writer->WriteInt(zoned_temporal_data.microseconds);
+      auto microseconds_size = writer->WriteInt(zoned_temporal_data.IntMicroseconds());
       if (!microseconds_size) return std::nullopt;
 
       if (zoned_temporal_data.timezone.InTzDatabase()) {
@@ -597,14 +597,14 @@ std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
     std::string tz_str_v(*tz_str_length, '\0');
     if (!reader.ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
 
-    return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), *microseconds_value,
+    return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
                              utils::Timezone(tz_str_v)};
   }
 
   auto offset_value = reader.ReadTimezoneOffset();
   if (!offset_value) return std::nullopt;
 
-  return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), *microseconds_value,
+  return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
                            utils::Timezone(std::chrono::minutes{*offset_value})};
 }
 

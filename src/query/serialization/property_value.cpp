@@ -48,7 +48,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       const auto zoned_temporal_data = property_value.ValueZonedTemporalData();
       auto data = nlohmann::json::object();
       auto properties = nlohmann::json::object({{"type", static_cast<uint64_t>(zoned_temporal_data.type)},
-                                                {"microseconds", zoned_temporal_data.microseconds}});
+                                                {"microseconds", zoned_temporal_data.IntMicroseconds()}});
       if (zoned_temporal_data.timezone.InTzDatabase()) {
         data.emplace("type", static_cast<uint64_t>(ObjectType::ZONED_TEMPORAL_DATA));
         properties.emplace("timezone", zoned_temporal_data.timezone.TimezoneName());
@@ -116,13 +116,15 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
       return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
                                                           data["value"]["microseconds"].get<int64_t>()});
     case ObjectType::ZONED_TEMPORAL_DATA:
-      return storage::PropertyValue(storage::ZonedTemporalData{
-          data["value"]["type"].get<storage::ZonedTemporalType>(), data["value"]["microseconds"].get<int64_t>(),
-          utils::Timezone(data["value"]["timezone"].get<std::string>())});
+      return storage::PropertyValue(
+          storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
+                                     utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
+                                     utils::Timezone(data["value"]["timezone"].get<std::string>())});
     case ObjectType::OFFSET_ZONED_TEMPORAL_DATA:
-      return storage::PropertyValue(storage::ZonedTemporalData{
-          data["value"]["type"].get<storage::ZonedTemporalType>(), data["value"]["microseconds"].get<int64_t>(),
-          utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
+      return storage::PropertyValue(
+          storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
+                                     utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
+                                     utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
   }
 }
 

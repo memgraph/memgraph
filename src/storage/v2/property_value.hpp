@@ -313,7 +313,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
     case PropertyValue::Type::ZonedTemporalData:
       auto temp_value = value.ValueZonedTemporalData();
       return os << fmt::format("type: {}, microseconds: {}, timezone: {}", ZonedTemporalTypeToString(temp_value.type),
-                               temp_value.microseconds, temp_value.timezone.ToString());
+                               temp_value.IntMicroseconds(), temp_value.timezone.ToString());
   }
 }
 

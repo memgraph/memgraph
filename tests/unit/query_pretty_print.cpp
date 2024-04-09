@@ -89,12 +89,15 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
             "[DURATION(\"P0DT0H0M0.000001S\"), DURATION(\"P0DT0H0M-0.000002S\"), LOCALTIME(\"00:00:00.000002\"), "
             "LOCALDATETIME(\"1970-01-01T00:00:00.000003\"), DATE(\"1970-01-01\")]");
 
+  const auto sample_duration = memgraph::utils::AsSysTime(3);
+  const auto sample_duration_plus_1h = std::chrono::sys_time<std::chrono::microseconds>(
+      std::chrono::microseconds{3} + std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{1}));
   std::vector<memgraph::storage::PropertyValue> ztt_vec{
       memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
-          memgraph::storage::ZonedTemporalType::ZonedDateTime, 3, memgraph::utils::Timezone("Etc/UTC"))),
-      memgraph::storage::PropertyValue(
-          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime, 3,
-                                               memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration, memgraph::utils::Timezone("Etc/UTC"))),
+      memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+          memgraph::storage::ZonedTemporalType::ZonedDateTime, sample_duration_plus_1h,
+          memgraph::utils::Timezone(std::chrono::minutes{-60}))),
   };
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(ztt_vec))),
             "[DATETIME(\"1970-01-01T00:00:00.000003+00:00[Etc/UTC]\"), "

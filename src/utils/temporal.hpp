@@ -412,6 +412,8 @@ struct ZonedDateTimeParameters {
 
 ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 
+std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds);
+
 struct ZonedDateTime {
  private:
   std::chrono::year_month_day YMD() const {
@@ -426,12 +428,14 @@ struct ZonedDateTime {
  public:
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
   explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
-  explicit ZonedDateTime(const int64_t microseconds, const Timezone timezone);
+  explicit ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
-  int64_t MicrosecondsSinceEpoch() const;
-  int64_t SecondsSinceEpoch() const;
-  int64_t SubSecondsAsNanoseconds() const;
+  std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
+  int64_t SysMicrosecondsSinceEpoch() const;
+  int64_t SysSecondsSinceEpoch() const;
+  int64_t SysSubSecondsAsNanoseconds() const;
+
   std::string ToString() const;
 
   bool operator==(const ZonedDateTime &other) const;
@@ -459,7 +463,7 @@ struct ZonedDateTime {
   friend ZonedDateTime operator-(const ZonedDateTime &zdt, const Duration &dur) { return zdt + (-dur); }
 
   friend Duration operator-(const ZonedDateTime &lhs, const ZonedDateTime &rhs) {
-    return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
+    return Duration(lhs.SysMicrosecondsSinceEpoch()) - Duration(rhs.SysMicrosecondsSinceEpoch());
   }
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
