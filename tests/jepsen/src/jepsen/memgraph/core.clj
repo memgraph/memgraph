@@ -167,9 +167,7 @@
                                (map resolve-all-node-hostnames (validate-node-configurations (:node-configs opts)))))
                       (throw (Exception. "Node configs undefined!")))]
     (if (= workload :high_availability)
-      ;; Use node-config directly for high availability workload
       (memgraph-ha-test (assoc opts :node-config node-config :workload workload))
-      ;; Use node-config for other workloads
       (memgraph-test (assoc opts :node-config node-config :workload workload)))))
 
 (defn all-tests

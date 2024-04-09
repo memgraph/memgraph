@@ -20,7 +20,7 @@
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "INFO"
+   :--log-level "TRACE"
    :--also-log-to-stderr
    :--storage-recover-on-startup
    :--storage-wal-enabled
@@ -28,6 +28,7 @@
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
+   :--telemetry-enabled false
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
@@ -48,6 +49,7 @@
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
+   :--telemetry-enabled false
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)))
 
@@ -68,6 +70,7 @@
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
+   :--telemetry-enabled false
    :--management-port (get node-config :management-port)))
 
 (defn stop-node!
