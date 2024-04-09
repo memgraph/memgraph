@@ -1314,6 +1314,59 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
+utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_parameters, const FunctionContext &ctx) {
+  utils::pmr::string timezone("timezone", ctx.memory);
+  if (input_parameters.contains(timezone)) {
+    const auto value = input_parameters.at(timezone);
+    if (value.IsString()) {
+      return utils::Timezone(value.ValueString());
+    } else if (value.IsInt()) {
+      return utils::Timezone(std::chrono::minutes{value.ValueInt()});
+    } else {
+      throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
+    }
+  } else {
+    return utils::DefaultTimezone();
+  }
+}
+
+// Refers to ZonedDateTime; called DateTime for compatibility with Cypher
+TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Optional<Or<String, Map>>>("datetime", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(utils::ZonedDateTime(ctx.timestamp, utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsString()) {
+    const auto &zoned_date_time_parameters = ParseZonedDateTimeParameters(args[0].ValueString());
+    return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
+  }
+
+  utils::DateParameters date_parameters{};
+  utils::LocalTimeParameters time_parameters{};
+  using namespace std::literals;
+  std::unordered_map date_parameter_mappings{
+      std::pair{"year"sv, &date_parameters.year},
+      std::pair{"month"sv, &date_parameters.month},
+      std::pair{"day"sv, &date_parameters.day},
+      std::pair{"hour"sv, &time_parameters.hour},
+      std::pair{"minute"sv, &time_parameters.minute},
+      std::pair{"second"sv, &time_parameters.second},
+      std::pair{"millisecond"sv, &time_parameters.millisecond},
+      std::pair{"microsecond"sv, &time_parameters.microsecond},
+  };
+
+  auto fields = args[0].ValueMap();
+  const auto timezone = GetTimezone(fields, ctx);
+  utils::pmr::string timezone_key("timezone", ctx.memory);
+  fields.erase(timezone_key);
+
+  MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  auto zoned_date_time_parameters = utils::ZonedDateTimeParameters{date_parameters, time_parameters, timezone};
+  return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
+}
+
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
@@ -1446,7 +1499,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "DATE") return Date;
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
-  // if (function_name == "DATETIME") return DateTime;
+  if (function_name == "DATETIME") return DateTime;
   if (function_name == "DURATION") return Duration;
 
   const auto &maybe_found =

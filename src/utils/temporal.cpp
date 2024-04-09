@@ -90,7 +90,7 @@ LocalDateTime CurrentLocalDateTime() {
   return LocalDateTime(ts.time_since_epoch().count());
 }
 
-Timezone DefaultTimezone() { return Timezone("Z"); }
+Timezone DefaultTimezone() { return Timezone("Etc/UTC"); }
 
 ZonedDateTime CurrentZonedDateTime() {
   namespace chrono = std::chrono;
