@@ -459,7 +459,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     -> SetInstanceToMainCoordinatorStatus {
   if (!raft_state_.IsLeader()) {
     if (!HasBecomeLeader()) {
-      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+      return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
     }
     MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
               "Instance needs to become leader and not have lock opened.");
@@ -560,6 +560,7 @@ auto CoordinatorInstance::HasBecomeLeader() -> bool {
   auto waiting_period = 1s;
   auto maybe_stop = utils::ResettableCounter<5>();
   do {
+    spdlog::trace("Waiting for coordinator to become leader.");
     if (!become_leader_.wait_for(lock, waiting_period, [this]() { return leader_set_up_.load(); })) {
       waiting_period *= expontential_backoff;
     }
@@ -660,7 +661,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   if (!raft_state_.IsLeader()) {
     if (!HasBecomeLeader()) {
-      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+      return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
     }
     MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
               "Instance needs to become leader and not have lock opened.");
