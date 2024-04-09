@@ -17,6 +17,7 @@
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
+#include "utils/counter.hpp"
 #include "utils/functional.hpp"
 #include "utils/resource_lock.hpp"
 
@@ -79,7 +80,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                         &CoordinatorInstance::DemoteFailCallback);
                 });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
-            semaphore_leader.release();
+            auto lock = std::unique_lock{leader_mutex_};
+            leader_set_up_.store(true);
+            become_leader_.notify_all();
           },
           [this]() {
             thread_pool_.AddTask([this]() {
@@ -355,7 +358,9 @@ void CoordinatorInstance::ForceResetCluster() {
   std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
 
   MG_ASSERT(!raft_state_.IsLockOpened(), "After force reset we need to be in healthy state.");
-  semaphore_leader.release();
+  auto leader_lock = std::unique_lock{leader_mutex_};
+  leader_set_up_.store(true);
+  become_leader_.notify_all();
 }
 
 auto CoordinatorInstance::TryFailover() -> void {
@@ -452,6 +457,14 @@ auto CoordinatorInstance::TryFailover() -> void {
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
     -> SetInstanceToMainCoordinatorStatus {
+  if (!raft_state_.IsLeader()) {
+    if (!HasBecomeLeader()) {
+      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+    }
+    MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
+              "Instance needs to become leader and not have lock opened.");
+  }
+
   auto lock = std::lock_guard{coord_instance_lock_};
   if (raft_state_.IsLockOpened()) {
     return SetInstanceToMainCoordinatorStatus::LOCK_OPENED;
@@ -459,12 +472,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 
   if (raft_state_.MainExists()) {
     return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
-  }
-
-  // TODO(antoniofilipovic) Check if request leadership can cause problems due to changing of leadership while other
-  // doing failover
-  if (!raft_state_.RequestLeadership()) {
-    return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
   auto const is_new_main = [&instance_name](ReplicationInstanceConnector const &instance) {
@@ -541,23 +548,34 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::HasBecomeLeader() -> bool {
+  if (!raft_state_.RequestLeadership()) {
+    spdlog::error("Request leadership denied");
+    return false;
+  }
+
+  using namespace std::chrono_literals;
+  auto lock = std::unique_lock{leader_mutex_};
+  auto expontential_backoff{1.2};
+  auto waiting_period = 1s;
+  auto maybe_stop = utils::ResettableCounter<5>();
+  do {
+    if (!become_leader_.wait_for(lock, waiting_period, [this]() { return leader_set_up_.load(); })) {
+      waiting_period *= expontential_backoff;
+    }
+  } while (!maybe_stop() && !leader_set_up_);
+
+  return leader_set_up_;
+}
+
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   if (!raft_state_.IsLeader()) {
-    if (!raft_state_.RequestLeadership()) {
-      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
-    }
-    // TODO wait:
-    // TODO problem can't take lock here
-    // test if we get here after we are leader
-    // First we execute set leader
-    // then is callback executed
-    using namespace std::chrono_literals;
-    if (!semaphore_leader.try_acquire_for(1s)) {
+    if (!HasBecomeLeader()) {
       return RegisterInstanceCoordinatorStatus::NOT_LEADER;
     }
     MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
-              "Instance needs to become leader and not have lock opened");
+              "Instance needs to become leader and not have lock opened.");
   }
 
   auto lock = std::lock_guard{coord_instance_lock_};
@@ -640,15 +658,18 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
+  if (!raft_state_.IsLeader()) {
+    if (!HasBecomeLeader()) {
+      return RegisterInstanceCoordinatorStatus::NOT_LEADER;
+    }
+    MG_ASSERT(raft_state_.IsLeader() && !raft_state_.IsLockOpened(),
+              "Instance needs to become leader and not have lock opened.");
+  }
+
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (raft_state_.IsLockOpened()) {
     return UnregisterInstanceCoordinatorStatus::LOCK_OPENED;
-  }
-
-  // TODO(antoniofilipovic) Check if this is an issue
-  if (!raft_state_.RequestLeadership()) {
-    return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
   auto const name_matches = [&instance_name](ReplicationInstanceConnector const &instance) {

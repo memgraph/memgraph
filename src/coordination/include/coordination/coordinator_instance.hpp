@@ -64,6 +64,8 @@ class CoordinatorInstance {
 
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
+  auto HasBecomeLeader() -> bool;
+
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
@@ -130,7 +132,11 @@ class CoordinatorInstance {
   utils::ThreadPool thread_pool_;
   RaftState raft_state_;
 
-  std::binary_semaphore semaphore_leader{0};
+  // When becoming leader, only one transaction is allowed to progress
+  // after force reset or regular setup is done
+  std::condition_variable become_leader_;
+  std::atomic<bool> leader_set_up_{false};
+  std::mutex leader_mutex_;
 };
 
 }  // namespace memgraph::coordination
