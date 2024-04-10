@@ -99,6 +99,7 @@ EXPLAIN        : E X P L A I N ;
 EXTRACT        : E X T R A C T ;
 FALSE          : F A L S E ;
 FILTER         : F I L T E R ;
+HOPS           : H O P S ;
 IN             : I N ;
 INDEX          : I N D E X ;
 INFO           : I N F O ;

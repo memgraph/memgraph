@@ -184,7 +184,7 @@ query : cypherQuery
       | dropGraphQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( hopsLimit )? ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
