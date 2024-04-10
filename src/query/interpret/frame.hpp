@@ -39,9 +39,9 @@ class Frame {
   TypedValue &at(const Symbol &symbol) { return elems_.at(symbol.position()); }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
-  auto &elems() { return elems_; }
-
   auto size() const { return elems_.size(); }
+
+  auto &elems() { return elems_; }
 
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
