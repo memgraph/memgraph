@@ -43,6 +43,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
