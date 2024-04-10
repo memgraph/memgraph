@@ -918,17 +918,15 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto pull_node = [this, &frame]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
-                                                                 utils::tag_value<direction>) {
+  auto pull_node = [this, &frame, &context]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                           utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
     if constexpr (direction == EdgeAtom::Direction::IN) {
       frame[self_.common_.node_symbol] = new_edge.From();
-      auto &elems = frame.elems();
-      elems.back() = elems.back().ValueInt() + 1;
+      context.number_of_hops++;
     } else if constexpr (direction == EdgeAtom::Direction::OUT) {
       frame[self_.common_.node_symbol] = new_edge.To();
-      auto &elems = frame.elems();
-      elems.back() = elems.back().ValueInt() + 1;
+      context.number_of_hops++;
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
@@ -2835,7 +2833,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
       named_expr->Accept(evaluator);
     }
-    spdlog::trace("Number of hops in the frame: {}", frame.elems().back().ValueInt());
+    spdlog::trace("Number of hops in the frame: {}", context.number_of_hops);
     return true;
   }
   return false;

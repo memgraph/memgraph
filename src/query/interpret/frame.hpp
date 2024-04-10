@@ -26,20 +26,13 @@ class Frame {
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
   explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) { MG_ASSERT(size >= 0); }
 
-  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size + 1, memory) {
-    MG_ASSERT(size >= 0);
-
-    // counter of hops per query
-    elems_[size] = 0;
-  }
+  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) { MG_ASSERT(size >= 0); }
 
   TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
 
   TypedValue &at(const Symbol &symbol) { return elems_.at(symbol.position()); }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
-
-  auto size() const { return elems_.size(); }
 
   auto &elems() { return elems_; }
 
