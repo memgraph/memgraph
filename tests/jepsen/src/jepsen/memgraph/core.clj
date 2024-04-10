@@ -52,7 +52,7 @@
          opts
          {:pure-generators true
           :name            (str "test-" (name (:workload opts)))
-          :nodes           (keys (:node-config opts))
+          :nodes           (keys (:nodes-config opts))
           :db              (support/db opts)
           :client          (HAClient. nil)}))
 
@@ -94,8 +94,11 @@
     (:out (sh "getent" "hosts" host)))))
 
 (defn resolve-all-node-hostnames
-  "Resolve all hostnames in config and assign it to the node"
-  [node-config]
+  "Resolve all hostnames in config and assign it to the node."
+  [nodes-config]
+
+  (info "Resolving hostnames to ip addresses." nodes-config)
+
   (reduce (fn [curr node]
             (let [k (first node)
                   v (second node)]
@@ -103,43 +106,42 @@
                      k (assoc v
                               :ip (resolve-hostname k)))))
           {}
-          node-config))
+          nodes-config))
 
 (defn throw-if-key-missing-in-any
   [map-coll key error-msg]
   (when-not (every? #(contains? % key) map-coll)
     (throw (Exception. error-msg))))
 
-(defn validate-node-configurations
-  "Validate that configuration of node configs is valid."
-  [node-configs]
+(defn validate-nodes-configuration
+  "Validate that configuration of nodes is valid."
+  [nodes-config]
 
-  (when-not (every? (fn [config]
-                      (= 1
-                         (count
-                          (filter
-                           #(= (:replication-role %) :main)
-                           (vals config)))))
-                    node-configs)
+  (info "Validating node configuration." nodes-config)
+
+  (when-not (= 1
+               (count
+                (filter
+                 #(= (:replication-role %) :main)
+                 (vals nodes-config))))
     (throw (Exception. "Invalid node configuration. There can only be one :main.")))
 
-  (doseq [node-config node-configs]
-    (let [replica-nodes-configs (filter
-                                 #(= (:replication-role %) :replica)
-                                 (vals node-config))]
-      (throw-if-key-missing-in-any
-       replica-nodes-configs
-       :port
-       (str "Invalid node configuration. "
-            "Every replication node requires "
-            ":port to be defined."))
-      (throw-if-key-missing-in-any
-       replica-nodes-configs
-       :replication-mode
-       (str "Invalid node configuration. "
-            "Every replication node requires "
-            ":replication-mode to be defined."))))
-  node-configs)
+  (let [replicas-config (filter
+                         #(= (:replication-role %) :replica)
+                         (vals nodes-config))]
+    (throw-if-key-missing-in-any
+     replicas-config
+     :port
+     (str "Invalid node configuration. "
+          "Every replica requires "
+          ":port to be defined."))
+    (throw-if-key-missing-in-any
+     replicas-config
+     :replication-mode
+     (str "Invalid node configuration. "
+          "Every replica requires "
+          ":replication-mode to be defined.")))
+  nodes-config)
 
 (def cli-opts
   "CLI options for tests."
@@ -152,44 +154,36 @@
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
-   [nil "--node-configs PATH" "Path to a file containing a list of node config."
+   [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % e/load-configuration)]])
 
 (defn single-test
-  "Takes base CLI options and constructs a single test. If node-configs is a list, only the 1st config is used."
+  "Takes base CLI options and constructs a single test."
   [opts]
   (let [workload (if (:workload opts)
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
-        node-config (if (:node-configs opts)
-                      (first (if (= workload :high_availability)
-                               (:node-configs opts) ; If high availability, no need to resolve hostnames and validate yet
-                               (map resolve-all-node-hostnames (validate-node-configurations (:node-configs opts)))))
-                      (throw (Exception. "Node configs undefined!")))]
-    (if (= workload :high_availability)
-      (memgraph-ha-test (assoc opts :node-config node-config :workload workload))
-      (memgraph-test (assoc opts :node-config node-config :workload workload)))))
+        nodes-config (if (:nodes-config opts)
+                       (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))
+                       (throw (Exception. "Nodes config flag undefined!")))
+        ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
+        sync-after-n-txn (if (= workload :bank)
+                           1
+                           100000)
+        test-opts (merge opts
+                         {:workload workload
+                          :nodes-config nodes-config
+                          :sync-after-n-txn sync-after-n-txn})]
 
-(defn all-tests
-  "Takes base CLI options and constructs a sequence of test options."
-  [opts]
-  (let [workloads (if-let [w (:workload opts)] [w] (keys workloads))
-        node-configs (if (:node-configs opts)
-                       (map resolve-all-node-hostnames (validate-node-configurations (:node-configs opts)))
-                       (throw (Exception. "Node config is missing")))
-        test-opts (for [node-config node-configs workload workloads]
-                    (assoc opts
-                           :node-config node-config
-                           :workload workload))]
-    (map memgraph-test test-opts)))
+    (if (= workload :high_availability)
+      (memgraph-ha-test test-opts)
+      (memgraph-test test-opts))))
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
   browsing results."
   [& args]
-  (cli/run! (merge (cli/test-all-cmd {:tests-fn all-tests
-                                      :opt-spec cli-opts})
-                   (cli/single-test-cmd {:test-fn single-test
+  (cli/run! (merge (cli/single-test-cmd {:test-fn single-test
                                          :opt-spec cli-opts})
                    (cli/serve-cmd))
             args))

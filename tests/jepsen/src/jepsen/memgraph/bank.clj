@@ -62,7 +62,7 @@
 (client/replication-client Client []
                            ; Open connection to the node. Setup each node.
                            (open! [this test node]
-                                  (client/replication-open-connection this node node-config))
+                                  (client/replication-open-connection this node nodes-config))
                            ; On main detach-delete-all and create accounts.
                            (setup! [this test]
                                    (when (= replication-role :main)
@@ -252,7 +252,7 @@
 (defn workload
   "Basic test workload"
   [opts]
-  {:client    (Client. nil nil nil (:node-config opts))
+  {:client    (Client. nil nil nil (:nodes-config opts))
    :checker   (checker/compose
                {:bank     (bank-checker)
                 :timeline (timeline/html)
