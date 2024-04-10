@@ -318,7 +318,6 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::ZonedDateTime:
-      // TODO antepusic
       throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
@@ -698,7 +697,6 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       }
     }
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
-      // TODO antepusic
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
       break;
     }

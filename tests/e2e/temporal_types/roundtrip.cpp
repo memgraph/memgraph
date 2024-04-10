@@ -101,7 +101,6 @@ void RoundtripLocalDateTime(mg::Client &client, const std::string_view group, co
             "Received incorrect nanoseconds in the LocalDateTime roundtrip");
 }
 
-// TODO antepusic RoundtripZonedDateTime
 void RoundtripZonedDateTime(mg::Client &client, const std::string_view group, const std::string_view property,
                             const std::string_view zdt_str, const memgraph::utils::ZonedDateTime &expected) {
   const auto query = fmt::format("CREATE (:{} {{{}: DATETIME({})}})", group, property, zdt_str);
@@ -248,7 +247,6 @@ void TestDuration(mg::Client &client) {
                     memgraph::utils::Duration(memgraph::utils::DurationParameters{.hour = -2.5}));
 }
 
-// TODO antepusic: TestZonedDateTime
 void TestZonedDateTime(mg::Client &client) {
   auto zdt = [](auto y, auto mo, auto d, auto h, auto m, auto s, auto tz) {
     return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}{}", y, mo, d, h, m, s, tz);
