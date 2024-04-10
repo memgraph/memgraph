@@ -44,6 +44,14 @@ def test_create_everything_then_drop_graph(memgraph):
     assert get_results_length(memgraph, "SHOW CONSTRAINT INFO") == 0
     assert get_results_length(memgraph, "SHOW TRIGGERS") == 0
 
+    storage_info = list(memgraph.execute_and_fetch("SHOW STORAGE INFO"))
+    print(storage_info)
+    vertex_count = [x for x in storage_info if x["storage info"] == "vertex_count"][0]
+    edge_count = [x for x in storage_info if x["storage info"] == "edge_count"][0]
+
+    assert vertex_count["value"] == 0
+    assert edge_count["value"] == 0
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

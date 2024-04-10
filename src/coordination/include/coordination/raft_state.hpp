@@ -90,6 +90,8 @@ class RaftState {
   auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;
 
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
  private:
   io::network::Endpoint raft_endpoint_;
   uint32_t coordinator_id_;

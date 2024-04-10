@@ -1789,10 +1789,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.user_or_role = user_or_role;
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user_or_role), dba);
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
@@ -3328,7 +3329,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
   callback.fn = [&db, dba]() mutable {
     auto storage_mode = db->GetStorageMode();
     if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
-      throw utils::BasicException("Drop graph can not be used without IN_MEMORY_ANALYTICAL storage mode!");
+      throw utils::BasicException(
+          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
+          "IN_MEMORY_ANALYTICAL'");
     }
     dba->DropGraph();
 

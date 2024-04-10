@@ -81,7 +81,7 @@ void ReplicationInstanceClient::StartFrequentCheck() {
 void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
 void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
 void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
-auto ReplicationInstanceClient::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
 }
 
@@ -113,6 +113,24 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to set instance {} to replica!", instance_name);
+  }
+  return false;
+}
+
+auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
+                                                ReplicationClientInfo replication_client_info) const -> bool {
+  auto const instance_name = replication_client_info.instance_name;
+  try {
+    auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
+    if (!stream.AwaitResponse().success) {
+      spdlog::error("Failed to receive successful RPC response for registering replica instance {} on main!",
+                    instance_name);
+      return false;
+    }
+    spdlog::info("Sent request RPC from coordinator to register replica instance on main!");
+    return true;
+  } catch (rpc::RpcFailedException const &) {
+    spdlog::error("Failed to register instance {} to replica!", instance_name);
   }
   return false;
 }

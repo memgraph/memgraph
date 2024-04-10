@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 
 #include <spdlog/spdlog.h>
@@ -60,6 +61,7 @@ class CoordinatorStateManager : public state_mgr {
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
+  kvstore::KVStore kv_store_;
 };
 
 }  // namespace memgraph::coordination

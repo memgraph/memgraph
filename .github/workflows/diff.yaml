@@ -4,9 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - master
+  merge_group:
   workflow_dispatch:
   pull_request:
     paths-ignore:
@@ -52,7 +50,7 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build community binary 
+      - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -479,6 +477,7 @@ jobs:
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Copy build logs
+        if: always()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -563,7 +562,7 @@ jobs:
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
+          ./run.sh test --binary ../../build/memgraph --run-args "--workload large --node-configs resources/node-config.edn --time-limit 120" --ignore-run-stdout-logs --ignore-run-stderr-logs
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4

@@ -1,0 +1,1 @@
+add_query_module(execution_module execution_module.cpp)
