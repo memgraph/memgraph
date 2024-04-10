@@ -101,6 +101,35 @@ void RoundtripLocalDateTime(mg::Client &client, const std::string_view group, co
             "Received incorrect nanoseconds in the LocalDateTime roundtrip");
 }
 
+// TODO antepusic RoundtripZonedDateTime
+void RoundtripZonedDateTime(mg::Client &client, const std::string_view group, const std::string_view property,
+                            const std::string_view zdt_str, const memgraph::utils::ZonedDateTime &expected) {
+  const auto query = fmt::format("CREATE (:{} {{{}: DATETIME({})}})", group, property, zdt_str);
+  MaybeExecuteQuery(client, query, "ZonedDateTime");
+  const auto result = MaybeExecuteMatch(client, group);
+  const auto node = (*result)[0][0].ValueNode();
+  const auto props = node.properties();
+  const auto it = GetItFromNodeProperty(props, property);
+  const auto zdt = (*it).second;
+  auto seconds = [](auto value) {
+    return value.type() == mg::Value::Type::DateTimeZoneId ? value.ValueDateTimeZoneId().seconds()
+                                                           : value.ValueDateTime().seconds();
+  };
+  auto nanoseconds = [](auto value) {
+    return value.type() == mg::Value::Type::DateTimeZoneId ? value.ValueDateTimeZoneId().nanoseconds()
+                                                           : value.ValueDateTime().nanoseconds();
+  };
+
+  // In Bolt v4 (used by mgclient) the "seconds" field contains the local time in seconds (i.e. system time + offset)
+  auto expected_zdt =
+      (expected.SysSecondsSinceEpoch() + std::chrono::duration_cast<std::chrono::seconds>(expected.OffsetDuration()))
+          .count();
+
+  MG_ASSERT(seconds(zdt) == expected_zdt, "Received incorrect seconds in the ZonedDateTime roundtrip");
+  MG_ASSERT(nanoseconds(zdt) == expected.SysSubSecondsAsNanoseconds().count(),
+            "Received incorrect nanoseconds in the ZonedDateTime roundtrip");
+}
+
 void TestDate(mg::Client &client) {
   auto date_query = [](auto year, auto month, auto day) {
     return fmt::format("\"{:0>2}-{:0>2}-{:0>2}\"", year, month, day);
@@ -219,6 +248,50 @@ void TestDuration(mg::Client &client) {
                     memgraph::utils::Duration(memgraph::utils::DurationParameters{.hour = -2.5}));
 }
 
+// TODO antepusic: TestZonedDateTime
+void TestZonedDateTime(mg::Client &client) {
+  auto zdt = [](auto y, auto mo, auto d, auto h, auto m, auto s, auto tz) {
+    return fmt::format("{:0>2}-{:0>2}-{:0>2}T{:0>2}:{:0>2}:{:0>2}{}", y, mo, d, h, m, s, tz);
+  };
+  auto parse = [](const std::string_view str) {
+    const auto zdt_params = memgraph::utils::ParseZonedDateTimeParameters(str);
+    return memgraph::utils::ZonedDateTime(zdt_params);
+  };
+  auto zdt_query = [](const std::string_view str) { return fmt::format("\"{}\"", str); };
+  const auto str = zdt(1980, 1, 9, 12, 33, 1, "[Europe/Vienna]");
+  RoundtripZonedDateTime(client, "ZDT1", "time", zdt_query(str), parse(str));
+  const auto str1 = zdt(1961, 6, 3, 11, 22, 10, "Z");
+  RoundtripZonedDateTime(client, "ZDT2", "time", zdt_query(str1), parse(str1));
+  const auto str2 = zdt(1971, 1, 1, 15, 16, 2, "+01:00");
+  RoundtripZonedDateTime(client, "ZDT3", "time", zdt_query(str2), parse(str2));
+  const auto str3 = zdt(2000, 1, 1, 2, 33, 1, "-01:00");
+  RoundtripZonedDateTime(client, "ZDT4", "time", zdt_query(str3), parse(str3));
+  const auto str4 = zdt(2021, 9, 21, 16, 57, 1, "+02:00[Europe/Zagreb]");
+  RoundtripZonedDateTime(client, "ZDT5", "time", zdt_query(str4), parse(str4));
+
+  const auto date_params = memgraph::utils::DateParameters{1960, 10, 1};
+  const auto time_params = memgraph::utils::LocalTimeParameters{1, 2, 33};
+  const auto timezone = memgraph::utils::Timezone("America/Los_Angeles");
+
+  RoundtripZonedDateTime(
+      client, "Map_ZDT0", "time", "{hour:1, minute:2, second:33, timezone: 'America/Los_Angeles'}",
+      memgraph::utils::ZonedDateTime(memgraph::utils::ZonedDateTimeParameters{{}, time_params, timezone}));
+  RoundtripZonedDateTime(
+      client, "Map_ZDT1", "time", "{year:1960, month:10, day:1, timezone: 'America/Los_Angeles'}",
+      memgraph::utils::ZonedDateTime(memgraph::utils::ZonedDateTimeParameters{date_params, {}, timezone}));
+  RoundtripZonedDateTime(client, "Map_ZDT2", "time", "{year:1960, month:10, day:1, hour:1, minute:2, second:33}",
+                         memgraph::utils::ZonedDateTime(memgraph::utils::ZonedDateTimeParameters{
+                             date_params, time_params, memgraph::utils::Timezone("Etc/UTC")}));
+  RoundtripZonedDateTime(
+      client, "Map_ZDT3", "time",
+      "{year:1960, month:10, day:1, hour:1, minute:2, second:33, timezone: 'America/Los_Angeles'}",
+      memgraph::utils::ZonedDateTime(memgraph::utils::ZonedDateTimeParameters{date_params, time_params, timezone}));
+  RoundtripZonedDateTime(client, "Map_ZDT4", "time", "{hour:10, timezone: 'America/Los_Angeles'}",
+                         memgraph::utils::ZonedDateTime({{}, {.hour = 10}, timezone}));
+  RoundtripZonedDateTime(client, "Map_ZDT5", "time", "{day:2, timezone: 'America/Los_Angeles'}",
+                         memgraph::utils::ZonedDateTime({{.day = 2}, {}, timezone}));
+}
+
 int main(int argc, char **argv) {
   gflags::SetUsageMessage("Memgraph E2E temporal types roundtrip");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -231,6 +304,7 @@ int main(int argc, char **argv) {
   TestDate(*client);
   TestLocalTime(*client);
   TestLocalDateTime(*client);
+  TestZonedDateTime(*client);
   TestDuration(*client);
   return 0;
 }
