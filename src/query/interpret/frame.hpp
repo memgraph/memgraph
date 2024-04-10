@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,12 @@ class Frame {
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
   explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) { MG_ASSERT(size >= 0); }
 
-  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size, memory) { MG_ASSERT(size >= 0); }
+  Frame(int64_t size, utils::MemoryResource *memory) : elems_(size + 1, memory) {
+    MG_ASSERT(size >= 0);
+
+    // counter of hops per query
+    elems_[size] = 0;
+  }
 
   TypedValue &operator[](const Symbol &symbol) { return elems_[symbol.position()]; }
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
@@ -35,6 +40,8 @@ class Frame {
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
   auto &elems() { return elems_; }
+
+  auto size() const { return elems_.size(); }
 
   utils::MemoryResource *GetMemoryResource() const { return elems_.get_allocator().GetMemoryResource(); }
 
