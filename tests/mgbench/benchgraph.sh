@@ -32,6 +32,7 @@ WORKLOADS=(
   ldbc_bi_sf3
 )
 WORKERS=(
+  12
   24
   48
 )

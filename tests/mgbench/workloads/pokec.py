@@ -300,6 +300,20 @@ class Pokec(Workload):
             {"id": random.randint(1, self._num_vertices * 10)},
         )
 
+    def benchmark__basic__single_big_vertex_write_write(self):
+        return (
+            "CREATE (:UserTempBig {id : $id, p2: 42, "
+            'p3: "Here is some text that is not extremely short", '
+            'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
+            {"id": random.randint(1, self._num_vertices * 10)},
+        )
+
+    def benchmark__basic__single_vertex_property_update_update(self):
+        return (
+            "MATCH (n:User {id: $id}) SET n.property = -1",
+            {"id": self._get_random_vertex()},
+        )
+
     def benchmark__basic__single_vertex_property_update_update(self):
         return (
             "MATCH (n:User {id: $id}) SET n.property = -1",
