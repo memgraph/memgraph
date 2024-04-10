@@ -1038,7 +1038,7 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
   }
   if (arg.IsZonedDateTime()) {
-    return TypedValue(arg.ValueZonedDateTime().SysMicrosecondsSinceEpoch(), ctx.memory);
+    return TypedValue(arg.ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(), ctx.memory);
   }
   return TypedValue(ctx.timestamp, ctx.memory);
 }

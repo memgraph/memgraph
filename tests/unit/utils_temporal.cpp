@@ -198,7 +198,7 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
     for (const auto &timezone_offset : cases) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
 
-      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch(),
+      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
                 local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
@@ -217,7 +217,7 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
     for (const auto &[timezone_name, timezone_offset] : cases) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
 
-      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch(),
+      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
                 local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }

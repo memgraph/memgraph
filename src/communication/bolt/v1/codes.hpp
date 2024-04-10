@@ -51,6 +51,8 @@ enum class Signature : uint8_t {
   LocalTime = 0x74,
   DateTime = 0x49,
   DateTimeZoneId = 0x69,
+  LegacyDateTime = 0x46,
+  LegacyDateTimeZoneId = 0x66,
 };
 
 enum class Marker : uint8_t {

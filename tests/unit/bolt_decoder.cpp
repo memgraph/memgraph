@@ -700,61 +700,37 @@ TEST_F(BoltDecoder, LocalDateTime) {
 }
 
 TEST_F(BoltDecoder, ZonedDateTime) {
-  auto check_per_timezone_format = [](const auto &timezone, const std::vector<uint8_t> &expected_timezone_bytes) {
+  using Marker = memgraph::communication::bolt::Marker;
+
+  auto check_case = [](const auto &zdt, const uint8_t version, const auto &expected) {
     TestDecoderBuffer buffer;
     DecoderT decoder(buffer);
+    decoder.UpdateVersion(version);
 
     Value dv;
 
-    const auto date_params = memgraph::utils::DateParameters{1970, 1, 1};
-    const auto lt_params = memgraph::utils::LocalTimeParameters{0, 0, 30, 1, 3};
-    const auto zdt_params = memgraph::utils::ZonedDateTimeParameters(date_params, lt_params, timezone);
-    const auto value = Value(memgraph::utils::ZonedDateTime(zdt_params));
-    const auto &zoned_date_time = value.ValueZonedDateTime();
-    const auto secs = zoned_date_time.SysSecondsSinceEpoch();
-    ASSERT_EQ(secs, 30);
-    const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
-    const auto nanos = zoned_date_time.SysSubSecondsAsNanoseconds();
-    ASSERT_EQ(nanos, 1003000);
-    const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
-    using Marker = memgraph::communication::bolt::Marker;
-    using Sig = memgraph::communication::bolt::Signature;
     std::vector<uint8_t> data{
         Cast(Marker::TinyStruct3),
-        timezone.InTzDatabase() ? Cast(Sig::DateTimeZoneId) : Cast(Sig::DateTime),
-        // seconds (0)
-        sec_bytes[0],
-        // nanoseconds (1003000)
-        Cast(Marker::Int32),
-        nano_bytes[3],
-        nano_bytes[2],
-        nano_bytes[1],
-        nano_bytes[0],
     };
-    data.insert(data.end(), expected_timezone_bytes.begin(), expected_timezone_bytes.end());
+    data.push_back(static_cast<uint8_t>(expected.type));
+    data.insert(data.end(), expected.seconds.begin(), expected.seconds.end());
+    data.insert(data.end(), expected.nanoseconds.begin(), expected.nanoseconds.end());
+    data.insert(data.end(), expected.tz.begin(), expected.tz.end());
 
     buffer.Clear();
     buffer.Write(data.data(), data.size());
     ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::ZonedDateTime), true);
-    ASSERT_EQ(dv.ValueZonedDateTime(), zoned_date_time);
+    ASSERT_EQ(dv.ValueZonedDateTime(), zdt);
   };
 
-  const std::array cases{
-      std::make_pair(memgraph::utils::Timezone(std::chrono::minutes{0}), std::vector<uint8_t>{0x00}),
-      std::make_pair(memgraph::utils::Timezone("Etc/UTC"),
-                     std::vector<uint8_t>{
-                         0x87 /*TinyString with 7 chars*/,
-                         'E',
-                         't',
-                         'c',
-                         '/',
-                         'U',
-                         'T',
-                         'C',
-                     }),
+  const std::array test_cases{
+      std::make_tuple(zdt_testdata::zdt, 5, zdt_testdata::expected_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 5, zdt_testdata::expected_zdt_offset),
+      std::make_tuple(zdt_testdata::zdt, 4, zdt_testdata::expected_legacy_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 4, zdt_testdata::expected_legacy_zdt_offset),
   };
 
-  for (const auto &[tz, expected_timezone_bytes] : cases) {
-    check_per_timezone_format(tz, expected_timezone_bytes);
+  for (const auto &[zdt, version, expected] : test_cases) {
+    check_case(zdt, version, expected);
   }
 }

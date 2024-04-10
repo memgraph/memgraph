@@ -315,7 +315,7 @@ class Timezone {
   std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }
 
   template <class DurationT>
-  std::chrono::minutes OffsetInMinutes(std::chrono::sys_time<DurationT> time_point) const {
+  std::chrono::minutes OffsetDuration(std::chrono::sys_time<DurationT> time_point) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       return std::get<std::chrono::minutes>(offset_);
     }
@@ -343,7 +343,7 @@ class Timezone {
   auto to_local(std::chrono::sys_time<DurationT> time_point) const {
     if (std::holds_alternative<std::chrono::minutes>(offset_)) {
       using local_time = std::chrono::local_time<std::common_type_t<DurationT, std::chrono::minutes>>;
-      return local_time{(time_point + OffsetInMinutes(time_point)).time_since_epoch()};
+      return local_time{(time_point + OffsetDuration(time_point)).time_since_epoch()};
     }
     return std::get<const std::chrono::time_zone *>(offset_)->to_local(time_point);
   }
@@ -367,7 +367,6 @@ class Timezone {
     return std::get<const std::chrono::time_zone *>(offset_)->name();
   }
 
-  // TODO antepusic better name
   int64_t DefiningOffset() const {
     if (InTzDatabase()) {
       throw utils::BasicException("tz database timezones are not defined by offset");
@@ -414,6 +413,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 
 std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds);
 
+std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds);
 struct ZonedDateTime {
  private:
   std::chrono::year_month_day YMD() const {
@@ -429,12 +429,13 @@ struct ZonedDateTime {
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
   explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
   explicit ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone);
+  explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
   std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
-  int64_t SysMicrosecondsSinceEpoch() const;
-  int64_t SysSecondsSinceEpoch() const;
-  int64_t SysSubSecondsAsNanoseconds() const;
+  std::chrono::microseconds SysMicrosecondsSinceEpoch() const;
+  std::chrono::seconds SysSecondsSinceEpoch() const;
+  std::chrono::nanoseconds SysSubSecondsAsNanoseconds() const;
 
   std::string ToString() const;
 
@@ -442,8 +443,8 @@ struct ZonedDateTime {
 
   std::strong_ordering operator<=>(const ZonedDateTime &other) const;
 
-  std::chrono::minutes OffsetInMinutes() const {
-    return zoned_time.get_time_zone().OffsetInMinutes(zoned_time.get_sys_time());
+  std::chrono::minutes OffsetDuration() const {
+    return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
   }
 
   Timezone GetTimezone() const { return zoned_time.get_time_zone(); }
@@ -463,7 +464,7 @@ struct ZonedDateTime {
   friend ZonedDateTime operator-(const ZonedDateTime &zdt, const Duration &dur) { return zdt + (-dur); }
 
   friend Duration operator-(const ZonedDateTime &lhs, const ZonedDateTime &rhs) {
-    return Duration(lhs.SysMicrosecondsSinceEpoch()) - Duration(rhs.SysMicrosecondsSinceEpoch());
+    return Duration(lhs.SysMicrosecondsSinceEpoch().count()) - Duration(rhs.SysMicrosecondsSinceEpoch().count());
   }
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;

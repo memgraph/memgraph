@@ -243,18 +243,41 @@ class BaseEncoder {
     WriteInt(duration.SubSecondsAsNanoseconds());
   }
 
-  void WriteZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
+  void WriteLegacyZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    if (zoned_date_time.GetTimezone().InTzDatabase()) {
+      WriteRAW(utils::UnderlyingCast(Signature::LegacyDateTimeZoneId));
+      WriteInt((zoned_date_time.SysSecondsSinceEpoch() + zoned_date_time.OffsetDuration()).count());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
+      WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
+    } else {
+      WriteRAW(utils::UnderlyingCast(Signature::LegacyDateTime));
+      WriteInt((zoned_date_time.SysSecondsSinceEpoch() + zoned_date_time.OffsetDuration()).count());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
+      WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());
+    }
+  }
+
+  void WriteV5ZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     if (zoned_date_time.GetTimezone().InTzDatabase()) {
       WriteRAW(utils::UnderlyingCast(Signature::DateTimeZoneId));
-      WriteInt(zoned_date_time.SysSecondsSinceEpoch());
-      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds());
+      WriteInt(zoned_date_time.SysSecondsSinceEpoch().count());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteString(std::string{zoned_date_time.GetTimezone().TimezoneName()});
     } else {
       WriteRAW(utils::UnderlyingCast(Signature::DateTime));
-      WriteInt(zoned_date_time.SysSecondsSinceEpoch());
-      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds());
+      WriteInt(zoned_date_time.SysSecondsSinceEpoch().count());
+      WriteInt(zoned_date_time.SysSubSecondsAsNanoseconds().count());
       WriteInt(zoned_date_time.GetTimezone().DefiningOffsetSeconds());
+    }
+  }
+
+  void WriteZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
+    if (major_v_ > 4) {
+      WriteV5ZonedDateTime(zoned_date_time);
+    } else {
+      WriteLegacyZonedDateTime(zoned_date_time);
     }
   }
 
