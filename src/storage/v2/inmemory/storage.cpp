@@ -321,7 +321,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       !storage_->indices_.edge_type_index_->IndexExists(edge_type)) {
     storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
       if (auto it = edge_type_indices.find(edge_type); it != edge_type_indices.end()) {
-        ++(it->second);
+        const bool this_txn_already_encountered_edge_type =
+            transaction_.introduced_new_edge_type_index_.contains(edge_type);
+        if (!this_txn_already_encountered_edge_type) {
+          ++(it->second);
+        }
         return;
       }
       edge_type_indices.insert({edge_type, 1});
