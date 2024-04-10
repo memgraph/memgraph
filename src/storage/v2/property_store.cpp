@@ -185,11 +185,31 @@ const uint8_t kShiftIdSize = 2;
 //   * ZONED_TEMPORAL_DATA
 //     - type; payload size isn't used
 //     - encoded property ID
-//     - duration saved as Metadata (in the same way as the TEMPORAL_DATA value)
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + string size (always uint_8; see TZ_NAME_LENGTH_SIZE)
+//         + string data
 //   * OFFSET_ZONED_TEMPORAL_DATA
 //     - type; payload size isn't used
 //     - encoded property ID
-//     - duration saved as Metadata (in the same way as the TEMPORAL_DATA value)
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + encoded value (always uint_16; see tz_offset_int)
+
+const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
+// As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
+// to those in the IANA time zone database.
+// The timezone names in the IANA database follow https://data.iana.org/time-zones/theory.html#naming rules:
+// * Maximal form: AREA/LOCATION/QUALIFIER
+// * Length of subcomponents (AREA, LOCATION, and QUALIFIER): <= 14
+// * All legacy names are shorter than this
+// Therefore, the longest valid timezone name has the length of 44 (14 + 1 + 14 + 1 + 14), a 8-bit integer.
+
+using tz_offset_int = int16_t;
+// When a zoned temporal value is specified with a UTC offset (as opposed to a timezone name), the following applies:
+// * Offsets are defined in minutes
+// * Valid offsets are in the UTC + [-18h, +18h] range
+// Therefore, every possible value is in the [-1080, +1080] range and it's thus stored with a 16-bit integer.
 
 struct Metadata {
   Type type{Type::EMPTY};
@@ -260,7 +280,7 @@ class Writer {
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
 
-  bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<int16_t>(offset); }
+  bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
 
   bool WriteBytes(const uint8_t *data, uint64_t size) {
     if (data_ && pos_ + size > size_) return false;
@@ -379,7 +399,7 @@ class Reader {
   }
 
   std::optional<int64_t> ReadTimezoneOffset() {
-    auto value = InternalReadInt<int16_t>();
+    auto value = InternalReadInt<tz_offset_int>();
     if (!value) return std::nullopt;
     return static_cast<int64_t>(*value);
   }
@@ -518,15 +538,6 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         if (!writer->WriteUint(tz_str.size())) return std::nullopt;
         if (!writer->WriteBytes(tz_str.data(), tz_str.size())) return std::nullopt;
 
-        // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
-        // to those in the IANA time zone database.
-        // The timezone names in the IANA database follow https://data.iana.org/time-zones/theory.html#naming rules:
-        // * Maximal form: AREA/LOCATION/QUALIFIER
-        // * Length of subcomponents (AREA, LOCATION, and QUALIFIER): <= 14
-        // * All legacy names are shorter than this
-        // Therefore, the longest valid timezone name has the length of 44 (14 + 1 + 14 + 1 + 14).
-        // metadata->Set({Type::ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
-
         // We don't need payload size so we set it to a random value
         return {{Type::ZONED_TEMPORAL_DATA, Size::INT8}};
       } else {
@@ -592,7 +603,7 @@ std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
   if (!microseconds_value) return std::nullopt;
 
   if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
-    auto tz_str_length = reader.ReadUint(Size::INT8);
+    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
     if (!tz_str_length) return std::nullopt;
     std::string tz_str_v(*tz_str_length, '\0');
     if (!reader.ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
@@ -630,11 +641,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
   zoned_temporal_data_size += SizeToByteSize(metadata->payload_size);
 
   if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
-    auto tz_str_length = reader.ReadUint(Size::INT8);
+    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
     if (!tz_str_length) return std::nullopt;
     zoned_temporal_data_size += (1 + *tz_str_length);
   } else if (metadata->type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
-    zoned_temporal_data_size += 2;
+    zoned_temporal_data_size += 2;  // tz_offset_int is 16-bit
   }
 
   return zoned_temporal_data_size;
