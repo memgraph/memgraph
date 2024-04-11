@@ -384,7 +384,7 @@ package_docker() {
   fi
   local copy_src_files="false"
   local mg_src_dir="$PROJECT_ROOT/src"
-  if [[ "$build_type" == "RelWithDebInfo"]]; then
+  if [[ "$build_type" == "RelWithDebInfo" ]]; then
     copy_src_files="true"
   fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
