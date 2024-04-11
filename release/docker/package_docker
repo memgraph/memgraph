@@ -65,7 +65,7 @@ fi
 cp "$package_path" "${working_dir}/"
 cd ${working_dir}
 if [[ "$copy_src_files" == "true" ]]; then
-  cp "$mg_src_dir" "${working_dir}/src"
+  cp -r "$mg_src_dir" "${working_dir}/src"
   echo "I will copy source files"
 else
   mkdir -p "${working_dir}/src"
