@@ -139,11 +139,16 @@ for supported_os in "${SUPPORTED_OS[@]}"; do
     fi
 done
 
-if [[ "$1" == "prepare" && "$2" == "TOOLCHAIN_RUN_DEPS" ]]; then
-    if [[ "$is_supported" == true ]]; then
-        prepare_toolchain "$OS_ARCH"
+if [[ "$1" == "prepare" ]]; then
+    if [[ "$2" == "TOOLCHAIN_RUN_DEPS" ]]; then
+        if [[ "$is_supported" == true ]]; then
+            prepare_toolchain "$OS_ARCH"
+        else
+            echo "Unsupported OS: $OS_ARCH. The 'prepare' command cannot proceed."
+            exit 1
+        fi
     else
-        echo "Unsupported OS: $OS_ARCH. The 'prepare' command cannot proceed."
+        echo "Error: The 'prepare' command only supports 'TOOLCHAIN_RUN_DEPS' as the second argument."
         exit 1
     fi
 else
