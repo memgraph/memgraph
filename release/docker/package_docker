@@ -66,9 +66,13 @@ cp "$package_path" "${working_dir}/"
 cd ${working_dir}
 if [[ "$copy_src_files" == "true" ]]; then
   cp "$mg_src_dir" "${working_dir}/src"
+  echo "I will copy source files"
 else
   mkdir -p "${working_dir}/src"
+  echo "I will not copy source files"
 fi
+
+echo -e "Path to src is '$mg_src_dir'"
 
 extension="${package_path##*.}"
 
