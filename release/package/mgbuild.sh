@@ -384,8 +384,11 @@ package_docker() {
   fi
   local copy_src_files="false"
   local mg_src_dir="$PROJECT_ROOT/src"
+  echo "Check if it's RelWithDebInfo"
+  echo "Build type is $build_type"
   if [[ "$build_type" == "RelWithDebInfo" ]]; then
     copy_src_files="true"
+    echo "Yes, in fact it is RelWithDebInfo"
   fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
@@ -410,6 +413,8 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
+  echo "Before package docker, the flag to copy files is set to $copy_src_files"
+  echo -e "Before package docker, the source dir is $mg_src_dir"
   ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --mg-src-dir "$mg_src_dir" --copy-src-files "$copy_src_files"
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
