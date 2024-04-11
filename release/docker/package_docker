@@ -16,6 +16,8 @@ tag_latest=""
 toolchain_version="v5"
 package_path=""
 arch=""
+copy_src_files="false"
+mg_src_dir=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -33,6 +35,14 @@ while [[ $# -gt 0 ]]; do
     ;;
     --arch)
         arch=$2
+        shift 2
+    ;;
+    --copy-src-files)
+        copy_src_files=$2
+        shift 2
+    ;;
+    --mg-src-dir)
+        mg_src_dir=$2
         shift 2
     ;;
     -h|--help)
@@ -54,6 +64,11 @@ fi
 # Copy the .deb to working directory.
 cp "$package_path" "${working_dir}/"
 cd ${working_dir}
+if [[ "$copy_src_files" == "true" ]]; then
+  cp "$mg_src_dir" "${working_dir}/src"
+else
+  mkdir -p "${working_dir}/src"
+fi
 
 extension="${package_path##*.}"
 
@@ -82,7 +97,8 @@ image_package_name="memgraph-${version}-docker.tar.gz"
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
 --build-arg EXTENSION=${extension} \
---build-arg TARGETARCH="" .
+--build-arg TARGETARCH=""
+--build-arg SOURCE_CODE="src" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
 rm "${package_name}.${extension}"
 docker image rm $image_name

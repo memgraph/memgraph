@@ -4,6 +4,7 @@ FROM debian:12
 ARG BINARY_NAME
 ARG EXTENSION
 ARG TARGETARCH
+ARG SOURCE_CODE
 
 RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.11 python3-pip \
@@ -13,6 +14,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip3 install --break-system-packages  networkx==3.2.1 numpy==1.26.4 scipy==1.12.0
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
+COPY "${SOURCE_CODE}" /src
 
 # Install memgraph package
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"

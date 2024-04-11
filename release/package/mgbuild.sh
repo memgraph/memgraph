@@ -382,6 +382,11 @@ package_docker() {
       exit 1
     fi
   fi
+  local copy_src_files="false"
+  local mg_src_dir="$PROJECT_ROOT/src"
+  if [[ "$build_type" == "RelWithDebInfo"]]; then
+    copy_src_files="true"
+  fi
   local package_dir="$PROJECT_ROOT/build/output/$os"
   local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
   while [[ $# -gt 0 ]]; do
@@ -405,7 +410,7 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --mg-src-dir "$mg_src_dir" --copy-src-files "$copy_src_files"
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
   local docker_host_image_path="$docker_host_folder/$docker_image_name"
@@ -489,9 +494,6 @@ copy_memgraph() {
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
-  fi
-  if [[ "$build_type" == "RelWithDebInfo"]]; then
-    docker cp $build_container:$code_src_path $host_src_dir
   fi
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }
