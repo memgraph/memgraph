@@ -316,7 +316,7 @@ class Pokec(Workload):
 
     def benchmark__basic__single_vertex_property_update_update_big(self):
         return (
-            "MATCH (n:User {id: $id}) SET n.p1 = false, n.p2 = 41, "
+            "MATCH (n:UserTempBig {id: $id}) SET n.p1 = false, n.p2 = 41, "
             'n.p3 = "Here is some text that is not extremely short but updated", '
             'n.p4 = "Short text updated", n.p5 = 234.435, n.p6 = 11.12, n.p7 = true',
             {"id": self._get_random_vertex()},
