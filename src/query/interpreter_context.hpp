@@ -12,6 +12,7 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -27,6 +28,7 @@
 #include "storage/v2/transaction.hpp"
 #include "system/state.hpp"
 #include "system/system.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
@@ -54,14 +56,6 @@ struct QueryUserOrRole;
  *
  */
 struct InterpreterContext {
-  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                     replication::ReplicationState *rs, memgraph::system::System &system,
-#ifdef MG_ENTERPRISE
-                     memgraph::coordination::CoordinatorState *coordinator_state,
-#endif
-                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
-                     ReplicationQueryHandler *replication_handler = nullptr);
-
   memgraph::dbms::DbmsHandler *dbms_handler;
 
   // Internal
@@ -72,7 +66,7 @@ struct InterpreterContext {
   // GLOBAL
   memgraph::replication::ReplicationState *repl_state;
 #ifdef MG_ENTERPRISE
-  memgraph::coordination::CoordinatorState *coordinator_state_;
+  std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
 #endif
 
   AuthQueryHandler *auth;
@@ -98,6 +92,66 @@ struct InterpreterContext {
   std::vector<std::vector<TypedValue>> TerminateTransactions(
       std::vector<std::string> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
       std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
+
+  // TODO: Make this constructor private
+  InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                     replication::ReplicationState *rs, memgraph::system::System &system,
+#ifdef MG_ENTERPRISE
+                     std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+#endif
+                     AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                     ReplicationQueryHandler *replication_handler = nullptr);
 };
 
+// singleton object that holds the interpreter context for the application
+class InterpreterContextHolder {
+ public:
+  static InterpreterContext &GetInstance() {
+    assert(instance);
+    return *instance;
+  }
+
+ private:
+  static void Initialize(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+                         replication::ReplicationState *rs, memgraph::system::System &system,
+#ifdef MG_ENTERPRISE
+                         std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+#endif
+                         AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+                         ReplicationQueryHandler *replication_handler = nullptr) {
+    assert(!instance);
+    instance.emplace(interpreter_config, dbms_handler, rs, system,
+#ifdef MG_ENTERPRISE
+                     coordinator_state,
+#endif
+                     ah, ac, replication_handler);
+  }
+  InterpreterContextHolder(const InterpreterContextHolder &) = delete;
+  InterpreterContextHolder &operator=(const InterpreterContextHolder &) = delete;
+  InterpreterContextHolder(InterpreterContextHolder &&) = delete;
+  InterpreterContextHolder &operator=(InterpreterContextHolder &&) = delete;
+
+  static void destroy() { instance.reset(); }
+  static std::optional<InterpreterContext> instance;
+
+  friend struct InterpreterContextLifetimeControl;
+};
+
+struct InterpreterContextLifetimeControl {
+  InterpreterContextLifetimeControl(
+      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
+      memgraph::system::System &system,
+#ifdef MG_ENTERPRISE
+      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
+#endif
+      AuthQueryHandler *ah = nullptr, AuthChecker *ac = nullptr,
+      ReplicationQueryHandler *replication_handler = nullptr) {
+    InterpreterContextHolder::Initialize(interpreter_config, dbms_handler, rs, system,
+#ifdef MG_ENTERPRISE
+                                         coordinator_state,
+#endif
+                                         ah, ac, replication_handler);
+  }
+  ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
+};
 }  // namespace memgraph::query

@@ -175,3 +175,15 @@ Feature: Create
             CREATE (a:A) CREATE (a:B)
             """
         Then an error should be raised
+
+    Scenario: CREATE via CALL:
+        When executing query:
+            """
+            UNWIND range(1,10) as id
+            CALL {
+                WITH id
+                CREATE (b:B {prop: 1})
+                CREATE (b)-[:IN]->(z)
+            };
+            """
+        Then the result should be empty

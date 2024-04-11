@@ -115,6 +115,23 @@ void GetDatabaseHistoriesRes::Load(GetDatabaseHistoriesRes *self, memgraph::slk:
   memgraph::slk::Load(self, reader);
 }
 
+// RegisterReplicaOnMain
+void RegisterReplicaOnMainReq::Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void RegisterReplicaOnMainReq::Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void RegisterReplicaOnMainRes::Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
 }  // namespace coordination
 
 constexpr utils::TypeInfo coordination::PromoteReplicaToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ,
@@ -154,6 +171,12 @@ constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::Ty
 constexpr utils::TypeInfo coordination::GetDatabaseHistoriesRes::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
                                                                        "GetInstanceDatabasesRes", nullptr};
 
+constexpr utils::TypeInfo coordination::RegisterReplicaOnMainReq::kType{
+    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ, "RegisterReplicaOnMainReq", nullptr};
+
+constexpr utils::TypeInfo coordination::RegisterReplicaOnMainRes::kType{
+    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES, "RegisterReplicaOnMainRess", nullptr};
+
 namespace slk {
 
 // PromoteReplicaToMainRpc
@@ -167,12 +190,12 @@ void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::
 }
 
 void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.main_uuid_, builder);
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.replication_clients_info, builder);
 }
 
 void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->main_uuid_, reader);
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->replication_clients_info, reader);
 }
 
@@ -237,7 +260,7 @@ void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reade
   memgraph::slk::Load(&self->uuid, reader);
 }
 
-// GetInstanceTimestampsReq
+// GetInstanceTimestampsRpc
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.database_histories, builder);
@@ -245,6 +268,26 @@ void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph:
 
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->database_histories, reader);
+}
+
+// RegisterReplicaOnMainRpc
+
+void Save(const memgraph::coordination::RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::coordination::RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
+void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.replication_client_info, builder);
+}
+
+void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->replication_client_info, reader);
 }
 
 }  // namespace slk

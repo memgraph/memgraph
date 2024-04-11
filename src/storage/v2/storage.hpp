@@ -301,11 +301,13 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                              bool unique_access_needed = true) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
@@ -328,6 +330,8 @@ class Storage {
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
+
+    virtual void DropGraph() = 0;
 
     auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
@@ -467,6 +471,17 @@ class Storage {
   // TODO(gvolfing): check if this would be faster with flat_maps.
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
+
+  // Maps that hold onto labels and edge-types that have to be created.
+  // Used only if the label/edge-type auto-creation flags are enabled,
+  // does not affect index creation otherwise. The counter in the maps
+  // are needed because it is possible that two concurrent transactions
+  // are introducing the same label/edge-type in which case we do only
+  // build the index when the last transaction is commiting. The counter
+  // is used trace if the currently commiting transaction is the last one
+  // that would like to introduce a new index.
+  utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
+  utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};

@@ -45,7 +45,7 @@ if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
     HELP_EXIT
 fi
 
-if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/null 2>&1; then
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
@@ -180,7 +180,7 @@ CLUSTER_UP() {
   PRINT_CONTEXT
   local cnt=0
   while [[ "$cnt" < 5 ]]; do
-    if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon -n $JEPSEN_ACTIVE_NODES_NO; then
       cnt=$((cnt + 1))
       continue
     else
@@ -240,7 +240,10 @@ case $1 in
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
+        PROCESS_ARGS "$@"
+        PRINT_CONTEXT
         CLUSTER_UP
+        COPY_BINARIES
     ;;
 
     cluster-refresh)
@@ -273,7 +276,7 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        RUN_JEPSEN "$CONTROL_LEIN_RUN_ARGS"
+        RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
         PROCESS_RESULTS "$start_time" "$end_time"

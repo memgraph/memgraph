@@ -1830,6 +1830,26 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 /// mgp_func_result.
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
+
+struct mgp_execution_headers;
+
+enum mgp_error mgp_execution_headers_at(struct mgp_execution_headers *headers, size_t index, const char **result);
+
+enum mgp_error mgp_execution_headers_size(struct mgp_execution_headers *headers, size_t *result);
+
+struct mgp_execution_result;
+
+enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *memory, const char *query,
+                                 struct mgp_map *params, struct mgp_execution_result **result);
+
+enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
+                                           struct mgp_execution_headers **result);
+
+enum mgp_error mgp_pull_one(struct mgp_execution_result *exec_result, struct mgp_graph *graph,
+                            struct mgp_memory *memory, struct mgp_map **result);
+
+void mgp_execution_result_destroy(struct mgp_execution_result *exec_result);
+
 /// @}
 
 #ifdef __cplusplus

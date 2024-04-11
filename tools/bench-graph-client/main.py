@@ -20,7 +20,7 @@ GITHUB_REPOSITORY = os.getenv("GITHUB_REPOSITORY", "")
 GITHUB_SHA = os.getenv("GITHUB_SHA", "")
 GITHUB_REF = os.getenv("GITHUB_REF", "")
 
-BENCH_GRAPH_SERVER_ENDPOINT = os.getenv("BENCH_GRAPH_SERVER_ENDPOINT", "http://bench-graph-api:9001")
+BENCH_GRAPH_SERVER_ENDPOINT = f"http://{os.getenv('BENCH_GRAPH_SERVER_ENDPOINT', 'bench-graph-api:9001')}"
 
 log = logging.getLogger(__name__)
 
