@@ -420,7 +420,9 @@ copy_memgraph() {
   local artifact="binary"
   local artifact_name="memgraph"
   local container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+  local code_src_path="$MGBUILD_ROOT_DIR/src"
   local host_dir="$PROJECT_BUILD_DIR"
+  local host_src_dir="$PROJECT_BUILD_DIR/src"
   local host_dir_override=""
   local artifact_name_override=""
   while [[ $# -gt 0 ]]; do
@@ -487,6 +489,9 @@ copy_memgraph() {
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
+  fi
+  if [[ "$build_type" == "RelWithDebInfo"]]; then
+    docker cp $build_container:$code_src_path $host_src_dir
   fi
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }

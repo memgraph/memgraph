@@ -28,7 +28,7 @@ on:
         description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
         default: ''
       push_to_s3:
-        type: string 
+        type: string
         description: "Should the final package be pushed to an S3 bucket. Default value is false"
         default: false
       s3_bucket:
@@ -117,6 +117,7 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
+          --build-type ${{ inputs.build_type }} \
           copy \
           --package \
           --dest-dir "${{ env.ARTIFACT_DIR }}"
