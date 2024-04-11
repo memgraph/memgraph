@@ -425,10 +425,8 @@ copy_memgraph() {
   local artifact="binary"
   local artifact_name="memgraph"
   local container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
-  local code_src_path="$MGBUILD_ROOT_DIR/src"
-  local host_dir="$PROJECT_BUILD_DIR"
-  local host_src_dir="$PROJECT_BUILD_DIR/src"
-  local host_dir_override=""
+    local host_dir="$PROJECT_BUILD_DIR"
+    local host_dir_override=""
   local artifact_name_override=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
