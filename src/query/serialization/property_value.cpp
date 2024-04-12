@@ -17,6 +17,7 @@
 
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <ctime>
@@ -820,11 +821,11 @@ std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) cons
 }
 
 size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
-  const utils::HashCombine<int64_t, int64_t> hasher;
+  const utils::HashCombine<size_t, int64_t> hasher;
   size_t result = hasher(0, zoned_date_time.SysMicrosecondsSinceEpoch().count());
   const auto offset = zoned_date_time.GetTimezone().GetOffset();
   if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {
-    result = hasher(result, reinterpret_cast<uintptr_t>(std::get<const std::chrono::time_zone *>(offset)));
+    result = hasher(result, reinterpret_cast<intptr_t>(std::get<const std::chrono::time_zone *>(offset)));
     return result;
   }
   result = hasher(result, std::get<std::chrono::minutes>(offset).count());

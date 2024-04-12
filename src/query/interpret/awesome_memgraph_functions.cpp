@@ -1321,17 +1321,17 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 
 utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_parameters, const FunctionContext &ctx) {
   const utils::pmr::string timezone("timezone", ctx.memory);
-  if (input_parameters.contains(timezone)) {
-    const auto &value = input_parameters.at(timezone);
-    if (value.IsString()) {
-      return utils::Timezone(value.ValueString());
-    } else if (value.IsInt()) {
-      return utils::Timezone(std::chrono::minutes{value.ValueInt()});
-    }
-    throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
-  } else {
+  if (!input_parameters.contains(timezone)) {
     return utils::DefaultTimezone();
   }
+  const auto &value = input_parameters.at(timezone);
+  if (value.IsString()) {
+    return utils::Timezone(value.ValueString());
+  }
+  if (value.IsInt()) {
+    return utils::Timezone(std::chrono::minutes{value.ValueInt()});
+  }
+  throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
 }
 
 // Refers to ZonedDateTime; called DateTime for compatibility with Cypher

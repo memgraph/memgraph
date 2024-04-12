@@ -13,6 +13,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <string>
 #include <type_traits>
 
 #include "slk/serialization.hpp"

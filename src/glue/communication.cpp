@@ -15,8 +15,12 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/value.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
@@ -338,7 +342,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       const auto &type = value.ValueZonedTemporalData();
       switch (type.type) {
         case storage::ZonedTemporalType::ZonedDateTime:
-          return Value(utils::ZonedDateTime(type.microseconds, type.timezone));
+          return {utils::ZonedDateTime(type.microseconds, type.timezone)};
       }
     }
   }

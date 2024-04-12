@@ -15,6 +15,8 @@
 
 #include "storage/v2/temporal.hpp"
 
+#include "utils/temporal.hpp"
+
 namespace memgraph::storage {
 TemporalData::TemporalData(TemporalType type, int64_t microseconds) : type{type}, microseconds{microseconds} {}
 
