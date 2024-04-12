@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/memgraph/memgraph">
-     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/release_debian10.yaml?branch=master&label=build%20and%20test&logo=github"/>
+     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/package_memgraph.yaml?branch=master&label=build%20and%20test&logo=github"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
