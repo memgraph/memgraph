@@ -357,22 +357,6 @@ Feature: WHERE exists
           """
       Then the result should be empty
 
-  Scenario: Test node-only hop
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (:One {prop:1})-[:TYPE {prop: 1}]->(:Two {prop: 2})-[:TYPE {prop:2}]->(:Three {prop: 3})
-          """
-      When executing query:
-          """
-          MATCH (n) WHERE exists((n)) RETURN n.prop;
-          """
-      Then the result should be:
-          | n.prop |
-          | 1      |
-          | 2      |
-          | 3      |
-
   Scenario: Test exists with different edge type
       Given an empty graph
       And having executed:

@@ -46,4 +46,8 @@ void DiskEdgeTypeIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex *
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+void DiskEdgeTypeIndex::DropGraphClearIndices() {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 }  // namespace memgraph::storage

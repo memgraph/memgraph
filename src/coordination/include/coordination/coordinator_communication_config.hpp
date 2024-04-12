@@ -21,14 +21,36 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include <fmt/format.h>
 #include "json/json.hpp"
+#include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
+
+struct ReplicationInstanceInitConfig {
+  int management_port{0};
+};
+
+struct CoordinatorInstanceInitConfig {
+  uint32_t coordinator_id{0};
+  int coordinator_port{0};
+  int bolt_port{0};
+  std::filesystem::path durability_dir;
+
+  explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
+                                         std::filesystem::path durability_dir)
+      : coordinator_id(coordinator_id),
+        coordinator_port(coordinator_port),
+        bolt_port(bolt_port),
+        durability_dir(std::move(durability_dir)) {
+    MG_ASSERT(!this->durability_dir.empty(), "Path empty");
+  }
+};
 
 struct ReplicationClientInfo {
   std::string instance_name{};
@@ -66,7 +88,7 @@ struct CoordinatorToReplicaConfig {
 };
 
 struct CoordinatorToCoordinatorConfig {
-  uint32_t coordinator_server_id{0};
+  uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
 

@@ -1,0 +1,11 @@
+function(copy_execution_query_modules_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(execution_query_modules ${FILE_NAME})
+endfunction()
+
+copy_execution_query_modules_e2e_python_files(common.py)
+copy_execution_query_modules_e2e_python_files(conftest.py)
+copy_execution_query_modules_e2e_python_files(verify_behaviour.py)
+
+add_subdirectory(procedures)
+
+copy_e2e_files(execution_query_modules workloads.yaml)

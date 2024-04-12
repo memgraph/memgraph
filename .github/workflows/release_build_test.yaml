@@ -13,10 +13,30 @@ on:
         options:
           - Release
           - RelWithDebInfo
+      os:
+        type: choice
+        description: "Target OS on which the release tests will be run."
+        default: 'debian-11'
+        options:
+          - all
+          - amzn-2
+          - centos-7
+          - centos-9
+          - debian-11
+          - debian-12
+          - fedora-38
+          - fedora-39
+          - rocky-9.3
+          - ubuntu-20.04
+          - ubuntu-22.04
+      toolchain:
+        type: choice
+        description: "Toolchain version with which memgraph will be packaged."
+        default: 'v5'
+        options:
+          - v5
 
   push:
-    branches:
-      - "release/**"
     tags:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
@@ -24,185 +44,47 @@ on:
     # UTC
     - cron: "0 22 * * *"
 
-env:
-  THREADS: 24
-  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
-
 jobs:
-  Debian10:
-    uses: ./.github/workflows/release_debian10.yaml
+  TestIndividual:
+    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    uses: ./.github/workflows/reusable_release_tests.yaml
     with:
+      os: ${{ github.event.inputs.os || 'debian-11' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  Ubuntu20_04:
-    uses: ./.github/workflows/release_ubuntu2004.yaml
+  TestAll:
+    if: ${{ github.event.inputs.os == 'all' }}
+    strategy:
+      matrix:
+        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04]
+    uses: ./.github/workflows/reusable_release_tests.yaml
     with:
+      os: ${{ matrix.os }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
+      arch: "amd"
+      threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  PackageDebian10:
+  PackageAndUpload:
     if: github.ref_type == 'tag'
-    needs: [Debian10]
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-10 $BUILD_TYPE
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-10
-          path: build/output/debian-10/memgraph*.deb
-
-  PackageUbuntu20_04:
-    if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04 $BUILD_TYPE
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04
-          path: build/output/ubuntu-22.04/memgraph*.deb
-
-  PackageUbuntu20_04_ARM:
-    if: github.ref_type == 'tag'
-    needs: [Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, ARM64]
-    # M1 Mac mini is sometimes slower
-    timeout-minutes: 150
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04-arm $BUILD_TYPE
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/ubuntu-22.04-arm/memgraph*.deb
-
-  PushToS3Ubuntu20_04_ARM:
-    if: github.ref_type == 'tag'
-    needs: [PackageUbuntu20_04_ARM]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download package
-        uses: actions/download-artifact@v4
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/release
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-
-  PackageDebian11:
-    if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 $BUILD_TYPE
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11
-          path: build/output/debian-11/memgraph*.deb
-
-  PackageDebian11_ARM:
-    if: github.ref_type == 'tag'
-    needs: [Debian10, Ubuntu20_04]
-    runs-on: [self-hosted, DockerMgBuild, ARM64]
-    # M1 Mac mini is sometimes slower
-    timeout-minutes: 150
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11-arm $BUILD_TYPE
-      - name: "Upload package"
-        uses: actions/upload-artifact@v4
-        with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
-
-  PushToS3Debian11_ARM:
-    if: github.ref_type == 'tag'
-    needs: [PackageDebian11_ARM]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download package
-        uses: actions/download-artifact@v4
-        with:
-          name: debian-11-aarch64
-          path: build/output/release
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "deps.memgraph.io"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph-unofficial/${{ github.ref_name }}/"
+    needs: [TestIndividual]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd, arm]
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: 'debian-12'
+      toolchain: 'v5'
+      arch: "${{ matrix.arch }}"
+      build_type: 'Release'
+      push_to_s3: 'true'
+      s3_bucket: "deps.memgraph.io"
+      s3_region: "eu-west-1"
+      s3_dest_dir: "memgraph-unofficial/${{ github.ref_name }}"
+    secrets: inherit
