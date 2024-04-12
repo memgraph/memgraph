@@ -36,7 +36,7 @@ on:
 jobs:
   CommunityBuild:
     if: ${{ github.event.inputs.community_build == 'true' || github.event_name == 'pull_request' }}
-    uses: ./.github/build_and_test/build_and_test_community.yaml
+    uses: ./.github/build_and_test_community.yaml
     with:
       arch: 'amd'
       build_type: 'RelWithDebInfo'
