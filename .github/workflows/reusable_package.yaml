@@ -166,8 +166,8 @@ jobs:
       - name: Validate dest_dir
         if: ${{ inputs.s3_bucket == 'download.memgraph.com' }}
         run: |
-          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/[0-9]\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/X.Y.Z'!"
+          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
+            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
             exit 1
           else
             echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
