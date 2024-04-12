@@ -15,9 +15,11 @@
 #include <json/json.hpp>
 #include <utility>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::audit {
 

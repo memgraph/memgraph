@@ -11,19 +11,23 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <limits>
 #include <optional>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 
@@ -540,13 +544,12 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
 
         // We don't need payload size so we set it to a random value
         return {{Type::ZONED_TEMPORAL_DATA, Size::INT8}};
-      } else {
-        // Valid timezone offsets may be -18 to +18 hours, with minute precision. This means that the range of possible
-        // offset values is [-1080, +1080], which is represented with 16-bit integers.
-
-        if (!writer->WriteTimezoneOffset(zoned_temporal_data.timezone.DefiningOffset())) return std::nullopt;
-        metadata->Set({Type::OFFSET_ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
       }
+      // Valid timezone offsets may be -18 to +18 hours, with minute precision. This means that the range of possible
+      // offset values is [-1080, +1080], which is represented with 16-bit integers.
+
+      if (!writer->WriteTimezoneOffset(zoned_temporal_data.timezone.DefiningOffset())) return std::nullopt;
+      metadata->Set({Type::OFFSET_ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
       // We don't need payload size so we set it to a random value
       return {{Type::OFFSET_ZONED_TEMPORAL_DATA, Size::INT8}};
     }

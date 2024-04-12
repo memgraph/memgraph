@@ -11,11 +11,15 @@
 
 #include "storage/v2/replication/slk.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <type_traits>
 
+#include "slk/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::slk {
 

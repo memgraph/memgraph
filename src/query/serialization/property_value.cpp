@@ -9,9 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cstdint>
+#include <string>
+
+#include <json/json.hpp>
+
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::query::serialization {
 

@@ -20,11 +20,13 @@
 #include <utility>
 
 #include "query/fmt.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::query {
 

@@ -9,6 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+
 #include "storage/v2/temporal.hpp"
 
 namespace memgraph::storage {

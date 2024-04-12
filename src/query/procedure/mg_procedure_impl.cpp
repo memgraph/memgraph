@@ -37,6 +37,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"

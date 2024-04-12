@@ -9,10 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cstdint>
+#include <optional>
+
+#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/cast.hpp"
 #include "utils/endian.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage::durability {
 

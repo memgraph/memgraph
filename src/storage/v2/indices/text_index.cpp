@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
+
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/db_accessor.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 #include "text_search.hpp"
 

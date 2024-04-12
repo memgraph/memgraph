@@ -30,6 +30,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -115,7 +116,7 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
 }
 
 void DumpZonedDateTime(std::ostream &os, const storage::ZonedTemporalData &value) {
-  utils::ZonedDateTime zdt(value.microseconds, value.timezone);
+  const utils::ZonedDateTime zdt(value.microseconds, value.timezone);
   os << "DATETIME(\"" << zdt << "\")";
 }
 

@@ -13,12 +13,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <random>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -26,6 +30,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
@@ -1315,16 +1320,15 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_parameters, const FunctionContext &ctx) {
-  utils::pmr::string timezone("timezone", ctx.memory);
+  const utils::pmr::string timezone("timezone", ctx.memory);
   if (input_parameters.contains(timezone)) {
-    const auto value = input_parameters.at(timezone);
+    const auto &value = input_parameters.at(timezone);
     if (value.IsString()) {
       return utils::Timezone(value.ValueString());
     } else if (value.IsInt()) {
       return utils::Timezone(std::chrono::minutes{value.ValueInt()});
-    } else {
-      throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
     }
+    throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
   } else {
     return utils::DefaultTimezone();
   }
@@ -1359,7 +1363,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
 
   auto fields = args[0].ValueMap();
   const auto timezone = GetTimezone(fields, ctx);
-  utils::pmr::string timezone_key("timezone", ctx.memory);
+  const utils::pmr::string timezone_key("timezone", ctx.memory);
   fields.erase(timezone_key);
 
   MapNumericParameters<Integer>(date_parameter_mappings, fields);

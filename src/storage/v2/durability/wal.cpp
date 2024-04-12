@@ -13,6 +13,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
+#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/version.hpp"

@@ -13,6 +13,7 @@
 
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::communication::bolt {
 

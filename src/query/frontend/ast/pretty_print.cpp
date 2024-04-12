@@ -14,6 +14,7 @@
 #include <type_traits>
 
 #include "query/frontend/ast/ast.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 

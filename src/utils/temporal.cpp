@@ -22,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -819,7 +820,7 @@ std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) cons
 }
 
 size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
-  utils::HashCombine<int64_t, int64_t> hasher;
+  const utils::HashCombine<int64_t, int64_t> hasher;
   size_t result = hasher(0, zoned_date_time.SysMicrosecondsSinceEpoch().count());
   const auto offset = zoned_date_time.GetTimezone().GetOffset();
   if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {
