@@ -11,15 +11,19 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/raft_state.hpp"
+#include <chrono>
+#include <functional>
+#include <optional>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/raft_state.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
-#include <chrono>
+#include "json/json.hpp"
 
 namespace memgraph::coordination {
 

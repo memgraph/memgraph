@@ -402,7 +402,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
                                       common_message, maybe_leader_coordinator->coordinator_id,
@@ -542,7 +542,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
                                       common_message, maybe_leader_coordinator->coordinator_id,

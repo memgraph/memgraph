@@ -11,17 +11,21 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_instance.hpp"
+#include <optional>
+#include <shared_mutex>
 
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/coordinator_instance.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/functional.hpp"
 #include "utils/resource_lock.hpp"
 
+#include <spdlog/spdlog.h>
 #include <range/v3/view.hpp>
-#include <shared_mutex>
 
 namespace memgraph::coordination {
 
@@ -231,13 +235,12 @@ void CoordinatorInstance::ForceResetCluster() {
     if (raft_state_.IsLockOpened() && raft_state_.IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster again as lock is opened still.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
-      return;
     } else if (raft_state_.IsLeader() && !raft_state_.IsLockOpened()) {
       is_leader_ready_ = true;
       spdlog::trace("Lock is not opened anymore and coordinator is leader, not doing force reset again.");
-      return;
+    } else {
+      spdlog::trace("Lock is not opened anymore or coordinator is not leader, not doing force reset again.");
     }
-    spdlog::trace("Lock is not opened anymore or coordinator is not leader, not doing force reset again.");
   }};
 
   auto const instances = raft_state_.GetReplicationInstances();
