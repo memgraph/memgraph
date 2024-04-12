@@ -37,6 +37,7 @@ Usage:
 
 Commands:
     prepare       Downloads and extracts specified dependencies.
+                  Supported only for TOOLCHAIN_RUN_DEPS.
     install       Install the specified dependencies.
     check         Check the specified dependencies.
 
