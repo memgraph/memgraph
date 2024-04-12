@@ -8,7 +8,7 @@
   [node port]
   (str "bolt://" node ":" port))
 
-(defn open
+(defn open-bolt
   "Open Bolt connection to the node"
   [node]
   (dbclient/connect (URI. (get-instance-url node 7687)) "" ""))

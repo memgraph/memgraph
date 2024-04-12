@@ -1,43 +1,27 @@
 (ns jepsen.memgraph.core
   (:gen-class)
-  (:import (java.net URI))
   (:require
-   [neo4j-clj.core :as dbclient]
-   [clojure.tools.logging :refer :all]
+   [clojure.tools.logging :refer [info]]
    [clojure.java.shell :refer [sh]]
    [jepsen [cli :as cli]
     [checker :as checker]
-    [client :as client]
     [generator :as gen]
-    [tests :as tests]]
+    [tests :as tests]
+    [nemesis :as jnemesis]]
    [jepsen.memgraph
-    [utils :as utils]
     [bank :as bank]
     [large :as large]
+    [haempty :as haempty]
     [support :as support]
     [nemesis :as nemesis]
     [edn :as e]]))
-
-(defrecord HAClient [conn]
-  client/Client
-  (open! [this test node]
-    (dbclient/connect (URI. (utils/get-instance-url node 7687)) "" "")
-    this)
-
-  (setup! [this test])
-
-  (invoke! [_ test op])
-
-  (teardown! [this test])
-
-  (close! [_ test]))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         (fn [] (println "High Availability workload"))})
+   :high_availability         haempty/workload})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -48,13 +32,22 @@
 (defn memgraph-ha-test
   "Given an options map from the command line runner constructs a test map for HA tests."
   [opts]
-  (merge tests/noop-test
-         opts
-         {:pure-generators true
-          :name            (str "test-" (name (:workload opts)))
-          :nodes           (keys (:nodes-config opts))
-          :db              (support/db opts)
-          :client          (HAClient. nil)}))
+  (let [workload ((get workloads (:workload opts)) opts)
+        gen      (->> (:generator workload)
+                      (gen/nemesis nil)
+                      (gen/time-limit (:time-limit opts)))]
+    (merge tests/noop-test
+           opts
+           {:pure-generators true
+            :name            (str "test-" (name (:workload opts)))
+            :db              (support/db opts)
+            :client          (:client workload)
+            :checker         (checker/compose
+                              {:stats      (checker/stats)
+                               :exceptions (checker/unhandled-exceptions)
+                               :workload   (:checker workload)})
+            :nodes           (keys (:nodes-config opts))
+            :generator      gen})))
 
 (defn memgraph-test
   "Given an options map from the command line runner constructs a test map."
@@ -64,7 +57,7 @@
         gen      (->> (:generator workload)
                       (gen/nemesis (:generator nemesis))
                       (gen/time-limit (:time-limit opts)))
-        gen      (if-let [final-generator (:final-generator workload)]
+        gen      (if-let [final-generator (:final-generator workload)] ; TODO (andi) Shouldn't here gen be named final-gen
                    (gen/phases gen
                                (gen/log "Healing cluster.")
                                (gen/nemesis (:final-generator nemesis))
@@ -164,7 +157,9 @@
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
-                       (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))
+                       (if (= workload :high_availability)
+                         (:nodes-config opts)
+                         (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))) ; validate only if not HA
                        (throw (Exception. "Nodes config flag undefined!")))
         ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
         sync-after-n-txn (if (= workload :bank)

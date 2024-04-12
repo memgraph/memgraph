@@ -8,8 +8,10 @@ Resources folder contains files in which config for each instance is specified. 
 Jepsen run under CI:
 ```
 cd tests/jepsen
-./run.sh test-all-individually --binary ../../build/memgraph --run-args "--nodes-config resources/replication-config.edn --time-limit 120"
+./run.sh test-all-individually --binary ../../build/memgraph --run-args "--time-limit 120"
 ./run.sh test --binary ../../build/memgraph --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120"
+./run.sh test --binary ../../build/memgraph --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 120"
+./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 120"
 ```
 
 Local run of each test (including setup):

@@ -16,7 +16,6 @@
 
 (defn start-node!
   [test _]
-  (info "Starting Memgraph node with sync-after-n-txn: " @sync-after-n-txn)
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid

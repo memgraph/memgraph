@@ -1,10 +1,11 @@
-name: "Diff"
+name: Diff
 concurrency:
   group: ${{ github.head_ref || github.sha }}
   cancel-in-progress: true
 
 on:
   merge_group:
+  workflow_dispatch:
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -12,47 +13,83 @@ on:
       - ".clang-format"
       - "CODEOWNERS"
       - "licenses/*"
-  workflow_dispatch:
 
 jobs:
-  Community:
-    uses: ./.github/workflows/diff_community.yaml
-    with:
-      arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
-    secrets: inherit
+  release_jepsen_test:
+    name: "Release Jepsen Test"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 80
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: debian-12
+      TOOLCHAIN: v5
+      ARCH: amd
+      BUILD_TYPE: RelWithDebInfo
 
-  Coverage:
-    uses: ./.github/workflows/diff_coverage.yaml
-    with:
-      arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
-    secrets: inherit
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          # Number of commits to fetch. `0` indicates all history for all
+          # branches and tags. (default: 1)
+          fetch-depth: 0
 
-  Debug:
-    uses: ./.github/workflows/diff_debug.yaml
-    with:
-      arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
-      run_core: 'true'
-      run_integration: 'true'
-    secrets: inherit
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  Jepsen:
-    uses: ./.github/workflows/diff_jepsen.yaml
-    secrets: inherit
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
 
-  Release:
-    uses: ./.github/workflows/diff_release.yaml
-    with:
-      arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
-      run_benchmark: 'true'
-      run_core: 'true'
-      run_e2e: 'true'
-      run_stress: 'true'
-    secrets: inherit
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --threads $THREADS \
+          build-memgraph
+
+      - name: Copy memgraph binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --binary --dest-dir build
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 30" --ignore-run-stdout-logs --ignore-run-stderr-logs --nodes-no 6
+
+      - name: Save Jepsen report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove

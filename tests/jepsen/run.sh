@@ -295,8 +295,13 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large"; do
-          RUN_JEPSEN "test --workload $workload $CONTROL_LEIN_RUN_ARGS"
+        for workload in "bank" "large" "high_availability"; do
+          if [ "$workload" == "high_availability" ]; then
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
+          else
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"
+          fi
+
           if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             break
           fi

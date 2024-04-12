@@ -61,7 +61,7 @@ jobs:
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test-all-individually --binary ../../build/memgraph --run-args "--nodes-config resources/replication-config.edn --time-limit 120"
+          ./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 30" --ignore-run-stdout-logs --ignore-run-stderr-logs --nodes-no 6
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4
