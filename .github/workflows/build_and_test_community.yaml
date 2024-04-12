@@ -1,7 +1,4 @@
 name: "Community build and test"
-concurrency:
-  group: ${{ github.head_ref || github.sha }}
-  cancel-in-progress: true
 
 on:
   workflow_call:
