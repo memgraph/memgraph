@@ -44,7 +44,6 @@ jobs:
       toolchain: 'v5'
     secrets: inherit
 
-
   # code_analysis:
   #   if: ${{ github.event.inputs.code_analysis == 'true' }}
   #   name: "Code analysis"
@@ -663,4 +662,3 @@ jobs:
   #         --os $OS \
   #         --arch $ARCH \
   #         stop --remove
->>>>>>> Stashed changes
