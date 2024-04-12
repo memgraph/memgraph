@@ -80,7 +80,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                 });
             std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
             is_leader_ready_ = true;
-            spdlog::trace("Leader set up! Atomic bool state {}", is_leader_ready_);
           },
           [this]() {
             thread_pool_.AddTask([this]() {
