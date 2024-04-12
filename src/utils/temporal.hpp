@@ -414,7 +414,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds);
 
 std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds);
-  
+
 struct ZonedDateTime {
  private:
   std::chrono::year_month_day LocalYMD() const {
@@ -467,8 +467,6 @@ struct ZonedDateTime {
     return Duration(lhs.SysMicrosecondsSinceEpoch().count()) - Duration(rhs.SysMicrosecondsSinceEpoch().count());
   }
 
-  std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
-
   int64_t LocalYear() const { return int(LocalYMD().year()); }
   int64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
   int64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
@@ -482,8 +480,12 @@ struct ZonedDateTime {
     const auto subseconds = LocalHMS().subseconds();
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
-  
+
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
+};
+
+struct ZonedDateTimeHash {
+  size_t operator()(const ZonedDateTime &zoned_date_time) const;
 };
 
 Date CurrentDate();
