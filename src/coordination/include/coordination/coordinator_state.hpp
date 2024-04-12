@@ -13,6 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <optional>
+
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"

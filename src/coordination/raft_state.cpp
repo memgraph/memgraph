@@ -11,6 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <optional>

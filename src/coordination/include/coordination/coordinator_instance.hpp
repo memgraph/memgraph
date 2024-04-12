@@ -13,6 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <atomic>
+#include <optional>
+
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
