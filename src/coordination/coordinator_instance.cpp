@@ -459,12 +459,6 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::MAIN_ALREADY_EXISTS;
   }
 
-  // TODO(antoniofilipovic) Check if request leadership can cause problems due to changing of leadership while other
-  // doing failover
-  if (!raft_state_.RequestLeadership()) {
-    return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
-  }
-
   auto const is_new_main = [&instance_name](ReplicationInstanceConnector const &instance) {
     return instance.InstanceName() == instance_name;
   };
@@ -566,11 +560,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
-  // TODO(antoniofilipovic) Check if this is an issue
-  if (!raft_state_.RequestLeadership()) {
-    return RegisterInstanceCoordinatorStatus::NOT_LEADER;
-  }
-
   if (!raft_state_.AppendOpenLock()) {
     return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
@@ -629,11 +618,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
   if (raft_state_.IsLockOpened()) {
     return UnregisterInstanceCoordinatorStatus::LOCK_OPENED;
-  }
-
-  // TODO(antoniofilipovic) Check if this is an issue
-  if (!raft_state_.RequestLeadership()) {
-    return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
   auto const name_matches = [&instance_name](ReplicationInstanceConnector const &instance) {
