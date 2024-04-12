@@ -288,7 +288,7 @@ repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" 
 # NuRaft
 NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
 NURAFT_TAG="master"
-repo_clone_try_double "${secondary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" true
+repo_clone_try_double "${primary_urls[nuraft]}" "${primary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" true
 pushd nuraft
 git checkout $NURAFT_COMMIT_HASH
 git apply ../nuraft.patch
