@@ -35,7 +35,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(CoordinatorInstanceInitConfig const &config);
+  CoordinatorStateMachine() = default;
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -82,8 +82,6 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
-
   // Getters
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
@@ -93,6 +91,8 @@ class CoordinatorStateMachine : public state_machine {
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
   auto IsLockOpened() const -> bool;
+
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
   struct SnapshotCtx {

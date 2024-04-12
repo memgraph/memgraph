@@ -427,7 +427,6 @@ struct ZonedDateTime {
 
  public:
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
-  explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
   explicit ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);

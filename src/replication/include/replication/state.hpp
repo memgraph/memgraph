@@ -107,6 +107,11 @@ struct ReplicationState {
     return false;
   }
 
+  auto GetMainRole() -> RoleMainData & {
+    MG_ASSERT(IsMain(), "Instance is not MAIN");
+    return std::get<RoleMainData>(replication_data_);
+  }
+
   bool HasDurability() const { return nullptr != durability_; }
 
   bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);

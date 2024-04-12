@@ -16,6 +16,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <shared_mutex>
 #include <string>
@@ -102,6 +103,10 @@ class Relationship;
 struct MapItem;
 class Duration;
 class Value;
+class QueryExecution;
+class ExecutionResult;
+class ExecutionHeaders;
+class ExecutionRow;
 
 struct StealType {};
 inline constexpr StealType steal{};
@@ -604,6 +609,7 @@ class Map {
   friend class Record;
   friend class Result;
   friend class Parameter;
+  friend class QueryExecution;
 
  public:
   /// @brief Creates a Map from the copy of the given @ref mgp_map.
@@ -1557,6 +1563,97 @@ class Return {
   Return(std::string_view name, std::pair<Type, Type> list_type);
 
   mgp_type *GetMGPType() const;
+};
+
+class ExecutionHeaders {
+ public:
+  ExecutionHeaders(mgp_execution_headers *headers);
+  size_t Size() const;
+  std::string At(size_t index) const;
+
+  std::string_view operator[](size_t index) const;
+
+  class Iterator {
+   private:
+    friend class ExecutionHeaders;
+
+   public:
+    using value_type = ExecutionHeaders;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const ExecutionHeaders *;
+    using reference = const ExecutionHeaders &;
+    using iterator_category = std::forward_iterator_tag;
+
+    bool operator==(const Iterator &other) const;
+
+    bool operator!=(const Iterator &other) const;
+
+    Iterator &operator++();
+
+    std::string_view operator*() const;
+
+   private:
+    Iterator(const ExecutionHeaders *iterable, size_t index);
+
+    const ExecutionHeaders *iterable_;
+    size_t index_;
+  };
+
+  Iterator begin();
+  Iterator end();
+
+  Iterator cbegin();
+  Iterator cend();
+
+ private:
+  mgp_execution_headers *headers_;
+};
+
+class QueryExecution {
+ public:
+  QueryExecution(mgp_graph *graph);
+  ExecutionResult ExecuteQuery(std::string_view query, Map params = Map()) const;
+  ExecutionResult ExecuteQuery(std::string query, Map params = Map()) const;
+
+ private:
+  mgp_graph *graph_;
+};
+
+class ExecutionRow {
+ private:
+  Map row_;
+
+ public:
+  ExecutionRow(mgp_map *row);
+
+  /// @brief Returns the size of the map.
+  size_t Size() const;
+
+  /// @brief Returns whether the map is empty.
+  bool Empty() const;
+
+  /// @brief Returns the value at the given `key`.
+  Value operator[](std::string_view key) const;
+
+  /// @brief Returns the value at the given `key`.
+  Value At(std::string_view key) const;
+
+  /// @brief Returns true if the given `key` exists.
+  bool KeyExists(std::string_view key) const;
+
+  mgp::Map Values() const;
+};
+
+class ExecutionResult {
+ public:
+  ExecutionResult(mgp_execution_result *result, mgp_graph *graph);
+  ~ExecutionResult();
+  ExecutionHeaders Headers() const;
+  std::optional<ExecutionRow> PullOne() const;
+
+ private:
+  mgp_execution_result *result_;
+  mgp_graph *graph_;
 };
 
 enum class ProcedureType : uint8_t {
@@ -4294,6 +4391,82 @@ inline mgp_type *Return::GetMGPType() const {
 
   return util::ToMGPType(type_);
 }
+
+inline ExecutionHeaders::ExecutionHeaders(mgp_execution_headers *headers) : headers_(headers) {}
+
+inline size_t ExecutionHeaders::Size() const { return mgp::execution_headers_size(headers_); }
+
+inline std::string ExecutionHeaders::At(size_t index) const {
+  return std::string(mgp::execution_headers_at(headers_, index));
+}
+
+inline QueryExecution::QueryExecution(mgp_graph *graph) : graph_(graph) {}
+
+inline ExecutionResult QueryExecution::ExecuteQuery(std::string_view query, mgp::Map params) const {
+  return ExecuteQuery(std::string(query), params);
+}
+
+inline ExecutionResult QueryExecution::ExecuteQuery(std::string query, mgp::Map params) const {
+  return ExecutionResult(mgp::MemHandlerCallback(execute_query, graph_, query.data(), params.ptr_), graph_);
+}
+
+inline ExecutionResult::ExecutionResult(mgp_execution_result *result, mgp_graph *graph)
+    : result_(result), graph_(graph) {}
+
+inline ExecutionResult::~ExecutionResult() { mgp::execution_result_destroy(result_); }
+
+inline ExecutionHeaders ExecutionResult::Headers() const { return mgp::fetch_execution_headers(result_); };
+
+inline std::optional<ExecutionRow> ExecutionResult::PullOne() const {
+  auto *value = mgp::MemHandlerCallback(pull_one, result_, graph_);
+  if (!value) {
+    return std::nullopt;
+  }
+
+  return ExecutionRow(value);
+}
+
+inline bool ExecutionHeaders::Iterator::operator==(const Iterator &other) const {
+  return iterable_ == other.iterable_ && index_ == other.index_;
+}
+
+inline bool ExecutionHeaders::Iterator::operator!=(const Iterator &other) const { return !(*this == other); }
+
+inline ExecutionHeaders::Iterator &ExecutionHeaders::Iterator::operator++() {
+  index_++;
+  return *this;
+}
+
+inline std::string_view ExecutionHeaders::Iterator::operator*() const { return (*iterable_)[index_]; }
+
+inline ExecutionHeaders::Iterator::Iterator(const ExecutionHeaders *iterable, size_t index)
+    : iterable_(iterable), index_(index) {}
+
+inline std::string_view ExecutionHeaders::operator[](size_t index) const {
+  return std::string_view(mgp::execution_headers_at(headers_, index));
+}
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::begin() { return Iterator(this, 0); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::end() { return Iterator(this, Size()); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::cbegin() { return Iterator(this, 0); }
+
+inline ExecutionHeaders::Iterator ExecutionHeaders::cend() { return Iterator(this, Size()); }
+
+inline ExecutionRow::ExecutionRow(mgp_map *row) : row_(row) {}
+
+inline size_t ExecutionRow::Size() const { return row_.Size(); }
+
+inline bool ExecutionRow::Empty() const { return row_.Empty(); }
+
+inline Value ExecutionRow::operator[](std::string_view key) const { return row_[key]; }
+
+inline Value ExecutionRow::At(std::string_view key) const { return row_.At(key); }
+
+inline bool ExecutionRow::KeyExists(std::string_view key) const { return row_.KeyExists(key); }
+
+inline mgp::Map ExecutionRow::Values() const { return mgp::Map(row_); }
 
 // do not enter
 namespace detail {

@@ -128,7 +128,6 @@ class CoordinatorInstance {
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
   utils::ThreadPool thread_pool_;
-
   RaftState raft_state_;
 };
 

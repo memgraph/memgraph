@@ -267,6 +267,15 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       properties.emplace(dba.NameToProperty(key), value);
     }
   }
+  if (context.evaluation_context.scope.in_merge) {
+    for (const auto &[k, v] : properties) {
+      if (v.IsNull()) {
+        throw QueryRuntimeException(fmt::format("Can't have null literal properties inside merge ({}.{})!",
+                                                node_info.symbol.name(), dba.PropertyToName(k)));
+      }
+    }
+  }
+
   MultiPropsInitChecked(&new_node, properties);
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
@@ -354,7 +363,7 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 namespace {
 
 EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                        Frame *frame, ExpressionEvaluator *evaluator) {
+                        Frame *frame, ExecutionContext &context, ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
@@ -367,6 +376,14 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
         properties.emplace(dba->NameToProperty(key), value);
+      }
+    }
+    if (context.evaluation_context.scope.in_merge) {
+      for (const auto &[k, v] : properties) {
+        if (v.IsNull()) {
+          throw QueryRuntimeException(fmt::format("Can't have null literal properties inside merge ({}.{})!",
+                                                  edge_info.symbol.name(), dba->PropertyToName(k)));
+        }
       }
     }
     if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
@@ -428,14 +445,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, context, &evaluator);
       case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
       case EdgeAtom::Direction::BOTH:
-        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, context, &evaluator);
     }
   }();
 
@@ -4076,11 +4093,13 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
       case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
         return;
       default:
         throw QueryRuntimeException(
-            "Only boolean, numeric and string values are allowed in "
-            "MIN and MAX aggregations.");
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX aggregations.");
     }
   }
 
@@ -4378,6 +4397,9 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
+  context.evaluation_context.scope.in_merge = true;
+  memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
+
   while (true) {
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
@@ -4386,9 +4408,10 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
         // and merge_create (could have a Once at the beginning)
         merge_match_cursor_->Reset();
         merge_create_cursor_->Reset();
-      } else
+      } else {
         // input is exhausted, we're done
         return false;
+      }
     }
 
     // pull from the merge_match cursor
@@ -5809,7 +5832,7 @@ RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
       list_collection_branch_(std::move(list_collection_branch)),
       result_symbol_(std::move(result_symbol)) {
   if (list_collection_symbols.size() != 1) {
-    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Contact support.");
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
   }
   list_collection_symbol_ = list_collection_symbols[0];
 }

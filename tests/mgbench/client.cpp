@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -91,7 +91,6 @@ ExecuteValidationNTimesTillSuccess(memgraph::communication::bolt::Client *client
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
-
       return {std::move(ret.metadata), std::move(ret.records)};
     } catch (const memgraph::utils::BasicException &e) {
       if (i == max_attempts - 1) {
@@ -422,6 +421,7 @@ nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::commun
   for (int i = 0; i < results.size(); i++) {
     oss << results[i];
     res[std::to_string(i)] = oss.str();
+    oss.str("");
   }
   return res;
 }

@@ -35,6 +35,7 @@ using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::coordination::RegisterInstanceCoordinatorStatus;
 using memgraph::coordination::ReplicationInstanceInitConfig;
+using memgraph::coordination::SetInstanceToMainCoordinatorStatus;
 using memgraph::io::network::Endpoint;
 using memgraph::replication::ReplicationHandler;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -62,65 +63,70 @@ struct ReplicationInstance {
   CoordinatorState coordinator_state;
 };
 
+// Networking is used in this test, be careful with ports used.
 class HighAvailabilityClusterSetupTest : public ::testing::Test {
  public:
   HighAvailabilityClusterSetupTest() {
     coordinator1.AddCoordinatorInstance(
         CoordinatorToCoordinatorConfig{.coordinator_id = 2,
-                                       .bolt_server = Endpoint{"127.0.0.1", 7691},
-                                       .coordinator_server = Endpoint{"127.0.0.1", 10112}});
+                                       .bolt_server = Endpoint{"0.0.0.0", 7691},
+                                       .coordinator_server = Endpoint{"0.0.0.0", 10112}});
 
     coordinator1.AddCoordinatorInstance(
         CoordinatorToCoordinatorConfig{.coordinator_id = 3,
-                                       .bolt_server = Endpoint{"127.0.0.1", 7692},
-                                       .coordinator_server = Endpoint{"127.0.0.1", 10113}});
+                                       .bolt_server = Endpoint{"0.0.0.0", 7692},
+                                       .coordinator_server = Endpoint{"0.0.0.0", 10113}});
     {
       auto const coord_to_instance_config =
           CoordinatorToReplicaConfig{.instance_name = "instance1",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10011},
-                                     .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                     .mgt_server = Endpoint{"0.0.0.0", 10011},
+                                     .bolt_server = Endpoint{"0.0.0.0", 7687},
                                      .replication_client_info = {.instance_name = "instance1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 10001}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
 
-      auto status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
+      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
       MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance1");
     }
     {
       auto const coord_to_instance_config =
           CoordinatorToReplicaConfig{.instance_name = "instance2",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10012},
-                                     .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                     .mgt_server = Endpoint{"0.0.0.0", 10012},
+                                     .bolt_server = Endpoint{"0.0.0.0", 7688},
                                      .replication_client_info = {.instance_name = "instance2",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10002}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 10002}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
 
-      auto status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
+      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
       MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance2");
     }
     {
       auto const coord_to_instance_config =
           CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                     .mgt_server = Endpoint{"127.0.0.1", 10013},
-                                     .bolt_server = Endpoint{"127.0.0.1", 7689},
+                                     .mgt_server = Endpoint{"0.0.0.0", 10013},
+                                     .bolt_server = Endpoint{"0.0.0.0", 7689},
                                      .replication_client_info = {.instance_name = "instance3",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10003}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 10003}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
 
-      auto status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
+      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
       MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance3");
+    }
+    {
+      auto const status = coordinator1.SetReplicationInstanceToMain("instance1");
+      MG_ASSERT(status == SetInstanceToMainCoordinatorStatus::SUCCESS, "Failed to set instance1 to main");
     }
   }
 
@@ -163,11 +169,11 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
   ReplicationInstance instance2{storage2_config, instance2_config};
   ReplicationInstance instance3{storage3_config, instance3_config};
   CoordinatorInstance coordinator1{
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7690}};
+      CoordinatorInstanceInitConfig{1, 10111, 7690, storage_directories[0] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator2{
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7691}};
+      CoordinatorInstanceInitConfig{2, 10112, 7691, storage_directories[1] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator3{
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7692}};
+      CoordinatorInstanceInitConfig{3, 10113, 7692, storage_directories[2] / "high_availability" / "coordinator"}};
 
  private:
   void Clear() {
@@ -177,5 +183,46 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
   }
 };
 
-TEST_F(HighAvailabilityClusterSetupTest, CreateCluster1) {}
-TEST_F(HighAvailabilityClusterSetupTest, CreateCluster2) {}
+TEST_F(HighAvailabilityClusterSetupTest, CreateCluster1) {
+  auto const leader_instances = coordinator1.ShowInstances();
+  EXPECT_EQ(leader_instances.size(), 6);
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_3"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance3"; }),
+            leader_instances.end());
+
+  auto const follower_instances = coordinator2.ShowInstances();
+  EXPECT_EQ(follower_instances.size(), 6);
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "coordinator_3"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance1"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance2"; }),
+            leader_instances.end());
+  ASSERT_NE(std::ranges::find_if(leader_instances,
+                                 [](auto const &instance) { return instance.instance_name == "instance3"; }),
+            leader_instances.end());
+}

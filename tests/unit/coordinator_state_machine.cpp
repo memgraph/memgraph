@@ -30,6 +30,7 @@ using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::ptr;
 
+// No networking communication in this test.
 class CoordinatorStateMachineTest : public ::testing::Test {
  protected:
   void SetUp() override {}
@@ -38,20 +39,24 @@ class CoordinatorStateMachineTest : public ::testing::Test {
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
                                      "MG_tests_unit_coordinator_state_machine"};
+
+  uint16_t const bolt_port = 9687;
+  uint16_t const mgt_port = 30112;
+  uint16_t const replication_port = 30001;
 };
 
 TEST_F(CoordinatorStateMachineTest, SerializeRegisterReplicationInstance) {
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
+  auto config = CoordinatorToReplicaConfig{
+      .instance_name = "instance3",
+      .mgt_server = Endpoint{"127.0.0.1", mgt_port},
+      .bolt_server = Endpoint{"127.0.0.1", bolt_port},
+      .replication_client_info = {.instance_name = "instance_name",
+                                  .replication_mode = ReplicationMode::ASYNC,
+                                  .replication_server = Endpoint{"127.0.0.1", replication_port}},
+      .instance_health_check_frequency_sec = std::chrono::seconds{1},
+      .instance_down_timeout_sec = std::chrono::seconds{5},
+      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+      .ssl = std::nullopt};
 
   ptr<buffer> data = CoordinatorStateMachine::SerializeRegisterInstance(config);
   buffer_serializer bs(*data);
@@ -60,17 +65,17 @@ TEST_F(CoordinatorStateMachineTest, SerializeRegisterReplicationInstance) {
 }
 
 TEST_F(CoordinatorStateMachineTest, SerializeUnregisterReplicationInstance) {
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
+  auto config = CoordinatorToReplicaConfig{
+      .instance_name = "instance3",
+      .mgt_server = Endpoint{"127.0.0.1", mgt_port},
+      .bolt_server = Endpoint{"127.0.0.1", bolt_port},
+      .replication_client_info = {.instance_name = "instance_name",
+                                  .replication_mode = ReplicationMode::ASYNC,
+                                  .replication_server = Endpoint{"127.0.0.1", replication_port}},
+      .instance_health_check_frequency_sec = std::chrono::seconds{1},
+      .instance_down_timeout_sec = std::chrono::seconds{5},
+      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+      .ssl = std::nullopt};
 
   CoordinatorStateMachine::SerializeRegisterInstance(config);
   ptr<buffer> data = CoordinatorStateMachine::SerializeUnregisterInstance("instance3");
@@ -81,29 +86,18 @@ TEST_F(CoordinatorStateMachineTest, SerializeUnregisterReplicationInstance) {
   ASSERT_EQ(bs.get_str(), expected.dump());
 }
 
-TEST_F(CoordinatorStateMachineTest, SerializeAddCoordinatorInstance) {
-  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
-                                        .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                        .coordinator_server = Endpoint{"127.0.0.1", 10111}};
-
-  ptr<buffer> data = CoordinatorStateMachine::SerializeAddCoordinatorInstance(config);
-  buffer_serializer bs(*data);
-  auto const expected = nlohmann::json{{"action", RaftLogAction::ADD_COORDINATOR_INSTANCE}, {"info", config}};
-  ASSERT_EQ(bs.get_str(), expected.dump());
-}
-
 TEST_F(CoordinatorStateMachineTest, SerializeSetInstanceToMain) {
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
+  auto config = CoordinatorToReplicaConfig{
+      .instance_name = "instance3",
+      .mgt_server = Endpoint{"127.0.0.1", mgt_port},
+      .bolt_server = Endpoint{"127.0.0.1", bolt_port},
+      .replication_client_info = {.instance_name = "instance_name",
+                                  .replication_mode = ReplicationMode::ASYNC,
+                                  .replication_server = Endpoint{"127.0.0.1", replication_port}},
+      .instance_health_check_frequency_sec = std::chrono::seconds{1},
+      .instance_down_timeout_sec = std::chrono::seconds{5},
+      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+      .ssl = std::nullopt};
 
   CoordinatorStateMachine::SerializeRegisterInstance(config);
 

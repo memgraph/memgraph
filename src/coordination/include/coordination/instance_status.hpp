@@ -19,14 +19,14 @@
 
 namespace memgraph::coordination {
 
-// TODO: (andi) For phase IV. Some instances won't have raft_socket_address, coord_socket_address, replication_role and
-// cluster role... At the end, all instances will have everything.
 struct InstanceStatus {
   std::string instance_name;
   std::string raft_socket_address;
   std::string coord_socket_address;
   std::string cluster_role;
   std::string health;
+
+  friend bool operator==(InstanceStatus const &lhs, InstanceStatus const &rhs) = default;
 };
 
 }  // namespace memgraph::coordination
