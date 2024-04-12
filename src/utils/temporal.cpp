@@ -11,12 +11,17 @@
 
 #include "utils/temporal.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <compare>
+#include <cstdint>
 #include <ctime>
+#include <format>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -593,7 +598,7 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   };
 
   const auto sign = timezone_offset_string.front();
-  if (!(sign == '+' || sign == '-')) {
+  if (sign != '+' && sign != '-') {
     throw temporal::InvalidArgumentException("The timezone offset starts with either a '+' sign or a '-' sign.");
   }
 
@@ -662,7 +667,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
     throw temporal::InvalidArgumentException("Timezone is not designated.");
   }
 
-  std::string ldt_substring = {string.data(), timezone_designator_start_position};
+  const std::string ldt_substring = {string.data(), timezone_designator_start_position};
   string.remove_prefix(timezone_designator_start_position);
 
   auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
@@ -721,12 +726,10 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
 
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
-  std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
+  const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
       LocalDateTime(zoned_date_time_parameters.date, zoned_date_time_parameters.local_time).MicrosecondsSinceEpoch())};
   zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
 }
-
-ZonedDateTime::ZonedDateTime(const ZonedDateTime &zoned_date_time) : zoned_time(zoned_date_time.zoned_time) {}
 
 ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
     : zoned_time(zoned_time) {}
@@ -759,12 +762,12 @@ bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
 
 std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) const {
   const auto duration_ordering = MicrosecondsSinceEpoch() <=> other.MicrosecondsSinceEpoch();
-  if (duration_ordering != 0) {
+  if (duration_ordering != std::strong_ordering::equal) {
     return duration_ordering;
   }
 
   const auto offset_ordering = OffsetInMinutes() <=> other.OffsetInMinutes();
-  if (offset_ordering != 0) {
+  if (offset_ordering != std::strong_ordering::equal) {
     return offset_ordering;
   }
 

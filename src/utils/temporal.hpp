@@ -384,7 +384,6 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string);
 
 struct ZonedDateTime {
   explicit ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters);
-  explicit ZonedDateTime(const ZonedDateTime &zoned_date_time);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
   int64_t MicrosecondsSinceEpoch() const;
