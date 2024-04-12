@@ -13,15 +13,13 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-centos-9-x86_64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
+ARG GIT_REF=master
 SHELL ["/bin/bash", "-c"]
-RUN git clone https://github.com/memgraph/memgraph.git \
+RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
     && ./environment/os/centos-9.sh install TOOLCHAIN_RUN_DEPS \
     && ./environment/os/centos-9.sh install MEMGRAPH_BUILD_DEPS \
     && cd .. && rm -rf memgraph
-
-# Add mgdeps-cache and bench-graph-api hostnames
-RUN echo -e "10.42.16.10     mgdeps-cache\n10.42.16.10     bench-graph-api" >> /etc/hosts
 
 # Create mg user and set as default
 RUN useradd -m -s /bin/bash mg

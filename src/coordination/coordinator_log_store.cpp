@@ -34,7 +34,7 @@ CoordinatorLogStore::CoordinatorLogStore() : start_idx_(1) {
   logs_[0] = cs_new<log_entry>(0, buf);
 }
 
-CoordinatorLogStore::~CoordinatorLogStore() {}
+CoordinatorLogStore::~CoordinatorLogStore() = default;
 
 auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry> {
   auto entry = logs_.find(index);
@@ -70,8 +70,6 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   return next_slot;
 }
 
-// TODO: (andi) I think this is used for resolving conflicts inside NuRaft, check...
-// different compared to in_memory_log_store.cxx
 void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   ptr<log_entry> clone = MakeClone(entry);
 

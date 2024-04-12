@@ -145,6 +145,59 @@ TEST(TypedValue, Equals) {
                  TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(2)}}));
   EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
                  TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(1)}}));
+
+  const auto date_1 = TypedValue(memgraph::utils::Date({2024, 3, 19}));
+  const auto date_2 = TypedValue(memgraph::utils::Date({2024, 3, 20}));
+
+  EXPECT_PROP_EQ(date_1, date_1);
+  EXPECT_PROP_NE(date_1, date_2);
+
+  const auto local_time_1 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  const auto local_time_2 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 200}));
+
+  EXPECT_PROP_EQ(local_time_1, local_time_1);
+  EXPECT_PROP_NE(local_time_1, local_time_2);
+
+  const auto local_date_time_1 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 100}));
+  const auto local_date_time_2 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}));
+
+  EXPECT_PROP_EQ(local_date_time_1, local_date_time_1);
+  EXPECT_PROP_NE(local_date_time_1, local_date_time_2);
+}
+
+TEST(TypedValue, Comparison) {
+  auto run_comparison_cases = [](const TypedValue &lesser, const TypedValue &greater) {
+    EXPECT_PROP_TRUE(lesser < greater);
+    EXPECT_PROP_TRUE(greater > lesser);
+    EXPECT_PROP_FALSE(lesser > greater);
+    EXPECT_PROP_FALSE(greater < lesser);
+
+    EXPECT_PROP_FALSE(lesser > lesser);
+    EXPECT_PROP_FALSE(lesser < lesser);
+
+    EXPECT_PROP_TRUE(lesser <= lesser);
+    EXPECT_PROP_TRUE(lesser <= greater);
+    EXPECT_PROP_FALSE(greater <= lesser);
+
+    EXPECT_PROP_TRUE(greater >= lesser);
+    EXPECT_PROP_TRUE(greater >= greater);
+    EXPECT_PROP_FALSE(lesser >= greater);
+  };
+
+  const auto date_1 = TypedValue(memgraph::utils::Date({2024, 3, 19}));
+  const auto date_2 = TypedValue(memgraph::utils::Date({2024, 3, 20}));
+
+  run_comparison_cases(date_1, date_2);
+
+  const auto local_time_1 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  const auto local_time_2 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 200}));
+
+  run_comparison_cases(local_time_1, local_time_2);
+
+  const auto local_date_time_1 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 100}));
+  const auto local_date_time_2 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}));
+
+  run_comparison_cases(local_date_time_1, local_date_time_2);
 }
 
 TEST(TypedValue, BoolEquals) {
