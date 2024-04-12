@@ -64,6 +64,8 @@ class CoordinatorInstance {
 
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
+  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
@@ -119,6 +121,9 @@ class CoordinatorInstance {
 
   void ForceResetCluster();
 
+  // This needs to be constructed before raft state is created because raft state may call
+  // setting up leader instance
+  std::atomic<bool> is_leader_ready_{false};
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
   // NOTE: Must be std::list because we rely on pointer stability.

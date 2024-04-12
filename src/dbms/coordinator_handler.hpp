@@ -42,6 +42,8 @@ class CoordinatorHandler {
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
 
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+
  private:
   coordination::CoordinatorState &coordinator_state_;
 };

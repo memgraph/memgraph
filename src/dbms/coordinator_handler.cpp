@@ -43,6 +43,11 @@ auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoord
   coordinator_state_.AddCoordinatorInstance(config);
 }
 
+auto CoordinatorHandler::GetLeaderCoordinatorData() const
+    -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+  return coordinator_state_.GetLeaderCoordinatorData();
+}
+
 }  // namespace memgraph::dbms
 
 #endif
