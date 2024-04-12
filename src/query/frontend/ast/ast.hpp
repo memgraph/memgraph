@@ -2147,8 +2147,6 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   std::vector<memgraph::query::IndexHint> index_hints_;
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
-  /// Hops limit
-  memgraph::query::Expression *hops_limit_{nullptr};
   size_t memory_scale_{1024U};
 
   CypherQuery *Clone(AstStorage *storage) const override {
@@ -2163,7 +2161,6 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
       object->index_hints_[i6] = index_hints_[i6].Clone(storage);
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
-    object->hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     return object;
   }

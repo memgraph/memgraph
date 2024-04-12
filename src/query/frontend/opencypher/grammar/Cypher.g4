@@ -62,7 +62,7 @@ explainQuery : EXPLAIN cypherQuery ;
 
 profileQuery : PROFILE cypherQuery ;
 
-cypherQuery : singleQuery ( cypherUnion )* ( hopsLimit )? ( queryMemoryLimit )? ;
+cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
 
@@ -131,8 +131,6 @@ queryMemoryLimit : QUERY memoryLimit ;
 procedureMemoryLimit : PROCEDURE memoryLimit ;
 
 procedureResult : ( variable AS variable ) | variable ;
-
-hopsLimit : HOPS LIMIT literal ;
 
 returnBody : returnItems ( order )? ( skip )? ( limit )? ;
 
@@ -390,7 +388,6 @@ cypherKeyword : ALL
               | EXTRACT
               | FALSE
               | FILTER
-              | HOPS
               | IN
               | INDEX
               | INFO
