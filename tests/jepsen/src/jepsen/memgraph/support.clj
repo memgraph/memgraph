@@ -12,15 +12,17 @@
 (def mgdata (str mgdir "/mg_data"))
 (def mglog  (str mgdir "/memgraph.log"))
 (def mgpid  (str mgdir "/memgraph.pid"))
+(def sync-after-n-txn (atom 100000))
 
 (defn start-node!
   [test _]
+  (info "Starting Memgraph node with sync-after-n-txn: " @sync-after-n-txn)
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
     :chdir   mgdir}
    (:local-binary test)
-   :--log-level "INFO"
+   :--log-level "TRACE"
    :--also-log-to-stderr
    :--storage-recover-on-startup
    :--storage-wal-enabled
@@ -28,6 +30,8 @@
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
+   :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
+   :--telemetry-enabled false
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
@@ -48,6 +52,7 @@
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
+   :--telemetry-enabled false
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)))
 
@@ -68,12 +73,12 @@
    :--replication-restore-state-on-startup
    :--data-recovery-on-startup
    :--storage-properties-on-edges
+   :--telemetry-enabled false
    :--management-port (get node-config :management-port)))
 
 (defn stop-node!
   [test _]
   (cu/stop-daemon! (:local-binary test) mgpid))
-
 
 (defn db
   "Manage Memgraph DB on each node."
@@ -81,7 +86,9 @@
   (reify db/DB ; Construct a new object satisfying the Jepsen's DB protocol.
     (setup! [_ test node] ; Each DB must support setup! method.
       (let [local-binary (:local-binary opts)
-            node-config (get (:node-config opts) node)]
+            node-config (get (:nodes-config opts) node)
+            flush-after-n-txn (:sync-after-n-txn opts)]
+        (reset! sync-after-n-txn flush-after-n-txn)
         (c/su (debian/install ['python3 'python3-dev]))
         (c/su (meh (c/exec :killall :memgraph)))
         (try (c/exec :command :-v local-binary)
