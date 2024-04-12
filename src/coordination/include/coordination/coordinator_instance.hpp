@@ -125,11 +125,11 @@ class CoordinatorInstance {
 
   void ForceResetCluster();
 
-  // This needs to be constructed before raft state is created because raft state may call
-  // setting up leader instance
-  std::atomic<bool> is_leader_ready_{false};
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  void BecomeLeader();
+  void BecomeFollower();
 
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  std::atomic<bool> is_leader_ready_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
@@ -137,7 +137,10 @@ class CoordinatorInstance {
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
   utils::ThreadPool thread_pool_;
-  RaftState raft_state_;
+
+  // This needs to be constructed last because raft state may call
+  // setting up leader instance
+  std::unique_ptr<RaftState> raft_state_;
 };
 
 }  // namespace memgraph::coordination

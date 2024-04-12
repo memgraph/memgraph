@@ -47,7 +47,9 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       state_manager_(cs_new<CoordinatorStateManager>(config)),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {}
+      become_follower_cb_(std::move(become_follower_cb)) {
+  InitRaftServer();
+}
 
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
@@ -105,14 +107,6 @@ auto RaftState::InitRaftServer() -> void {
   } while (!maybe_stop());
 
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
-}
-
-auto RaftState::MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
-                              BecomeFollowerCb &&become_follower_cb) -> RaftState {
-  auto raft_state = RaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
-
-  raft_state.InitRaftServer();
-  return raft_state;
 }
 
 RaftState::~RaftState() {
