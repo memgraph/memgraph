@@ -6,6 +6,26 @@ concurrency:
 on:
   merge_group:
   workflow_dispatch:
+    inputs:
+      community_build:
+        type: boolean
+        default: true
+      code_analysis:
+        type: boolean
+        default: true
+      debug_build:
+        type: boolean
+        default: true
+      release_build:
+        type: boolean
+        default: true
+      release_jepsen_test:
+        type: boolean
+        default: true
+      release_benchmarks:
+        type: boolean
+        default: true
+      
   pull_request:
     paths-ignore:
       - "docs/**"
@@ -16,6 +36,7 @@ on:
 
 jobs:
   community_build:
+    if: ${{ github.event.inputs.community_build == 'true' || github.event_name == 'pull_request' }}
     name: "Community build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
@@ -81,6 +102,7 @@ jobs:
           stop --remove
 
   code_analysis:
+    if: ${{ github.event.inputs.code_analysis == 'true' }}
     name: "Code analysis"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
@@ -207,6 +229,7 @@ jobs:
           stop --remove
 
   debug_build:
+    if: ${{ github.event.inputs.debug_build == 'true' }}
     name: "Debug build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 100
@@ -322,6 +345,7 @@ jobs:
           stop --remove
 
   release_build:
+    if: ${{ github.event.inputs.release_build == 'true' }}
     name: "Release build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 100
@@ -502,6 +526,7 @@ jobs:
           stop --remove
 
   release_jepsen_test:
+    if: ${{ github.event.inputs.release_jepsen_test == 'true' }}
     name: "Release Jepsen Test"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 80
@@ -581,6 +606,7 @@ jobs:
           stop --remove
 
   release_benchmarks:
+    if: ${{ github.event.inputs.release_benchmarks == 'true' }}
     name: "Release benchmarks"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild, Gen7]
     timeout-minutes: 60
