@@ -416,11 +416,11 @@ std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds)
 std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds);
 struct ZonedDateTime {
  private:
-  std::chrono::year_month_day YMD() const {
+  std::chrono::year_month_day LocalYMD() const {
     return std::chrono::year_month_day{floor<std::chrono::days>(zoned_time.get_local_time())};
   }
 
-  std::chrono::hh_mm_ss<std::chrono::microseconds> HMS() const {
+  std::chrono::hh_mm_ss<std::chrono::microseconds> LocalHMS() const {
     const auto &tp = zoned_time.get_local_time();
     return std::chrono::hh_mm_ss{floor<std::chrono::microseconds>(tp - floor<std::chrono::days>(tp))};
   }
@@ -468,17 +468,17 @@ struct ZonedDateTime {
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 
-  int64_t Year() const { return int(YMD().year()); }
-  int64_t Month() const { return static_cast<unsigned>(YMD().month()); }
-  int64_t Day() const { return static_cast<unsigned>(YMD().day()); }
-  int64_t Hour() const { return HMS().hours().count(); }
-  int64_t Minute() const { return HMS().minutes().count(); }
-  int64_t Second() const { return HMS().seconds().count(); }
-  int64_t Millisecond() const {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(HMS().subseconds()).count();
+  int64_t LocalYear() const { return int(LocalYMD().year()); }
+  int64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
+  int64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
+  int64_t LocalHour() const { return LocalHMS().hours().count(); }
+  int64_t LocalMinute() const { return LocalHMS().minutes().count(); }
+  int64_t LocalSecond() const { return LocalHMS().seconds().count(); }
+  int64_t LocalMillisecond() const {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(LocalHMS().subseconds()).count();
   }
-  int64_t Microsecond() const {
-    const auto subseconds = HMS().subseconds();
+  int64_t LocalMicrosecond() const {
+    const auto subseconds = LocalHMS().subseconds();
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
 };

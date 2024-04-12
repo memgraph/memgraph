@@ -929,14 +929,14 @@ TEST(TemporalTest, ZonedDateTimeComponents) {
 
   const auto zdt = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone("Europe/Zagreb")});
 
-  EXPECT_EQ(zdt.Year(), 2024);
-  EXPECT_EQ(zdt.Month(), 3);
-  EXPECT_EQ(zdt.Day(), 25);
-  EXPECT_EQ(zdt.Hour(), 14);
-  EXPECT_EQ(zdt.Minute(), 18);
-  EXPECT_EQ(zdt.Second(), 13);
-  EXPECT_EQ(zdt.Millisecond(), 206);
-  EXPECT_EQ(zdt.Microsecond(), 22);
+  EXPECT_EQ(zdt.LocalYear(), 2024);
+  EXPECT_EQ(zdt.LocalMonth(), 3);
+  EXPECT_EQ(zdt.LocalDay(), 25);
+  EXPECT_EQ(zdt.LocalHour(), 14);
+  EXPECT_EQ(zdt.LocalMinute(), 18);
+  EXPECT_EQ(zdt.LocalSecond(), 13);
+  EXPECT_EQ(zdt.LocalMillisecond(), 206);
+  EXPECT_EQ(zdt.LocalMicrosecond(), 22);
   EXPECT_EQ(zdt.GetTimezone().ToString(), "Europe/Zagreb");
 
   const auto alt_tz_1 = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone(std::chrono::minutes{90})});

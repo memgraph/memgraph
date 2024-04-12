@@ -541,28 +541,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     auto maybe_zoned_date_time = [this](const auto &zdt, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "year") {
-        return TypedValue(zdt.Year(), ctx_->memory);
+        return TypedValue(zdt.LocalYear(), ctx_->memory);
       }
       if (prop_name == "month") {
-        return TypedValue(zdt.Month(), ctx_->memory);
+        return TypedValue(zdt.LocalMonth(), ctx_->memory);
       }
       if (prop_name == "day") {
-        return TypedValue(zdt.Day(), ctx_->memory);
+        return TypedValue(zdt.LocalDay(), ctx_->memory);
       }
       if (prop_name == "hour") {
-        return TypedValue(zdt.Hour(), ctx_->memory);
+        return TypedValue(zdt.LocalHour(), ctx_->memory);
       }
       if (prop_name == "minute") {
-        return TypedValue(zdt.Minute(), ctx_->memory);
+        return TypedValue(zdt.LocalMinute(), ctx_->memory);
       }
       if (prop_name == "second") {
-        return TypedValue(zdt.Second(), ctx_->memory);
+        return TypedValue(zdt.LocalSecond(), ctx_->memory);
       }
       if (prop_name == "millisecond") {
-        return TypedValue(zdt.Millisecond(), ctx_->memory);
+        return TypedValue(zdt.LocalMillisecond(), ctx_->memory);
       }
       if (prop_name == "microsecond") {
-        return TypedValue(zdt.Microsecond(), ctx_->memory);
+        return TypedValue(zdt.LocalMicrosecond(), ctx_->memory);
       }
       if (prop_name == "timezone") {
         return TypedValue(zdt.GetTimezone().ToString(), ctx_->memory);
