@@ -2049,9 +2049,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
             "'127.0.0.1:10050', 'replication_server': '127.0.0.1:10051'};",
         )
 
-    assert "Couldn't register replica instance because because the last action didn't finish successfully!" == str(
-        e.value
-    )
+    assert "Couldn't register replica instance since coordinator is not a leader!" in str(e.value)
 
     # 6
 
