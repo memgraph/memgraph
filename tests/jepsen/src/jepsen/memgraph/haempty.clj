@@ -28,6 +28,7 @@
                                             :value "PLACEHOLDER")
                                :register (if (= node "n4") ; Node with coordinator-id = 1
                                            (do
+                                             ; Register replication instances
                                              (doseq [repl-config (filter #(contains? (val %) :replication-port)
                                                                          nodes-config)]
                                                (try
@@ -37,6 +38,17 @@
                                                      (second repl-config)) session))
                                                  (catch Exception e
                                                    (assoc op :type :fail :info e))))
+                                             ; Add coordinator instances
+                                             (doseq [coord-config (filter #(contains? (val %) :coordinator-port)
+                                                                          nodes-config)]
+                                               (try
+                                                 (utils/with-session conn session
+                                                   ((haclient/add-coordinator-instance
+                                                     (first coord-config)
+                                                     (second coord-config)) session))
+                                                 (catch Exception e
+                                                   (assoc op :type :fail :info e))))
+
                                              (assoc op :type :ok))
                                            (assoc op :type :fail :info "Trying to register on node != n4"))))
 

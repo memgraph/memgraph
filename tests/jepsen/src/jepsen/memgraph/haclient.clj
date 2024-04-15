@@ -24,6 +24,21 @@
      (info "Registering replication instance" query)
      query)))
 
+(defn add-coordinator-instance
+  [name node-config]
+  (dbclient/create-query
+   (let [query
+         (str "ADD COORDINATOR INSTANCE "
+              (str (:coordinator-id node-config))
+              " WITH CONFIG {bolt_server: '"
+              name
+              ":7687', "
+              "coordinator_server: '"
+              name
+              ":" (str (:coordinator-port node-config)) "'}")]
+     (info "Adding coordinator instance" query)
+     query)))
+
 (defn register-replication-instances
   "Register all replication instances."
   [_ _]
