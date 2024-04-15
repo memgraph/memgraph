@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/pretty_print.hpp"
+#include <utility>
 #include <variant>
 
 #include "query/db_accessor.hpp"
