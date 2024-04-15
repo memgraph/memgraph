@@ -56,7 +56,7 @@ jobs:
 
       - name: Set base branch
         run: |
-          local base_branch="master"
+          base_branch="master"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             base_branch="${{ github.base_ref }}"
           fi
