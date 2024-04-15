@@ -291,13 +291,15 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
     case Marker::TYPE_STRING: {
       auto timezone_name = decoder.ReadString();
       if (!timezone_name) return std::nullopt;
-      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::AsSysTime(*microseconds),
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
+                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
                                utils::Timezone(*timezone_name)};
     }
     case Marker::TYPE_INT: {
       auto offset_minutes = decoder.ReadUint();
       if (!offset_minutes) return std::nullopt;
-      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type), utils::AsSysTime(*microseconds),
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
+                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
                                utils::Timezone(std::chrono::minutes{*offset_minutes})};
     }
     default:
