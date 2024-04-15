@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <optional>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/instance_status.hpp"
@@ -41,6 +43,8 @@ class CoordinatorHandler {
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
  private:
   coordination::CoordinatorState &coordinator_state_;

@@ -7,7 +7,7 @@ MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
+CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
@@ -247,6 +247,7 @@ case $1 in
     ;;
 
     cluster-refresh)
+        PROCESS_ARGS "$@"
         CLUSTER_DEALLOC
         CLUSTER_UP
     ;;
@@ -295,7 +296,7 @@ case $1 in
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
         for workload in "bank" "large"; do
-          RUN_JEPSEN "test --workload $workload --node-configs resources/node-config.edn"
+          RUN_JEPSEN "test --workload $workload $CONTROL_LEIN_RUN_ARGS"
           if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             break
           fi

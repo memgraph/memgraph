@@ -30,7 +30,8 @@
 (defn full-generator
   "Construct nemesis generator."
   []
-  (gen/phases (cycle [(gen/sleep 5)
+  (gen/phases (cycle [
+                      (gen/sleep 5)
                       {:type :info, :f :kill-node}
                       (gen/sleep 5)
                       {:type :info, :f :restart-node}
