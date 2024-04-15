@@ -12,28 +12,39 @@
    (let [query
          (str "REGISTER INSTANCE "
               name
-              " WITH CONFIG {bolt_server: '"
+              " WITH CONFIG {'bolt_server': '"
               name
               ":7687', "
-              "management_server: '"
+              "'management_server': '"
               name
               ":" (str (:management-port node-config)) "', "
-              "replication_server: '"
+              "'replication_server': '"
               name
               ":" (str (:replication-port node-config)) "'}")]
      (info "Registering replication instance" query)
+     query)))
+
+(defn set-db-setting
+  [setting value]
+  (dbclient/create-query
+   (let [query
+         (str "SET DATABASE SETTING '"
+              setting
+              "' TO '"
+              value
+              "'")]
      query)))
 
 (defn add-coordinator-instance
   [name node-config]
   (dbclient/create-query
    (let [query
-         (str "ADD COORDINATOR INSTANCE "
+         (str "ADD COORDINATOR "
               (str (:coordinator-id node-config))
-              " WITH CONFIG {bolt_server: '"
+              " WITH CONFIG {'bolt_server': '"
               name
               ":7687', "
-              "coordinator_server: '"
+              "'coordinator_server': '"
               name
               ":" (str (:coordinator-port node-config)) "'}")]
      (info "Adding coordinator instance" query)
@@ -50,14 +61,6 @@
   [generator]
   (gen/each-thread (gen/phases [(gen/once register-replication-instances)
                                 (gen/time-limit 5 generator)])))
-
-(defmacro ha-client
-  "Create Client for HA tests."
-  [name [& fields] & specs]
-  (info "Ha client created")
-  (concat `(defrecord ~name [~'conn ~'node ~'node-config ~'nodes-config ~@fields]
-             client/Client)
-          specs))
 
 ; TODO: (andi) Maybe move it to haempty.clj test if haclient won't make sense
 (defn ha-open-connection

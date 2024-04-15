@@ -147,6 +147,9 @@
    ["-w" "--workload NAME" "Test workload to run"
     :parse-fn keyword
     :validate [workloads (cli/one-of workloads)]]
+   ["-l" "--license KEY" "Memgraph license key"
+    :default nil]
+   ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % e/load-configuration)]])
 
@@ -165,11 +168,17 @@
         sync-after-n-txn (if (= workload :bank)
                            1
                            100000)
+        licence (when (:license opts)
+                  (:license opts))
+        organization (when (:organization opts)
+                       (:organization opts))
         test-opts (merge opts
                          {:workload workload
                           :nodes-config nodes-config
-                          :sync-after-n-txn sync-after-n-txn})]
-
+                          :sync-after-n-txn sync-after-n-txn
+                          :license licence
+                          :organization organization})]
+    (info "NODES CONFIG " nodes-config)
     (if (= workload :high_availability)
       (memgraph-ha-test test-opts)
       (memgraph-test test-opts))))

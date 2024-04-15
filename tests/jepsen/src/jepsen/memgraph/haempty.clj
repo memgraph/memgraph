@@ -8,6 +8,7 @@
              [store :as store]
              [checker :as checker]
              [generator :as gen]
+             [client :as client]
              [history :as h]
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
@@ -15,47 +16,59 @@
             [jepsen.memgraph.haclient :as haclient]
             [jepsen.memgraph.utils :as utils]))
 
-(haclient/ha-client Client []
-                    ; Open connection to the node. Setup each node.
-                    (open! [this test node]
-                           (haclient/ha-open-connection this node nodes-config))
-                           ; On main detach-delete-all and create accounts.
-                    (setup! [this test])
-                    (invoke! [this test op]
-                             (case (:f op)
-                               :read (assoc op
-                                            :type :ok
-                                            :value "PLACEHOLDER")
-                               :register (if (= node "n4") ; Node with coordinator-id = 1
-                                           (do
+(defrecord Client [nodes-config license organization]
+  client/Client
+  (open! [this _ node]
+    (info "Opening connection to node" node)
+    (let [connection (utils/open-bolt node)
+          node-config (get nodes-config node)]
+      (assoc this
+             :conn connection
+             :node-config node-config
+             :node node)))
+  (setup! [this _]
+    (utils/with-session (:conn this) session
+      ((haclient/set-db-setting "enterprise.license" license) session)
+      ((haclient/set-db-setting "organization.name" organization) session)))
+
+  (invoke! [this _ op]
+    (let [node-config (:node-config this)]
+      (case (:f op)
+        :read (if (contains? node-config :coordinator-id)
+                (assoc op
+                       :type :ok
+                       :value (:coordinator-id node-config))
+                (assoc op :type :fail :value "Node is not a coordinator"))
+
+        :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
+                    (do
                                              ; Register replication instances
-                                             (doseq [repl-config (filter #(contains? (val %) :replication-port)
-                                                                         nodes-config)]
-                                               (try
-                                                 (utils/with-session conn session
-                                                   ((haclient/register-replication-instance
-                                                     (first repl-config)
-                                                     (second repl-config)) session))
-                                                 (catch Exception e
-                                                   (assoc op :type :fail :info e))))
+                      (doseq [repl-config (filter #(contains? (val %) :replication-port)
+                                                  nodes-config)]
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/register-replication-instance
+                              (first repl-config)
+                              (second repl-config)) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
                                              ; Add coordinator instances
-                                             (doseq [coord-config (filter #(contains? (val %) :coordinator-port)
-                                                                          nodes-config)]
-                                               (try
-                                                 (utils/with-session conn session
-                                                   ((haclient/add-coordinator-instance
-                                                     (first coord-config)
-                                                     (second coord-config)) session))
-                                                 (catch Exception e
-                                                   (assoc op :type :fail :info e))))
+                      (doseq [coord-config (filter #(contains? (val %) :coordinator-port)
+                                                   nodes-config)]
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/add-coordinator-instance
+                              (first coord-config)
+                              (second coord-config)) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
 
-                                             (assoc op :type :ok))
-                                           (assoc op :type :fail :info "Trying to register on node != n4"))))
+                      (assoc op :type :ok))
+                    (assoc op :type :fail :value "Trying to register on node != n4")))))
 
-                    (teardown! [this test])
-                    ; Close connection to the node.
-                    (close! [_ test]
-                            (dbclient/disconnect conn)))
+  (teardown! [this test])
+  (close! [this test]
+    (dbclient/disconnect (:conn this))))
 
 (defn reads
   "Current read placeholder."
@@ -72,7 +85,7 @@
 (defn workload
   "Basic test workload"
   [opts]
-  {:client    (Client. nil nil nil (:nodes-config opts))
+  {:client    (Client. (:nodes-config opts) (:license opts) (:organization opts))
    :checker   (checker/compose
                {:bank     (haempty-checker)
                 :timeline (timeline/html)})
