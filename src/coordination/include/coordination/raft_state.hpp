@@ -12,8 +12,10 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+#include <optional>
 
 #include <flags/replication.hpp>
+#include "coordination/coordinator_communication_config.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
@@ -63,7 +65,6 @@ class RaftState {
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
-  auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
@@ -86,6 +87,8 @@ class RaftState {
 
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
   auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;

@@ -53,7 +53,7 @@
   the node config for all nodes.
   Adding additional fields is also possible."
   [name [& fields] & specs]
-  (concat `(defrecord ~name [~'conn ~'node ~'replication-role ~'node-config ~@fields]
+  (concat `(defrecord ~name [~'conn ~'node ~'replication-role ~'nodes-config ~@fields]
              client/Client)
           specs))
 
@@ -61,18 +61,19 @@
   "Open a connection to a node using the client.
   After the connection is opened set the correct
   replication role of instance."
-  [client node node-config]
+  [client node nodes-config]
   (let [connection (utils/open node)
-        nc (get node-config node)
-        role (:replication-role nc)]
+        node-config (get nodes-config node)
+        role (:replication-role node-config)]
     (when (= :replica role)
       (utils/with-session connection session
         (try
-          ((create-set-replica-role-query (:port nc)) session)
+          ((create-set-replica-role-query (:port node-config)) session)
           (catch Exception _
             (info "The role is already setup")))))
 
-    (assoc client :replication-role role
+    (assoc client
+           :replication-role role
            :conn connection
            :node node)))
 
@@ -85,7 +86,7 @@
                              (do
                                (doseq [n (filter #(= (:replication-role (val %))
                                                      :replica)
-                                                 node-config)]
+                                                 nodes-config)]
                                  (try
                                    (utils/with-session conn session
                                      ((client/create-register-replica-query
