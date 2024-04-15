@@ -53,14 +53,16 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   auto const json = nlohmann::json::parse(servers.value());
   auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
   cluster_config_->get_servers().clear();
+  auto new_cluster_config = cs_new<cluster_config>(cluster_config_->get_log_idx(), cluster_config_->get_prev_log_idx());
+
   for (auto &real_server : real_servers) {
     auto &[coord_id, endpoint, aux] = real_server;
     spdlog::trace("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.", coord_id, endpoint,
                   aux);
     auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
-    cluster_config_->get_servers().push_back(std::move(one_server_config));
+    new_cluster_config->get_servers().push_back(std::move(one_server_config));
   }
-
+  cluster_config_ = new_cluster_config;
   return cluster_config_;
 }
 

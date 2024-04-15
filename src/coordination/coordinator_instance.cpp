@@ -32,7 +32,7 @@ namespace memgraph::coordination {
 
 using nuraft::ptr;
 
-CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config) : thread_pool_{1} {
+CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     auto lock = std::unique_lock{self->coord_instance_lock_};
 
@@ -47,73 +47,76 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 
-  raft_state_ =
-      std::make_unique<RaftState>(config, &CoordinatorInstance::BecomeLeader, &CoordinatorInstance::BecomeFollower);
+  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
 }
 
-void CoordinatorInstance::BecomeLeader() {
-  if (raft_state_->IsLockOpened()) {
-    spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
-    thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
-    return;
-  }
-  spdlog::info("Leader changed, starting all replication instances!");
-  auto const instances = raft_state_->GetReplicationInstances();
-  auto replicas = instances | ranges::views::filter(
-                                  [](auto const &instance) { return instance.status == ReplicationRole::REPLICA; });
+auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
+  return [this]() {
+    if (raft_state_->IsLockOpened()) {
+      spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
+      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
+    }
+    spdlog::info("Leader changed, starting all replication instances!");
+    auto const instances = raft_state_->GetReplicationInstances();
+    auto replicas = instances | ranges::views::filter(
+                                    [](auto const &instance) { return instance.status == ReplicationRole::REPLICA; });
 
-  std::ranges::for_each(replicas, [this](auto &replica) {
-    spdlog::info("Started pinging replication instance {}", replica.config.instance_name);
-    auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
-    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
-                                 &CoordinatorInstance::ReplicaFailCallback);
-  });
-
-  auto main_instances =
-      instances | ranges::views::filter([](auto const &instance) { return instance.status == ReplicationRole::MAIN; });
-
-  std::ranges::for_each(main_instances, [this](auto &main_instance) {
-    spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
-    auto client =
-        std::make_unique<ReplicationInstanceClient>(this, main_instance.config, client_succ_cb_, client_fail_cb_);
-    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::MainSuccessCallback,
-                                 &CoordinatorInstance::MainFailCallback);
-  });
-
-  // In case we got out of force reset but instances weren't still demoted
-  // we need to apply functions to these instances to demote them
-  auto instances_to_demote =
-      instances | ranges::views::filter([](ReplicationInstanceState const &replication_instance_state) {
-        return replication_instance_state.needs_demote;
-      });
-
-  std::ranges::for_each(instances_to_demote, [this](ReplicationInstanceState const &replication_instance_state) {
-    spdlog::trace("Changing callback for instance {} to demote callback",
-                  replication_instance_state.config.instance_name);
-    auto &instance = FindReplicationInstance(replication_instance_state.config.instance_name);
-    instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
-  });
-  std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
-  is_leader_ready_ = true;
-}
-
-void CoordinatorInstance::BecomeFollower() {
-  thread_pool_.AddTask([this]() {
-    spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
-    is_leader_ready_ = false;
-    // We need to stop checks before taking a lock because deadlock can happen if instances waits
-    // to take a lock in frequent check, and this thread already has a lock and waits for instance to
-    // be done with frequent check
-    std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
-      spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
-      repl_instance.StopFrequentCheck();
-      spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
+    std::ranges::for_each(replicas, [this](auto &replica) {
+      spdlog::info("Started pinging replication instance {}", replica.config.instance_name);
+      auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+      repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
+                                   &CoordinatorInstance::ReplicaFailCallback);
     });
-    auto lock = std::unique_lock{coord_instance_lock_};
-    repl_instances_.clear();
-    spdlog::info("Stopped all replication instance frequent checks.");
 
-  });
+    auto main_instances = instances | ranges::views::filter([](auto const &instance) {
+                            return instance.status == ReplicationRole::MAIN;
+                          });
+
+    std::ranges::for_each(main_instances, [this](auto &main_instance) {
+      spdlog::info("Started pinging main instance {}", main_instance.config.instance_name);
+      auto client =
+          std::make_unique<ReplicationInstanceClient>(this, main_instance.config, client_succ_cb_, client_fail_cb_);
+      repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::MainSuccessCallback,
+                                   &CoordinatorInstance::MainFailCallback);
+    });
+
+    // In case we got out of force reset but instances weren't still demoted
+    // we need to apply functions to these instances to demote them
+    auto instances_to_demote =
+        instances | ranges::views::filter([](ReplicationInstanceState const &replication_instance_state) {
+          return replication_instance_state.needs_demote;
+        });
+
+    std::ranges::for_each(instances_to_demote, [this](ReplicationInstanceState const &replication_instance_state) {
+      spdlog::trace("Changing callback for instance {} to demote callback",
+                    replication_instance_state.config.instance_name);
+      auto &instance = FindReplicationInstance(replication_instance_state.config.instance_name);
+      instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
+    });
+    std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
+    is_leader_ready_ = true;
+  };
+}
+
+auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
+  return [this]() {
+    thread_pool_.AddTask([this]() {
+      spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
+      is_leader_ready_ = false;
+      // We need to stop checks before taking a lock because deadlock can happen if instances waits
+      // to take a lock in frequent check, and this thread already has a lock and waits for instance to
+      // be done with frequent check
+      std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
+        spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
+        repl_instance.StopFrequentCheck();
+        spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
+      });
+      auto lock = std::unique_lock{coord_instance_lock_};
+      repl_instances_.clear();
+      spdlog::info("Stopped all replication instance frequent checks.");
+    });
+  };
 }
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
@@ -167,7 +170,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     }
   } else {
     auto const stringify_inst_status =
-        [raft_state_ptr = raft_state_->get()](ReplicationInstanceState const &instance) -> std::string {
+        [raft_state_ptr = raft_state_.get()](ReplicationInstanceState const &instance) -> std::string {
       if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
         return "main";
       }
@@ -234,7 +237,7 @@ void CoordinatorInstance::ForceResetCluster() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster again as lock is opened still.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
-    } else if (raft_state_.IsLeader() && !raft_state_.IsLockOpened()) {
+    } else if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
       is_leader_ready_ = true;
       spdlog::trace("Lock is not opened anymore and coordinator is leader, not doing force reset again.");
     } else {
@@ -463,13 +466,12 @@ auto CoordinatorInstance::TryFailover() -> void {
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
     -> SetInstanceToMainCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
-  if (raft_state_->IsLockOpened()) {
 
   if (!is_leader_ready_) {
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
   }
 
-  if (raft_state_.IsLockOpened()) {
+  if (raft_state_->IsLockOpened()) {
     return SetInstanceToMainCoordinatorStatus::LOCK_OPENED;
   }
 
@@ -554,14 +556,13 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
-  if (raft_state_->IsLockOpened()) {
 
   if (!is_leader_ready_) {
     spdlog::trace(" Is leader ready is in state {}", is_leader_ready_);
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  if (raft_state_.IsLockOpened()) {
+  if (raft_state_->IsLockOpened()) {
     return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
@@ -585,7 +586,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
-  if (!raft_state_.AppendOpenLock()) {
+  if (!raft_state_->AppendOpenLock()) {
     return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
@@ -641,12 +642,12 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
-  if (raft_state_->IsLockOpened()) {
+
   if (!is_leader_ready_) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
-  if (raft_state_.IsLockOpened()) {
+  if (raft_state_->IsLockOpened()) {
     return UnregisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 

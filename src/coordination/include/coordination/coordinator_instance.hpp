@@ -125,8 +125,8 @@ class CoordinatorInstance {
 
   void ForceResetCluster();
 
-  void BecomeLeader();
-  void BecomeFollower();
+  auto GetBecomeLeaderCallback() -> std::function<void()>;
+  auto GetBecomeFollowerCallback() -> std::function<void()>;
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   std::atomic<bool> is_leader_ready_{false};
@@ -136,7 +136,7 @@ class CoordinatorInstance {
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
-  utils::ThreadPool thread_pool_;
+  utils::ThreadPool thread_pool_{1};
 
   // This needs to be constructed last because raft state may call
   // setting up leader instance

@@ -54,14 +54,14 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto const config = CoordinatorInstanceInitConfig{coordinator_id, coordinator_port, bolt_port,
                                                     test_folder_ / "high_availability" / "coordinator"};
 
-  auto raft_state = RaftState::MakeRaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
+  auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
 
-  ASSERT_EQ(raft_state.InstanceName(), fmt::format("coordinator_{}", coordinator_id));
-  ASSERT_EQ(raft_state.RaftSocketAddress(), fmt::format("0.0.0.0:{}", coordinator_port));
-  ASSERT_TRUE(raft_state.IsLeader());
-  ASSERT_TRUE(raft_state.GetReplicationInstances().empty());
+  ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
+  ASSERT_EQ(raft_state->RaftSocketAddress(), fmt::format("0.0.0.0:{}", coordinator_port));
+  ASSERT_TRUE(raft_state->IsLeader());
+  ASSERT_TRUE(raft_state->GetReplicationInstances().empty());
 
-  auto const coords = raft_state.GetCoordinatorInstances();
+  auto const coords = raft_state->GetCoordinatorInstances();
   ASSERT_EQ(coords.size(), 1);
 }
 
@@ -72,8 +72,8 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
                                                          test_folder_ / "high_availability" / "coordinator"};
 
   auto const raft_state =
-      RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
-  auto routing_table = raft_state.GetRoutingTable();
+      std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
+  auto routing_table = raft_state->GetRoutingTable();
 
   ASSERT_EQ(routing_table.size(), 1);
 
@@ -88,9 +88,10 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
   auto become_follower_cb = []() {};
   auto const init_config = CoordinatorInstanceInitConfig{coordinator_id, coordinator_port, bolt_port,
                                                          test_folder_ / "high_availability" / "coordinator"};
-  auto leader = RaftState::MakeRaftState(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
+  auto raft_state_leader =
+      std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
-  leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
+  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
       .instance_name = "instance1",
       .mgt_server = Endpoint{"0.0.0.0", 10011},
       .bolt_server = Endpoint{"0.0.0.0", 7687},
@@ -98,7 +99,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10001}}});
 
-  leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
+  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
       .instance_name = "instance2",
       .mgt_server = Endpoint{"0.0.0.0", 10012},
       .bolt_server = Endpoint{"0.0.0.0", 7688},
@@ -106,7 +107,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10002}}});
 
-  leader.AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
+  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
       .instance_name = "instance3",
       .mgt_server = Endpoint{"0.0.0.0", 10013},
       .bolt_server = Endpoint{"0.0.0.0", 7689},
@@ -114,9 +115,9 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10003}}});
 
-  leader.AppendSetInstanceAsMainLog("instance1", UUID{});
+  raft_state_leader->AppendSetInstanceAsMainLog("instance1", UUID{});
 
-  auto const routing_table = leader.GetRoutingTable();
+  auto const routing_table = raft_state_leader->GetRoutingTable();
 
   ASSERT_EQ(routing_table.size(), 3);
 
