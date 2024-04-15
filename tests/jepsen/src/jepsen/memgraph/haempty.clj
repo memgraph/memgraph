@@ -23,10 +23,23 @@
                     (setup! [this test])
                     (invoke! [this test op]
                              (case (:f op)
-                               :read
-                               (assoc op
-                                      :type :ok
-                                      :value "PLACEHOLDER")))
+                               :read (assoc op
+                                            :type :ok
+                                            :value "PLACEHOLDER")
+                               :register (if (= node "n4") ; Node with coordinator-id = 1
+                                           (do
+                                             (doseq [repl-config (filter #(contains? (val %) :replication-port)
+                                                                         nodes-config)]
+                                               (try
+                                                 (utils/with-session conn session
+                                                   ((haclient/register-replication-instance
+                                                     (first repl-config)
+                                                     (second repl-config)) session))
+                                                 (catch Exception e
+                                                   (assoc op :type :fail :info e))))
+                                             (assoc op :type :ok))
+                                           (assoc op :type :fail :info "Trying to register on node != n4"))))
+
                     (teardown! [this test])
                     ; Close connection to the node.
                     (close! [_ test]
@@ -51,5 +64,5 @@
    :checker   (checker/compose
                {:bank     (haempty-checker)
                 :timeline (timeline/html)})
-   :generator (haclient/replication-gen (gen/mix [reads])) ; TODO (andi) Try to avoid using replication-gen here
+   :generator (haclient/ha-gen (gen/mix [reads]))
    :final-generator {:clients (gen/once reads) :recovery-time 20}})

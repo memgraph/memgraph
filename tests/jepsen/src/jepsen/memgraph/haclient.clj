@@ -6,12 +6,35 @@
              [client :as client]]
             [jepsen.memgraph.utils :as utils]))
 
-(defn replication-gen
-  "Generator which should be used for replication tests
-  as it adds register replica invoke."
+(defn register-replication-instance
+  [name node-config]
+  (dbclient/create-query
+   (let [query
+         (str "REGISTER INSTANCE "
+              name
+              " WITH CONFIG {bolt_server: '"
+              name
+              ":7687', "
+              "management_server: '"
+              name
+              ":" (str (:management-port node-config)) "', "
+              "replication_server: '"
+              name
+              ":" (str (:replication-port node-config)) "'}")]
+     (info "Registering replication instance" query)
+     query)))
+
+(defn register-replication-instances
+  "Register all replication instances."
+  [_ _]
+  {:type :invoke :f :register :value nil})
+
+(defn ha-gen
+  "Generator which should be used for HA tests
+  as it adds register replication instance invoke."
   [generator]
-  (info "Replication generator called")
-  (gen/each-thread (gen/phases (cycle [(gen/time-limit 5 generator)]))))
+  (gen/each-thread (gen/phases [(gen/once register-replication-instances)
+                                (gen/time-limit 5 generator)])))
 
 (defmacro ha-client
   "Create Client for HA tests."
@@ -32,11 +55,3 @@
            :conn connection
            :node-config node-config
            :node node)))
-
-(defmacro ha-invoke-case
-  "Call the case method on the op using the defined cases
-  while a handler for :register case is added."
-  [f & cases]
-  (concat (list 'case f
-                :register '(assoc op :type :ok))
-          cases))
