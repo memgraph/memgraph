@@ -1020,6 +1020,21 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
+  json self;
+  self["name"] = "RollUpApply";
+  self["output_symbol"] = ToJson(op.result_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.list_collection_branch_->Accept(*this);
+  self["list_collection_branch"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 }  // namespace impl
 
 }  // namespace memgraph::query::plan
