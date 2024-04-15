@@ -12,8 +12,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state.hpp"
-
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
@@ -21,6 +21,8 @@
 #include "utils/variant_helpers.hpp"
 
 #include <algorithm>
+#include <optional>
+#include <variant>
 
 namespace memgraph::coordination {
 
@@ -103,6 +105,12 @@ auto CoordinatorState::GetRoutingTable() -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoutingTable();
+}
+
+auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
 }
 
 }  // namespace memgraph::coordination
