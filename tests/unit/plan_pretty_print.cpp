@@ -1080,22 +1080,22 @@ TYPED_TEST(PrintToJsonTest, Exists) {
 
 // Test for rollup apply operator
 TYPED_TEST(PrintToJsonTest, RollUpApply) {
-  Symbol x = this->GetSymbol("x");
-  Symbol e = this->GetSymbol("edge");
-  Symbol n = this->GetSymbol("node");
-  Symbol output = this->GetSymbol("output_symbol");
-  std::shared_ptr<LogicalOperator> list_collection_expand =
+  auto x = this->GetSymbol("x");
+  auto e = this->GetSymbol("edge");
+  auto n = this->GetSymbol("node");
+  auto output = this->GetSymbol("output_symbol");
+  auto list_collection_expand =
       std::make_shared<Expand>(nullptr, x, n, e, memgraph::query::EdgeAtom::Direction::BOTH,
                                std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1")}, false,
                                memgraph::storage::View::OLD);
-  std::shared_ptr<LogicalOperator> list_collection_produce =
+  auto list_collection_produce =
       std::make_shared<Produce>(list_collection_expand, std::vector<NamedExpression *>{NEXPR("alias", IDENT("node"))});
 
-  std::shared_ptr<LogicalOperator> input_op = std::make_shared<ScanAll>(nullptr, x);
-  input_op = std::make_shared<RollUpApply>(std::move(input_op), std::move(list_collection_produce),
-                                           std::vector<Symbol>{n}, this->GetSymbol("node"));
+  auto input_op = std::make_shared<ScanAll>(nullptr, x);
+  auto rollup_op = std::make_shared<RollUpApply>(std::move(input_op), std::move(list_collection_produce),
+                                                 std::vector<Symbol>{n}, this->GetSymbol("node"));
 
-  this->Check(input_op.get(), R"sep(
+  this->Check(rollup_op.get(), R"sep(
           {
             "input": {
                 "input": {
