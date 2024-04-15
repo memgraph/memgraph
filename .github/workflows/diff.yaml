@@ -51,4 +51,3 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
     secrets: inherit
-         stop --remove
