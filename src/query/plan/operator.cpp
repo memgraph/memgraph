@@ -1465,7 +1465,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
 
-      if (FindPath(*context.db_accessor, source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
+      if (FindPath(source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
         return true;
       }
     }
@@ -1517,8 +1517,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  bool FindPath(const DbAccessor &dba, const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound,
-                int64_t upper_bound, Frame *frame, ExpressionEvaluator *evaluator, const ExecutionContext &context) {
+  bool FindPath(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound, int64_t upper_bound,
+                Frame *frame, ExpressionEvaluator *evaluator, ExecutionContext &context) {
     using utils::Contains;
 
     if (source == sink) return false;
@@ -1569,7 +1569,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-
+            context.number_of_hops++;
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1595,7 +1595,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-
+            context.number_of_hops++;
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1635,6 +1635,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
+            context.number_of_hops++;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
@@ -1660,6 +1661,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
+            context.number_of_hops++;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
@@ -1718,6 +1720,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         return false;
       }
 #endif
+      context.number_of_hops++;
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
       std::optional<Path> curr_acc_path = std::nullopt;
@@ -2252,6 +2255,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+
+      context.number_of_hops++;
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
