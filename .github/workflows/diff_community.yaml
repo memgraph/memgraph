@@ -26,7 +26,7 @@ env:
 
 jobs:
   core:
-    name: "Build and test"
+    name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:

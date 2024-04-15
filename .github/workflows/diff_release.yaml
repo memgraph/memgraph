@@ -43,7 +43,7 @@ env:
 jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
-    name: "Build and run core tests"
+    name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -326,7 +326,7 @@ jobs:
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
-    name: "Build and run stress and durability tests"
+    name: "Stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:

@@ -35,7 +35,7 @@ env:
 jobs:
   core:
     if: ${{ inputs.run_core == 'true' }}
-    name: "Build and run core tests"
+    name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -124,7 +124,7 @@ jobs:
 
   integration:
     if: ${{ inputs.run_integration == 'true' }}
-    name: "Build and run integration test"
+    name: "Integration test"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
