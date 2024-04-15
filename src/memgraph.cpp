@@ -19,6 +19,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
+#include "flags/general.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -339,7 +340,7 @@ int main(int argc, char **argv) {
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
-                            FLAGS_storage_automatic_edge_type_index_creation_enabled,
+                            FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
