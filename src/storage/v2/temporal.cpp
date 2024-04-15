@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 
 #include "storage/v2/temporal.hpp"
