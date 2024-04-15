@@ -62,7 +62,6 @@ jobs:
     secrets: inherit
 
   Debug:
-    if: ${{ github.event.inputs.debug == 'true' }}
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
@@ -78,7 +77,6 @@ jobs:
     secrets: inherit
 
   Release:
-    if: ${{ github.event.inputs.release == 'true' }}
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
