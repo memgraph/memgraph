@@ -20,16 +20,25 @@ on:
       coverage:
         type: boolean
         default: true
-      debug:
+      debug_core:
+        type: boolean
+        default: true
+      debug_integration:
         type: boolean
         default: true
       jepsen:
         type: boolean
         default: true
-      release:
+      release_core:
         type: boolean
         default: true
       release_benchmark:
+        type: boolean
+        default: true
+      release_e2e:
+        type: boolean
+        default: true
+      release_stress:
         type: boolean
         default: true
 
@@ -50,4 +59,33 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
+    secrets: inherit
+
+  Debug:
+    if: ${{ github.event.inputs.debug == 'true' }}
+    uses: ./.github/workflows/diff_debug.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+      run_core: ${{ github.event.inputs.debug_core || 'true' }}
+      run_integration: ${{ github.event.inputs.debug_integration || 'true' }}
+    secrets: inherit
+
+  Jepsen:
+    if: ${{ github.event.inputs.jepsen == 'true' }}
+    uses: ./.github/workflows/diff_jepsen.yaml
+    secrets: inherit
+
+  Release:
+    if: ${{ github.event.inputs.release == 'true' }}
+    uses: ./.github/workflows/diff_release.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+      run_benchmark: ${{ github.event.inputs.release_benchmark || 'true' }}
+      run_core: ${{ github.event.inputs.release_core || 'true' }}
+      run_e2e: ${{ github.event.inputs.release_e2e || 'true' }}
+      run_stress: ${{ github.event.inputs.release_stress || 'true' }}
     secrets: inherit

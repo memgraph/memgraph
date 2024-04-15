@@ -1,28 +1,15 @@
-name: "Community build and test"
+name: "Jepsen build and test"
 
 on:
   workflow_call:
-    inputs:
-      arch:
-        type: string
-        description: "Target architecture (amd, arm). Default value is amd."
-        default: 'amd'
-      os:
-        type: string
-        description: "Target os. Default value is debian-12."
-        default: 'debian-12'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5). Default value is v5."
-        default: 'v5'
 
 env:
-  ARCH: ${{ inputs.arch }}
-  BUILD_TYPE: 'RelWithDebInfo' 
+  ARCH: 'amd'
+  BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-  OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  OS: 'debian-12'
+  TOOLCHAIN: 'v5'
 
 jobs:
   core:
@@ -49,24 +36,39 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Build community binary
+      - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph --community
+          build-memgraph
 
-      - name: Run unit tests
+      - name: Copy memgraph binary
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
-          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph unit
+          copy --binary --dest-dir build
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./run.sh test-all-individually --binary ../../build/memgraph --run-args "--nodes-config resources/replication-config.edn --time-limit 120"
+
+      - name: Save Jepsen report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
 
       - name: Stop mgbuild container
         if: always()
