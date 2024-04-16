@@ -363,12 +363,13 @@ build_memgraph () {
   # 0 is set for default value and checked here because mgbuild containers
   # support nproc
   # shellcheck disable=SC2016
-  if [[ "$threads" == 0 ]]; then
+  if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
   else
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads -B mgconsole'
+    local EXPORT_THREADS="export THREADS=$threads"
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
   fi
 }
 
@@ -531,7 +532,12 @@ test_memgraph() {
 
   case "$1" in
     unit)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$threads'
+      if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
+      else
+        local EXPORT_THREADS="export THREADS=$threads"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$THREADS'
+      fi
     ;;
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
@@ -615,7 +621,7 @@ test_memgraph() {
     clang-tidy)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"

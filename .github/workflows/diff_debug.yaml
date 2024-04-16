@@ -1,0 +1,176 @@
+name: "Debug build and test"
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Target architecture (amd, arm). Default value is amd."
+        default: 'amd'
+      os:
+        type: string
+        description: "Target os. Default value is debian-12."
+        default: 'debian-12'
+      toolchain:
+        type: string
+        description: "Toolchain version (v4, v5). Default value is v5."
+        default: 'v5'
+      run_core:
+        type: string
+        description: "Should the core debug build tests be run? Default is true."
+        default: 'true'
+      run_integration:
+        type: string
+        description: "Should the integration tests be run? Default is true."
+        default: 'true'
+
+env:
+  ARCH: ${{ inputs.arch }}
+  BUILD_TYPE: 'Debug'
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OS: ${{ inputs.os }}
+  TOOLCHAIN: ${{ inputs.toolchain }}
+
+jobs:
+  core:
+    if: ${{ inputs.run_core == 'true' }}
+    name: "Core tests"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build debug binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph
+
+      - name: Run leftover CTest tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph leftover-CTest
+
+      - name: Run drivers tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers
+
+      - name: Run HA driver tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph drivers-high-availability
+
+      - name: Run cppcheck and clang-format
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph cppcheck-and-clang-format
+
+      - name: Save cppcheck and clang-format errors
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Code coverage(Debug build)"
+          path: tools/github/cppcheck_and_clang_format.txt
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  integration:
+    if: ${{ inputs.run_integration == 'true' }}
+    name: "Integration test"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build debug binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph
+
+      - name: Run integration tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph integration
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
