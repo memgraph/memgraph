@@ -48,6 +48,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   };
 
   raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
+  raft_state_->InitRaftServer();
 }
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
@@ -641,7 +642,6 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
-
 
   if (!is_leader_ready_) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;

@@ -42,10 +42,8 @@ using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
- private:
-  auto InitRaftServer() -> void;
-
  public:
+  auto InitRaftServer() -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb);
   RaftState() = delete;

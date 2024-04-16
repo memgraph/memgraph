@@ -55,6 +55,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
                                                     test_folder_ / "high_availability" / "coordinator"};
 
   auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
+  raft_state->InitRaftServer();
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
   ASSERT_EQ(raft_state->RaftSocketAddress(), fmt::format("0.0.0.0:{}", coordinator_port));
@@ -73,6 +74,7 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
 
   auto const raft_state =
       std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
+  raft_state->InitRaftServer();
   auto routing_table = raft_state->GetRoutingTable();
 
   ASSERT_EQ(routing_table.size(), 1);
@@ -90,6 +92,8 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                          test_folder_ / "high_availability" / "coordinator"};
   auto raft_state_leader =
       std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
+
+  raft_state_leader->InitRaftServer();
 
   raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
       .instance_name = "instance1",

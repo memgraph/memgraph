@@ -47,10 +47,12 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       state_manager_(cs_new<CoordinatorStateManager>(config)),
       logger_(nullptr),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {
-  InitRaftServer();
-}
+      become_follower_cb_(std::move(become_follower_cb)) {}
 
+// Call to this function results in call to
+// coordinator instance, make sure everything is initialized in coordinator instance
+// prior to calling InitRaftServer. To be specific, this function
+// will call `become_leader_cb_`
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;
