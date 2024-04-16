@@ -37,7 +37,7 @@
                     (let [instances (->> (get-all-instances session) (reduce conj []))]
                       (assoc op
                              :type :ok
-                             :value instances)))
+                             :value {:instances instances :node (:node this)})))
                   (catch Exception e
                     (assoc op :type :fail :value e)))
                 (assoc op :type :fail :value "Not coord"))
@@ -75,26 +75,71 @@
   [_ _]
   {:type :invoke, :f :read, :value nil})
 
+(defn single-read-to-roles
+  "Convert single read to roles. Single read is a list of instances."
+  [single-read]
+  (map :role single-read))
+
+(defn get-coordinators
+  "From list of roles, returns those which are coordinator."
+  [roles]
+  (let [coordinators (->> roles
+                          (filter #(= "coordinator" %)))]
+    coordinators))
+
+(defn roles-incorrect
+  "Check if there are exactly 3 coordinators in single read where single-read is read list of instances. Single-read here is already processed list of roles."
+  [roles]
+  (not= 3 (count (get-coordinators roles))))
+
 (defn haempty-checker
   "HA empty checker"
   []
   (reify checker/Checker
     (check [_ _ history _]
-      (let [ok-reads  (->> history
-                           (filter #(= :ok (:type %)))
-                           (filter #(= :read (:f %)))
-                           (map :value)
-                           (map #(count %))
-                           )]
-        (info "Ok reads" ok-reads)
-        {:valid? true}))))
+      (let [reads  (->> history
+                        (filter #(= :ok (:type %)))
+                        (filter #(= :read (:f %)))
+                        (map :value))
+            full-reads (->> reads
+                            (filter #(= 6 (count (:instances %)))))
+
+            instances-by-node (->> reads
+                                   (group-by :node)
+                                   (map (fn [[node values]] [node (map :instances values)]))
+                                   (into {}))
+
+            full-instances-by-node (->> full-reads
+                                        (group-by :node)
+                                        (map (fn [[node values]] [node (map :instances values)]))
+                                        (into {}))
+
+            invalid-full-reads (->> full-instances-by-node
+                                    (map (fn [[node reads]]
+                                           [node (map single-read-to-roles reads)]))
+                                    (filter (fn [[_ reads]] (some roles-incorrect reads)))
+                                    (keys))
+
+            empty-nodes (->> instances-by-node
+                             (filter (fn [[_ reads]]
+                                       (every? (fn [single-read] (empty? single-read)) reads)))
+                             (keys))
+            coordinators (set (keys instances-by-node))
+            empty-nodes-cond (empty? empty-nodes)
+            invalid-full-reads-cond (empty? invalid-full-reads)
+            coordinators-cond (= coordinators #{"n4" "n5" "n6"})]
+
+        {:valid? (and empty-nodes-cond coordinators-cond invalid-full-reads-cond)
+         :empty-nodes empty-nodes
+         :invalid-reads (keys invalid-full-reads)
+         :coordinators coordinators}))))
 
 (defn workload
   "Basic test workload"
   [opts]
   {:client    (Client. (:nodes-config opts) (:license opts) (:organization opts))
    :checker   (checker/compose
-               {:bank     (haempty-checker)
+               {:haempty     (haempty-checker)
                 :timeline (timeline/html)})
    :generator (haclient/ha-gen (gen/mix [reads]))
    :final-generator {:clients (gen/once reads) :recovery-time 20}})
