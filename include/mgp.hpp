@@ -128,12 +128,18 @@ class MemoryDispatcher final {
 
   void Register(mgp_memory *mem) noexcept {
     const auto this_id = std::this_thread::get_id();
+    if (IsThisThreadRegistered()) {
+      return;
+    }
     std::unique_lock lock(mut_);
     map_[this_id] = mem;
   }
 
   void UnRegister() noexcept {
     const auto this_id = std::this_thread::get_id();
+    if (!IsThisThreadRegistered()) {
+      return;
+    }
     std::unique_lock lock(mut_);
     map_.erase(this_id);
   }
