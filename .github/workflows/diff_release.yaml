@@ -126,22 +126,6 @@ jobs:
           name: "Enterprise DEB package"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
-      - name: Copy build logs
-        if: always()
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --build-logs --dest-dir build/logs
-
-      - name: Save test data
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: "Test data(Release build)"
-          path: build/logs
-
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -315,6 +299,22 @@ jobs:
           docker-compose down
           cd ../pulsar
           docker-compose down
+
+      - name: Copy build logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --build-logs --dest-dir build/logs
+
+      - name: Save test data
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test data(Release build)"
+          path: build/logs
 
       - name: Stop mgbuild container
         if: always()
