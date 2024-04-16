@@ -39,8 +39,8 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Core') }}
-      run_integration: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Integration') }}
+      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Core') || github.event_name != 'pull_request' }}
+      run_integration: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Integration') || github.event_name != 'pull_request' }}
     secrets: inherit
 
   Jepsen:
@@ -54,8 +54,8 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Core') }}
-      run_benchmark: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Benchmark') }}
-      run_e2e: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release E2E') }}
-      run_stress: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Stress') }}
+      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Core') || github.event_name != 'pull_request' }}
+      run_benchmark: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Benchmark') || github.event_name != 'pull_request' }}
+      run_e2e: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release E2E') || github.event_name != 'pull_request' }}
+      run_stress: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Stress') || github.event_name != 'pull_request' }}
     secrets: inherit
