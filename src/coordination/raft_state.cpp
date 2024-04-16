@@ -37,7 +37,6 @@ using nuraft::ptr;
 using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
-using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)

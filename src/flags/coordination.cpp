@@ -9,17 +9,19 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination.hpp"
+#include <gflags/gflags.h>
 #include <limits>
 #include "utils/flag_validation.hpp"
 
 #ifdef MG_ENTERPRISE
+// NOLINTBEGIN(performance-avoid-endl)
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(management_port, 0, "Port on which coordinator servers will be started.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));  // NOLINT
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(coordinator_port, 0, "Port on which raft servers will be started.",
-                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));  // NOLINT
+// NOLINTEND(performance-avoid-endl)
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(coordinator_id, 0, "Unique ID of the raft server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

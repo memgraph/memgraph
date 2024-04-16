@@ -11,22 +11,38 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <algorithm>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <string>
+#include <string_view>
+#include <utility>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
+#include "coordination/instance_status.hpp"
+#include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance_client.hpp"
+#include "coordination/replication_instance_connector.hpp"
 #include "dbms/constants.hpp"
+#include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "utils/functional.hpp"
+#include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
 
 #include <spdlog/spdlog.h>
-#include <range/v3/view.hpp>
-#include <shared_mutex>
+#include <range/v3/all.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/transform.hpp>
 
 namespace memgraph::coordination {
 
@@ -765,7 +781,7 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
     spdlog::error("Raft log didn't accept instance open lock for demoting instance {} to replica.", repl_instance_name);
     return;
   }
-  utils::OnScopeExit do_force_reset{[this]() {
+  utils::OnScopeExit const do_force_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster again as lock is opened still after setting instance needs demote.");
@@ -834,7 +850,7 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
     return;
   }
 
-  utils::OnScopeExit do_force_reset{[this]() {
+  utils::OnScopeExit const do_force_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster again as lock is opened still after demoting instance.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });

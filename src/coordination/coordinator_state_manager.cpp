@@ -11,10 +11,14 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_state_manager.hpp"
+#include <utility>
+
 #include <range/v3/view.hpp>
 #include "kvstore/kvstore.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
+
+#include <spdlog/spdlog.h>
 
 namespace memgraph::coordination {
 

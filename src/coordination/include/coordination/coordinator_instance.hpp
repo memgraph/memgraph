@@ -14,6 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include <atomic>
+#include <functional>
+#include <memory>
 #include <optional>
 
 #include "coordination/coordinator_communication_config.hpp"
@@ -21,6 +23,7 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
