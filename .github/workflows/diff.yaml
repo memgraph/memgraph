@@ -44,7 +44,7 @@ on:
 
 jobs:
   Community:
-    if: ${{ github.event.inputs.community == 'true' || github.event_name == 'pull_request' }}
+    if: ${{ github.event.inputs.community == 'true' || github.event_name != 'workflow_dispatch' }}
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
@@ -53,7 +53,7 @@ jobs:
     secrets: inherit
 
   Coverage:
-    if: ${{ github.event.inputs.coverage == 'true' || github.event_name == 'pull_request' }}
+    if: ${{ github.event.inputs.coverage == 'true' || github.event_name != 'workflow_dispatch' }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
@@ -72,7 +72,7 @@ jobs:
     secrets: inherit
 
   Jepsen:
-    if: ${{ github.event.inputs.jepsen == 'true' || github.event_name == 'pull_request' }}
+    if: ${{ github.event.inputs.jepsen == 'true' || github.event_name != 'workflow_dispatch' }}
     uses: ./.github/workflows/diff_jepsen.yaml
     secrets: inherit
 
