@@ -161,7 +161,7 @@
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
                        (if (= workload :high_availability)
-                         (:nodes-config opts)
+                         (resolve-all-node-hostnames (:nodes-config opts))
                          (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))) ; validate only if not HA
                        (throw (Exception. "Nodes config flag undefined!")))
         ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
