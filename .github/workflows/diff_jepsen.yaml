@@ -56,12 +56,19 @@ jobs:
       - name: Refresh Jepsen Cluster
         run: |
           cd tests/jepsen
-          ./run.sh cluster-refresh
+          ./run.sh cluster-refresh --nodes-no 6
 
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 30" --ignore-run-stdout-logs --ignore-run-stderr-logs --nodes-no 6
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 30 --concurrency 6" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 6 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Save Jepsen report
         uses: actions/upload-artifact@v4

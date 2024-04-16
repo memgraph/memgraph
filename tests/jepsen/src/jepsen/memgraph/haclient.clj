@@ -33,6 +33,17 @@
               "'")]
      query)))
 
+(defn set-instance-to-main
+  [name]
+  (dbclient/create-query
+   (let [query
+         (str "SET INSTANCE "
+              name
+              " TO MAIN")]
+
+     (info "Setting instance to main" query)
+     query)))
+
 (defn add-coordinator-instance
   [node-config]
   (dbclient/create-query

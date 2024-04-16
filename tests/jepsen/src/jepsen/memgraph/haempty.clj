@@ -54,12 +54,18 @@
                           (catch Exception e
                             (assoc op :type :fail :value e))))
                       (doseq [coord-config (->> nodes-config
-                                                (filter #(not= (:node %) "n4")) ; Don't register itself
+                                                (filter #(not= (key %) "n4")) ; Don't register itself
                                                 (filter #(contains? (val %) :coordinator-id)))]
                         (try
                           (utils/with-session (:conn this) session
                             ((haclient/add-coordinator-instance
                               (second coord-config)) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
+                      (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/set-instance-to-main rand-main) session))
                           (catch Exception e
                             (assoc op :type :fail :value e))))
 
@@ -71,7 +77,7 @@
     (dbclient/disconnect (:conn this))))
 
 (defn reads
-  "Current read placeholder."
+  "Create read action."
   [_ _]
   {:type :invoke, :f :read, :value nil})
 
@@ -80,6 +86,8 @@
   [single-read]
   (map :role single-read))
 
+; TODO: (andi) Process single-read to status
+
 (defn get-coordinators
   "From list of roles, returns those which are coordinator."
   [roles]
@@ -87,8 +95,14 @@
                           (filter #(= "coordinator" %)))]
     coordinators))
 
+; TODO: (andi)
+; get replicas
+; get main
+
+; TODO: (andi) Rework bank and large clients to avoid using macros.
+
 (defn roles-incorrect
-  "Check if there are exactly 3 coordinators in single read where single-read is read list of instances. Single-read here is already processed list of roles."
+  "Check if there isn't exactly 3 coordinators in single read where single-read is read list of instances. Single-read here is already processed list of roles."
   [roles]
   (not= 3 (count (get-coordinators roles))))
 
@@ -101,30 +115,32 @@
                         (filter #(= :ok (:type %)))
                         (filter #(= :read (:f %)))
                         (map :value))
+            ; Full reads all reads which returned 6 instances
             full-reads (->> reads
                             (filter #(= 6 (count (:instances %)))))
-
+            ; All reads grouped by node
             instances-by-node (->> reads
                                    (group-by :node)
                                    (map (fn [[node values]] [node (map :instances values)]))
                                    (into {}))
-
+            ; All full reads grouped by node
             full-instances-by-node (->> full-reads
                                         (group-by :node)
                                         (map (fn [[node values]] [node (map :instances values)]))
                                         (into {}))
-
+            ; Invalid full reads are those where not all coordinators are present
+            ; TODO: (andi) Rename and rework, have coord->reads, coord->roles, coord->status.
             invalid-full-reads (->> full-instances-by-node
                                     (map (fn [[node reads]]
                                            [node (map single-read-to-roles reads)]))
                                     (filter (fn [[_ reads]] (some roles-incorrect reads)))
                                     (keys))
-
+            ; Node is considered empty if all reads are empty -> probably a mistake in registration.
             empty-nodes (->> instances-by-node
                              (filter (fn [[_ reads]]
                                        (every? (fn [single-read] (empty? single-read)) reads)))
                              (keys))
-            coordinators (set (keys instances-by-node))
+            coordinators (set (keys instances-by-node)) ; Only coordinators should run SHOW INSTANCES
             empty-nodes-cond (empty? empty-nodes)
             invalid-full-reads-cond (empty? invalid-full-reads)
             coordinators-cond (= coordinators #{"n4" "n5" "n6"})]
@@ -135,7 +151,7 @@
          :coordinators coordinators}))))
 
 (defn workload
-  "Basic test workload"
+  "Basic HA workload."
   [opts]
   {:client    (Client. (:nodes-config opts) (:license opts) (:organization opts))
    :checker   (checker/compose
