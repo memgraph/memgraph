@@ -101,6 +101,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          --threads 1 \
           test-memgraph unit
 
       - name: Create enterprise DEB package
