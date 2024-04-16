@@ -2,9 +2,7 @@
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [jepsen [generator :as gen]
-             [client :as client]]
-            [jepsen.memgraph.utils :as utils]))
+            [jepsen [generator :as gen]]))
 
 (defn register-replication-instance
   [name node-config]

@@ -11,6 +11,8 @@ CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
+ENTERPRISE_LICENSE=""
+ORGANIZATION_NAME=""
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
@@ -18,6 +20,8 @@ PRINT_CONTEXT() {
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
     echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $CONTROL_LEIN_RUN_STDOUT_LOGS"
     echo -e "CONTROL_LEIN_RUN_STDERR_LOGS:\t $CONTROL_LEIN_RUN_STDERR_LOGS"
+    echo -e "ENTERPRISE_LICENSE:\t\t <LICENSE KEY>"
+    echo -e "ORGANIZATION_NAME:\t\t <ORGANIZATION NAME>"
 }
 
 HELP_EXIT() {
@@ -29,6 +33,8 @@ HELP_EXIT() {
     echo "              --ignore-run-stderr-logs Ignore lein run stderr logs."
     echo "              --nodes-no               JEPSEN_ACTIVE_NODES_NO"
     echo "              --run-args               \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
+    echo "              --enterprise-license     \"ENTERPRISE_LICENSE\" (NOTE: quotes)"
+    echo "              --organization-name      \"ORGANIZATION_NAME\" (NOTE: quotes)"
     echo ""
     exit 1
 }
@@ -81,6 +87,16 @@ PROCESS_ARGS() {
             --run-args)
                 shift
                 CONTROL_LEIN_RUN_ARGS="$1"
+                shift
+            ;;
+            --enterprise-license)
+                shift
+                ENTERPRISE_LICENSE="$1"
+                shift
+            ;;
+            --organization-name)
+                shift
+                ORGANIZATION_NAME="$1"
                 shift
             ;;
             *)
@@ -139,7 +155,9 @@ RUN_JEPSEN() {
     else
         redirect_stderr_logs="/dev/stderr"
     fi
-    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__control_lein_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
+    __final_run_args="$__control_lein_run_args --license $ENTERPRISE_LICENSE --organization $ORGANIZATION_NAME"
+
+    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__final_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
     _JEPSEN_RUN_EXIT_STATUS=$?
     set -e
 }

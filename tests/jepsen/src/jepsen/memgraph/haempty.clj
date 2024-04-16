@@ -1,5 +1,5 @@
 (ns jepsen.memgraph.haempty
-  "TODO: andi Write description"
+  "High availability empty test. Test doesn't use any data, rather just tests management part of the cluster."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [jepsen
@@ -66,8 +66,8 @@
                       (assoc op :type :ok))
                     (assoc op :type :fail :value "Trying to register on node != n4")))))
 
-  (teardown! [this test])
-  (close! [this test]
+  (teardown! [_ _])
+  (close! [this _]
     (dbclient/disconnect (:conn this))))
 
 (defn reads

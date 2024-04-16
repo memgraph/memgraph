@@ -90,8 +90,6 @@
   "Resolve all hostnames in config and assign it to the node."
   [nodes-config]
 
-  (info "Resolving hostnames to ip addresses." nodes-config)
-
   (reduce (fn [curr node]
             (let [k (first node)
                   v (second node)]
@@ -109,8 +107,6 @@
 (defn validate-nodes-configuration
   "Validate that configuration of nodes is valid."
   [nodes-config]
-
-  (info "Validating node configuration." nodes-config)
 
   (when-not (= 1
                (count
@@ -178,7 +174,6 @@
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
                           :organization organization})]
-    (info "NODES CONFIG " nodes-config)
     (if (= workload :high_availability)
       (memgraph-ha-test test-opts)
       (memgraph-test test-opts))))
