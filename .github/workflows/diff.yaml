@@ -16,6 +16,7 @@ on:
 
 jobs:
   Community:
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Community') || github.event_name != 'pull_request' }}
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
@@ -24,6 +25,7 @@ jobs:
     secrets: inherit
 
   Coverage:
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Coverage') || github.event_name != 'pull_request' }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
@@ -37,11 +39,12 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: 'true'
-      run_integration: 'true'
+      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Core') || 'true' }}
+      run_integration: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Integration') || 'true' }}
     secrets: inherit
 
   Jepsen:
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Jepsen') || github.event_name != 'pull_request' }}
     uses: ./.github/workflows/diff_jepsen.yaml
     secrets: inherit
 
@@ -51,8 +54,8 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_benchmark: 'true'
-      run_core: 'true'
-      run_e2e: 'true'
-      run_stress: 'true'
+      run_core: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Core') || 'true' }}
+      run_benchmark: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Benchmark') || 'true' }}
+      run_e2e: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release E2E') || 'true' }}
+      run_stress: ${{ contains(github.event.pull_request.labels.*.name, 'CI Test - Release Stress') || 'true' }}
     secrets: inherit
