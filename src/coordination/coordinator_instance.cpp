@@ -36,6 +36,7 @@
 #include "replication_coordination_glue/role.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/resource_lock.hpp"
 
 #include <spdlog/spdlog.h>
