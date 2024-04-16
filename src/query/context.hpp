@@ -93,7 +93,7 @@ struct ExecutionContext {
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer;
   std::shared_ptr<QueryUserOrRole> user_or_role;
-  uint64_t number_of_hops{0};
+  int64_t number_of_hops{0};
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif

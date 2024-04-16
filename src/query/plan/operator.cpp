@@ -457,6 +457,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   }();
 
   context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
+  context.number_of_hops++;
   if (context.trigger_context_collector) {
     context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
@@ -1390,6 +1391,7 @@ class ExpandVariableCursor : public Cursor {
       }
 #endif
       AppendEdge(current_edge.first, &edges_on_frame);
+      context.number_of_hops++;
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
@@ -2256,8 +2258,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
-
-      context.number_of_hops++;
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
