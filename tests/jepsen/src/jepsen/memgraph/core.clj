@@ -13,6 +13,7 @@
     [large :as large]
     [haempty :as haempty]
     [support :as support]
+    [hanemesis :as hanemesis]
     [nemesis :as nemesis]
     [edn :as e]]))
 
@@ -33,8 +34,9 @@
   "Given an options map from the command line runner constructs a test map for HA tests."
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
+        nemesis (hanemesis/nemesis nemesis-configuration)
         gen      (->> (:generator workload)
-                      (gen/nemesis nil)
+                      (gen/nemesis (:generator nemesis))
                       (gen/time-limit (:time-limit opts)))]
     (merge tests/noop-test
            opts
@@ -47,6 +49,7 @@
                                :exceptions (checker/unhandled-exceptions)
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
+            :nemesis        (:nemesis nemesis)
             :generator      gen})))
 
 (defn memgraph-test

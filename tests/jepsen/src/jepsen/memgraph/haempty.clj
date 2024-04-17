@@ -101,11 +101,6 @@
   [roles]
   (filter #(= "main" %) roles))
 
-(defn get-replicas
-  "From list of roles, returns those which are replicas."
-  [roles]
-  (filter #(= "replica" %) roles))
-
 ; TODO: (andi) Rework bank and large clients to avoid using macros.
 
 (defn coordinator-missing
