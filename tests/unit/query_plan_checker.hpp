@@ -533,7 +533,8 @@ class ExpectCallProcedure : public OpChecker<CallProcedure> {
 
 class ExpectRollUpApply : public OpChecker<RollUpApply> {
  public:
-  ExpectRollUpApply(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &list_collection_branch)
+  ExpectRollUpApply(const std::list<std::unique_ptr<BaseOpChecker>> &input,
+                    const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch)
       : input_(input), list_collection_branch_(list_collection_branch) {}
 
   void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
@@ -545,8 +546,8 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   }
 
  private:
-  const std::list<BaseOpChecker *> &input_;
-  const std::list<BaseOpChecker *> &list_collection_branch_;
+  const std::list<std::unique_ptr<BaseOpChecker>> &input_;
+  const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch_;
 };
 
 template <class T>
