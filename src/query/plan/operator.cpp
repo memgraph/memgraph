@@ -2249,9 +2249,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame, &context](const EdgeAccessor &edge,
-                                                              const EdgeAtom::Direction direction,
-                                                              const TypedValue &total_weight, int64_t depth) {
+    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
+                                                    const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
       // Evaluate current weight
@@ -2839,7 +2838,6 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
       named_expr->Accept(evaluator);
     }
-    spdlog::trace("Number of hops in the frame: {}", context.number_of_hops);
     return true;
   }
   return false;
