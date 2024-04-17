@@ -61,9 +61,9 @@ jobs:
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test \
+          ./run.sh test-all-individually \
           --binary ../../build/memgraph \
-          --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 120 --concurrency 6" \
+          --run-args "--time-limit 120 --concurrency 6" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 6 \

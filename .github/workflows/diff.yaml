@@ -15,6 +15,44 @@ on:
   workflow_dispatch:
 
 jobs:
+  Community:
+    uses: ./.github/workflows/diff_community.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+    secrets: inherit
+
+  Coverage:
+    uses: ./.github/workflows/diff_coverage.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+    secrets: inherit
+
+  Debug:
+    uses: ./.github/workflows/diff_debug.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+      run_core: 'true'
+      run_integration: 'true'
+    secrets: inherit
+
   Jepsen:
     uses: ./.github/workflows/diff_jepsen.yaml
+    secrets: inherit
+
+  Release:
+    uses: ./.github/workflows/diff_release.yaml
+    with:
+      arch: 'amd'
+      os: 'debian-11'
+      toolchain: 'v5'
+      run_benchmark: 'true'
+      run_core: 'true'
+      run_e2e: 'true'
+      run_stress: 'true'
     secrets: inherit
