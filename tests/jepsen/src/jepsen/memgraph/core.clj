@@ -34,7 +34,7 @@
   "Given an options map from the command line runner constructs a test map for HA tests."
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
-        nemesis (hanemesis/nemesis nemesis-configuration)
+        nemesis (hanemesis/nemesis nemesis-configuration (:nodes-config opts))
         gen      (->> (:generator workload)
                       (gen/nemesis (:generator nemesis))
                       (gen/time-limit (:time-limit opts)))]

@@ -63,7 +63,7 @@ jobs:
           cd tests/jepsen
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 30 --concurrency 6" \
+          --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 120 --concurrency 6" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 6 \
