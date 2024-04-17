@@ -1,0 +1,136 @@
+name: "Coverage build and test"
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Target architecture (amd, arm). Default value is amd."
+        default: 'amd'
+      os:
+        type: string
+        description: "Target os. Default value is debian-12."
+        default: 'debian-12'
+      toolchain:
+        type: string
+        description: "Toolchain version (v4, v5). Default value is v5."
+        default: 'v5'
+
+env:
+  ARCH: ${{ inputs.arch }}
+  BUILD_TYPE: 'Debug' 
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OS: ${{ inputs.os }}
+  TOOLCHAIN: ${{ inputs.toolchain }}
+
+jobs:
+  core:
+    name: "Core tests"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      # This is also needed if we want do to comparison against other branches
+      # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
+      # - name: Fetch all history for all tags and branches
+      #   run: git fetch
+
+      - name: Set base branch
+        run: |
+          base_branch="master"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_branch="${{ github.base_ref }}"
+          fi
+          echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
+
+      - name: Initialize deps
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph --init-only
+
+      - name: Run python code analysis
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-analysis --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Build combined coverage binary with ASAN and UBSAN
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph --coverage --asan --ubsan
+
+      - name: Run unit tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit-coverage
+
+      - name: Compute code coverage
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph code-coverage
+
+      - name: Save code coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Code coverage(Code analysis)"
+          path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Run clang-tidy
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
