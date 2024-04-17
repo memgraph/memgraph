@@ -86,25 +86,51 @@
   [single-read]
   (map :role single-read))
 
-; TODO: (andi) Process single-read to status
+(defn single-read-to-role-and-health
+  "Convert single read to role and health. Single read is a list of instances."
+  [single-read]
+  (map #(select-keys % [:health :role]) single-read))
 
 (defn get-coordinators
   "From list of roles, returns those which are coordinator."
   [roles]
-  (let [coordinators (->> roles
-                          (filter #(= "coordinator" %)))]
-    coordinators))
+  (filter #(= "coordinator" %) roles))
 
-; TODO: (andi)
-; get replicas
-; get main
+(defn get-mains
+  "From list of roles, returns those which are main."
+  [roles]
+  (filter #(= "main" %) roles))
+
+(defn get-replicas
+  "From list of roles, returns those which are replicas."
+  [roles]
+  (filter #(= "replica" %) roles))
 
 ; TODO: (andi) Rework bank and large clients to avoid using macros.
 
-(defn roles-incorrect
-  "Check if there isn't exactly 3 coordinators in single read where single-read is read list of instances. Single-read here is already processed list of roles."
+(defn coordinator-missing
+  "Check if there aren't exactly 3 coordinators in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
   [roles]
   (not= 3 (count (get-coordinators roles))))
+
+(defn more-than-one-main
+  "Check if there is more than one main in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
+  [roles]
+  (> (count (get-mains roles)) 1))
+
+(defn alive-instances-no-main
+  "When all 3 data instances are alive, there should be exactly one main and 2 replicas."
+  [roles-health]
+  (let [mains (filter #(= "main" (:role %)) roles-health)
+        replicas (filter #(= "replica" (:role %)) roles-health)
+        all-data-instances-up (and
+                               (every? #(= "up" (:health %)) mains)
+                               (every? #(= "up" (:health %)) replicas))]
+
+    (if all-data-instances-up
+      (and (= 1 (count mains))
+           (= 2 (count replicas)))
+      true)))
 
 (defn haempty-checker
   "HA empty checker"
@@ -119,35 +145,51 @@
             full-reads (->> reads
                             (filter #(= 6 (count (:instances %)))))
             ; All reads grouped by node
-            instances-by-node (->> reads
+            coord->reads (->> reads
+                              (group-by :node)
+                              (map (fn [[node values]] [node (map :instances values)]))
+                              (into {}))
+            ; All full reads grouped by node
+            coord->full-reads (->> full-reads
                                    (group-by :node)
                                    (map (fn [[node values]] [node (map :instances values)]))
                                    (into {}))
-            ; All full reads grouped by node
-            full-instances-by-node (->> full-reads
-                                        (group-by :node)
-                                        (map (fn [[node values]] [node (map :instances values)]))
-                                        (into {}))
-            ; Invalid full reads are those where not all coordinators are present
-            ; TODO: (andi) Rename and rework, have coord->reads, coord->roles, coord->status.
-            invalid-full-reads (->> full-instances-by-node
-                                    (map (fn [[node reads]]
-                                           [node (map single-read-to-roles reads)]))
-                                    (filter (fn [[_ reads]] (some roles-incorrect reads)))
+            coord->roles (->> coord->full-reads
+                              (map (fn [[node reads]]
+                                     [node (map single-read-to-roles reads)]))
+                              (into {}))
+            ; coords-missing-reads are coordinators who have full reads where not all coordinators are present
+            coords-missing-reads (->> coord->roles
+                                      (filter (fn [[_ reads]] (some coordinator-missing reads)))
+                                      (keys))
+            ; Check from full reads if there is any where there was more than one main.
+            more-than-one-main (->> coord->roles
+                                    (filter (fn [[_ reads]] (some more-than-one-main reads)))
                                     (keys))
+            ; Mapping from coordinator to reads containing only health and role.
+            coord->roles-health (->> coord->full-reads
+                                     (map (fn [[node reads]]
+                                            [node (map single-read-to-role-and-health reads)]))
+                                     (into {}))
+            ; Check not-used, maybe will be added in the future.
+            _ (->> coord->roles-health
+                   (filter (fn [[_ reads]] (some alive-instances-no-main reads)))
+                   (vals))
             ; Node is considered empty if all reads are empty -> probably a mistake in registration.
-            empty-nodes (->> instances-by-node
+            empty-nodes (->> coord->reads
                              (filter (fn [[_ reads]]
-                                       (every? (fn [single-read] (empty? single-read)) reads)))
+                                       (every? empty? reads)))
                              (keys))
-            coordinators (set (keys instances-by-node)) ; Only coordinators should run SHOW INSTANCES
-            empty-nodes-cond (empty? empty-nodes)
-            invalid-full-reads-cond (empty? invalid-full-reads)
-            coordinators-cond (= coordinators #{"n4" "n5" "n6"})]
+            coordinators (set (keys coord->reads)) ; Only coordinators should run SHOW INSTANCES
+            ]
 
-        {:valid? (and empty-nodes-cond coordinators-cond invalid-full-reads-cond)
-         :empty-nodes empty-nodes
-         :invalid-reads (keys invalid-full-reads)
+        {:valid? (and (empty? empty-nodes)
+                      (= coordinators #{"n4" "n5" "n6"})
+                      (empty? coords-missing-reads)
+                      (empty? more-than-one-main))
+         :empty-nodes empty-nodes ; nodes which have all reads empty
+         :missing-coords-nodes coords-missing-reads ; coordinators which have missing coordinators in their reads
+         :more-than-one-main-nodes more-than-one-main ; nodes on which more-than-one-main was detected
          :coordinators coordinators}))))
 
 (defn workload
