@@ -8,7 +8,6 @@
             [clojure.tools.logging :refer [info]]
             [clojure.string :as string]
             [clojure.core.reducers :as r]
-            [gnuplot.core :as g]
             [jepsen
              [store :as store]
              [checker :as checker]
