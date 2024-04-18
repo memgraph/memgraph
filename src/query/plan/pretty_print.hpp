@@ -223,6 +223,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Foreach &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(LoadCsv &) override;
+  bool PreVisit(RollUpApply &) override;
 
   bool Visit(Once &) override;
 

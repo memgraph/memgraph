@@ -1443,7 +1443,7 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups2) {
   ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
 }
 
-TYPED_TEST(TestSymbolGenerator, PatternComprehension) {
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {
   auto prop = this->dba.NameToProperty("prop");
 
   // MATCH (n) RETURN [(n)-[edge]->(m) | m.prop] AS alias
@@ -1460,6 +1460,31 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehension) {
   memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
   auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
   auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+
+  pc->Accept(collector);
+
+  // n, edge, m, Path
+  ASSERT_EQ(collector.symbols_.size(), 4);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
+  auto prop = this->dba.NameToProperty("prop");
+
+  // MATCH (n) WITH [(n)-[edge]->(m) | m.prop] AS alias RETURN alias
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WITH(NEXPR("alias", PATTERN_COMPREHENSION(nullptr,
+                                                PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                        NODE("m", std::nullopt, false)),
+                                                nullptr, PROPERTY_LOOKUP(this->dba, "m", prop)))),
+      RETURN("alias")));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 8);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+  auto *pc = dynamic_cast<PatternComprehension *>(with->body_.named_expressions[0]->expression_);
 
   pc->Accept(collector);
 
