@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
@@ -32,13 +33,10 @@
 #include "coordination/replication_instance_connector.hpp"
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
-#include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/resource_lock.hpp"
 
 #include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
