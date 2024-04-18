@@ -63,6 +63,9 @@ def test_hops_count_1():
     summary = get_summary("MATCH (a:Person)-[:KNOWS*]->(e:Person) RETURN e")
     assert summary["number_of_hops"] == 10
 
+    summary = get_summary("MATCH (a:Person)-[:KNOWS*]-(e:Person) RETURN e")
+    assert summary["number_of_hops"] == 40  # already visited nodes are counted
+
     # bfs expand
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS]->(e:Person {name: 'Eve'}) RETURN e")
     assert summary["number_of_hops"] == 4
@@ -73,62 +76,18 @@ def test_hops_count_1():
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS 1..3]->(e:Person {name: 'Eve'}) RETURN e")
     assert summary["number_of_hops"] == 3
 
+    summary = get_summary("MATCH (a:Person)-[:KNOWS *BFS]->(e:Person) RETURN e")
+    assert summary["number_of_hops"] == 10
+
+    summary = get_summary("MATCH (a:Person)-[:KNOWS *BFS]-(e:Person) RETURN e")
+    assert summary["number_of_hops"] == 40
+
     # expand
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person {name: 'Eve'}) RETURN e")
     assert summary["number_of_hops"] == 1
 
 
 def test_hops_count_2():
-    # prepare simple graph
-    execute_query("MATCH (n) DETACH DELETE n")
-    summary = get_summary(
-        "CREATE (a:Person {name: 'Alice'}) "
-        "CREATE (b:Person {name: 'Bob'}) "
-        "CREATE (c:Person {name: 'Charlie'}) "
-        "CREATE (d:Person {name: 'David'}) "
-        "CREATE (e:Person {name: 'Eve'}) "
-        "CREATE (a)-[:KNOWS]->(b) "
-        "CREATE (a)-[:KNOWS]->(c) "
-        "CREATE (a)-[:KNOWS]->(d) "
-        "CREATE (d)-[:KNOWS]->(e)"
-    )
-
-    assert summary["number_of_hops"] == 4
-
-    # check hops count
-
-    # expand variable
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 2
-
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..1]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 4
-
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..2]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 5
-
-    summary = get_summary("MATCH (a:Person)-[:KNOWS*]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 5
-
-    # bfs expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 4  # first does scan by a and then expand to e
-
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS ..1]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 3
-
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS ..2]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 4
-
-    # expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 1
-
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
-
-
-def test_hops_count_3():
     # prepare simple graph
     execute_query("MATCH (n) DETACH DELETE n")
     summary = get_summary(
@@ -175,7 +134,7 @@ def test_hops_count_3():
     assert summary["number_of_hops"] == 4  # scans by e and then expand to a
 
 
-def test_hops_count_4():
+def test_hops_count_3():
     # prepare simple graph
     execute_query("MATCH (n) DETACH DELETE n")
     summary = get_summary(
