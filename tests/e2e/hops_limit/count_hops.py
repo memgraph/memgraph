@@ -145,6 +145,12 @@ def test_hops_count_3():
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES*]->(e:Car {name: 'BMW'}) RETURN e")
     assert summary["number_of_hops"] == 3
 
+    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]->(e:Car) RETURN e;")
+    assert summary["number_of_hops"] == 4
+
+    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]-(e:Car) RETURN e;")
+    assert summary["number_of_hops"] == 8  # scans by e and then expand to a
+
     # bfs expand
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES *BFS]->(e:Car {name: 'BMW'}) RETURN e")
     assert summary["number_of_hops"] == 2  # first does scan by a and then expand to e
@@ -160,6 +166,36 @@ def test_hops_count_3():
     assert summary["number_of_hops"] == 3  # scans by e and then expand to a
 
     summary = get_summary("MATCH (a:Person)-[:DRIVES]->(e:Car) RETURN e")
+    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
+
+
+def test_hops_count_4():
+    # prepare simple graph
+    execute_query("MATCH (n) DETACH DELETE n")
+    execute_query(
+        "CREATE (a:Person {name: 'Alice'}) "
+        "CREATE (b:Person {name: 'Bob'}) "
+        "CREATE (c:Person {name: 'Charlie'}) "
+        "CREATE (d:Person {name: 'David'}) "
+        "CREATE (e:Person {name: 'Eve'}) "
+        "CREATE (a)-[:KNOWS]->(b) "
+        "CREATE (a)-[:FRIENDS]->(c) "
+        "CREATE (b)-[:KNOWS]->(d) "
+        "CREATE (b)-[:FRIENDS]->(e) "
+    )
+
+    # check hops count
+
+    # expand variable
+    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..1]->(e:Person) RETURN e")
+    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
+
+    # bfs expand
+    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS ..1]->(e:Person) RETURN e")
+    assert summary["number_of_hops"] == 2  # first does scan by a and then expand to e
+
+    # expand
+    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")
     assert summary["number_of_hops"] == 4  # scans by e and then expand to a
 
 
