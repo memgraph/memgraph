@@ -400,8 +400,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -467,8 +478,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't register replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -518,8 +540,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
@@ -531,7 +564,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
       case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't register replica instance because because the last action didn't finish successfully!");
+            "Couldn't set instance to main instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case FAILED_TO_CLOSE_LOCK:

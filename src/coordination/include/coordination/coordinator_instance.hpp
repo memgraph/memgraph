@@ -13,6 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <atomic>
+#include <optional>
+
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
@@ -63,6 +67,8 @@ class CoordinatorInstance {
   auto HasMainState(std::string_view instance_name) const -> bool;
 
   auto HasReplicaState(std::string_view instance_name) const -> bool;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
  private:
   template <ranges::forward_range R>
@@ -119,6 +125,9 @@ class CoordinatorInstance {
 
   void ForceResetCluster();
 
+  // This needs to be constructed before raft state is created because raft state may call
+  // setting up leader instance
+  std::atomic<bool> is_leader_ready_{false};
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
 
   // NOTE: Must be std::list because we rely on pointer stability.

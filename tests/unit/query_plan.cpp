@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include <list>
+#include <memory>
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
@@ -40,6 +41,7 @@ namespace memgraph::query {
 using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using memgraph::query::CypherUnion;
+using memgraph::query::EdgeAtom;
 using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
 using memgraph::query::SymbolGenerator;
@@ -2070,4 +2072,47 @@ TYPED_TEST(TestPlanner, Subqueries) {
     DeleteListContent(&right_subquery_part);
   }
 }
+
+TYPED_TEST(TestPlanner, PatternComprehensionInReturn) {
+  FakeDbAccessor dba;
+  const auto prop = PROPERTY_PAIR(dba, "prop");
+  // MATCH (n) RETURN [(n)-[edge]->(m) | m.prop]
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(NEXPR("alias", PATTERN_COMPREHENSION(nullptr,
+                                                  PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                          NODE("m", std::nullopt, false)),
+                                                  nullptr, PROPERTY_LOOKUP(dba, "m", prop))))));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  std::list<std::unique_ptr<BaseOpChecker>> list_collection_branch_ops;
+  list_collection_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, PatternComprehensionInWith) {
+  FakeDbAccessor dba;
+  const auto prop = PROPERTY_PAIR(dba, "prop");
+  // MATCH (n) WITH [(n)-[edge]->(m) | m.prop] AS alias RETURN alias
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WITH(NEXPR("alias", PATTERN_COMPREHENSION(nullptr,
+                                                PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
+                                                        NODE("m", std::nullopt, false)),
+                                                nullptr, PROPERTY_LOOKUP(dba, "m", prop)))),
+      RETURN("alias")));
+
+  std::list<std::unique_ptr<BaseOpChecker>> input_ops;
+  input_ops.push_back(std::make_unique<ExpectScanAll>());
+  std::list<std::unique_ptr<BaseOpChecker>> list_collection_branch_ops;
+  list_collection_branch_ops.push_back(std::make_unique<ExpectExpand>());
+  list_collection_branch_ops.push_back(std::make_unique<ExpectProduce>());
+
+  CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce(),
+                       ExpectProduce());
+}
+
 }  // namespace

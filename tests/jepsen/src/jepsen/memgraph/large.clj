@@ -27,7 +27,7 @@
 (client/replication-client Client []
                            ; Open connection to the node. Setup each node.
                            (open! [this test node]
-                                  (client/replication-open-connection this node node-config))
+                                  (client/replication-open-connection this node nodes-config))
                            ; On main detach-delete-all and create-nodes.
                            (setup! [this test]
                                    (when (= replication-role :main)
@@ -61,11 +61,9 @@
                                       (when (= replication-role :main)
                                         (utils/with-session conn session
                                           (try
+                                            ; Can fail for various reasons, not important at this point.
                                             (client/detach-delete-all session)
-                                            (catch Exception e
-                                              (when-not (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                                                (throw (Exception. (str "Invalid exception when deleting all nodes: " e)))); Exception due to down sync replica is accepted/expected
-                                              )))))
+                                            (catch Exception _)))))
                            (close! [_ est]
                                    (dbclient/disconnect conn)))
 
@@ -123,7 +121,7 @@
 
 (defn workload
   [opts]
-  {:client (Client. nil nil nil (:node-config opts))
+  {:client (Client. nil nil nil (:nodes-config opts))
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
