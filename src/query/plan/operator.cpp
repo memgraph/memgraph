@@ -1173,8 +1173,8 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::OUT) {
     auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
-    auto edges = edges_result.edges;
     context->number_of_hops += edges_result.expanded_count;
+    auto edges = std::move(edges_result.edges);
     if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
     }
@@ -1182,8 +1182,8 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
 
   if (direction != EdgeAtom::Direction::IN) {
     auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
-    auto edges = edges_result.edges;
     context->number_of_hops += edges_result.expanded_count;
+    auto edges = std::move(edges_result.edges);
     if (!edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
     }
@@ -1566,8 +1566,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
-          auto out_edges = out_edges_result.edges;
           context.number_of_hops += out_edges_result.expanded_count;
+          auto out_edges = std::move(out_edges_result.edges);
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1593,8 +1593,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
-          auto in_edges = in_edges_result.edges;
           context.number_of_hops += in_edges_result.expanded_count;
+          auto in_edges = std::move(in_edges_result.edges);
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1634,8 +1634,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
-          auto out_edges = out_edges_result.edges;
           context.number_of_hops += out_edges_result.expanded_count;
+          auto out_edges = std::move(out_edges_result.edges);
           for (const auto &edge : out_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1661,8 +1661,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
-          auto in_edges = in_edges_result.edges;
           context.number_of_hops += in_edges_result.expanded_count;
+          auto in_edges = std::move(in_edges_result.edges);
           for (const auto &edge : in_edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1771,8 +1771,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
-        auto out_edges = out_edges_result.edges;
         context.number_of_hops += out_edges_result.expanded_count;
+        auto out_edges = std::move(out_edges_result.edges);
         for (const auto &edge : out_edges) {
           bool was_expanded = expand_pair(edge, edge.To());
           restore_frame_state_after_expansion(was_expanded);
@@ -1780,8 +1780,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
-        auto in_edges = in_edges_result.edges;
         context.number_of_hops += in_edges_result.expanded_count;
+        auto in_edges = std::move(in_edges_result.edges);
         for (const auto &edge : in_edges) {
           bool was_expanded = expand_pair(edge, edge.From());
           restore_frame_state_after_expansion(was_expanded);
