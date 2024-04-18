@@ -44,25 +44,25 @@ on:
 
 jobs:
   Community:
-    if: ${{ github.event.inputs.community == 'true' || 
-            contains(github.event.pull_request.labels.*.name, 'CI Test - Community') || 
-            github.event_name == 'merge_group' }}
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
+      run_core: ${{ github.event.inputs.community == 'true' || 
+                    contains(github.event.pull_request.labels.*.name, 'CI Test - Community') || 
+                    github.event_name == 'merge_group' }}
     secrets: inherit
 
   Coverage:
-    if: ${{ github.event.inputs.coverage == 'true' || 
-            contains(github.event.pull_request.labels.*.name, 'CI Test - Coverage') || 
-            github.event_name == 'merge_group' }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
+      run_core: ${{ github.event.inputs.coverage == 'true' || 
+                    contains(github.event.pull_request.labels.*.name, 'CI Test - Coverage') || 
+                    github.event_name == 'merge_group' }}
     secrets: inherit
 
   Debug:
@@ -80,10 +80,11 @@ jobs:
     secrets: inherit
 
   Jepsen:
-    if: ${{ github.event.inputs.jepsen == 'true' || 
-            contains(github.event.pull_request.labels.*.name, 'CI Test - Jepsen') || 
-            github.event_name == 'merge_group' }}
     uses: ./.github/workflows/diff_jepsen.yaml
+    with:
+      run_core: ${{ github.event.inputs.jepsen == 'true' || 
+                    contains(github.event.pull_request.labels.*.name, 'CI Test - Jepsen') || 
+                    github.event_name == 'merge_group' }}
     secrets: inherit
 
   Release:
