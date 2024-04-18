@@ -57,12 +57,13 @@
              client/Client)
           specs))
 
+
 (defn replication-open-connection
   "Open a connection to a node using the client.
   After the connection is opened set the correct
   replication role of instance."
   [client node nodes-config]
-  (let [connection (utils/open node)
+  (let [connection (utils/open-bolt node)
         node-config (get nodes-config node)
         role (:replication-role node-config)]
     (when (= :replica role)
