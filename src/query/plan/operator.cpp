@@ -457,7 +457,6 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   }();
 
   context.execution_stats[ExecutionStats::Key::CREATED_EDGES] += 1;
-  // context.number_of_hops++;
   if (context.trigger_context_collector) {
     context.trigger_context_collector->RegisterCreatedObject(created_edge);
   }
@@ -924,10 +923,8 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (self_.common_.existing_node) return;
     if constexpr (direction == EdgeAtom::Direction::IN) {
       frame[self_.common_.node_symbol] = new_edge.From();
-      // context.number_of_hops++;
     } else if constexpr (direction == EdgeAtom::Direction::OUT) {
       frame[self_.common_.node_symbol] = new_edge.To();
-      // context.number_of_hops++;
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
@@ -1399,7 +1396,6 @@ class ExpandVariableCursor : public Cursor {
       }
 #endif
       AppendEdge(current_edge.first, &edges_on_frame);
-      // context.number_of_hops++;
 
       if (!self_.common_.existing_node) {
         frame[self_.common_.node_symbol] = current_vertex;
@@ -1581,7 +1577,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            // context.number_of_hops++;
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1609,7 +1604,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            // context.number_of_hops++;
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1651,7 +1645,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            // context.number_of_hops++;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
@@ -1679,7 +1672,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            // context.number_of_hops++;
             if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
@@ -1729,10 +1721,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // "where" condition. if so, places them in the to_visit_ structure.
     auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) -> bool {
       // if we already processed the given vertex it doesn't get expanded
-      if (processed_.find(vertex) != processed_.end()) {
-        context.number_of_hops--;
-        return false;
-      }
+      if (processed_.find(vertex) != processed_.end()) return false;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !(context.auth_checker->Has(vertex, storage::View::OLD,
@@ -1741,7 +1730,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         return false;
       }
 #endif
-      // context.number_of_hops++;
       frame[self_.filter_lambda_.inner_edge_symbol] = edge;
       frame[self_.filter_lambda_.inner_node_symbol] = vertex;
       std::optional<Path> curr_acc_path = std::nullopt;

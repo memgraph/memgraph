@@ -159,7 +159,7 @@ def test_hops_count_3():
     assert summary["number_of_hops"] == 4
 
     summary = get_summary("MATCH (a:Person)-[:DRIVES *BFS (r, n | r.since = 2015)]-(e:Car) RETURN e;")
-    assert summary["number_of_hops"] == 12
+    assert summary["number_of_hops"] == 21
 
     # expand
     summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES]->(e:Car {name: 'BMW'}) RETURN e")
