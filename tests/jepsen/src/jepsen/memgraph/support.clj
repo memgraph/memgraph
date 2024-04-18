@@ -16,7 +16,6 @@
 
 (defn start-node!
   [test _]
-  (info "Starting Memgraph node with sync-after-n-txn: " @sync-after-n-txn)
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -36,8 +35,6 @@
 
 (defn start-coordinator-node!
   [test node-config]
-  (info "Coordinator id: " (get node-config :coordinator-id))
-  (info "Coordinator port: " (get node-config :coordinator-port))
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -58,7 +55,6 @@
 
 (defn start-data-node!
   [test node-config]
-  (info "Management port: " (get node-config :management-port))
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -76,8 +72,20 @@
    :--telemetry-enabled false
    :--management-port (get node-config :management-port)))
 
+(defn start-memgraph-node!
+  "Start Memgraph node. Can start HA and normal node."
+  [test node nodes-config]
+  (let [node-config (get nodes-config node)]
+    (info "Starting Memgraph node" node-config)
+    (if (:coordinator-id node-config)
+      (start-coordinator-node! test node-config)
+      (if (:management-port node-config)
+        (start-data-node! test node-config)
+        (start-node! test node)))))
+
 (defn stop-node!
-  [test _]
+  [test node]
+  (info "Stopping Memgraph node" node)
   (cu/stop-daemon! (:local-binary test) mgpid))
 
 (defn db
@@ -86,7 +94,7 @@
   (reify db/DB ; Construct a new object satisfying the Jepsen's DB protocol.
     (setup! [_ test node] ; Each DB must support setup! method.
       (let [local-binary (:local-binary opts)
-            node-config (get (:nodes-config opts) node)
+            nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
         (c/su (debian/install ['python3 'python3-dev]))
@@ -94,11 +102,7 @@
         (try (c/exec :command :-v local-binary)
              (catch Exception _
                (throw (Exception. (str local-binary " is not there.")))))
-        (if (:coordinator-id node-config)
-          (start-coordinator-node! test node-config)
-          (if (:management-port node-config)
-            (start-data-node! test node-config)
-            (start-node! test _)))
+        (start-memgraph-node! test node nodes-config)
         (info "Memgraph instance started")
         (Thread/sleep 5000))) ;; TODO(gitbuda): The sleep after Jepsen starting Memgraph is for sure questionable.
     (teardown! [_ test node] ; Each DB must support teardown! method.

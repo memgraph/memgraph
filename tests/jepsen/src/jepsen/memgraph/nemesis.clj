@@ -3,10 +3,11 @@
   (:require [jepsen [nemesis :as nemesis]
              [util :as util]
              [generator :as gen]]
-            [jepsen.memgraph.support :as s]))
+            [jepsen.memgraph.support :as s]
+            [jepsen.memgraph.utils :as utils]))
 
 (defn node-killer
-  "Responds to :start by killing a random node, and to :stop
+  "Responds to :start by killing a random subset of nodes, and to :stop
   by resuming them."
   []
   (nemesis/node-start-stopper util/random-nonempty-subset
@@ -21,11 +22,6 @@
      :restart-node :stop} (node-killer)
     {:start-partition-halves :start
      :stop-partition-halves  :stop} (nemesis/partition-random-halves)}))
-
-(defn op
-  "Construct a nemesis op"
-  [f]
-  {:type :info :f f})
 
 (defn full-generator
   "Construct nemesis generator."
@@ -49,4 +45,4 @@
    (->> [(when (:partition-halves? opts) :stop-partition-halves)
          (when (:kill-node? opts) :restart-node)]
         (remove nil?)
-        (map op))})
+        (map utils/op))})
