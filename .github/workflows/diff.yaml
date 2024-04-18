@@ -50,7 +50,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ github.event.inputs.community == 'true' || 
-                    contains(github.event.pull_request.labels.*.name, 'CI Test - Community') || 
+                    contains(github.event.pull_request.labels.*.name, 'CI -build=community -test=core') || 
                     github.event_name == 'merge_group' }}
     secrets: inherit
 
@@ -61,7 +61,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ github.event.inputs.coverage == 'true' || 
-                    contains(github.event.pull_request.labels.*.name, 'CI Test - Coverage') || 
+                    contains(github.event.pull_request.labels.*.name, 'CI -build=coverage -test=core') || 
                     github.event_name == 'merge_group' }}
     secrets: inherit
 
@@ -72,10 +72,10 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ github.event.inputs.debug_core || 
-                    contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Core') || 
+                    contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=core') || 
                     github.event_name == 'merge_group' }}
       run_integration: ${{ github.event.inputs.debug_integration || 
-                           contains(github.event.pull_request.labels.*.name, 'CI Test - Debug Integration') || 
+                           contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=integration') || 
                            github.event_name == 'merge_group' }}
     secrets: inherit
 
@@ -83,7 +83,7 @@ jobs:
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
       run_core: ${{ github.event.inputs.jepsen == 'true' || 
-                    contains(github.event.pull_request.labels.*.name, 'CI Test - Jepsen') || 
+                    contains(github.event.pull_request.labels.*.name, 'CI -build=jepsen -test=core') || 
                     github.event_name == 'merge_group' }}
     secrets: inherit
 
@@ -94,15 +94,15 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ github.event.inputs.release_core || 
-                    contains(github.event.pull_request.labels.*.name, 'CI Test - Release Core') || 
+                    contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=core') || 
                     github.event_name == 'merge_group' }}
       run_benchmark: ${{ github.event.inputs.release_benchmark || 
-                         contains(github.event.pull_request.labels.*.name, 'CI Test - Release Benchmark') || 
+                         contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=benchmark') || 
                          github.event_name == 'merge_group' }}
       run_e2e: ${{ github.event.inputs.release_e2e || 
-                   contains(github.event.pull_request.labels.*.name, 'CI Test - Release E2E') || 
+                   contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=e2e') || 
                    github.event_name == 'merge_group' }}
       run_stress: ${{ github.event.inputs.release_stress || 
-                      contains(github.event.pull_request.labels.*.name, 'CI Test - Release Stress') || 
+                      contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=stress') || 
                       github.event_name == 'merge_group' }}
     secrets: inherit
