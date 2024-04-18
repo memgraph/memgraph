@@ -37,7 +37,6 @@ using nuraft::ptr;
 using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
-using raft_result = cmd_result<ptr<buffer>>;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
@@ -49,6 +48,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 
+// Call to this function results in call to
+// coordinator instance, make sure everything is initialized in coordinator instance
+// prior to calling InitRaftServer. To be specific, this function
+// will call `become_leader_cb_`
 auto RaftState::InitRaftServer() -> void {
   asio_service::options asio_opts;
   asio_opts.thread_pool_size_ = 1;
@@ -105,14 +108,6 @@ auto RaftState::InitRaftServer() -> void {
   } while (!maybe_stop());
 
   throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
-}
-
-auto RaftState::MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
-                              BecomeFollowerCb &&become_follower_cb) -> RaftState {
-  auto raft_state = RaftState(config, std::move(become_leader_cb), std::move(become_follower_cb));
-
-  raft_state.InitRaftServer();
-  return raft_state;
 }
 
 RaftState::~RaftState() {
