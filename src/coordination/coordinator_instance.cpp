@@ -40,7 +40,6 @@
 #include "utils/resource_lock.hpp"
 
 #include <spdlog/spdlog.h>
-#include <range/v3/all.hpp>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
@@ -251,7 +250,7 @@ void CoordinatorInstance::ForceResetCluster() {
     return;
   }
 
-  utils::OnScopeExit maybe_do_another_reset{[this]() {
+  utils::OnScopeExit const maybe_do_another_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster again as lock is opened still.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
@@ -416,7 +415,7 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
-  utils::OnScopeExit do_reset{[this]() {
+  utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster as lock is still opened after failover.");
       thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
@@ -513,7 +512,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
-  utils::OnScopeExit do_reset{[this]() {
+  utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after setting instance to MAIN.");
@@ -608,7 +607,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
-  utils::OnScopeExit do_reset{[this]() {
+  utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after registration of instance.");
@@ -689,7 +688,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
-  utils::OnScopeExit do_reset{[this]() {
+  utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after unregistration of instance.");
