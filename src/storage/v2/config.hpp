@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 
+#include "flags/coordination.hpp"
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
