@@ -34,7 +34,7 @@ def get_summary(query: str):
 def test_hops_count_1():
     # prepare simple graph
     execute_query("MATCH (n) DETACH DELETE n")
-    summary = get_summary(
+    execute_query(
         "CREATE (a:Person {name: 'Alice'}) "
         "CREATE (b:Person {name: 'Bob'}) "
         "CREATE (c:Person {name: 'Charlie'}) "
@@ -45,8 +45,6 @@ def test_hops_count_1():
         "CREATE (c)-[:KNOWS]->(d) "
         "CREATE (d)-[:KNOWS]->(e)"
     )
-
-    assert summary["number_of_hops"] == 4
 
     # check hops count
 
@@ -90,7 +88,7 @@ def test_hops_count_1():
 def test_hops_count_2():
     # prepare simple graph
     execute_query("MATCH (n) DETACH DELETE n")
-    summary = get_summary(
+    execute_query(
         "CREATE (a:Person {name: 'Alice'}) "
         "CREATE (b:Person {name: 'Bob'}) "
         "CREATE (c:Person {name: 'Charlie'}) "
@@ -101,8 +99,6 @@ def test_hops_count_2():
         "CREATE (b)-[:DRIVES {since: 2015}]->(e) "
         "CREATE (c)-[:DRIVES {since: 2015}]->(e)"
     )
-
-    assert summary["number_of_hops"] == 4
 
     # check hops count
 
@@ -137,7 +133,7 @@ def test_hops_count_2():
 def test_hops_count_3():
     # prepare simple graph
     execute_query("MATCH (n) DETACH DELETE n")
-    summary = get_summary(
+    execute_query(
         "CREATE (a:Person {name: 'Alice'}) "
         "CREATE (b:Person {name: 'Bob'}) "
         "CREATE (c:Person {name: 'Charlie'}) "
@@ -148,8 +144,6 @@ def test_hops_count_3():
         "CREATE (b)-[:KNOWS]->(d) "
         "CREATE (b)-[:FRIENDS]->(e) "
     )
-
-    assert summary["number_of_hops"] == 4
 
     # check hops count
 
