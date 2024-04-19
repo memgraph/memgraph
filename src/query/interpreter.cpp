@@ -526,7 +526,18 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
-    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    switch (status) {
+      using enum memgraph::coordination::AddCoordinatorInstanceStatus;
+      case ID_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
+      case BOLT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case RAFT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such raft endpoint already exists!");
+      case SUCCESS:
+        break;
+    }
     spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 

@@ -593,5 +593,41 @@ def test_unregister_main():
     mg_sleep_and_assert(expected_replicas, check_main)
 
 
+def test_add_coord_instance_fails():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such id already exists!" == str(e)
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10112'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such bolt endpoint already exists!" == str(e)
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10111'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such raft endpoint already exists!" == str(e)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

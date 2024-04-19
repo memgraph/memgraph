@@ -725,11 +725,32 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
+auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
+    -> AddCoordinatorInstanceStatus {
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_->InstanceName());
 
+  auto const curr_instances = raft_state_->GetCoordinatorInstances();
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.coordinator_id == config.coordinator_id;
+      })) {
+    return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+  }
+
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.coordinator_server.SocketAddress() == config.coordinator_server.SocketAddress();
+      })) {
+    return AddCoordinatorInstanceStatus::RAFT_ENDPOINT_ALREADY_EXISTS;
+  }
+
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.bolt_server.SocketAddress() == config.bolt_server.SocketAddress();
+      })) {
+    return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
+  }
+
   raft_state_->AddCoordinatorInstance(config);
+  return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {

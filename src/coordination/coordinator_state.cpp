@@ -95,7 +95,8 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+    -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
