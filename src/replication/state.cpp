@@ -12,6 +12,7 @@
 #include "replication/state.hpp"
 #include <optional>
 
+#include "flags/coordination.hpp"
 #include "flags/replication.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"

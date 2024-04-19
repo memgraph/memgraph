@@ -42,22 +42,16 @@ using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
- private:
+ public:
+  auto InitRaftServer() -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb);
-
-  auto InitRaftServer() -> void;
-
- public:
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
   RaftState &operator=(RaftState const &other) = default;
   RaftState(RaftState &&other) noexcept = default;
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
-
-  static auto MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
-                            BecomeFollowerCb &&become_follower_cb) -> RaftState;
 
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
