@@ -63,6 +63,14 @@ namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+
+constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
+constexpr const char *kMgManagementPort = "MEMGRAPH_MANAGEMENT_PORT";
+constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
+constexpr const char *kMgCoordinatorPort = "MEMGRAPH_COORDINATOR_PORT";
+constexpr const char *kMgCoordinatorId = "MEMGRAPH_COORDINATOR_ID";
+constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
+
 constexpr uint64_t kMgVmMaxMapCount = 262144;
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -151,7 +159,13 @@ int main(int argc, char **argv) {
   }
 
   memgraph::flags::InitializeLogger();
-  memgraph::flags::InitializeExperimental();
+  auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
+  memgraph::flags::SetExperimental(flags_experimental);
+  auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
+  if (maybe_experimental) {
+    auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
+    memgraph::flags::AppendExperimental(env_experimental);
+  }
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -445,25 +459,45 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
-  if (FLAGS_management_port && (FLAGS_coordinator_id || FLAGS_coordinator_port)) {
-    throw std::runtime_error(
-        "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
-        "port for coordinator instance and management port for replication instance.");
-  }
 
-  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    try {
+  auto init_coord_state = [&coordinator_state](auto management_port, auto coord_port, auto coord_id, int bolt_port) {
+    if (management_port && (coord_id || coord_port)) {
+      throw std::runtime_error(
+          "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
+          "port for coordinator instance and management port for replication instance.");
+    }
+
+    if (coord_id && coord_port) {
+      MG_ASSERT(bolt_port, "Sent bolt port doesn't have value");
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
-                                                              FLAGS_bolt_port, high_availability_data_dir});
-    } catch (std::exception const &e) {
-      spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
-      exit(1);
+      coordinator_state.emplace(
+          CoordinatorInstanceInitConfig{coord_id, coord_port, bolt_port, high_availability_data_dir});
+    } else {
+      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = management_port});
     }
-  } else {
-    coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
+  };
+
+  auto *maybe_management_port = std::getenv(kMgManagementPort);
+  auto *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
+  auto *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
+  try{
+    if (maybe_management_port || maybe_coordinator_port || maybe_coordinator_id) {
+      auto *maybe_bolt_port = std::getenv(kMgBoltPort);
+      auto management_port = maybe_management_port ? std::stoi(maybe_management_port) : 0;
+      auto coord_port = maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0;
+      auto coord_id = maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0;
+      auto bolt_port = maybe_bolt_port ? std::stoi(maybe_bolt_port) : 0;
+      std::invoke(init_coord_state, management_port, coord_port, coord_id, bolt_port);
+    } else {
+      std::invoke(init_coord_state, FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
+    }
   }
+  catch (std::exception const &e) {
+    spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+    exit(1);
+  }
+
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
@@ -521,6 +555,10 @@ int main(int argc, char **argv) {
 #else
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
 #endif
+  }
+  auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
+  if (maybe_ha_init_file) {
+    InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
   }
 
 #ifdef MG_ENTERPRISE

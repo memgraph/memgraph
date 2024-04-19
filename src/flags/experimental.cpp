@@ -43,7 +43,7 @@ bool AreExperimentsEnabled(Experiments experiments) {
   return (actual & check) == check;
 }
 
-void InitializeExperimental() {
+auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
   namespace rv = ranges::views;
 
   auto const canonicalize_string = [](auto &&rng) {
@@ -57,13 +57,27 @@ void InitializeExperimental() {
   auto const mapping_end = mapping.cend();
   using underlying_type = std::underlying_type_t<Experiments>;
   auto to_set = underlying_type{};
-  for (auto &&experiment : FLAGS_experimental_enabled | rv::split(',') | rv::transform(canonicalize_string)) {
+
+  for (auto &&experiment : flags_experimental | rv::split(',') | rv::transform(canonicalize_string)) {
     if (auto it = mapping.find(experiment); it != mapping_end) {
       to_set |= static_cast<underlying_type>(it->second);
     }
   }
 
-  ExperimentsInstance() = static_cast<Experiments>(to_set);
+  return static_cast<Experiments>(to_set);
+}
+
+void SetExperiments(Experiments const &experiments) { ExperimentsInstance() = experiments; }
+
+void AppendExperimental(Experiments const &experiments) {
+  using underlying_type = std::underlying_type_t<Experiments>;
+  auto current_state = static_cast<underlying_type>(ExperimentsInstance());
+  auto new_experiments = static_cast<underlying_type>(experiments);
+  auto to_set = underlying_type{};
+  to_set |= current_state;
+  to_set |= new_experiments;
+
+  SetExperiments(static_cast<Experiments>(to_set));
 }
 
 }  // namespace memgraph::flags
