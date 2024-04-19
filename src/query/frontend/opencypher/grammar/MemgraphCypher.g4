@@ -184,7 +184,7 @@ query : cypherQuery
       | dropGraphQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatements )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -252,7 +252,13 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+usingStatements: USING usingStatement ;
+
+usingStatement: hopsLimit | indexHints | ( hopsLimit indexHints ) | ( indexHints hopsLimit ) ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
