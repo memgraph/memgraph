@@ -43,8 +43,28 @@ on:
         default: true
 
 jobs:
+  DiffCheck:
+    runs-on: ubuntu-latest
+    outputs:
+      run_diff: ${{ steps.check.outputs.run_diff }}
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check if diff should be run
+        id: check
+        run: |
+          if ./tools/check_diff.bash; then
+            echo "run_diff=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_diff=false" >> "$GITHUB_OUTPUT"
+          fi
+
   Community:
-    uses: ./.github/workflows/diff_community.yaml
+    needs: DiffCheck
+    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
+    uses: ./.github/workflows/diff_community.yaml\
     with:
       arch: 'amd'
       os: 'debian-11'
@@ -55,6 +75,8 @@ jobs:
     secrets: inherit
 
   Coverage:
+    needs: DiffCheck
+    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
@@ -66,6 +88,8 @@ jobs:
     secrets: inherit
 
   Debug:
+    needs: DiffCheck
+    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
@@ -80,6 +104,8 @@ jobs:
     secrets: inherit
 
   Jepsen:
+    needs: DiffCheck
+    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
       run_core: ${{ github.event_name == 'merge_group' || 
@@ -88,6 +114,8 @@ jobs:
     secrets: inherit
 
   Release:
+    needs: DiffCheck
+    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
