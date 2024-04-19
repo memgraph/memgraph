@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 
 #include "audit/log.hpp"
@@ -21,6 +22,9 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
+#include "flags/bolt.hpp"
+#include "flags/coordination.hpp"
+#include "flags/general.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
