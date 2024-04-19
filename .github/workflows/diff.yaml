@@ -64,7 +64,7 @@ jobs:
   Community:
     needs: DiffCheck
     if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
-    uses: ./.github/workflows/diff_community.yaml\
+    uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
