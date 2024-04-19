@@ -84,7 +84,7 @@ jobs:
       run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
         (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=coverage -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.coverage == 'true') }}
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.coverage == 'true')) }}
     secrets: inherit
 
   Debug:
@@ -128,7 +128,7 @@ jobs:
       run_benchmark: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
         (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=benchmark')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_benchmark == 'true') }}
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_benchmark == 'true')) }}
       run_e2e: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
         (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=e2e')) ||
