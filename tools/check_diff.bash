@@ -5,7 +5,7 @@
 # If so, it returns exit code 1, otherwise it returns exit code 0.
 # Additionally, if there are changes to files starting with 'diff' it returns 0.
 
-diff=$(git diff --name-only master)
+diff=$(git diff --name-only origin/master)
 regex_workflow='^\.github/workflows/.*\.yaml$'
 regex_diff='^\.github/workflows/diff.*\.yaml$'
 echo $diff
