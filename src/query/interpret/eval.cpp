@@ -22,6 +22,16 @@ int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::strin
   }
 }
 
+std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  if (!expr) return std::nullopt;
+  TypedValue value = expr->Accept(eval);
+  try {
+    return value.ValueInt();
+  } catch (TypedValueException &e) {
+    throw QueryRuntimeException("Hops limit must be an int");
+  }
+}
+
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale) {
   if (!memory_limit) return std::nullopt;

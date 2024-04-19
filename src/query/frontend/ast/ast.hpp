@@ -2148,6 +2148,8 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
+  /// Hops limit
+  memgraph::query::Expression *hops_limit_{nullptr};
 
   CypherQuery *Clone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
@@ -2162,6 +2164,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
+    object->hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
     return object;
   }
 

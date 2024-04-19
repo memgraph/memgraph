@@ -209,18 +209,23 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
-
-  if (auto *index_hints_ctx = ctx->indexHints()) {
-    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
-      auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-      if (!index_hint_ctx->propertyKeyName()) {
-        cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
-        continue;
+  if (auto *using_statements_ctx = ctx->usingStatements()) {
+    if (auto *index_hints_ctx = using_statements_ctx->usingStatement()->indexHints()) {
+      for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+        auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+        if (!index_hint_ctx->propertyKeyName()) {
+          cypher_query->index_hints_.emplace_back(
+              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+          continue;
+        }
+        cypher_query->index_hints_.emplace_back(
+            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                      .label_ = label,
+                      .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
       }
-      cypher_query->index_hints_.emplace_back(
-          IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                    .label_ = label,
-                    .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+    }
+    if (auto *hops_limit_ctx = using_statements_ctx->usingStatement()->hopsLimit()) {
+      cypher_query->hops_limit_ = std::any_cast<Expression *>(hops_limit_ctx->accept(this));
     }
   }
 
