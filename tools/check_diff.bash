@@ -7,7 +7,7 @@
 diff=$(git diff --name-only origin/master)
 regex_workflow='^\.github/workflows/.*\.yaml$'
 regex_diff='^\.github/workflows/diff.*\.yaml$'
-echo "Changed files in comparison to master: $diff"
+echo -e "Changed files in comparison to master:\n$diff"
 for file in $diff; do
   if [[ $file =~ $regex_workflow ]] && ! [[ $file =~ $regex_diff ]]; then
     continue
