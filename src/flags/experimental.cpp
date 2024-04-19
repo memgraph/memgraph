@@ -67,7 +67,7 @@ auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
   return static_cast<Experiments>(to_set);
 }
 
-void SetExperiments(Experiments const &experiments) { ExperimentsInstance() = experiments; }
+void SetExperimental(Experiments const &experiments) { ExperimentsInstance() = experiments; }
 
 void AppendExperimental(Experiments const &experiments) {
   using underlying_type = std::underlying_type_t<Experiments>;
@@ -77,7 +77,7 @@ void AppendExperimental(Experiments const &experiments) {
   to_set |= current_state;
   to_set |= new_experiments;
 
-  SetExperiments(static_cast<Experiments>(to_set));
+  SetExperimental(static_cast<Experiments>(to_set));
 }
 
 }  // namespace memgraph::flags

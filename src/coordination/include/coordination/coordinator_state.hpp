@@ -56,6 +56,8 @@ class CoordinatorState {
 
   auto GetRoutingTable() -> RoutingTable;
 
+  auto IsCoordinator() const -> bool;
+
  private:
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;

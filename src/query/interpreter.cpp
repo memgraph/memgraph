@@ -1243,7 +1243,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
       }
 
@@ -1287,7 +1287,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1340,7 +1340,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
@@ -1355,7 +1355,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
 
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1372,7 +1372,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::SHOW_INSTANCES: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 

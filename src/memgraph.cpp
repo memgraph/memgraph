@@ -93,11 +93,14 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   while (std::getline(file, line)) {
     if (!line.empty()) {
       try {
+        // TODO remove security issue
+        spdlog::trace("Executing line: {}", line);
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
-      } catch (const memgraph::query::UserAlreadyExistsException &e) {
-        spdlog::warn("{} The rest of the init-file will be run.", e.what());
+      } catch (std::exception const &e) {
+        spdlog::warn("Exception occurred while executing one line. The rest of the init-file will be run. {}",
+                     e.what());
       }
       if (audit_log) {
         audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
@@ -488,6 +491,10 @@ int main(int argc, char **argv) {
       auto coord_port = maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0;
       auto coord_id = maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0;
       auto bolt_port = maybe_bolt_port ? std::stoi(maybe_bolt_port) : 0;
+      spdlog::trace(
+          "Initializing coordinator state from env variables, management port: {}, coord port: {}, coord id: {}, bolt "
+          "port: {}.",
+          management_port, coord_port, coord_id, bolt_port);
       std::invoke(init_coord_state, management_port, coord_port, coord_id, bolt_port);
     } else {
       std::invoke(init_coord_state, FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
@@ -556,8 +563,10 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
 #endif
   }
+
   auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
   if (maybe_ha_init_file) {
+    spdlog::trace("initializing coordinator from cypher file.");
     InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
   }
 

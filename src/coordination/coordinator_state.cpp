@@ -114,5 +114,7 @@ auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordin
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
 }
 
+auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }
+
 }  // namespace memgraph::coordination
 #endif
