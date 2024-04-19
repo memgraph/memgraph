@@ -55,11 +55,11 @@ jobs:
       - name: Check if diff should be run
         id: check
         run: |
-          if ./tools/check_diff.bash; then
-            echo "run_diff=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_diff=false" >> "$GITHUB_OUTPUT"
+          run_diff="false"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || ./tools/check_diff.bash; then
+            run_diff="true"
           fi
+          echo "run_diff=$run_diff" >> "$GITHUB_OUTPUT"
 
   Community:
     needs: DiffCheck
