@@ -626,7 +626,7 @@ def test_add_coord_instance_fails():
             "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10111'}",
         )
     except Exception as e:
-        assert "Couldn't add coordinator since instance with such raft endpoint already exists!" == str(e)
+        assert "Couldn't add coordinator since instance with such coordinator server already exists!" == str(e)
 
 
 if __name__ == "__main__":

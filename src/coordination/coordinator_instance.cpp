@@ -740,7 +740,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
   if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
         return instance.coordinator_server.SocketAddress() == config.coordinator_server.SocketAddress();
       })) {
-    return AddCoordinatorInstanceStatus::RAFT_ENDPOINT_ALREADY_EXISTS;
+    return AddCoordinatorInstanceStatus::COORDINATOR_ENDPOINT_ALREADY_EXISTS;
   }
 
   if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {

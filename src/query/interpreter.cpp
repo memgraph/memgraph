@@ -528,13 +528,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
     auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
     switch (status) {
-      using enum memgraph::coordination::AddCoordinatorInstanceStatus;
+      using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
       case BOLT_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
-      case RAFT_ENDPOINT_ALREADY_EXISTS:
-        throw QueryRuntimeException("Couldn't add coordinator since instance with such raft endpoint already exists!");
+      case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such coordinator server already exists!");
       case SUCCESS:
         break;
     }

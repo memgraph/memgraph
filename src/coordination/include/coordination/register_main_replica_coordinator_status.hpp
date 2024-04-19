@@ -63,7 +63,7 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   SUCCESS,
   ID_ALREADY_EXISTS,
   BOLT_ENDPOINT_ALREADY_EXISTS,
-  RAFT_ENDPOINT_ALREADY_EXISTS
+  COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
 
 }  // namespace memgraph::coordination
