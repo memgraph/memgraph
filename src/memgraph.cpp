@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <exception>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
@@ -43,11 +45,14 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/file.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+#include <spdlog/spdlog.h>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
