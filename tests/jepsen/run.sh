@@ -7,10 +7,12 @@ MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
+CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
+ENTERPRISE_LICENSE=""
+ORGANIZATION_NAME=""
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
@@ -18,6 +20,8 @@ PRINT_CONTEXT() {
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
     echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $CONTROL_LEIN_RUN_STDOUT_LOGS"
     echo -e "CONTROL_LEIN_RUN_STDERR_LOGS:\t $CONTROL_LEIN_RUN_STDERR_LOGS"
+    echo -e "ENTERPRISE_LICENSE:\t\t <LICENSE KEY>"
+    echo -e "ORGANIZATION_NAME:\t\t <ORGANIZATION NAME>"
 }
 
 HELP_EXIT() {
@@ -29,6 +33,8 @@ HELP_EXIT() {
     echo "              --ignore-run-stderr-logs Ignore lein run stderr logs."
     echo "              --nodes-no               JEPSEN_ACTIVE_NODES_NO"
     echo "              --run-args               \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
+    echo "              --enterprise-license     \"ENTERPRISE_LICENSE\" (NOTE: quotes)"
+    echo "              --organization-name      \"ORGANIZATION_NAME\" (NOTE: quotes)"
     echo ""
     exit 1
 }
@@ -45,7 +51,7 @@ if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
     HELP_EXIT
 fi
 
-if ! command -v docker > /dev/null 2>&1 || ! command -v docker-compose > /dev/null 2>&1; then
+if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/null 2>&1; then
   ERROR "docker and docker-compose have to be installed."
   exit 1
 fi
@@ -81,6 +87,16 @@ PROCESS_ARGS() {
             --run-args)
                 shift
                 CONTROL_LEIN_RUN_ARGS="$1"
+                shift
+            ;;
+            --enterprise-license)
+                shift
+                ENTERPRISE_LICENSE="$1"
+                shift
+            ;;
+            --organization-name)
+                shift
+                ORGANIZATION_NAME="$1"
                 shift
             ;;
             *)
@@ -139,7 +155,9 @@ RUN_JEPSEN() {
     else
         redirect_stderr_logs="/dev/stderr"
     fi
-    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__control_lein_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
+    __final_run_args="$__control_lein_run_args --license $ENTERPRISE_LICENSE --organization $ORGANIZATION_NAME"
+
+    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__final_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
     _JEPSEN_RUN_EXIT_STATUS=$?
     set -e
 }
@@ -178,8 +196,16 @@ PROCESS_RESULTS() {
 
 CLUSTER_UP() {
   PRINT_CONTEXT
-  "$script_dir/jepsen/docker/bin/up" --daemon
-  sleep 10
+  local cnt=0
+  while [[ "$cnt" < 5 ]]; do
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon -n $JEPSEN_ACTIVE_NODES_NO; then
+      cnt=$((cnt + 1))
+      continue
+    else
+      sleep 10
+      break
+    fi
+  done
   # Ensure all SSH connections between Jepsen containers work
   for node in $(docker ps --filter name=jepsen* --filter status=running --format "{{.Names}}"); do
       if [ "$node" == "jepsen-control" ]; then
@@ -208,6 +234,18 @@ CLUSTER_DEALLOC() {
   echo "Cluster dealloc DONE"
 }
 
+CLUSTER_NODES_CLEANUP() {
+  jepsen_control_exec="docker exec jepsen-control bash -c"
+  INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
+  $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
+  for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
+      jepsen_node_name="jepsen-n$iter"
+      jepsen_node_exec="docker exec $jepsen_node_name bash -c"
+      INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
+      $jepsen_node_exec "rm -rf /opt/memgraph/*"
+  done
+}
+
 # Initialize testing context by copying source/binary files. Inside CI,
 # Memgraph is tested on a single machine cluster based on Docker containers.
 # Once these tests will be part of the official Jepsen repo, the majority of
@@ -220,10 +258,14 @@ case $1 in
     # the current cluster is broken because it relies on the folder. That can
     # happen easiliy because the jepsen folder is git ignored.
     cluster-up)
+        PROCESS_ARGS "$@"
+        PRINT_CONTEXT
         CLUSTER_UP
+        COPY_BINARIES
     ;;
 
     cluster-refresh)
+        PROCESS_ARGS "$@"
         CLUSTER_DEALLOC
         CLUSTER_UP
     ;;
@@ -233,15 +275,7 @@ case $1 in
     ;;
 
     cluster-nodes-cleanup)
-        jepsen_control_exec="docker exec jepsen-control bash -c"
-        INFO "Deleting /jepsen/memgraph/store/* on jepsen-control"
-        $jepsen_control_exec "rm -rf /jepsen/memgraph/store/*"
-        for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
-            jepsen_node_name="jepsen-n$iter"
-            jepsen_node_exec="docker exec $jepsen_node_name bash -c"
-            INFO "Deleting /opt/memgraph/* on $jepsen_node_name"
-            $jepsen_node_exec "rm -rf /opt/memgraph/*"
-        done
+        CLUSTER_NODES_CLEANUP
     ;;
 
     mgbuild)
@@ -261,7 +295,7 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        RUN_JEPSEN "$CONTROL_LEIN_RUN_ARGS"
+        RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
         PROCESS_RESULTS "$start_time" "$end_time"
@@ -279,8 +313,13 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large"; do
-          RUN_JEPSEN "test --workload $workload --node-configs resources/node-config.edn"
+        for workload in "bank" "large" "high_availability"; do
+          if [ "$workload" == "high_availability" ]; then
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
+          else
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"
+          fi
+
           if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             break
           fi

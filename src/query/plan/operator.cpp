@@ -32,6 +32,7 @@
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
+#include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/context.hpp"
@@ -109,6 +110,7 @@ extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeTypeOperator;
+extern const Event ScanAllByEdgeIdOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -139,6 +141,7 @@ extern const Event EvaluatePatternFilterOperator;
 extern const Event ApplyOperator;
 extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
+extern const Event RollUpApplyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -264,7 +267,20 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       properties.emplace(dba.NameToProperty(key), value);
     }
   }
+  if (context.evaluation_context.scope.in_merge) {
+    for (const auto &[k, v] : properties) {
+      if (v.IsNull()) {
+        throw QueryRuntimeException(fmt::format("Can't have null literal properties inside merge ({}.{})!",
+                                                node_info.symbol.name(), dba.PropertyToName(k)));
+      }
+    }
+  }
+
   MultiPropsInitChecked(&new_node, properties);
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexAddVertex(new_node);
+  }
 
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
@@ -347,7 +363,7 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 namespace {
 
 EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                        Frame *frame, ExpressionEvaluator *evaluator) {
+                        Frame *frame, ExecutionContext &context, ExpressionEvaluator *evaluator) {
   auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
@@ -360,6 +376,14 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
       auto property_map = evaluator->Visit(*std::get<ParameterLookup *>(edge_info.properties));
       for (const auto &[key, value] : property_map.ValueMap()) {
         properties.emplace(dba->NameToProperty(key), value);
+      }
+    }
+    if (context.evaluation_context.scope.in_merge) {
+      for (const auto &[k, v] : properties) {
+        if (v.IsNull()) {
+          throw QueryRuntimeException(fmt::format("Can't have null literal properties inside merge ({}.{})!",
+                                                  edge_info.symbol.name(), dba->PropertyToName(k)));
+        }
       }
     }
     if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
@@ -421,14 +445,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, &evaluator);
+        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, context, &evaluator);
       case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
       case EdgeAtom::Direction::BOTH:
-        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, &evaluator);
+        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, context, &evaluator);
     }
   }();
 
@@ -539,7 +563,7 @@ class ScanAllCursor : public Cursor {
 template <typename TEdgesFun>
 class ScanAllByEdgeTypeCursor : public Cursor {
  public:
-  explicit ScanAllByEdgeTypeCursor(const ScanAllByEdgeType &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+  explicit ScanAllByEdgeTypeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
                                    storage::View view, TEdgesFun get_edges, const char *op_name)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
@@ -579,7 +603,7 @@ class ScanAllByEdgeTypeCursor : public Cursor {
   }
 
  private:
-  const ScanAllByEdgeType &self_;
+  const ScanAll &self_;
   const Symbol output_symbol_;
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
@@ -631,10 +655,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                      storage::EdgeTypeId edge_type, storage::View view)
-    : input_(input ? input : std::make_shared<Once>()),
-      output_symbol_(std::move(output_symbol)),
-      view_(view),
-      edge_type_(edge_type) {}
+    : ScanAll(input, output_symbol, view), edge_type_(edge_type) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeType)
 
@@ -798,6 +819,38 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllById");
+}
+
+ScanAllByEdgeId::ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                 Expression *expression, storage::View view)
+    : ScanAll(input, output_symbol, view), expression_(expression) {
+  MG_ASSERT(expression);
+}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeId)
+
+UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeIdOperator);
+
+  auto edges = [this](Frame &frame, ExecutionContext &context) -> std::optional<std::vector<EdgeAccessor>> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (!value.IsNumeric()) return std::nullopt;
+    int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
+    if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
+    auto maybe_edge = db->FindEdge(storage::Gid::FromInt(id), view_);
+    if (!maybe_edge) return std::nullopt;
+    return std::vector<EdgeAccessor>{*maybe_edge};
+  };
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeId");
+}
+
+std::vector<Symbol> ScanAllByEdgeId::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
 }
 
 namespace {
@@ -2991,6 +3044,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
         context.trigger_context_collector->RegisterSetObjectProperty(lhs.ValueVertex(), self_.property_,
                                                                      TypedValue{std::move(old_value)}, TypedValue{rhs});
       }
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     }
     case TypedValue::Type::Edge: {
@@ -3147,6 +3203,9 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context->db_accessor->TextIndexUpdateVertex(rhs.ValueVertex());
+      }
       break;
     }
     case TypedValue::Type::Map: {
@@ -3204,6 +3263,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -3295,6 +3357,10 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   }
 
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexUpdateVertex(vertex);
+  }
+
   return true;
 }
 
@@ -3366,6 +3432,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
 #endif
       remove_prop(&lhs.ValueVertex());
+      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+      }
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -3456,6 +3525,10 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.trigger_context_collector && *maybe_value) {
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
+  }
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    context.db_accessor->TextIndexUpdateVertex(vertex, EvaluateLabels(self_.labels_, evaluator, context.db_accessor));
   }
 
   return true;
@@ -4019,11 +4092,13 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Int:
       case TypedValue::Type::Double:
       case TypedValue::Type::String:
+      case TypedValue::Type::Date:
+      case TypedValue::Type::LocalTime:
+      case TypedValue::Type::LocalDateTime:
         return;
       default:
         throw QueryRuntimeException(
-            "Only boolean, numeric and string values are allowed in "
-            "MIN and MAX aggregations.");
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX aggregations.");
     }
   }
 
@@ -4321,6 +4396,9 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Merge");
 
+  context.evaluation_context.scope.in_merge = true;
+  memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
+
   while (true) {
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
@@ -4329,9 +4407,10 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
         // and merge_create (could have a Once at the beginning)
         merge_match_cursor_->Reset();
         merge_create_cursor_->Reset();
-      } else
+      } else {
         // input is exhausted, we're done
         return false;
+      }
     }
 
     // pull from the merge_match cursor
@@ -5745,16 +5824,23 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem);
 }
 
-RollUpApply::RollUpApply(const std::shared_ptr<LogicalOperator> &input,
-                         std::shared_ptr<LogicalOperator> &&second_branch)
-    : input_(input), list_collection_branch_(second_branch) {}
-
-std::vector<Symbol> RollUpApply::OutputSymbols(const SymbolTable & /*symbol_table*/) const {
-  std::vector<Symbol> symbols;
-  return symbols;
+RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
+                         std::shared_ptr<LogicalOperator> &&list_collection_branch,
+                         const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
+    : input_(std::move(input)),
+      list_collection_branch_(std::move(list_collection_branch)),
+      result_symbol_(std::move(result_symbol)) {
+  if (list_collection_symbols.size() != 1) {
+    throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
+  }
+  list_collection_symbol_ = list_collection_symbols[0];
 }
 
-std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
+std::vector<Symbol> RollUpApply::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.push_back(result_symbol_);
+  return symbols;
+}
 
 bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -5764,6 +5850,68 @@ bool RollUpApply::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     input_->Accept(visitor) && list_collection_branch_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
+}
+
+namespace {
+
+class RollUpApplyCursor : public Cursor {
+ public:
+  RollUpApplyCursor(const RollUpApply &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        list_collection_cursor_(self_.list_collection_branch_->MakeCursor(mem)) {
+    MG_ASSERT(input_cursor_ != nullptr, "RollUpApplyCursor: Missing left operator cursor.");
+    MG_ASSERT(list_collection_cursor_ != nullptr, "RollUpApplyCursor: Missing right operator cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
+    if (input_cursor_->Pull(frame, context)) {
+      while (list_collection_cursor_->Pull(frame, context)) {
+        // collect values from the list collection branch
+        result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);
+      }
+
+      // Clear frame change collector
+      if (context.frame_change_collector &&
+          context.frame_change_collector->IsKeyTracked(self_.list_collection_symbol_.name())) {
+        context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_.name());
+      }
+
+      frame[self_.result_symbol_] = result;
+      // After a successful input from the list_collection_cursor_
+      // reset state of cursor because it has to a Once at the beginning
+      list_collection_cursor_->Reset();
+    } else {
+      return false;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    list_collection_cursor_->Shutdown();
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    list_collection_cursor_->Reset();
+  }
+
+ private:
+  const RollUpApply &self_;
+  const UniqueCursorPtr input_cursor_;
+  const UniqueCursorPtr list_collection_cursor_;
+};
+}  // namespace
+
+UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
+  return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan

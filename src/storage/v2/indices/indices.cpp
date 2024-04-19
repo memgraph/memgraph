@@ -16,6 +16,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/storage.hpp"
 
 namespace memgraph::storage {
 
@@ -40,6 +41,12 @@ void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std:
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+}
+
+void Indices::DropGraphClearIndices() const {
+  static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();
+  static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->DropGraphClearIndices();
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

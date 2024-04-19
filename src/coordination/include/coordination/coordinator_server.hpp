@@ -13,14 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
 
 namespace memgraph::coordination {
 
 class CoordinatorServer {
  public:
-  explicit CoordinatorServer(const CoordinatorServerConfig &config);
+  explicit CoordinatorServer(const ManagementServerConfig &config);
   CoordinatorServer(const CoordinatorServer &) = delete;
   CoordinatorServer(CoordinatorServer &&) = delete;
   CoordinatorServer &operator=(const CoordinatorServer &) = delete;

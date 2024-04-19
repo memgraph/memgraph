@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
@@ -30,30 +30,42 @@
 
 namespace memgraph::coordination {
 
-using replication_coordination_glue::ReplicationRole;
-
-struct InstanceState {
-  CoordinatorClientConfig config;
-  ReplicationRole status;
-
-  friend auto operator==(InstanceState const &lhs, InstanceState const &rhs) -> bool {
-    return lhs.config == rhs.config && lhs.status == rhs.status;
-  }
-};
-
-void to_json(nlohmann::json &j, InstanceState const &instance_state);
-void from_json(nlohmann::json const &j, InstanceState &instance_state);
-
-using TRaftLog = std::variant<CoordinatorClientConfig, std::string, utils::UUID>;
-
 using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::ptr;
+using replication_coordination_glue::ReplicationRole;
 
+struct ReplicationInstanceState {
+  CoordinatorToReplicaConfig config;
+  ReplicationRole status;
+
+  // for replica this is main uuid of current main
+  // for "main" main this same as current_main_id_
+  // when replica is down and comes back up we reset uuid of main replica is listening to
+  // so we need to send swap uuid again
+  // For MAIN we don't enable writing until cluster is in healthy state
+  utils::UUID instance_uuid;
+
+  bool needs_demote{false};
+
+  friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
+    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid &&
+           lhs.needs_demote == rhs.needs_demote;
+  }
+};
+
+void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
+void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
+
+using TRaftLog = std::variant<std::string, utils::UUID, CoordinatorToReplicaConfig, InstanceUUIDUpdate, std::monostate>;
+
+// Represents the state of the cluster from the coordinator's perspective.
+// Source of truth since it is modified only as the result of RAFT's commiting
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::map<std::string, InstanceState, std::less<>> instances);
+  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
+                                   utils::UUID const &current_main_uuid, bool is_lock_opened);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -62,29 +74,38 @@ class CoordinatorClusterState {
   CoordinatorClusterState &operator=(CoordinatorClusterState &&other) noexcept;
   ~CoordinatorClusterState() = default;
 
-  auto FindCurrentMainInstanceName() const -> std::optional<std::string>;
-
   auto MainExists() const -> bool;
 
-  auto IsMain(std::string_view instance_name) const -> bool;
+  auto HasMainState(std::string_view instance_name) const -> bool;
 
-  auto IsReplica(std::string_view instance_name) const -> bool;
+  auto HasReplicaState(std::string_view instance_name) const -> bool;
 
-  auto InsertInstance(std::string instance_name, InstanceState instance_state) -> void;
+  auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(TRaftLog log_entry, RaftLogAction log_action) -> void;
+  auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetInstances() const -> std::vector<InstanceState>;
+  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
-  auto GetUUID() const -> utils::UUID;
+  auto GetCurrentMainUUID() const -> utils::UUID;
+
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+
+  auto IsLockOpened() const -> bool;
+
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
+  friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
+    return lhs.repl_instances_ == rhs.repl_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
+  }
 
  private:
-  std::map<std::string, InstanceState, std::less<>> instances_{};
-  utils::UUID uuid_{};
+  std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
+  utils::UUID current_main_uuid_{};
+  bool is_lock_opened_{false};
   mutable utils::ResourceLock log_lock_{};
 };
 

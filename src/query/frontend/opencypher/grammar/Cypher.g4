@@ -25,6 +25,7 @@ statement : query ;
 
 query : cypherQuery
       | indexQuery
+      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -64,6 +65,8 @@ profileQuery : PROFILE cypherQuery ;
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
+
+textIndexQuery : createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -289,7 +292,11 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
-existsExpression : patternPart ;
+existsExpression : forcePatternPart | .* ;
+
+forcePatternPart : ( variable '=' relationshipsPattern )
+                 | relationshipsPattern
+                 ;
 
 idInColl : variable IN expression ;
 
@@ -342,6 +349,12 @@ createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
+
 doubleLiteral : FloatingLiteral ;
 
 cypherKeyword : ALL
@@ -355,6 +368,7 @@ cypherKeyword : ALL
               | BY
               | CALL
               | CASE
+              | COALESCE
               | CONSTRAINT
               | CONTAINS
               | COUNT
@@ -365,6 +379,7 @@ cypherKeyword : ALL
               | DESCENDING
               | DETACH
               | DISTINCT
+              | DROP
               | ELSE
               | END
               | ENDS
@@ -376,11 +391,15 @@ cypherKeyword : ALL
               | IN
               | INDEX
               | INFO
+              | INSTANCE
               | IS
+              | KB
               | KEY
               | LIMIT
               | L_SKIP
               | MATCH
+              | MB
+              | MEMORY
               | MERGE
               | NODE
               | NONE
@@ -393,6 +412,7 @@ cypherKeyword : ALL
               | PROFILE
               | QUERY
               | REDUCE
+              | REGISTER
               | REMOVE
               | RETURN
               | SET
@@ -404,6 +424,7 @@ cypherKeyword : ALL
               | TRUE
               | UNION
               | UNIQUE
+              | UNLIMITED
               | UNWIND
               | WHEN
               | WHERE

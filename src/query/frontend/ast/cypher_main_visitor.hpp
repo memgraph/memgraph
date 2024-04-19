@@ -154,6 +154,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) override;
 
   /**
+   * @return TextIndexQuery*
+   */
+  antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
+
+  /**
    * @return ExplainQuery*
    */
   antlrcpp::Any visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) override;
@@ -242,6 +247,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CoordinatorQuery*
    */
   antlrcpp::Any visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) override;
+
+  /**
+   * @return DropGraphQuery*
+   */
+  antlrcpp::Any visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*
@@ -500,7 +510,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) override;
 
   /**
-   * @return DropIndex*
+   * @return IndexQuery*
    */
   antlrcpp::Any visitDropIndex(MemgraphCypher::DropIndexContext *ctx) override;
 
@@ -513,6 +523,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return DropEdgeIndex*
    */
   antlrcpp::Any visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) override;
+
+  /**
+   * @return TextIndexQuery*
+   */
+  antlrcpp::Any visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) override;
+
+  /**
+   * @return TextIndexQuery*
+   */
+  antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -723,6 +743,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Pattern*
    */
   antlrcpp::Any visitPatternPart(MemgraphCypher::PatternPartContext *ctx) override;
+
+  /**
+   * @return Pattern*
+   */
+  antlrcpp::Any visitForcePatternPart(MemgraphCypher::ForcePatternPartContext *ctx) override;
 
   /**
    * @return Pattern*

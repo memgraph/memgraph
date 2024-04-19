@@ -20,18 +20,14 @@ constexpr int MAX_SNAPSHOTS = 3;
 
 namespace memgraph::coordination {
 
-auto CoordinatorStateMachine::FindCurrentMainInstanceName() const -> std::optional<std::string> {
-  return cluster_state_.FindCurrentMainInstanceName();
-}
-
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
-auto CoordinatorStateMachine::IsMain(std::string_view instance_name) const -> bool {
-  return cluster_state_.IsMain(instance_name);
+auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const -> bool {
+  return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::IsReplica(std::string_view instance_name) const -> bool {
-  return cluster_state_.IsReplica(instance_name);
+auto CoordinatorStateMachine::HasReplicaState(std::string_view instance_name) const -> bool {
+  return cluster_state_.HasReplicaState(instance_name);
 }
 
 auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
@@ -42,7 +38,15 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorClientConfig const &config) -> ptr<buffer> {
+auto CoordinatorStateMachine::SerializeOpenLock() -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}, {"info", nullptr}});
+}
+
+auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
+}
+
+auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
 }
 
@@ -50,32 +54,49 @@ auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view insta
   return CreateLog({{"action", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE}, {"info", instance_name}});
 }
 
-auto CoordinatorStateMachine::SerializeSetInstanceAsMain(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_name}});
+auto CoordinatorStateMachine::SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change)
+    -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_uuid_change}});
 }
 
 auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
 }
 
-auto CoordinatorStateMachine::SerializeUpdateUUID(utils::UUID const &uuid) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID}, {"info", uuid}});
+auto CoordinatorStateMachine::SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::INSTANCE_NEEDS_DEMOTE}, {"info", std::string{instance_name}}});
+}
+
+auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
+}
+
+auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change)
+    -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
-
   auto const action = json["action"].get<RaftLogAction>();
-  auto const &info = json["info"];
+  auto const &info = json.at("info");
 
   switch (action) {
+    case RaftLogAction::OPEN_LOCK:
+      [[fallthrough]];
+    case RaftLogAction::CLOSE_LOCK: {
+      return {std::monostate{}, action};
+    }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return {info.get<CoordinatorClientConfig>(), action};
-    case RaftLogAction::UPDATE_UUID:
+      return {info.get<CoordinatorToReplicaConfig>(), action};
+    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
       return {info.get<utils::UUID>(), action};
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+    case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
+      return {info.get<InstanceUUIDUpdate>(), action};
+    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
+    case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
       return {info.get<std::string>(), action};
@@ -133,6 +154,7 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
   } else {
     // Object ID > 0: second object, put actual value.
     ctx->cluster_state_.Serialize(data_out);
+    is_last_obj = true;
   }
 
   return 0;
@@ -152,9 +174,10 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
 
     auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
-    DMG_ASSERT(entry != snapshots_.end());
+    MG_ASSERT(entry != snapshots_.end());
     entry->second->cluster_state_ = cluster_state;
   }
+  obj_id++;
 }
 
 auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
@@ -172,15 +195,21 @@ auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
-  spdlog::debug("last_snapshot");
+  spdlog::debug("Getting last snapshot from state machine.");
   auto entry = snapshots_.rbegin();
-  if (entry == snapshots_.rend()) return nullptr;
+  if (entry == snapshots_.rend()) {
+    spdlog::debug("There is no snapshot.");
+    return nullptr;
+  }
 
   ptr<SnapshotCtx> ctx = entry->second;
   return ctx->snapshot_;
 }
 
-auto CoordinatorStateMachine::last_commit_index() -> ulong { return last_committed_idx_; }
+auto CoordinatorStateMachine::last_commit_index() -> ulong {
+  spdlog::trace("Last committed index from state machine {}", last_committed_idx_);
+  return last_committed_idx_;
+}
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   spdlog::debug("create_snapshot, last_log_idx: {}", s.get_last_log_idx());
@@ -205,11 +234,25 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   }
 }
 
-auto CoordinatorStateMachine::GetInstances() const -> std::vector<InstanceState> {
-  return cluster_state_.GetInstances();
+auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
+  return cluster_state_.GetReplicationInstances();
 }
 
-auto CoordinatorStateMachine::GetUUID() const -> utils::UUID { return cluster_state_.GetUUID(); }
+auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }
+
+auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) const -> bool {
+  return cluster_state_.IsCurrentMain(instance_name);
+}
+
+auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
+  return cluster_state_.GetInstanceUUID(instance_name);
+}
+
+auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.IsLockOpened(); }
+
+auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
+  return cluster_state_.TryGetCurrentMainName();
+}
 
 }  // namespace memgraph::coordination
 #endif

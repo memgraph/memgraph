@@ -219,6 +219,10 @@ string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
 separate_arguments(LD_LIBS)
 link_directories(${LD_LIBS})
 
+# This is used to so that 3rd party libs can find the
+# correct libraries from our toolchain
+set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
+
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
@@ -337,6 +341,8 @@ if (ASAN)
 endif()
 
 if (TSAN)
+  message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
+  set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
   # lead to false positive race reports, false negative race reports and/or
@@ -352,7 +358,7 @@ if (TSAN)
   # By default ThreadSanitizer uses addr2line utility to symbolize reports.
   # llvm-symbolizer is faster, consumes less memory and produces much better
   # reports. To use it set runtime flag:
-  #   TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
+  # TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
   # For more runtime flags see: https://github.com/google/sanitizers/wiki/ThreadSanitizerFlags
 endif()
 

@@ -12,6 +12,7 @@
 #include "replication/state.hpp"
 #include <optional>
 
+#include "flags/coordination.hpp"
 #include "flags/replication.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
@@ -56,7 +57,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
-  if (FLAGS_coordinator_server_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+  if (FLAGS_management_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
     spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }
@@ -254,7 +255,8 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
     return false;
   }
 
-  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, true, main_uuid};
+  // By default, writing on MAIN is disabled until cluster is in healthy state
+  replication_data_ = RoleMainData{ReplicationEpoch{new_epoch}, /*is_writing enabled*/ false, main_uuid};
 
   return true;
 }

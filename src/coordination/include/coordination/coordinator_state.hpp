@@ -13,6 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <optional>
+
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"
@@ -24,7 +27,8 @@ namespace memgraph::coordination {
 
 class CoordinatorState {
  public:
-  CoordinatorState();
+  explicit CoordinatorState(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorState(ReplicationInstanceInitConfig const &config);
   ~CoordinatorState() = default;
 
   CoordinatorState(CoordinatorState const &) = delete;
@@ -33,7 +37,7 @@ class CoordinatorState {
   CoordinatorState(CoordinatorState &&) noexcept = delete;
   CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorClientConfig const &config)
+  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
@@ -42,17 +46,21 @@ class CoordinatorState {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(uint32_t raft_server_id, uint32_t raft_port, std::string_view raft_address) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetCoordinatorServer() const -> CoordinatorServer &;
+
+  auto GetRoutingTable() -> RoutingTable;
 
  private:
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
   };
 
-  std::variant<CoordinatorInstance, CoordinatorMainReplicaData> data_;
+  std::variant<CoordinatorMainReplicaData, CoordinatorInstance> data_;
 };
 
 }  // namespace memgraph::coordination

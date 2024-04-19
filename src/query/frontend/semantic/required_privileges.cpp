@@ -29,6 +29,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(EdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
@@ -98,6 +100,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
+
+  void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 

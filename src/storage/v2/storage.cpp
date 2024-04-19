@@ -13,6 +13,8 @@
 #include "absl/container/flat_hash_set.h"
 #include "spdlog/spdlog.h"
 
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -273,6 +275,12 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    for (auto *node : nodes_to_delete) {
+      storage_->indices_.text_index_.RemoveNode(node);
+    }
+  }
+
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
 
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
@@ -394,10 +402,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       // MarkEdgeAsDeleted allocates additional memory
       // and CreateAndLinkDelta needs memory
-      utils::AtomicMemoryBlock atomic_memory_block{[&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order,
-                                                    &vertex_ptr, &deleted_edges, deletion_delta = deletion_delta,
-                                                    edge_type = edge_type, opposing_vertex = opposing_vertex,
-                                                    edge_ref = edge_ref, this]() {
+      utils::AtomicMemoryBlock([&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr,
+                                &deleted_edges, deletion_delta = deletion_delta, edge_type = edge_type,
+                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, this]() {
         attached_edges_to_vertex->pop_back();
         if (this->storage_->config_.salient.items.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
@@ -413,8 +420,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
-      }};
-      std::invoke(atomic_memory_block);
+      });
     }
 
     return std::make_optional<ReturnType>();
@@ -460,9 +466,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
 
     // Creating deltas and erasing edge only at the end -> we might have incomplete state as
     // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
-    utils::AtomicMemoryBlock atomic_memory_block{[&mid, &edges_attached_to_vertex, &deleted_edges,
-                                                  &partially_detached_edge_ids, this, vertex_ptr, deletion_delta,
-                                                  reverse_vertex_order]() {
+    utils::AtomicMemoryBlock([&mid, &edges_attached_to_vertex, &deleted_edges, &partially_detached_edge_ids, this,
+                              vertex_ptr, deletion_delta, reverse_vertex_order]() {
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
@@ -486,9 +491,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         }
       }
       edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
-    }};
+    });
 
-    std::invoke(atomic_memory_block);
     return std::make_optional<ReturnType>();
   };
 
@@ -541,6 +545,21 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
     edge->deleted = true;
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
   }
+}
+
+void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating a text index requires unique access to storage!");
+  storage_->indices_.text_index_.CreateIndex(storage_->config_.durability.storage_directory, index_name, label, db);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+}
+
+void Storage::Accessor::DropTextIndex(const std::string &index_name) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping a text index requires unique access to storage!");
+  auto deleted_index_label =
+      storage_->indices_.text_index_.DropIndex(storage_->config_.durability.storage_directory, index_name);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
 }
 
 }  // namespace memgraph::storage

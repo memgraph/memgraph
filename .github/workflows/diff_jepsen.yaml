@@ -1,0 +1,87 @@
+name: "Jepsen build and test"
+
+on:
+  workflow_call:
+
+env:
+  ARCH: 'amd'
+  BUILD_TYPE: 'RelWithDebInfo'
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OS: 'debian-12'
+  TOOLCHAIN: 'v5'
+
+jobs:
+  core:
+    name: "Core tests"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph
+
+      - name: Copy memgraph binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --binary --dest-dir build
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no 6
+
+      - name: Run Jepsen tests
+        run: |
+          cd tests/jepsen
+          ./run.sh test-all-individually \
+          --binary ../../build/memgraph \
+          --run-args "--time-limit 120 --concurrency 6" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 6 \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Save Jepsen report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Jepsen Report"
+          path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove

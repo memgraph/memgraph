@@ -397,21 +397,22 @@ be subject to certain use and/or capacity restrictions, as identified on the app
          direct competitor of Memgraph; (ii) Customer provides prompt written notice of such assignment to Memgraph;
          (iii) the assignee is capable of fully performing Customer’s obligations under this Agreement; and (iv) the
          assignee agrees to be bound by the terms and conditions of this Agreement. Any attempt to transfer or assign
-         this Agreement without such written consent will be null and void.Force Majeure. Memgraph shall have no
-         liability to the Customer under this Agreement if it is prevented from or delayed in performing its obligations
-         under this Agreement, or from carrying on its business, by acts, events, omissions or accidents beyond its
-         reasonable control, including strikes, lock-outs or other industrial disputes (whether involving the workforce
-         of Memgraph or any other party), failure of a utility service or transport or telecommunications network, act
-         of God, war, pandemic, riot, civil commotion, malicious damage, compliance with any law or governmental order,
-         rule, regulation or direction, accident, breakdown of plant or machinery, fire, flood, storm or default of
-         suppliers or subcontractors, provided that the Customer is notified of such an event and its expected duration.
-   12.2. Governing Law. This Agreement and any dispute or claim arising out of or in connection with it or its subject
+         this Agreement without such written consent will be null and void.
+   12.2. Force Majeure. Memgraph shall have no liability to the Customer under this Agreement if it is prevented from or
+         delayed in performing its obligations under this Agreement, or from carrying on its business, by acts, events,
+         omissions or accidents beyond its reasonable control, including strikes, lock-outs or other industrial disputes
+         (whether involving the workforce of Memgraph or any other party), failure of a utility service or transport or
+         telecommunications network, act of God, war, pandemic, riot, civil commotion, malicious damage, compliance with any
+         law or governmental order, rule, regulation or direction, accident, breakdown of plant or machinery, fire, flood,
+         storm or default of suppliers or subcontractors, provided that the Customer is notified of such an event and its
+         expected duration.
+   12.3. Governing Law. This Agreement and any dispute or claim arising out of or in connection with it or its subject
          matter or formation (including non-contractual disputes or claims) shall be governed by and construed in
          accordance with the law of England and Wales.
-   12.3. Jurisdiction. Each party irrevocably agrees that the courts of England and Wales shall have exclusive
+   12.4. Jurisdiction. Each party irrevocably agrees that the courts of England and Wales shall have exclusive
          jurisdiction to settle any dispute or claim arising out of or in connection with this Agreement or its subject
          matter or formation (including non-contractual disputes or claims).
-   12.4. Severability; Waiver; Construction. If a court of competent jurisdiction adjudges any provision of this
+   12.5. Severability; Waiver; Construction. If a court of competent jurisdiction adjudges any provision of this
          Agreement to be invalid or unenforceable, the remaining provisions of this Agreement, if capable of substantial
          performance, will continue in full force and effect without being impaired or invalidated in any way. The
          parties agree to replace any invalid provision with a valid provision that most closely approximates the intent
@@ -420,33 +421,34 @@ be subject to certain use and/or capacity restrictions, as identified on the app
          provision on any other occasion. In this Agreement, the word “including” means “including but not limited to.”
          No presumption will operate in favour of or against any party as a result of its role in drafting this
          Agreement.
-   12.5. Subcontractors. Memgraph may use the services of subcontractors in connection with its performance of this
+   12.6. Subcontractors. Memgraph may use the services of subcontractors in connection with its performance of this
          Agreement, provided that Memgraph remains solely responsible for (i) compliance of any such subcontractor with
          the terms of this Agreement and (ii) the overall performance of Memgraph as required under this Agreement.
-   12.6. Use of Aggregate Data. Customer agrees that Memgraph may collect, use and disclose quantitative data and
+   12.7. Use of Aggregate Data. Customer agrees that Memgraph may collect, use and disclose quantitative data and
          metadata derived from the use of the Software (i) for its own internal, statistical analysis, (ii) to develop
          and improve the Software and (iii) to create and distribute reports and other materials regarding use of the
          Software. For clarity, any such data collected, used, and disclosed will be in anonymized aggregate form only
-         and shall not identify Customer or its Users, or disclose any Customer Data.Independent Contractors. The
-         parties are independent contractors. No agency, partnership, franchise, joint venture, or employment
-         relationship is intended or created by this Agreement. Neither party has the power or authority to create or
-         assume any obligation, or make any representations or warranties, on behalf of the other party.
-   12.7. Publicity. Memgraph may, in conformity with Customer’s trademark usage guidelines, use Customer’s name and logo
+         and shall not identify Customer or its Users, or disclose any Customer Data.
+   12.8. Independent Contractors. The parties are independent contractors. No agency, partnership, franchise, joint
+         venture, or employment relationship is intended or created by this Agreement. Neither party has the power or
+         authority to create or assume any obligation, or make any representations or warranties, on behalf of the other
+         party.
+   12.9. Publicity. Memgraph may, in conformity with Customer’s trademark usage guidelines, use Customer’s name and logo
          in Memgraph’s sales and marketing materials, including in business presentations, Customer lists, and on
          websites. Neither party will issue a press release regarding this Agreement without the other party’s prior
          written consent. Neither party will disclose the terms of this Agreement to any third party, except as required
          by law.
-   12.8. Notice. Any notice, consent, or waiver hereunder must be in writing, addressed to the attention of “Legal
+   12.10.Notice. Any notice, consent, or waiver hereunder must be in writing, addressed to the attention of “Legal
          Department” at the address set forth above, and delivered by personal delivery, reputable rapid courier, or
          certified/registered mail, return receipt requested, and will be deemed given upon personal delivery, one (1)
          day after deposit with an overnight domestic courier, two (2) days after deposit with an international courier,
          or five (5) days after deposit in the certified or registered mail. A party may specify a new address by
          providing notice to the other party in accordance with this Section.
-   12.9. Compliance with Law. Each party will comply with all applicable laws, regulations, and orders of any
+   12.11.Compliance with Law. Each party will comply with all applicable laws, regulations, and orders of any
          governmental authority of competent jurisdiction in its performance under this Agreement, including but not
          limited to those applicable to data collection and the privacy and security of personal information, including
          trans-border data transfers and data breach notification requirements as required of each party by law.
-   12.10.Supremacy; Modification. This Agreement will prevail over any written instrument submitted by Customer; the
+   12.12.Supremacy; Modification. This Agreement will prevail over any written instrument submitted by Customer; the
          terms of any purchase order, acknowledgement, or similar document submitted by Customer to Memgraph will have
          no effect. If the express terms of an Order Document conflict with this Agreement, the terms on the Order
          Document will prevail, but only with respect to that Order Document. This Agreement cannot be varied or
@@ -454,10 +456,10 @@ be subject to certain use and/or capacity restrictions, as identified on the app
          be in writing and signed by both parties, except that subsequent renewals and purchases of additional Licensed
          Capacity can be procured by payment against an issued invoice as set forth in Section 5 (“Fees and Payment”)
          above.
-   12.11.No Third Party Beneficiaries. This Agreement is not intended and shall not be construed to give any third party
+   12.13.No Third Party Beneficiaries. This Agreement is not intended and shall not be construed to give any third party
          any interest or rights with respect to or in connection with any agreement or provision herein, except as
          expressly provided for in this Agreement.
-   12.12.Entire Agreement. This Agreement in its original English text, sets forth the complete, exclusive, and final
+   12.14.Entire Agreement. This Agreement in its original English text, sets forth the complete, exclusive, and final
          agreement of the parties concerning the subject matter hereof, supersedes, replaces, and merges all prior and
          contemporaneous agreements, communications, and understandings, both
          written and oral, between them concerning the subject matter hereof. This Agreement may be executed in

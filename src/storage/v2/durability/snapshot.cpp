@@ -13,6 +13,8 @@
 
 #include <thread>
 
+#include "flags/experimental.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -425,6 +427,7 @@ struct LoadPartialConnectivityResult {
 template <typename TEdgeTypeFromIdFunc>
 LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::path &path,
                                                       utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
+                                                      utils::SkipList<EdgeMetadata> &edges_metadata,
                                                       const uint64_t from_offset, const uint64_t vertices_count,
                                                       const SalientConfig::Items items, const bool snapshot_has_edges,
                                                       TEdgeTypeFromIdFunc get_edge_type_from_id) {
@@ -435,6 +438,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
 
   auto vertex_acc = vertices.access();
   auto edge_acc = edges.access();
+  auto edge_metadata_acc = edges_metadata.access();
 
   // Read the first gid to find the necessary iterator in vertices
   const auto first_vertex_gid = std::invoke([&]() mutable {
@@ -578,6 +582,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
             auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(*edge_gid), nullptr});
             edge_ref = EdgeRef(&*edge);
           }
+          if (items.enable_edges_metadata) {
+            edge_metadata_acc.insert(EdgeMetadata{Gid::FromUint(*edge_gid), &vertex});
+          }
         }
         vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
         // Increment edge count. We only increment the count here because the
@@ -624,7 +631,7 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
 }
 
 RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges,
+                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         SalientConfig::Items items) {
@@ -642,6 +649,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
     if (!success) {
       edges->clear();
       vertices->clear();
+      edges_metadata->clear();
       epoch_history->clear();
     }
   });
@@ -1096,7 +1104,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
 }
 
 RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges,
+                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         const Config &config) {
@@ -1116,6 +1124,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
     if (!success) {
       edges->clear();
       vertices->clear();
+      edges_metadata->clear();
       epoch_history->clear();
     }
   });
@@ -1224,10 +1233,10 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
-         &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
-          const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
-                                                      snapshot_has_edges, get_edge_type_from_id);
+        [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
+         &get_edge_type_from_id, &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, batch.offset,
+                                                      batch.count, items, snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -1385,7 +1394,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
 }
 
 RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges,
+                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                         const Config &config) {
@@ -1405,6 +1414,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
     if (!success) {
       edges->clear();
       vertices->clear();
+      edges_metadata->clear();
       epoch_history->clear();
     }
   });
@@ -1513,10 +1523,10 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
-         &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
-          const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
-                                                      snapshot_has_edges, get_edge_type_from_id);
+        [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
+         &get_edge_type_from_id, &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, batch.offset,
+                                                      batch.count, items, snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -1728,7 +1738,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
 }
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                               utils::SkipList<Edge> *edges,
+                               utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config) {
   RecoveryInfo recovery_info;
@@ -1740,14 +1750,16 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
   if (*version == 14U) {
-    return LoadSnapshotVersion14(path, vertices, edges, epoch_history, name_id_mapper, edge_count,
+    return LoadSnapshotVersion14(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
                                  config.salient.items);
   }
   if (*version == 15U) {
-    return LoadSnapshotVersion15(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
+    return LoadSnapshotVersion15(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
+                                 config);
   }
   if (*version == 16U) {
-    return LoadSnapshotVersion16(path, vertices, edges, epoch_history, name_id_mapper, edge_count, config);
+    return LoadSnapshotVersion16(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
+                                 config);
   }
 
   // Cleanup of loaded data in case of failure.
@@ -1756,6 +1768,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (!success) {
       edges->clear();
       vertices->clear();
+      edges_metadata->clear();
       epoch_history->clear();
     }
   });
@@ -1864,10 +1877,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, edges, edge_count, items = config.salient.items, snapshot_has_edges, &get_edge_type_from_id,
-         &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
-          const auto result = LoadPartialConnectivity(path, *vertices, *edges, batch.offset, batch.count, items,
-                                                      snapshot_has_edges, get_edge_type_from_id);
+        [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
+         &get_edge_type_from_id, &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, batch.offset,
+                                                      batch.count, items, snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -2002,6 +2015,24 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)));
       }
       spdlog::info("Metadata of edge-type indices are recovered.");
+    }
+
+    // Recover text indices.
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
+      spdlog::info("Recovering metadata of {} text indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto index_name = snapshot.ReadString();
+        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read text index label!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                    {index_name.value(), get_label_from_id(*label)}, "The text index already exists!");
+        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+      }
+      spdlog::info("Metadata of text indices are recovered.");
     }
 
     spdlog::info("Metadata of indices are recovered.");
@@ -2491,6 +2522,16 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);
+      }
+    }
+
+    // Write text indices.
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      auto text_indices = storage->indices_.text_index_.ListIndices();
+      snapshot.WriteUint(text_indices.size());
+      for (const auto &[index_name, label] : text_indices) {
+        snapshot.WriteString(index_name);
+        write_mapping(label);
       }
     }
   }

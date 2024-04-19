@@ -128,6 +128,7 @@ declare -A primary_urls=(
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
+  ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -159,6 +160,7 @@ declare -A secondary_urls=(
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
+  ["mgcxx"]="http://github.com/memgraph/mgcxx.git"
 )
 
 # antlr
@@ -182,7 +184,7 @@ benchmark_tag="v1.6.0"
 repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
 
 # google test
-googletest_tag="release-1.8.0"
+googletest_tag="v1.14.0"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # libbcrypt
@@ -284,11 +286,18 @@ range_v3_ref="release-0.12.0"
 repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
 
 # NuRaft
-nuraft_tag="v2.1.0"
-repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$nuraft_tag" true
+NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
+NURAFT_TAG="master"
+repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" false
 pushd nuraft
-git apply ../nuraft2.1.0.patch
+git checkout $NURAFT_COMMIT_HASH
+git apply ../nuraft.patch
 asio_tag="asio-1-29-0"
 repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
 ./prepare.sh
 popd
+
+
+# mgcxx (text search)
+mgcxx_tag="v0.0.6"
+repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true

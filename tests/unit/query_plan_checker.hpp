@@ -66,6 +66,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(ScanAllByLabelProperty);
   PRE_VISIT(ScanAllByEdgeType);
+  PRE_VISIT(ScanAllByEdgeId);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -141,6 +142,11 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(CallProcedure);
 
+  bool PreVisit(RollUpApply &op) override {
+    CheckOp(op);
+    return false;
+  }
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -172,6 +178,7 @@ using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
+using ExpectScanAllByEdgeId = OpChecker<ScanAllByEdgeId>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
@@ -522,6 +529,25 @@ class ExpectCallProcedure : public OpChecker<CallProcedure> {
   std::vector<memgraph::query::Expression *> args_;
   std::vector<std::string> fields_;
   std::vector<Symbol> result_syms_;
+};
+
+class ExpectRollUpApply : public OpChecker<RollUpApply> {
+ public:
+  ExpectRollUpApply(const std::list<std::unique_ptr<BaseOpChecker>> &input,
+                    const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch)
+      : input_(input), list_collection_branch_(list_collection_branch) {}
+
+  void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
+    PlanChecker input_checker(input_, symbol_table);
+    op.input_->Accept(input_checker);
+    ASSERT_TRUE(op.list_collection_branch_);
+    PlanChecker list_collection_branch_checker(list_collection_branch_, symbol_table);
+    op.list_collection_branch_->Accept(list_collection_branch_checker);
+  }
+
+ private:
+  const std::list<std::unique_ptr<BaseOpChecker>> &input_;
+  const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch_;
 };
 
 template <class T>

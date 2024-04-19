@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/pretty_print.hpp"
+#include <utility>
 #include <variant>
 
 #include "query/db_accessor.hpp"
@@ -80,6 +81,11 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeType &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
@@ -492,6 +498,16 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeType &op) {
   op.input_->Accept(*this);
   self["input"] = PopOutput();
 
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
+  json self;
+  self["name"] = "ScanAllByEdgeId";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
   output_ = std::move(self);
   return false;
 }
@@ -1000,6 +1016,21 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
 
   op.sub_branch_->Accept(*this);
   self["right"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
+  json self;
+  self["name"] = "RollUpApply";
+  self["output_symbol"] = ToJson(op.result_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.list_collection_branch_->Accept(*this);
+  self["list_collection_branch"] = PopOutput();
 
   output_ = std::move(self);
   return false;

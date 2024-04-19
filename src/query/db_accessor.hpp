@@ -439,6 +439,12 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view) {
+    auto maybe_edge = accessor_->FindEdge(gid, view);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
@@ -615,6 +621,8 @@ class DbAccessor final {
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
 
+  const std::string &DatabaseName() const { return accessor_->id(); }
+
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
   utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {},
@@ -633,6 +641,24 @@ class DbAccessor final {
   }
 
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
+
+  bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
+
+  void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
+
+  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels = {}) {
+    accessor_->TextIndexUpdateVertex(vertex.impl_, removed_labels);
+  }
+
+  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                            text_search_mode search_mode) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
+  }
+
+  std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                 const std::string &aggregation_query) const {
+    return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
+  }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
@@ -717,6 +743,12 @@ class DbAccessor final {
     return accessor_->DropIndex(edge_type);
   }
 
+  void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
+    accessor_->CreateTextIndex(index_name, label, this);
+  }
+
+  void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
+
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {
     return accessor_->CreateExistenceConstraint(label, property);
@@ -736,6 +768,8 @@ class DbAccessor final {
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
   }
+
+  void DropGraph() { return accessor_->DropGraph(); }
 };
 
 class SubgraphDbAccessor final {
@@ -788,6 +822,8 @@ class SubgraphDbAccessor final {
   VerticesIterable Vertices(storage::View view);
 
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
+
+  std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view);
 
   Graph *getGraph();
 

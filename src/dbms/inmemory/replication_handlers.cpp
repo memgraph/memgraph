@@ -284,8 +284,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = storage::durability::LoadSnapshot(
-        *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->repl_storage_state_.history,
-        storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_);
+        *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+        &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -615,6 +615,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         auto ret = vertex->AddLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -627,6 +628,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto vertex = transaction->FindVertex(delta.vertex_add_remove_label.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         auto ret = vertex->RemoveLabel(transaction->NameToLabel(delta.vertex_add_remove_label.label));
         if (ret.HasError() || !ret.GetValue())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
@@ -640,6 +642,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto vertex = transaction->FindVertex(delta.vertex_edge_set_property.gid, View::NEW);
         if (!vertex)
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        // NOTE: Phase 1 of the text search feature doesn't have replication in scope
         auto ret = vertex->SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
                                        delta.vertex_edge_set_property.value);
         if (ret.HasError())
@@ -851,6 +854,14 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         auto *transaction = get_transaction(timestamp, kUniqueAccess);
         if (transaction->DropIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        break;
+      }
+      case WalDeltaData::Type::TEXT_INDEX_CREATE: {
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
+        break;
+      }
+      case WalDeltaData::Type::TEXT_INDEX_DROP: {
+        // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
         break;
       }
       case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE: {

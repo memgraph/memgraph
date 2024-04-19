@@ -27,6 +27,21 @@
 
 namespace memgraph::query::plan {
 
+struct PatternComprehensionData {
+  PatternComprehensionData() = default;
+
+  PatternComprehensionData(std::shared_ptr<LogicalOperator> lop, Symbol res_symbol)
+      : op(std::move(lop)), result_symbol(res_symbol) {}
+
+  PatternComprehensionData(PatternComprehension *pc, Symbol res_symbol)
+      : pattern_comprehension(pc), result_symbol(res_symbol) {}
+
+  PatternComprehension *pattern_comprehension = nullptr;
+  std::shared_ptr<LogicalOperator> op;
+  Symbol result_symbol;
+};
+using PatternComprehensionDataMap = std::unordered_map<std::string, PatternComprehensionData>;
+
 /// @brief Context which contains variables commonly used during planning.
 template <class TDbAccessor>
 struct PlanningContext {
@@ -88,9 +103,9 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 
 // Returns the set of symbols for the subquery that are actually referenced from the outer scope and
 // used in the subquery.
-std::unordered_set<Symbol> GetSubqueryBoundSymbols(
-    const std::vector<SingleQueryPart> &single_query_parts, SymbolTable &symbol_table, AstStorage &storage,
-    std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
+std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
+                                                   SymbolTable &symbol_table, AstStorage &storage,
+                                                   PatternComprehensionDataMap &pc_ops);
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table);
 Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table);
@@ -145,12 +160,12 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
+                                           PatternComprehensionDataMap &pc_ops);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops);
+                                         PatternComprehensionDataMap &pc_ops);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -194,17 +209,15 @@ class RuleBasedPlanner {
         uint64_t merge_id = 0;
         uint64_t subquery_id = 0;
 
-        std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pattern_comprehension_ops;
+        PatternComprehensionDataMap pattern_comprehension_ops;
 
-        if (single_query_part.pattern_comprehension_matchings.size() > 1) {
-          throw utils::NotYetImplemented("Multiple pattern comprehensions.");
-        }
         for (const auto &matching : single_query_part.pattern_comprehension_matchings) {
           std::unique_ptr<LogicalOperator> new_input;
           MatchContext match_ctx{matching.second, *context.symbol_table, context.bound_symbols};
           new_input = PlanMatching(match_ctx, std::move(new_input));
           new_input = std::make_unique<Produce>(std::move(new_input), std::vector{matching.second.result_expr});
-          pattern_comprehension_ops.emplace(matching.first, std::move(new_input));
+          pattern_comprehension_ops.emplace(
+              matching.first, PatternComprehensionData(std::move(new_input), matching.second.result_symbol));
         }
 
         for (const auto &clause : single_query_part.remaining_clauses) {
@@ -875,9 +888,9 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
-  std::unique_ptr<LogicalOperator> HandleSubquery(
-      std::unique_ptr<LogicalOperator> last_op, std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-      AstStorage &storage, std::unordered_map<std::string, std::shared_ptr<LogicalOperator>> pc_ops) {
+  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
+                                                  std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
+                                                  AstStorage &storage, PatternComprehensionDataMap &pc_ops) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));

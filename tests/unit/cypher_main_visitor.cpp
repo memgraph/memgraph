@@ -28,7 +28,6 @@
 #include <json/json.hpp>
 //////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
-#include <gmock/gmock-matchers.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -2707,7 +2706,7 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE);
-  ast_generator.CheckLiteral(parsed_query->coordinator_server_id_, TypedValue(1));
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
 
   auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
       -> std::map<std::string, std::string, std::less<>> {
@@ -4568,6 +4567,13 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists(p=(n)-[]->()) RETURN n;", ast_generator,
                                                "Identifiers are not supported in exists(...).");
+
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists() RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
+  TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]) RETURN n;", ast_generator,
+                                               "EXISTS supports only a single relation as its input.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
@@ -4616,22 +4622,6 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node2);
     ASSERT_TRUE(edge2);
     ASSERT_TRUE(node3);
-  }
-
-  {
-    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE exists((n)) RETURN n;"));
-    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
-
-    ASSERT_TRUE(exists);
-
-    const auto pattern = exists->pattern_;
-    ASSERT_TRUE(pattern->atoms_.size() == 1);
-
-    const auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-
-    ASSERT_TRUE(node);
   }
 }
 
@@ -4709,7 +4699,7 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, PatternComprehension) {
+TEST_P(CypherMainVisitorTest, PatternComprehensionInReturn) {
   auto &ast_generator = *GetParam();
   {
     const auto *query =
@@ -4779,6 +4769,105 @@ TEST_P(CypherMainVisitorTest, PatternComprehension) {
     const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
 
     const auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    ASSERT_TRUE(pc->variable_);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, PatternComprehensionInWith) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WITH [(n)-->(b) | b.val] AS res RETURN res;"));
+    const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(with->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    EXPECT_EQ(pc->filter_, nullptr);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) WITH [(n)-->(b) WHERE b.id=1 | b.val] AS res RETURN res;"));
+    const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(with->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(pc);
+
+    // Check for variable_
+    EXPECT_EQ(pc->variable_, nullptr);
+
+    // Check for pattern_
+    const auto pattern = pc->pattern_;
+    ASSERT_TRUE(pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    // Check for filter_
+    const auto *filter = pc->filter_;
+    ASSERT_TRUE(filter);
+    ASSERT_TRUE(filter->expression_);
+
+    // Check for resultExpr_
+    const auto *result_expr = pc->resultExpr_;
+    ASSERT_TRUE(result_expr);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) WITH [p = (n)-->(b) WHERE b.id=1 | b.val] AS res RETURN res;"));
+    const auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+
+    const auto *pc = dynamic_cast<PatternComprehension *>(with->body_.named_expressions[0]->expression_);
     ASSERT_TRUE(pc);
 
     // Check for variable_

@@ -2026,6 +2026,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
   }
 
   std::vector<memgraph::query::Clause *> clauses_;
+  bool has_update{};
 
   SingleQuery *Clone(AstStorage *storage) const override {
     SingleQuery *object = storage->Create<SingleQuery>();
@@ -2033,6 +2034,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
     for (auto i4 = 0; i4 < clauses_.size(); ++i4) {
       object->clauses_[i4] = clauses_[i4] ? clauses_[i4]->Clone(storage) : nullptr;
     }
+    object->has_update = has_update;
     return object;
   }
 
@@ -2268,6 +2270,37 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
  protected:
   EdgeIndexQuery(Action action, EdgeTypeIx edge_type) : action_(action), edge_type_(edge_type) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class TextIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  TextIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::TextIndexQuery::Action action_;
+  memgraph::query::LabelIx label_;
+  std::string index_name_;
+
+  TextIndexQuery *Clone(AstStorage *storage) const override {
+    TextIndexQuery *object = storage->Create<TextIndexQuery>();
+    object->action_ = action_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->index_name_ = index_name_;
+    return object;
+  }
+
+ protected:
+  TextIndexQuery(Action action, LabelIx label, std::string index_name)
+      : action_(action), label_(std::move(label)), index_name_(index_name) {}
 
  private:
   friend class AstStorage;
@@ -3147,7 +3180,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   memgraph::query::CoordinatorQuery::Action action_;
   std::string instance_name_{};
   std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  memgraph::query::Expression *coordinator_server_id_{nullptr};
+  memgraph::query::Expression *coordinator_id_{nullptr};
   memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
@@ -3155,12 +3188,30 @@ class CoordinatorQuery : public memgraph::query::Query {
 
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->coordinator_server_id_ = coordinator_server_id_ ? coordinator_server_id_->Clone(storage) : nullptr;
+    object->coordinator_id_ = coordinator_id_ ? coordinator_id_->Clone(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     for (const auto &[key, value] : configs_) {
       object->configs_[key->Clone(storage)] = value->Clone(storage);
     }
 
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropGraphQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropGraphQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropGraphQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropGraphQuery>();
     return object;
   }
 

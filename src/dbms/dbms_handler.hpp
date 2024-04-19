@@ -311,7 +311,7 @@ class DbmsHandler {
         stats.triggers += info.triggers;
         stats.streams += info.streams;
         ++stats.num_databases;
-        stats.indices += storage_info.label_indices + storage_info.label_property_indices;
+        stats.indices += storage_info.label_indices + storage_info.label_property_indices + storage_info.text_indices;
         stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
         ++stats.storage_modes[(int)storage_info.storage_mode];
         ++stats.isolation_levels[(int)storage_info.isolation_level];

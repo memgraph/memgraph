@@ -72,7 +72,7 @@ class QueryExecution : public testing::Test {
     interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system_state
 #ifdef MG_ENTERPRISE
                                  ,
-                                 nullptr
+                                 std::nullopt
 #endif
     );
     auth_checker_.emplace();

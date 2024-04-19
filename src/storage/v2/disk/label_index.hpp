@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,6 +57,8 @@ class DiskLabelIndex : public storage::LabelIndex {
   void LoadIndexInfo(const std::vector<std::string> &labels);
 
   std::unordered_set<LabelId> GetInfo() const;
+
+  void DropGraphClearIndices() override{};
 
  private:
   utils::Synchronized<std::map<uint64_t, std::map<Gid, std::vector<LabelId>>>> entries_for_deletion;
