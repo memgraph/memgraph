@@ -63,74 +63,78 @@ jobs:
 
   Community:
     needs: DiffCheck
-    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event_name == 'merge_group' || 
+      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' && 
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=community -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.community == 'true') }} 
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.community == 'true')) }} 
     secrets: inherit
 
   Coverage:
     needs: DiffCheck
-    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event_name == 'merge_group' || 
+      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=coverage -test=core')) ||
         (github.event_name == 'workflow_dispatch' && github.event.inputs.coverage == 'true') }}
     secrets: inherit
 
   Debug:
     needs: DiffCheck
-    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event_name == 'merge_group' || 
+      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_core == 'true') }}
-      run_integration: ${{ github.event_name == 'merge_group' || 
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_core == 'true')) }}
+      run_integration: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=integration')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_integration == 'true') }}
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_integration == 'true')) }}
     secrets: inherit
 
   Jepsen:
     needs: DiffCheck
-    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
-      run_core: ${{ github.event_name == 'merge_group' || 
+      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=jepsen -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.jepsen == 'true') }}
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.jepsen == 'true')) }}
     secrets: inherit
 
   Release:
     needs: DiffCheck
-    if: ${{ needs.DiffCheck.outputs.run_diff == 'true' }}
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event_name == 'merge_group' || 
+      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_core == 'true') }}
-      run_benchmark: ${{ github.event_name == 'merge_group' || 
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_core == 'true')) }}
+      run_benchmark: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=benchmark')) ||
         (github.event_name == 'workflow_dispatch' && github.event.inputs.release_benchmark == 'true') }}
-      run_e2e: ${{ github.event_name == 'merge_group' || 
+      run_e2e: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=e2e')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_e2e == 'true') }}
-      run_stress: ${{ github.event_name == 'merge_group' || 
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_e2e == 'true')) }}
+      run_stress: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
+        (github.event_name == 'merge_group' || 
         (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=stress')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_stress == 'true') }}
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_stress == 'true')) }}
     secrets: inherit
