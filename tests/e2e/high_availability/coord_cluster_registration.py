@@ -675,7 +675,7 @@ def test_register_one_coord_with_env_vars():
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
 
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
-    # os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
+    os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'};",
@@ -685,8 +685,8 @@ def test_register_one_coord_with_env_vars():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
-    # with open(file_path, 'w') as writer:
-    #    writer.writelines("\n".join(setup_queries))
+    with open(file_path, "w") as writer:
+        writer.writelines("\n".join(setup_queries))
     interactive_mg_runner.start(
         {
             "coordinator_3": {
@@ -704,6 +704,7 @@ def test_register_one_coord_with_env_vars():
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
+    """
     execute_and_fetch_all(
         coordinator3_cursor,
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
@@ -725,6 +726,7 @@ def test_register_one_coord_with_env_vars():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+     """
 
     def check_coordinator1():
         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
