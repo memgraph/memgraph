@@ -16,6 +16,10 @@ Please delete either the [master < EPIC] or [master < Task] part, depending on w
     - **[FINAL GIT MESSAGE]**
 
 
+### CI Testing Labels
+Please select the appropriate CI test labels _(CI -build=**build-name** -test=**test-suite**)_
+
+
 ### Documentation checklist
 - [ ] Add the documentation label tag
 - [ ] Add the bug / feature label tag
