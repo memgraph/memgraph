@@ -997,7 +997,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
                                 ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+                                bool is_coordinator_managed) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
@@ -1009,10 +1010,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator can't set roles!");
-      }
-      if (FLAGS_management_port) {
+      if (is_coordinator_managed) {
         throw QueryRuntimeException("Can't set role manually on instance with coordinator server port.");
       }
 #endif
@@ -1038,12 +1036,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-#ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator doesn't have a replication role!");
-      }
-#endif
-
       callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
         auto mode = handler.ShowReplicationRole();
@@ -1060,7 +1052,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port) {
+      if (is_coordinator_managed) {
         throw QueryRuntimeException("Can't register replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1081,7 +1073,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port) {
+      if (is_coordinator_managed) {
         throw QueryRuntimeException("Can't drop replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1095,12 +1087,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-#ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW INSTANCES instead.");
-      }
-#endif
-
       bool full_info = false;
 #ifdef MG_ENTERPRISE
       full_info = license::global_license_checker.IsEnterpriseValidFast();
@@ -2894,14 +2880,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                       std::vector<Notification> *notifications,
                                       ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db,
-                                      const InterpreterConfig &config) {
+                                      const InterpreterConfig &config, bool is_coordinator_managed) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler,
-                                         current_db, config, notifications);
+                                         current_db, config, notifications, is_coordinator_managed);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4400,7 +4386,8 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
-  if (FLAGS_management_port) {
+  if (interpreter_context_->coordinator_state_.has_value() &&
+      interpreter_context_->coordinator_state_->get().IsDataInstance()) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4537,8 +4524,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
-        !utils::Downcast<SettingQuery>(parsed_query.query)) {
+    // TODO(antoniofilipovic) extend to cover Lab queries
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
+        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 #endif
@@ -4588,10 +4576,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       /// TODO: make replication DB agnostic
       prepared_query = PrepareReplicationQuery(
           std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-          *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config);
+          *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config,
+          interpreter_context_->coordinator_state_.has_value() &&
+              interpreter_context_->coordinator_state_->get().IsDataInstance());
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
+      if (!interpreter_context_->coordinator_state_.has_value()) {
+        throw QueryRuntimeException(
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+      }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->coordinator_state_, interpreter_context_->config);
@@ -4673,7 +4667,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw QueryException("Write query forbidden on the replica!");
       }
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port && !interpreter_context_->repl_state->IsMainWriteable()) {
+      if (interpreter_context_->coordinator_state_.has_value() &&
+          interpreter_context_->coordinator_state_->get().IsDataInstance() &&
+          !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
         throw QueryException(
             "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");

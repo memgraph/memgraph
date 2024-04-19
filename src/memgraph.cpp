@@ -464,6 +464,7 @@ int main(int argc, char **argv) {
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
 
   auto init_coord_state = [&coordinator_state](auto management_port, auto coord_port, auto coord_id, int bolt_port) {
+    spdlog::trace("Creating coordinator state.");
     if (management_port && (coord_id || coord_port)) {
       throw std::runtime_error(
           "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
@@ -471,7 +472,6 @@ int main(int argc, char **argv) {
     }
 
     if (coord_id && coord_port) {
-      MG_ASSERT(bolt_port, "Sent bolt port doesn't have value");
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(
@@ -495,8 +495,14 @@ int main(int argc, char **argv) {
           "Initializing coordinator state from env variables, management port: {}, coord port: {}, coord id: {}, bolt "
           "port: {}.",
           management_port, coord_port, coord_id, bolt_port);
+      MG_ASSERT(bolt_port, "Sent bolt port doesn't have value");
+      FLAGS_bolt_port = bolt_port;
       std::invoke(init_coord_state, management_port, coord_port, coord_id, bolt_port);
     } else {
+      spdlog::trace(
+          "Initializing coordinator state from flags, management port: {}, coord port: {}, coord id: {}, bolt "
+          "port: {}.",
+          FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
       std::invoke(init_coord_state, FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
     }
   }
@@ -527,6 +533,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
   if (FLAGS_management_port) {
+    spdlog::trace("Starting coordinator server.");
     memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
     MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }

@@ -57,6 +57,7 @@ class CoordinatorState {
   auto GetRoutingTable() -> RoutingTable;
 
   auto IsCoordinator() const -> bool;
+  auto IsDataInstance() const -> bool;
 
  private:
   struct CoordinatorMainReplicaData {
