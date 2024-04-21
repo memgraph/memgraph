@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <cstdlib>
+#include <exception>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
@@ -19,6 +22,9 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
+#include "flags/bolt.hpp"
+#include "flags/coordination.hpp"
+#include "flags/general.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -43,11 +49,14 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/file.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+#include <spdlog/spdlog.h>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -444,10 +453,15 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
-    memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-    coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
-                                                            FLAGS_bolt_port, high_availability_data_dir});
+    try {
+      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+      memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
+                                                              FLAGS_bolt_port, high_availability_data_dir});
+    } catch (std::exception const &e) {
+      spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+      exit(1);
+    }
   } else {
     coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
   }

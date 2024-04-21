@@ -460,6 +460,12 @@ target_link_libraries(${test_prefix}coordinator_state_machine gflags mg-coordina
 target_include_directories(${test_prefix}coordinator_state_machine PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+if(MG_ENTERPRISE)
+  add_unit_test(coordinator_state_manager.cpp)
+  target_link_libraries(${test_prefix}coordinator_state_manager gflags mg-coordination mg-repl_coord_glue)
+  target_include_directories(${test_prefix}coordinator_state_manager PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # Test RAFT state
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_raft_state.cpp)
