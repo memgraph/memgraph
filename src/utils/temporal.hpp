@@ -468,8 +468,8 @@ struct ZonedDateTime {
   }
 
   int64_t LocalYear() const { return int(LocalYMD().year()); }
-  int64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
-  int64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
+  uint64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
+  uint64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
   int64_t LocalHour() const { return LocalHMS().hours().count(); }
   int64_t LocalMinute() const { return LocalHMS().minutes().count(); }
   int64_t LocalSecond() const { return LocalHMS().seconds().count(); }

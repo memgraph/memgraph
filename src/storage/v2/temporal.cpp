@@ -26,4 +26,6 @@ ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type,
 
 int64_t ZonedTemporalData::IntMicroseconds() const { return microseconds.time_since_epoch().count(); }
 
+std::string ZonedTemporalData::TimezoneToString() const { return timezone.ToString(); }
+
 }  // namespace memgraph::storage

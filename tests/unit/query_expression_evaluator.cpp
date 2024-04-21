@@ -2480,12 +2480,33 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{})).ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::DefaultTimezone()}));
 
+  // No parameters
   EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
+
+  // Nonexistent fields
   EXPECT_THROW(
       this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
       QueryRuntimeException);
   EXPECT_THROW(
       this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
+
+  // Only some fields
+  auto date_params = memgraph::utils::DateParameters{};
+  date_params.month = 7;
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"month", TypedValue(7)}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({date_params, {}, memgraph::utils::DefaultTimezone()}));
+
+  auto lt_params = memgraph::utils::LocalTimeParameters{};
+  lt_params.hour = 17;
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(17)}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({{}, lt_params, memgraph::utils::DefaultTimezone()}));
+
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
+                                                   {"timezone", TypedValue("America/Los_Angeles")}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
 }
 }  // namespace

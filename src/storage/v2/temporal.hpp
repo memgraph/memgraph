@@ -76,6 +76,8 @@ struct ZonedTemporalData {
 
   int64_t IntMicroseconds() const;
 
+  std::string TimezoneToString() const;
+
   ZonedTemporalType type;
   std::chrono::sys_time<std::chrono::microseconds> microseconds;
   utils::Timezone timezone;

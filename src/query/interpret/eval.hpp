@@ -33,6 +33,7 @@
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
@@ -544,10 +545,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(zdt.LocalYear(), ctx_->memory);
       }
       if (prop_name == "month") {
-        return TypedValue(zdt.LocalMonth(), ctx_->memory);
+        return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalMonth()), ctx_->memory);
       }
       if (prop_name == "day") {
-        return TypedValue(zdt.LocalDay(), ctx_->memory);
+        return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalDay()), ctx_->memory);
       }
       if (prop_name == "hour") {
         return TypedValue(zdt.LocalHour(), ctx_->memory);

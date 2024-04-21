@@ -402,10 +402,22 @@ class Reader {
     return utils::MemcpyCast<double>(*value);
   }
 
-  std::optional<int64_t> ReadTimezoneOffset() {
-    auto value = InternalReadInt<tz_offset_int>();
-    if (!value) return std::nullopt;
-    return static_cast<int64_t>(*value);
+  std::optional<utils::Timezone> ReadTimezone(auto type) {
+    if (type == Type::ZONED_TEMPORAL_DATA) {
+      auto tz_str_length = ReadUint(TZ_NAME_LENGTH_SIZE);
+      if (!tz_str_length) return std::nullopt;
+      std::string tz_str_v(*tz_str_length, '\0');
+      if (!ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
+      return utils::Timezone(tz_str_v);
+    }
+
+    if (type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
+      auto offset_value = InternalReadInt<tz_offset_int>();
+      if (!offset_value) return std::nullopt;
+      return utils::Timezone(std::chrono::minutes{static_cast<int64_t>(*offset_value)});
+    }
+
+    return std::nullopt;
   }
 
   bool ReadBytes(uint8_t *data, uint64_t size) {
@@ -605,21 +617,11 @@ std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
   auto microseconds_value = reader.ReadInt(metadata->payload_size);
   if (!microseconds_value) return std::nullopt;
 
-  if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
-    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
-    if (!tz_str_length) return std::nullopt;
-    std::string tz_str_v(*tz_str_length, '\0');
-    if (!reader.ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
-
-    return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
-                             utils::Timezone(tz_str_v)};
-  }
-
-  auto offset_value = reader.ReadTimezoneOffset();
-  if (!offset_value) return std::nullopt;
+  auto timezone = reader.ReadTimezone(metadata->type);
+  if (!timezone) return std::nullopt;
 
   return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
-                           utils::Timezone(std::chrono::minutes{*offset_value})};
+                           *timezone};
 }
 
 std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
