@@ -1,13 +1,12 @@
 #!/bin/bash
 
 NODE_VERSION="20"
-NVM_VERSION="20"
 
 setup_node() {
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
     nvm install $NODE_VERSION
-    nvm use $NVM_VERSION
+    nvm use $NODE_VERSION
   fi
 
   if ! command -v node >/dev/null; then
@@ -24,8 +23,8 @@ setup_node() {
   echo "NPM  VERSION: $npm_version"
   node_major_version=${node_version##v}
   node_major_version=${node_major_version%%.*}
-  if [ ! "$node_major_version" -ge 14 ]; then
-    echo "ERROR: It's required to have node >= 14."
+  if [ ! "$node_major_version" -ge $NODE_VERSION ]; then
+    echo "ERROR: It's required to have node >= $NODE_VERSION."
     exit 1
   fi
 }
