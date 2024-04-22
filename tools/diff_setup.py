@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import os
 import sys
@@ -9,8 +10,18 @@ class DiffSetup:
         self._base_branch = base_branch
         self._gh_context_path = gh_context_path
         self._set_test_suite(False)
-        with open(self._gh_context_path, "r") as gh_context_file:
-            self._gh_context = json.load(gh_context_file)
+        self._load_gh_context()
+
+    def _load_gh_context(self) -> None:
+        try:
+            with open(self._gh_context_path, "r") as gh_context_file:
+                self._gh_context = json.load(gh_context_file)
+        except FileNotFoundError:
+            print(f"File not found: {self._gh_context_path}")
+            sys.exit(1)
+        except json.JSONDecodeError:
+            print(f"Invalid JSON file: {self._gh_context_path}")
+            sys.exit(1)
 
     def _get_event_name(self) -> str:
         return self._gh_context.get("event_name")
@@ -35,10 +46,7 @@ class DiffSetup:
 
     def _check_diff_workflow(self) -> bool:
         for file in os.popen(f"git diff --name-only {self._base_branch}").read().splitlines():
-            if file.startswith(".github/workflows/"):
-                if file.startswith(".github/workflows/diff.yml"):
-                    return True
-            else:
+            if not file.startswith(".github/workflows/") or file.startswith(".github/workflows/diff"):
                 return True
         return False
 
@@ -87,7 +95,7 @@ class DiffSetup:
             self._set_test_suite(False)
 
 
-def print_test_suite(tests: dict, set_env_vars: bool=False) -> None:
+def print_test_suite(tests: dict, set_env_vars: bool = False) -> None:
     for build, tests in tests.items():
         for test, run in tests.items():
             print(f"run_{build}_{test}={run}")
@@ -95,10 +103,25 @@ def print_test_suite(tests: dict, set_env_vars: bool=False) -> None:
                 os.popen(f"echo run_{build}_{test}={run} >> $GITHUB_OUTPUT")
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Setup diff workflow test suite")
+    parser.add_argument(
+            "--gh-context-path", 
+            type=str,
+            required=True,
+            help="Path to json file containing the GitHub context for workflow run")
+    parser.add_argument(
+            "--base-branch",
+            default="origin/main",
+            type=str,
+            help="Base branch to compare against (default: origin/main)")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    base_branch = "origin/master"
-    gh_context_path = sys.argv[1]
-    diff_setup = DiffSetup(base_branch, gh_context_path)
+    args = parse_args()
+    print(args)
+    diff_setup = DiffSetup(args.base_branch, args.gh_context_path)
     diff_setup.setup_diff_workflow()
-    test_suite=diff_setup.get_test_suite()
+    test_suite = diff_setup.get_test_suite()
     print_test_suite(tests=test_suite, set_env_vars=True)
