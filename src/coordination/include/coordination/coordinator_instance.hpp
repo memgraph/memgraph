@@ -25,6 +25,7 @@
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
+#include "dbms/constants.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
@@ -76,6 +77,9 @@ class CoordinatorInstance {
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
+    if (ranges::empty(alive_instances)) {
+      return std::nullopt;
+    }
     auto const get_ts = [](ReplicationInstanceConnector &replica) {
       spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
       return replica.GetClient().SendGetInstanceTimestampsRpc();

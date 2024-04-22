@@ -8,7 +8,7 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
-
+import atexit
 import os
 import shutil
 import sys
@@ -110,6 +110,15 @@ def get_instances_description():
             "setup_queries": [],
         },
     }
+
+
+def unset_env_flags():
+    os.unsetenv("MEMGRAPH_EXPERIMENTAL_ENABLED")
+    os.unsetenv("MEMGRAPH_COORDINATOR_PORT")
+    os.unsetenv("MEMGRAPH_MANAGEMENT_PORT")
+    os.unsetenv("MEMGRAPH_BOLT_PORT")
+    os.unsetenv("MEMGRAPH_COORDINATOR_ID")
+    os.unsetenv("MEMGRAPH_HA_CLUSTER_INIT_QUERIES")
 
 
 def test_register_repl_instances_then_coordinators():
@@ -674,6 +683,8 @@ def test_register_one_coord_with_env_vars():
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
 
+    atexit.register(unset_env_flags)
+
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
@@ -805,14 +816,16 @@ def test_register_one_coord_with_env_vars():
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
-    os.unsetenv("MEMGRAPH_EXPERIMENTAL_ENABLED")
-    os.unsetenv("MEMGRAPH_COORDINATOR_PORT")
-    os.unsetenv("MEMGRAPH_BOLT_PORT")
-    os.unsetenv("MEMGRAPH_COORDINATOR_ID")
-    os.unsetenv("MEMGRAPH_HA_CLUSTER_INIT_QUERIES")
-
 
 def test_register_one_data_with_env_vars():
+    """
+    This test checks that instance can be set with env flags
+
+    1. Start other instances
+    2. set env vars
+    3. start last coord with setup
+    4. check everything works
+    """
     safe_execute(shutil.rmtree, TEMP_DIR)
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
@@ -885,6 +898,8 @@ def test_register_one_data_with_env_vars():
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7689"
     os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10013"
+
+    atexit.register(unset_env_flags)
 
     interactive_mg_runner.start(
         {
@@ -965,11 +980,253 @@ def test_register_one_data_with_env_vars():
 
     mg_sleep_and_assert(1, get_vertex_count)
 
-    os.unsetenv("MEMGRAPH_EXPERIMENTAL_ENABLED")
-    os.unsetenv("MEMGRAPH_COORDINATOR_PORT")
-    os.unsetenv("MEMGRAPH_BOLT_PORT")
-    os.unsetenv("MEMGRAPH_COORDINATOR_ID")
-    os.unsetenv("MEMGRAPH_HA_CLUSTER_INIT_QUERIES")
+
+def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
+    """
+    This test checks that there are no erros when starting coordinator
+    in case other instances are not set up yet.
+    On setting instances and reseting coordinator everything should be set up
+    """
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    MEMGRAPH_INSTANCES_DESCRIPTION = {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10011",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10012",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10013",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "setup_queries": [],
+        },
+    }
+
+    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
+    os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
+    os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
+    os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
+    os.mkdir(TEMP_DIR)
+    file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
+    os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
+
+    atexit.register(unset_env_flags)
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'};",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'};",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+    with open(file_path, "w") as writer:
+        writer.writelines("\n".join(setup_queries))
+
+    coordinator_3_description = {
+        "coordinator_3": {
+            "args": [
+                "--log-level=TRACE",
+            ],
+            "log_file": "coordinator3.log",
+            "setup_queries": [],
+            "default_bolt_port": 7692,
+        },
+    }
+
+    interactive_mg_runner.start(
+        coordinator_3_description,
+        "coordinator_3",
+    )
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    expected_cluster = [
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    ]
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    interactive_mg_runner.kill(coordinator_3_description, "coordinator_3")
+
+    # intentionally unset flags here because other instances might read them
+    unset_env_flags()
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+
+    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
+    os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
+    os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
+    os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
+    os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
+
+    interactive_mg_runner.start(
+        coordinator_3_description,
+        "coordinator_3",
+    )
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    expected_cluster = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    expected_cluster_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    try:
+        execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!"
+        )
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+
+    expected_cluster = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    expected_cluster_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "unknown"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+
+    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
+
+    expected_cluster = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+    ]
+
+    expected_cluster_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "main"),
+        ("instance_2", "", "", "unknown", "replica"),
+    ]
+
+    expected_replicas = [
+        (
+            "instance_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
+    main_cursor = connect(host="localhost", port=7687).cursor()
+
+    def check_main():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
+
+    unset_env_flags()
 
 
 def test_add_coord_instance_fails():
