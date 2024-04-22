@@ -105,6 +105,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
           break;
         }
       }
+      return;
     }
   }
   LOG_FATAL("Unsupported type");
