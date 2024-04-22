@@ -1,10 +1,13 @@
 #!/bin/bash
 
+NODE_VERSION="20"
+NVM_VERSION="20"
+
 setup_node() {
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
-    nvm install 14
-    nvm use 14
+    nvm install $NODE_VERSION
+    nvm use $NVM_VERSION
   fi
 
   if ! command -v node >/dev/null; then
