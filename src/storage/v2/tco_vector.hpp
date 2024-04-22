@@ -28,7 +28,7 @@ class TcoVector {
  public:
   TcoVector() : data_(nullptr), size_(0), capacity_(0) {}
 
-  TcoVector(TcoVector &in) {
+  TcoVector(const TcoVector &in) {
     reserve(in.size_);
     memcpy(data_, in.data_, in.size_ * sizeof(T));
     size_ = in.size_;
@@ -154,6 +154,8 @@ class TcoVector {
     using pointer = T *;
     using reference = T &;
 
+    Iterator() : ptr(nullptr) {}
+
     Iterator(T *p) : ptr(p) {}
 
     Iterator &operator++() {
@@ -249,6 +251,10 @@ class TcoVector {
   const Iterator begin() const { return Iterator(data_); }
 
   const Iterator end() const { return Iterator(data_ + size_); }
+
+  const Iterator cbegin() const { return Iterator(data_); }
+
+  const Iterator cend() const { return Iterator(data_ + size_); }
 
   ReverseIterator rbegin() { return ReverseIterator(data_ + size_ - 1); }
 
