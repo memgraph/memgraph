@@ -97,7 +97,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ needs.DiffCheck.outputs.run_debug_core }}
-      run_core: ${{ needs.DiffCheck.outputs.run_debug_integration }}
+      run_integration: ${{ needs.DiffCheck.outputs.run_debug_integration }}
     secrets: inherit
 
   Jepsen:
@@ -115,7 +115,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ needs.DiffCheck.outputs.run_release_core }}
-      run_core: ${{ needs.DiffCheck.outputs.run_release_benchmark }}
-      run_core: ${{ needs.DiffCheck.outputs.run_release_e2e }}
-      run_core: ${{ needs.DiffCheck.outputs.run_release_stress }}
+      run_benchmark: ${{ needs.DiffCheck.outputs.run_release_benchmark }}
+      run_e2e: ${{ needs.DiffCheck.outputs.run_release_e2e }}
+      run_stress: ${{ needs.DiffCheck.outputs.run_release_stress }}
     secrets: inherit
