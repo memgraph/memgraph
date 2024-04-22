@@ -462,53 +462,61 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
+  {
+    auto init_coord_state = [&coordinator_state](auto management_port, auto coord_port, auto coord_id, int bolt_port) {
+      spdlog::trace("Creating coordinator state.");
+      if (management_port && (coord_id || coord_port)) {
+        throw std::runtime_error(
+            "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id "
+            "and "
+            "port for coordinator instance and management port for replication instance.");
+      }
 
-  auto init_coord_state = [&coordinator_state](auto management_port, auto coord_port, auto coord_id, int bolt_port) {
-    spdlog::trace("Creating coordinator state.");
-    if (management_port && (coord_id || coord_port)) {
-      throw std::runtime_error(
-          "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
-          "port for coordinator instance and management port for replication instance.");
+      if (coord_id && coord_port) {
+        auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+        memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+        coordinator_state.emplace(
+            CoordinatorInstanceInitConfig{coord_id, coord_port, bolt_port, high_availability_data_dir});
+      } else {
+        // TODO(antoniofilipovic): Fix
+        FLAGS_management_port = management_port;
+        coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = management_port});
+      }
+    };
+
+    int management_port = 0, coord_port = 0, bolt_port = 0;
+    uint coord_id = 0;
+
+    auto *maybe_management_port = std::getenv(kMgManagementPort);
+    auto *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
+    auto *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
+    auto *maybe_bolt_port = std::getenv(kMgBoltPort);
+    if (maybe_management_port || maybe_coordinator_port || maybe_coordinator_id || maybe_bolt_port) {
+      management_port = maybe_management_port ? std::stoi(maybe_management_port) : 0;
+      coord_port = maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0;
+      coord_id = maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0;
+      bolt_port = maybe_bolt_port ? std::stoi(maybe_bolt_port) : 0;
+      MG_ASSERT(bolt_port, "Sent bolt port via environment variable doesn't have value");
+    } else if (FLAGS_management_port || FLAGS_coordinator_port || FLAGS_coordinator_id) {
+      management_port = FLAGS_management_port;
+      coord_port = FLAGS_coordinator_port;
+      coord_id = FLAGS_coordinator_id;
+      bolt_port = FLAGS_bolt_port;
     }
 
-    if (coord_id && coord_port) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
-      memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(
-          CoordinatorInstanceInitConfig{coord_id, coord_port, bolt_port, high_availability_data_dir});
-    } else {
-      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = management_port});
+    try {
+      if (management_port || coord_port || coord_id || bolt_port) {
+        spdlog::trace(
+            "Initializing coordinator state from env variables, management port: {}, coord port: {}, coord id: {}, "
+            "bolt "
+            "port: {}.",
+            management_port, coord_port, coord_id, bolt_port);
+        std::invoke(init_coord_state, management_port, coord_port, coord_id, bolt_port);
+      }
+    } catch (std::exception const &e) {
+      spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+      exit(1);
     }
-  };
-
-  auto *maybe_management_port = std::getenv(kMgManagementPort);
-  auto *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
-  auto *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
-  try{
-    if (maybe_management_port || maybe_coordinator_port || maybe_coordinator_id) {
-      auto *maybe_bolt_port = std::getenv(kMgBoltPort);
-      auto management_port = maybe_management_port ? std::stoi(maybe_management_port) : 0;
-      auto coord_port = maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0;
-      auto coord_id = maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0;
-      auto bolt_port = maybe_bolt_port ? std::stoi(maybe_bolt_port) : 0;
-      spdlog::trace(
-          "Initializing coordinator state from env variables, management port: {}, coord port: {}, coord id: {}, bolt "
-          "port: {}.",
-          management_port, coord_port, coord_id, bolt_port);
-      MG_ASSERT(bolt_port, "Sent bolt port doesn't have value");
-      FLAGS_bolt_port = bolt_port;
-      std::invoke(init_coord_state, management_port, coord_port, coord_id, bolt_port);
-    } else {
-      spdlog::trace(
-          "Initializing coordinator state from flags, management port: {}, coord port: {}, coord id: {}, bolt "
-          "port: {}.",
-          FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
-      std::invoke(init_coord_state, FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_bolt_port);
-    }
-  }
-  catch (std::exception const &e) {
-    spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
-    exit(1);
   }
 
 #endif
@@ -604,8 +612,14 @@ int main(int argc, char **argv) {
     spdlog::warn(
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
+  int extracted_bolt_port{0};
+  if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
+    extracted_bolt_port = std::stoi(maybe_env_bolt_port);
+  } else {
+    extracted_bolt_port = FLAGS_bolt_port;
+  }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
-      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
   Context session_context{&interpreter_context_, &auth_, &audit_log};
 #else
