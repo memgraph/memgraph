@@ -61,7 +61,7 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
