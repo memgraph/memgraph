@@ -1,7 +1,6 @@
 #!/bin/bash
 
 NODE_VERSION="20"
-
 setup_node() {
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
