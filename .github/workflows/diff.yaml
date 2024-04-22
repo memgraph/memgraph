@@ -67,7 +67,7 @@ jobs:
         run: echo "$GITHUB_CONTEXT" >> "$CONTEXT_FILE"
       - name: Set up diff execution
         id: setup
-        run: ./tools/check_diff.py "$CONTEXT_FILE"
+        run: ./tools/diff_setup.py "$CONTEXT_FILE"
 
   Community:
     needs: DiffSetup
