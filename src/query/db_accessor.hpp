@@ -482,6 +482,10 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, view));
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
@@ -730,6 +734,11 @@ class DbAccessor final {
     return accessor_->CreateIndex(edge_type);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type,
+                                                                             storage::PropertyId property) {
+    return accessor_->CreateIndex(edge_type, property);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
     return accessor_->DropIndex(label);
   }
@@ -741,6 +750,11 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
     return accessor_->DropIndex(edge_type);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(edge_type, property);
   }
 
   void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
