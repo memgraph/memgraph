@@ -837,7 +837,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
           for (auto &label : label_indices) {
             --label.second;
-            spdlog::info("Label counter for auto-creation on commit: {}", label.second);
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific label, we only build the index
             // when the last one commits.
@@ -853,7 +852,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
           for (auto &edge_type : edge_type_indices) {
             --edge_type.second;
-            spdlog::info("Edge-type counter for auto-creation on commit: {}", edge_type.second);
             // If there are multiple transactions that would like to create an
             // auto-created index on a specific edge-type, we only build the index
             // when the last one commits.
