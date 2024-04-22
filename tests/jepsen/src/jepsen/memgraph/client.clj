@@ -34,7 +34,6 @@
   (dbclient/create-query
    (str "SET REPLICATION ROLE TO REPLICA WITH PORT " port)))
 
-; TODO: (andi) Why is this function part of generator?
 (defn register-replicas
   "Register all replicas."
   [_ _]
