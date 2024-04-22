@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/plan/pretty_print.hpp"
+#include <utility>
 #include <variant>
 
 #include "query/db_accessor.hpp"
@@ -1015,6 +1016,21 @@ bool PlanToJsonVisitor::PreVisit(IndexedJoin &op) {
 
   op.sub_branch_->Accept(*this);
   self["right"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
+  json self;
+  self["name"] = "RollUpApply";
+  self["output_symbol"] = ToJson(op.result_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.list_collection_branch_->Accept(*this);
+  self["list_collection_branch"] = PopOutput();
 
   output_ = std::move(self);
   return false;

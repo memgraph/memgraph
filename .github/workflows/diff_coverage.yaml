@@ -15,6 +15,10 @@ on:
         type: string
         description: "Toolchain version (v4, v5). Default value is v5."
         default: 'v5'
+      run_core:
+        type: string
+        description: "Should the core coverage build tests be run? Default is true."
+        default: 'true'
 
 env:
   ARCH: ${{ inputs.arch }}
@@ -26,6 +30,7 @@ env:
 
 jobs:
   core:
+    if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
