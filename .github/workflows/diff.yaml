@@ -56,18 +56,18 @@ jobs:
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
     env:
-      GITHUB_CONTEXT: ${{ toJson(github) }}
-      CONTEXT_FILE: github_context.json
+      GH_CONTEXT: ${{ toJson(github) }}
+      GH_CONTEXT_FILE_NAME: github_context.json
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Dump GitHub context
-        run: echo "$GITHUB_CONTEXT" >> "$CONTEXT_FILE"
+        run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
       - name: Set up diff execution
         id: setup
-        run: ./tools/diff_setup.py "$CONTEXT_FILE"
+        run: ./tools/diff_setup.py "$GH_CONTEXT_FILE_NAME"
 
   Community:
     needs: DiffSetup
