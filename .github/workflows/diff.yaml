@@ -14,10 +14,10 @@ on:
       - "licenses/*"
   workflow_dispatch:
     inputs:
-      community:
+      community_core:
         type: boolean
         default: true
-      coverage:
+      coverage_core:
         type: boolean
         default: true
       debug_core:
@@ -26,7 +26,7 @@ on:
       debug_integration:
         type: boolean
         default: true
-      jepsen:
+      jepsen_core:
         type: boolean
         default: true
       release_core:
@@ -46,20 +46,28 @@ jobs:
   DiffCheck:
     runs-on: ubuntu-latest
     outputs:
-      run_diff: ${{ steps.check.outputs.run_diff }}
+      run_community_core: ${{ steps.check.outputs.run_community_core }}
+      run_coverage_core: ${{ steps.check.outputs.run_coverage_core }}
+      run_debug_core: ${{ steps.check.outputs.run_debug_core }}
+      run_debug_integration: ${{ steps.check.outputs.run_debug_integration }}
+      run_jepsen_core: ${{ steps.check.outputs.run_jepsen_core }}
+      run_release_core: ${{ steps.check.outputs.run_release_core }}
+      run_release_benchmark: ${{ steps.check.outputs.run_release_benchmark}}
+      run_release_e2e: ${{ steps.check.outputs.run_release_e2e }}
+      run_release_stress: ${{ steps.check.outputs.run_release_stress }}
+    env:
+      GITHUB_CONTEXT: ${{ toJson(github) }}
+      CONTEXT_FILE: github_context.json
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Dump GitHub context
+        run: echo "$GITHUB_CONTEXT" >> "$CONTEXT_FILE"
       - name: Check if diff should be run
         id: check
-        run: |
-          run_diff="false"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]] || ./tools/check_diff.bash; then
-            run_diff="true"
-          fi
-          echo "run_diff=$run_diff" >> "$GITHUB_OUTPUT"
+        run: ./tools/check_diff.py "$CONTEXT_FILE"
 
   Community:
     needs: DiffCheck
@@ -68,10 +76,7 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' && 
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=community -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.community == 'true')) }} 
+      run_core: ${{ needs.DiffCheck.outputs.run_community_core }}
     secrets: inherit
 
   Coverage:
@@ -81,10 +86,7 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=coverage -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.coverage == 'true')) }}
+      run_core: ${{ needs.DiffCheck.outputs.run_coverage_core }}
     secrets: inherit
 
   Debug:
@@ -94,24 +96,15 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_core == 'true')) }}
-      run_integration: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=debug -test=integration')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.debug_integration == 'true')) }}
+      run_core: ${{ needs.DiffCheck.outputs.run_debug_core }}
+      run_core: ${{ needs.DiffCheck.outputs.run_debug_integration }}
     secrets: inherit
 
   Jepsen:
     needs: DiffCheck
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
-      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=jepsen -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.jepsen == 'true')) }}
+      run_core: ${{ needs.DiffCheck.outputs.run_jepsen_core }}
     secrets: inherit
 
   Release:
@@ -121,20 +114,8 @@ jobs:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=core')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_core == 'true')) }}
-      run_benchmark: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=benchmark')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_benchmark == 'true')) }}
-      run_e2e: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=e2e')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_e2e == 'true')) }}
-      run_stress: ${{ needs.DiffCheck.outputs.run_diff == 'true' &&
-        (github.event_name == 'merge_group' || 
-        (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'CI -build=release -test=stress')) ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.release_stress == 'true')) }}
+      run_core: ${{ needs.DiffCheck.outputs.run_release_core }}
+      run_core: ${{ needs.DiffCheck.outputs.run_release_benchmark }}
+      run_core: ${{ needs.DiffCheck.outputs.run_release_e2e }}
+      run_core: ${{ needs.DiffCheck.outputs.run_release_stress }}
     secrets: inherit
