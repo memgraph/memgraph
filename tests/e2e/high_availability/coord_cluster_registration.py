@@ -8,7 +8,6 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
-import atexit
 import os
 import shutil
 import sys
@@ -683,8 +682,6 @@ def test_register_one_coord_with_env_vars():
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
 
-    atexit.register(unset_env_flags)
-
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
@@ -816,6 +813,8 @@ def test_register_one_coord_with_env_vars():
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
+    unset_env_flags()
+
 
 def test_register_one_data_with_env_vars():
     """
@@ -899,8 +898,6 @@ def test_register_one_data_with_env_vars():
     os.environ["MEMGRAPH_BOLT_PORT"] = "7689"
     os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10013"
 
-    atexit.register(unset_env_flags)
-
     interactive_mg_runner.start(
         {
             "instance_3": {
@@ -979,6 +976,8 @@ def test_register_one_data_with_env_vars():
         return execute_and_fetch_all(replica_3_cursor, "MATCH (n) RETURN count(n)")[0][0]
 
     mg_sleep_and_assert(1, get_vertex_count)
+
+    unset_env_flags()
 
 
 def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
@@ -1064,8 +1063,6 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     os.mkdir(TEMP_DIR)
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
-
-    atexit.register(unset_env_flags)
 
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'};",
