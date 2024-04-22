@@ -31,7 +31,6 @@ namespace memgraph::coordination {
 using nuraft::asio_service;
 using nuraft::cb_func;
 using nuraft::CbReturnCode;
-using nuraft::cmd_result;
 using nuraft::cs_new;
 using nuraft::ptr;
 using nuraft::raft_params;
