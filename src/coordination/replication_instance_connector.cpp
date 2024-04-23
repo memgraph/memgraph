@@ -42,8 +42,8 @@ auto ReplicationInstanceConnector::IsReadyForUUIDPing() -> bool {
 }
 
 auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_->InstanceName(); }
-auto ReplicationInstanceConnector::CoordinatorSocketAddress() const -> std::string {
-  return client_->CoordinatorSocketAddress();
+auto ReplicationInstanceConnector::ManagementSocketAddress() const -> std::string {
+  return client_->ManagementSocketAddress();
 }
 auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
   return client_->ReplicationSocketAddress();

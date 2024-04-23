@@ -1576,8 +1576,7 @@ def test_registering_replica_fails_endpoint_exists():
             "REGISTER INSTANCE instance_5 WITH CONFIG {'bolt_server': '127.0.0.1:7693', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10005'};",
         )
     assert (
-        str(e.value)
-        == "Couldn't register replica instance since instance with such coordinator endpoint already exists!"
+        str(e.value) == "Couldn't register replica instance since instance with such management server already exists!"
     )
 
 

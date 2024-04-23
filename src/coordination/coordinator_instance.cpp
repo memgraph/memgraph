@@ -155,7 +155,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instance_to_status = [](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
     spdlog::trace("Instance {} is coordinator", instance.coordinator_id);
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-            .raft_socket_address = instance.coordinator_server.SocketAddress(),
+            .coordinator_server = instance.coordinator_server.SocketAddress(),
             .cluster_role = "coordinator",
             .health = "unknown"};
   };
@@ -175,7 +175,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_leader =
         [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
-              .coord_socket_address = instance.CoordinatorSocketAddress(),
+              .management_server = instance.ManagementSocketAddress(),
               .cluster_role = stringify_repl_role(instance),
               .health = stringify_repl_health(instance)};
     };
@@ -591,9 +591,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   }
 
   if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {
-        return instance.CoordinatorSocketAddress() == config.CoordinatorSocketAddress();
+        return instance.ManagementSocketAddress() == config.ManagementSocketAddress();
       })) {
-    return RegisterInstanceCoordinatorStatus::COORD_ENDPOINT_EXISTS;
+    return RegisterInstanceCoordinatorStatus::MGMT_ENDPOINT_EXISTS;
   }
 
   if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {

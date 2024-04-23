@@ -48,7 +48,7 @@ class ReplicationInstanceClient {
   virtual void ResumeFrequentCheck();
 
   virtual auto InstanceName() const -> std::string;
-  virtual auto CoordinatorSocketAddress() const -> std::string;
+  virtual auto ManagementSocketAddress() const -> std::string;
   virtual auto ReplicationSocketAddress() const -> std::string;
 
   virtual auto DemoteToReplica() const -> bool;
