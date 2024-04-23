@@ -40,3 +40,10 @@ ssh n3 -> yes -> exit
 ssh n4 -> yes -> exit
 ssh n5 -> yes -> exit
 ```
+
+There is also a unit test in test/jepsen/memgraph/memgraph_test.clj with sanitizers tests for Clojure code being run before main Jepsen tests.
+You can run it with:
+
+```
+/run.sh unit-tests --binary ../../build/memgraph
+```

@@ -64,6 +64,11 @@ jobs:
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no 6
 
+      - name: Run unit tests for Jepsen code
+        run: |
+          cd tests/jepsen
+          ./run.sh unit-tests --binary ../../build/memgraph
+
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
