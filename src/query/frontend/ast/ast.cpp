@@ -248,6 +248,9 @@ constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPL
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};
 
+constexpr utils::TypeInfo query::DropGraphQuery::kType{utils::TypeId::AST_DROP_GRAPH_QUERY, "DropGraphQuery",
+                                                       &query::Query::kType};
+
 constexpr utils::TypeInfo query::LockPathQuery::kType{utils::TypeId::AST_LOCK_PATH_QUERY, "LockPathQuery",
                                                       &query::Query::kType};
 

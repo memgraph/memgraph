@@ -57,6 +57,10 @@ SUPPORTED_TESTS=(
 DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
 DEFAULT_ORGANIZATION_NAME="memgraph"
+DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
+DEFAULT_BENCH_GRAPH_PORT="9001"
+DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
+DEFAULT_MGDEPS_CACHE_PORT="8000"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -79,8 +83,12 @@ print_help () {
 
   echo -e "\nGlobal options:"
   echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
+  echo -e "  --bench-graph-host string     Specify ip address for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_HOST\")"
+  echo -e "  --bench-graph-port string     Specify port for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_PORT\")"
   echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
   echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
+  echo -e "  --mgdeps-cache-host string    Specify ip address for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_HOST\")"
+  echo -e "  --mgdeps-cache-port string    Specify port for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_PORT\")"
   echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
@@ -209,6 +217,15 @@ check_support() {
         exit 1
       fi
     ;;
+    pokec_size)
+      if [[ "$2" == "small" || "$2" == "medium" || "$2" == "large" ]]; then
+        is_supported=true
+      fi
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Pokec size $2 isn't supported!\nChoose from small, medium, large"
+        exit 1
+      fi
+    ;;
     *)
       echo -e "Error: This function can only check arch, build_type, os, toolchain version and os toolchain combination"
       exit 1
@@ -304,9 +321,16 @@ build_memgraph () {
 
   if [[ "$copy_from_host" == "true" ]]; then
     # Ensure we have a clean build directory
-    docker exec -u mg "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR && mkdir -p $MGBUILD_ROOT_DIR"
+    docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
     echo "Copying project files..."
-    docker cp "$PROJECT_ROOT/." "$build_container:$MGBUILD_ROOT_DIR/"
+    project_files=$(ls -A1 "$PROJECT_ROOT")
+    while IFS= read -r f; do
+      # Skip build directory when copying project files
+      if [[ "$f" != "build" ]]; then
+        docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+      fi
+    done <<< "$project_files"
     # Change ownership of copied files so the mg user inside container can access them
     docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
   fi
@@ -316,9 +340,10 @@ build_memgraph () {
   docker exec -u root "$build_container" bash -c "$MGBUILD_ROOT_DIR/environment/os/$os.sh check MEMGRAPH_BUILD_DEPS || $MGBUILD_ROOT_DIR/environment/os/$os.sh install MEMGRAPH_BUILD_DEPS"
 
   echo "Building targeted package..."
+  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./init --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init --ci"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
@@ -338,12 +363,13 @@ build_memgraph () {
   # 0 is set for default value and checked here because mgbuild containers
   # support nproc
   # shellcheck disable=SC2016
-  if [[ "$threads" == 0 ]]; then
+  if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
   else
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$threads -B mgconsole'
+    local EXPORT_THREADS="export THREADS=$threads"
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
   fi
 }
 
@@ -516,7 +542,12 @@ test_memgraph() {
 
   case "$1" in
     unit)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$threads'
+      if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$(nproc)'
+      else
+        local EXPORT_THREADS="export THREADS=$threads"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& ctest -R memgraph__unit --output-on-failure -j$THREADS'
+      fi
     ;;
     unit-coverage)
       local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
@@ -572,13 +603,17 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
     ;;
     mgbench)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench "'&& ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*'
+      shift 1
+      local POKEC_SIZE=${1:-'medium'}
+      check_support pokec_size $POKEC_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/$POKEC_SIZE/*/*"
     ;;
     upload-to-bench-graph)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
       local SETUP_VE3_ENV="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
+      local SETUP_BENCH_GRAPH_SERVER_ENDPOINT="export BENCH_GRAPH_SERVER_ENDPOINT=$bench_graph_host:$bench_graph_port"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_BENCH_GRAPH_SERVER_ENDPOINT && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
     ;;
     code-analysis)
       shift 1
@@ -596,7 +631,7 @@ test_memgraph() {
     clang-tidy)
       shift 1
       local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export THREADS=$threads && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
@@ -625,6 +660,10 @@ organization_name=$DEFAULT_ORGANIZATION_NAME
 os=$DEFAULT_OS
 threads=$DEFAULT_THREADS
 toolchain_version=$DEFAULT_TOOLCHAIN
+bench_graph_host=$DEFAULT_BENCH_GRAPH_HOST
+bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
+mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
+mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -634,6 +673,14 @@ while [[ $# -gt 0 ]]; do
         check_support arch $arch
         shift 2
     ;;
+    --bench-graph-host)
+        bench_graph_host=$2
+        shift 2
+    ;;
+    --bench-graph-port)
+        bench_graph_port=$2
+        shift 2
+    ;;
     --build-type)
         build_type=$2
         check_support build_type $build_type
@@ -641,6 +688,14 @@ while [[ $# -gt 0 ]]; do
     ;;
     --enterprise-license)
         enterprise_license=$2
+        shift 2
+    ;;
+    --mgdeps-cache-host)
+        mgdeps_cache_host=$2
+        shift 2
+    ;;
+    --mgdeps-cache-port)
+        mgdeps_cache_port=$2
         shift 2
     ;;
     --organization-name)

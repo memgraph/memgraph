@@ -331,6 +331,8 @@ class Storage {
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
+    virtual void DropGraph() = 0;
+
     auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
    protected:

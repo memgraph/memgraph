@@ -110,69 +110,69 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-# def test_register_repl_instances_then_coordinators():
-#     safe_execute(shutil.rmtree, TEMP_DIR)
-#     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-#
-#     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
-#
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
-#     )
-#     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
-#     )
-#
-#     def check_coordinator3():
-#         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
-#
-#     expected_cluster_coord3 = [
-#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-#         ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-#         ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-#         ("instance_3", "", "127.0.0.1:10013", "up", "main"),
-#     ]
-#     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
-#
-#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-#
-#     def check_coordinator1():
-#         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
-#
-#     expected_cluster_shared = [
-#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-#         ("instance_1", "", "", "unknown", "replica"),
-#         ("instance_2", "", "", "unknown", "replica"),
-#         ("instance_3", "", "", "unknown", "main"),
-#     ]
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-#
-#     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-#
-#     def check_coordinator2():
-#         return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+def test_register_repl_instances_then_coordinators():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+    )
+
+    def check_coordinator3():
+        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+
+    expected_cluster_coord3 = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    expected_cluster_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
 
 def test_register_coordinator_then_repl_instances():
@@ -240,76 +240,76 @@ def test_register_coordinator_then_repl_instances():
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
 
-# def test_coordinators_communication_with_restarts():
-#     # 1 Start all instances
-#     safe_execute(shutil.rmtree, TEMP_DIR)
-#
-#     # 1
-#     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-#
-#     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
-#
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
-#     )
-#     execute_and_fetch_all(
-#         coordinator3_cursor,
-#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
-#     )
-#     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-#
-#     expected_cluster_shared = [
-#         ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-#         ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-#         ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-#         ("instance_1", "", "", "unknown", "replica"),
-#         ("instance_2", "", "", "unknown", "replica"),
-#         ("instance_3", "", "", "unknown", "main"),
-#     ]
-#
-#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-#
-#     def check_coordinator1():
-#         return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-#
-#     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-#
-#     def check_coordinator2():
-#         return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-#
-#     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-#     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-#
-#     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-#     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
-#
-#     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-#     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
-#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-#     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-#
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-#     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+def test_coordinators_communication_with_restarts():
+    # 1 Start all instances
+    safe_execute(shutil.rmtree, TEMP_DIR)
+
+    # 1
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+    )
+    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+
+    expected_cluster_shared = [
+        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "", "", "unknown", "replica"),
+        ("instance_2", "", "", "unknown", "replica"),
+        ("instance_3", "", "", "unknown", "main"),
+    ]
+
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    def check_coordinator1():
+        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+
+    def check_coordinator2():
+        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
 
 # TODO: (andi) Test when dealing with distributed coordinators that you can register on one coordinator and unregister from any other coordinator
@@ -591,6 +591,42 @@ def test_unregister_main():
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
+
+
+def test_add_coord_instance_fails():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+
+    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+    )
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such id already exists!" == str(e)
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10112'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such bolt endpoint already exists!" == str(e)
+
+    try:
+        execute_and_fetch_all(
+            coordinator3_cursor,
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10111'}",
+        )
+    except Exception as e:
+        assert "Couldn't add coordinator since instance with such coordinator server already exists!" == str(e)
 
 
 if __name__ == "__main__":

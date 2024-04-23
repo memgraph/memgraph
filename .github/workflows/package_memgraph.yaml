@@ -60,7 +60,7 @@ on:
           - eu-west-1
       s3_dest_dir:
         type: string
-        description: "Target dir path in S3 bucket. For official packages use format 'memgraph/X.Y.Z'. For unofficial packages use format 'memgraph-unofficial/<SOMETHING>'"
+        description: "Target dir path in S3 bucket. For official packages use format 'memgraph/vX.Y.Z'. For unofficial packages use format 'memgraph-unofficial/<SOMETHING>'"
         default: ''
 
 jobs:

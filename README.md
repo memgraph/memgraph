@@ -18,7 +18,7 @@
 
 <p align="center">
   <a href="https://github.com/memgraph/memgraph">
-     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/release_debian10.yaml?branch=master&label=build%20and%20test&logo=github"/>
+     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/package_memgraph.yaml?branch=master&label=build%20and%20test&logo=github"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
@@ -54,13 +54,18 @@ It’s also ACID-compliant and highly available.
 
 ## :zap: Features
 
-- Run Python, Rust, and C/C++ code natively, check out the
-  [MAGE](https://github.com/memgraph/mage) graph algorithm library
+- Custom query modules - Run Python, Rust, and C/C++ code natively; check out
+  the [MAGE](https://github.com/memgraph/mage) graph algorithm library.
+- Deep-path traversals - Use advanced capabilities such as accumulators and path
+  filtering without adding additional application logic.
 - Native support for machine learning
-- Streaming support
-- Replication
-- Authentication and authorization
-- ACID compliance
+- Streaming support & dynamic algorithms
+- Multi-tenancy
+- High availability replication
+- Authentication & authorization
+- Role-based and label-based access control
+- Monitoring via HTTP server
+
 
 
 ## :video_game: Memgraph Playground
@@ -142,6 +147,11 @@ guide](https://memgraph.com/docs/memgraph/reference-guide/configuration).
 ## :trophy: Contributing
 
 Welcome to the heart of Memgraph development! We're on a mission to supercharge Memgraph, making it faster, more user-friendly, and even more powerful. We owe a big thanks to our fantastic community of contributors who help us fix bugs and bring incredible improvements to life. If you're passionate about databases and open source, here's your chance to make a difference!
+
+### Compile from Source
+
+Learn how to download, compile and run Memgraph from source with the [Quick Start](https://memgraph.notion.site/Quick-Start-82a99a85e62a4e3d89f6a9fb6d35626d) guide. 
+
 
 ### Explore Memgraph Internals
 

@@ -401,8 +401,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't unregister replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't unregister replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -468,8 +479,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             "Couldn't register replica instance since instance with such replication endpoint already exists!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("REGISTER INSTANCE query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't register replica instance since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't register replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't register replica instance since raft server couldn't append the log!");
       case RPC_FAILED:
@@ -505,7 +527,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
-    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    switch (status) {
+      using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
+      case ID_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
+      case BOLT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such coordinator server already exists!");
+      case SUCCESS:
+        break;
+    }
     spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 
@@ -519,8 +553,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't set instance to main since there is already a main instance in cluster!");
       case NOT_COORDINATOR:
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
-      case NOT_LEADER:
-        throw QueryRuntimeException("Couldn't set instance to main since coordinator is not a leader!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
       case RAFT_LOG_ERROR:
         throw QueryRuntimeException("Couldn't promote instance since raft server couldn't append the log!");
       case COULD_NOT_PROMOTE_TO_MAIN:
@@ -532,7 +577,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
       case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't register replica instance because because the last action didn't finish successfully!");
+            "Couldn't set instance to main instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
       case FAILED_TO_CLOSE_LOCK:
@@ -1790,10 +1835,11 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.parameters = parameters;
   ctx_.evaluation_context.properties = NamesToProperties(plan->ast_storage().properties_, dba);
   ctx_.evaluation_context.labels = NamesToLabels(plan->ast_storage().labels_, dba);
+  ctx_.user_or_role = user_or_role;
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && user_or_role && *user_or_role && dba) {
     // Create only if an explicit user is defined
-    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(std::move(user_or_role), dba);
+    auto auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, dba);
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
@@ -3324,6 +3370,29 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
   return callback;
 }
 
+Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
+  Callback callback;
+  callback.fn = [&db, dba]() mutable {
+    auto storage_mode = db->GetStorageMode();
+    if (storage_mode != storage::StorageMode::IN_MEMORY_ANALYTICAL) {
+      throw utils::BasicException(
+          "Drop graph can only be used in the analytical mode. Switch to analytical mode by executing 'STORAGE MODE "
+          "IN_MEMORY_ANALYTICAL'");
+    }
+    dba->DropGraph();
+
+    auto *trigger_store = db->trigger_store();
+    trigger_store->DropAll();
+
+    auto *streams = db->streams();
+    streams->DropAll();
+
+    return std::vector<std::vector<TypedValue>>();
+  };
+
+  return callback;
+}
+
 bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   bool exists_active_transaction = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
     return std::any_of(interpreters_.begin(), interpreters_.end(), [](const auto &interpreter) {
@@ -3365,6 +3434,28 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
       return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
     }();
   }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Drop graph query expects a current DB");
+  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Drop graph query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *drop_graph_query = utils::Downcast<DropGraphQuery>(parsed_query.query);
+  MG_ASSERT(drop_graph_query);
+
+  std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4436,8 +4527,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<DatabaseInfoQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query);
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
@@ -4446,6 +4537,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
@@ -4563,6 +4655,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EdgeImportModeModificationInMulticommandTxException();
       }
       prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw DropGraphInMulticommandTxException();
+      }
+      prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

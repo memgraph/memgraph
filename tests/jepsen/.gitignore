@@ -11,3 +11,4 @@ pom.xml.asc
 /store
 /jepsen
 /Jepsen.tar.gz
+/.clj-kondo

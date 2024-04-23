@@ -12,8 +12,10 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+#include <optional>
 
 #include <flags/replication.hpp>
+#include "coordination/coordinator_communication_config.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
@@ -40,13 +42,10 @@ using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
 class RaftState {
- private:
+ public:
+  auto InitRaftServer() -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb);
-
-  auto InitRaftServer() -> void;
-
- public:
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
   RaftState &operator=(RaftState const &other) = default;
@@ -54,15 +53,12 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  static auto MakeRaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb &&become_leader_cb,
-                            BecomeFollowerCb &&become_follower_cb) -> RaftState;
-
   auto InstanceName() const -> std::string;
   auto RaftSocketAddress() const -> std::string;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
-  auto RequestLeadership() -> bool;
   auto IsLeader() const -> bool;
 
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
@@ -74,11 +70,9 @@ class RaftState {
   auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
   auto AppendOpenLock() -> bool;
   auto AppendCloseLock() -> bool;
-  auto AppendAddCoordinatorInstanceLog(CoordinatorToCoordinatorConfig const &config) -> bool;
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState>;
 
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
@@ -88,10 +82,12 @@ class RaftState {
   auto GetCurrentMainUUID() const -> utils::UUID;
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
+  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+
   auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;
 
-  auto CoordinatorExists(uint32_t coordinator_id) const -> bool;
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
   io::network::Endpoint raft_endpoint_;

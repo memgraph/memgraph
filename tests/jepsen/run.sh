@@ -7,10 +7,12 @@ MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
-CONTROL_LEIN_RUN_ARGS="test-all --node-configs resources/node-config.edn"
+CONTROL_LEIN_RUN_ARGS="test --nodes-config resources/replication-config.edn"
 CONTROL_LEIN_RUN_STDOUT_LOGS=1
 CONTROL_LEIN_RUN_STDERR_LOGS=1
 _JEPSEN_RUN_EXIT_STATUS=0
+ENTERPRISE_LICENSE=""
+ORGANIZATION_NAME=""
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
@@ -18,17 +20,21 @@ PRINT_CONTEXT() {
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
     echo -e "CONTROL_LEIN_RUN_STDOUT_LOGS:\t $CONTROL_LEIN_RUN_STDOUT_LOGS"
     echo -e "CONTROL_LEIN_RUN_STDERR_LOGS:\t $CONTROL_LEIN_RUN_STDERR_LOGS"
+    echo -e "ENTERPRISE_LICENSE:\t\t <LICENSE KEY>"
+    echo -e "ORGANIZATION_NAME:\t\t <ORGANIZATION NAME>"
 }
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
     echo "              --ignore-run-stderr-logs Ignore lein run stderr logs."
     echo "              --nodes-no               JEPSEN_ACTIVE_NODES_NO"
     echo "              --run-args               \"CONTROL_LEIN_RUN_ARGS\" (NOTE: quotes)"
+    echo "              --enterprise-license     \"ENTERPRISE_LICENSE\" (NOTE: quotes)"
+    echo "              --organization-name      \"ORGANIZATION_NAME\" (NOTE: quotes)"
     echo ""
     exit 1
 }
@@ -81,6 +87,16 @@ PROCESS_ARGS() {
             --run-args)
                 shift
                 CONTROL_LEIN_RUN_ARGS="$1"
+                shift
+            ;;
+            --enterprise-license)
+                shift
+                ENTERPRISE_LICENSE="$1"
+                shift
+            ;;
+            --organization-name)
+                shift
+                ORGANIZATION_NAME="$1"
                 shift
             ;;
             *)
@@ -139,7 +155,9 @@ RUN_JEPSEN() {
     else
         redirect_stderr_logs="/dev/stderr"
     fi
-    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__control_lein_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
+    __final_run_args="$__control_lein_run_args --license $ENTERPRISE_LICENSE --organization $ORGANIZATION_NAME"
+
+    docker exec jepsen-control bash -c "source ~/.bashrc && cd memgraph && lein run $__final_run_args" 1> $redirect_stdout_logs 2> $redirect_stderr_logs
     _JEPSEN_RUN_EXIT_STATUS=$?
     set -e
 }
@@ -180,7 +198,7 @@ CLUSTER_UP() {
   PRINT_CONTEXT
   local cnt=0
   while [[ "$cnt" < 5 ]]; do
-    if ! "$script_dir/jepsen/docker/bin/up" --daemon; then
+    if ! "$script_dir/jepsen/docker/bin/up" --daemon -n $JEPSEN_ACTIVE_NODES_NO; then
       cnt=$((cnt + 1))
       continue
     else
@@ -242,11 +260,12 @@ case $1 in
     cluster-up)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        COPY_BINARIES
         CLUSTER_UP
+        COPY_BINARIES
     ;;
 
     cluster-refresh)
+        PROCESS_ARGS "$@"
         CLUSTER_DEALLOC
         CLUSTER_UP
     ;;
@@ -259,15 +278,16 @@ case $1 in
         CLUSTER_NODES_CLEANUP
     ;;
 
-    mgbuild)
+    unit-tests)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        # docker cp -L mgbuild_debian-12:/memgraph/build/memgraph "${MEMGRAPH_BUILD_PATH}/"
-        # NOTE: mgconsole is interesting inside jepsen container to inspect Memgraph state.
-        # docker cp -L mgbuild_debian-12:/usr/local/bin/mgconsole "${MEMGRAPH_BUILD_PATH}/"
-        echo ""
-        echo "TODO(gitbuda): Build memgraph for Jepsen (on v0.3.5 for Debian 12) via memgraph/memgraph-builder"
-        exit 1
+        COPY_BINARIES
+        docker exec jepsen-control bash -c "cd /jepsen/memgraph && lein test"
+        _JEPSEN_RUN_EXIT_STATUS=$?
+        if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
+            ERROR "Unit tests FAILED" # important for the coder
+            exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
+        fi
     ;;
 
     test)
@@ -276,7 +296,7 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        RUN_JEPSEN "$CONTROL_LEIN_RUN_ARGS"
+        RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
         PROCESS_RESULTS "$start_time" "$end_time"
@@ -294,8 +314,13 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large"; do
-          RUN_JEPSEN "test --workload $workload --node-configs resources/node-config.edn"
+        for workload in "bank" "large" "high_availability"; do
+          if [ "$workload" == "high_availability" ]; then
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
+          else
+            RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"
+          fi
+
           if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             break
           fi

@@ -45,6 +45,8 @@ struct Indices {
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp) const;
 
+  void DropGraphClearIndices() const;
+
   struct IndexStats {
     std::vector<LabelId> label;
     LabelPropertyIndex::IndexStats property_label;

@@ -12,6 +12,7 @@
 
 #include "flags/audit.hpp"
 #include "flags/bolt.hpp"
+#include "flags/coordination.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "flags/isolation_level.hpp"

@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <cstdlib>
+#include <exception>
+
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
@@ -19,6 +22,9 @@
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
+#include "flags/bolt.hpp"
+#include "flags/coordination.hpp"
+#include "flags/general.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -40,13 +46,17 @@
 #include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/file.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
 #include "version.hpp"
+
+#include <spdlog/spdlog.h>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -358,23 +368,31 @@ int main(int argc, char **argv) {
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
                                [] { memgraph::memory::PurgeUnusedMemory(); });
 
-  if (FLAGS_storage_snapshot_interval_sec == 0) {
-    if (FLAGS_storage_wal_enabled) {
-      LOG_FATAL(
-          "In order to use write-ahead-logging you must enable "
-          "periodic snapshots by setting the snapshot interval to a "
-          "value larger than 0!");
-      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
+  using namespace std::chrono_literals;
+  using enum memgraph::storage::StorageMode;
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+
+  if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+    if (db_config.durability.snapshot_interval == 0s) {
+      if (FLAGS_storage_wal_enabled) {
+        LOG_FATAL(
+            "In order to use write-ahead-logging you must enable "
+            "periodic snapshots by setting the snapshot interval to a "
+            "value larger than 0!");
+      }
+      db_config.durability.snapshot_wal_mode = DISABLED;
+    } else {
+      if (FLAGS_storage_wal_enabled) {
+        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+      } else {
+        db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+      }
     }
   } else {
-    if (FLAGS_storage_wal_enabled) {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    } else {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
-    }
-    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
+    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+    db_config.durability.snapshot_wal_mode = DISABLED;
+    db_config.durability.snapshot_interval = 0s;
   }
 
   // Default interpreter configuration
@@ -435,9 +453,15 @@ int main(int argc, char **argv) {
   }
 
   if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    coordinator_state.emplace(CoordinatorInstanceInitConfig{.coordinator_id = FLAGS_coordinator_id,
-                                                            .coordinator_port = FLAGS_coordinator_port,
-                                                            .bolt_port = FLAGS_bolt_port});
+    try {
+      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+      memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
+                                                              FLAGS_bolt_port, high_availability_data_dir});
+    } catch (std::exception const &e) {
+      spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+      exit(1);
+    }
   } else {
     coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
   }
@@ -470,13 +494,15 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
-  memgraph::query::InterpreterContext interpreter_context_(
+  memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config, &dbms_handler, &repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
+
+  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),

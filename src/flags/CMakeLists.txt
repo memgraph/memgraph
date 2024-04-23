@@ -1,6 +1,7 @@
 add_library(mg-flags STATIC
         audit.cpp
         bolt.cpp
+        coordination.cpp
         general.cpp
         isolation_level.cpp
         log_level.cpp

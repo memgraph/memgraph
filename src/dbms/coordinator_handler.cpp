@@ -11,9 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "dbms/coordinator_handler.hpp"
+#include <optional>
 
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "dbms/coordinator_handler.hpp"
 
 namespace memgraph::dbms {
 
@@ -39,8 +41,14 @@ auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::Inst
   return coordinator_state_.ShowInstances();
 }
 
-auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
-  coordinator_state_.AddCoordinatorInstance(config);
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+    -> coordination::AddCoordinatorInstanceStatus {
+  return coordinator_state_.AddCoordinatorInstance(config);
+}
+
+auto CoordinatorHandler::GetLeaderCoordinatorData() const
+    -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+  return coordinator_state_.GetLeaderCoordinatorData();
 }
 
 }  // namespace memgraph::dbms

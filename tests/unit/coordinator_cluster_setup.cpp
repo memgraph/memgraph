@@ -33,7 +33,6 @@ using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::HealthCheckClientCallback;
 using memgraph::coordination::HealthCheckInstanceCallback;
-using memgraph::coordination::InstanceStatus;
 using memgraph::coordination::RegisterInstanceCoordinatorStatus;
 using memgraph::coordination::ReplicationInstanceInitConfig;
 using memgraph::coordination::SetInstanceToMainCoordinatorStatus;
@@ -64,6 +63,7 @@ struct ReplicationInstance {
   CoordinatorState coordinator_state;
 };
 
+// Networking is used in this test, be careful with ports used.
 class HighAvailabilityClusterSetupTest : public ::testing::Test {
  public:
   HighAvailabilityClusterSetupTest() {
@@ -83,7 +83,7 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .bolt_server = Endpoint{"0.0.0.0", 7687},
                                      .replication_client_info = {.instance_name = "instance1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"0.0.0.0", 10001}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 56001}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
@@ -99,7 +99,7 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .bolt_server = Endpoint{"0.0.0.0", 7688},
                                      .replication_client_info = {.instance_name = "instance2",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"0.0.0.0", 10002}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 56002}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
@@ -115,7 +115,7 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .bolt_server = Endpoint{"0.0.0.0", 7689},
                                      .replication_client_info = {.instance_name = "instance3",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"0.0.0.0", 10003}},
+                                                                 .replication_server = Endpoint{"0.0.0.0", 56003}},
                                      .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
@@ -169,11 +169,11 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
   ReplicationInstance instance2{storage2_config, instance2_config};
   ReplicationInstance instance3{storage3_config, instance3_config};
   CoordinatorInstance coordinator1{
-      CoordinatorInstanceInitConfig{.coordinator_id = 1, .coordinator_port = 10111, .bolt_port = 7690}};
+      CoordinatorInstanceInitConfig{1, 10111, 7690, storage_directories[0] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator2{
-      CoordinatorInstanceInitConfig{.coordinator_id = 2, .coordinator_port = 10112, .bolt_port = 7691}};
+      CoordinatorInstanceInitConfig{2, 10112, 7691, storage_directories[1] / "high_availability" / "coordinator"}};
   CoordinatorInstance coordinator3{
-      CoordinatorInstanceInitConfig{.coordinator_id = 3, .coordinator_port = 10113, .bolt_port = 7692}};
+      CoordinatorInstanceInitConfig{3, 10113, 7692, storage_directories[2] / "high_availability" / "coordinator"}};
 
  private:
   void Clear() {

@@ -32,21 +32,9 @@ void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state
   j.at("needs_demote").get_to(instance_state.needs_demote);
 }
 
-void to_json(nlohmann::json &j, CoordinatorInstanceState const &instance_state) {
-  j = nlohmann::json{{"config", instance_state.config}};
-}
-
-void from_json(nlohmann::json const &j, CoordinatorInstanceState &instance_state) {
-  j.at("config").get_to(instance_state.config);
-}
-
 CoordinatorClusterState::CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                                 std::vector<CoordinatorInstanceState> coordinators,
                                                  utils::UUID const &current_main_uuid, bool is_lock_opened)
-    : repl_instances_{std::move(instances)},
-      coordinators_{std::move(coordinators)},
-      current_main_uuid_(current_main_uuid),
-      is_lock_opened_(is_lock_opened) {}
+    : repl_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid), is_lock_opened_(is_lock_opened) {}
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : repl_instances_{other.repl_instances_},
@@ -153,12 +141,6 @@ auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction 
                     std::string{instance_uuid_change.uuid});
       break;
     }
-    case RaftLogAction::ADD_COORDINATOR_INSTANCE: {
-      auto const &config = std::get<CoordinatorToCoordinatorConfig>(log_entry);
-      coordinators_.emplace_back(CoordinatorInstanceState{config});
-      spdlog::trace("DoAction: add coordinator instance {}", config.coordinator_id);
-      break;
-    }
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
       auto const instance_name = std::get<std::string>(log_entry);
       auto it = repl_instances_.find(instance_name);
@@ -183,7 +165,6 @@ auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
   auto lock = std::shared_lock{log_lock_};
   nlohmann::json j = {{"repl_instances", repl_instances_},
-                      {"coord_instances", coordinators_},
                       {"is_lock_opened", is_lock_opened_},
                       {"current_main_uuid", current_main_uuid_}};
   auto const log = j.dump();
@@ -200,15 +181,22 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
   auto repl_instances = j.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
   auto current_main_uuid = j.at("current_main_uuid").get<utils::UUID>();
   bool is_lock_opened = j.at("is_lock_opened").get<int>();
-  auto coord_instances = j.at("coord_instances").get<std::vector<CoordinatorInstanceState>>();
 
-  return CoordinatorClusterState{std::move(repl_instances), std::move(coord_instances), current_main_uuid,
-                                 is_lock_opened};
+  return CoordinatorClusterState{std::move(repl_instances), current_main_uuid, is_lock_opened};
 }
 
 auto CoordinatorClusterState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
   auto lock = std::shared_lock{log_lock_};
   return repl_instances_ | ranges::views::values | ranges::to<std::vector<ReplicationInstanceState>>;
+}
+
+auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std::string> {
+  auto lock = std::shared_lock{log_lock_};
+  auto repl_instance_key_value = std::ranges::find_if(repl_instances_, [this](auto const &repl_instance_key_value) {
+    return IsCurrentMain(repl_instance_key_value.first);
+  });
+  return repl_instance_key_value == repl_instances_.end() ? std::nullopt
+                                                          : std::make_optional(repl_instance_key_value->first);
 }
 
 auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }
@@ -220,20 +208,9 @@ auto CoordinatorClusterState::GetInstanceUUID(std::string_view instance_name) co
   return it->second.instance_uuid;
 }
 
-auto CoordinatorClusterState::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceState> {
-  auto lock = std::shared_lock{log_lock_};
-  return coordinators_;
-}
-
 auto CoordinatorClusterState::IsLockOpened() const -> bool {
   auto lock = std::shared_lock{log_lock_};
   return is_lock_opened_;
-}
-
-auto CoordinatorClusterState::CoordinatorExists(uint32_t coordinator_id) const -> bool {
-  auto lock = std::shared_lock{log_lock_};
-  return std::ranges::any_of(
-      coordinators_, [coordinator_id](auto const &coord) { return coord.config.coordinator_id == coordinator_id; });
 }
 
 }  // namespace memgraph::coordination

@@ -13,10 +13,17 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
+
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
+#include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
@@ -54,7 +61,7 @@ class CoordinatorInstance {
 
   auto TryFailover() -> void;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
@@ -63,6 +70,8 @@ class CoordinatorInstance {
   auto HasMainState(std::string_view instance_name) const -> bool;
 
   auto HasReplicaState(std::string_view instance_name) const -> bool;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
  private:
   template <ranges::forward_range R>
@@ -119,18 +128,22 @@ class CoordinatorInstance {
 
   void ForceResetCluster();
 
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  auto GetBecomeLeaderCallback() -> std::function<void()>;
+  auto GetBecomeFollowerCallback() -> std::function<void()>;
 
+  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  std::atomic<bool> is_leader_ready_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
   // Thread pool needs to be constructed before raft state as raft state can call thread pool
-  utils::ThreadPool thread_pool_;
-  RaftState raft_state_;
+  utils::ThreadPool thread_pool_{1};
 
-  CoordinatorInstanceInitConfig config_;
+  // This needs to be constructed last because raft state may call
+  // setting up leader instance
+  std::unique_ptr<RaftState> raft_state_;
 };
 
 }  // namespace memgraph::coordination

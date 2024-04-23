@@ -22,9 +22,6 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorClusterState;
-using memgraph::coordination::CoordinatorInstanceInitConfig;
-using memgraph::coordination::CoordinatorInstanceState;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::coordination::RaftLogAction;
@@ -36,6 +33,7 @@ using memgraph::utils::UUID;
 using nuraft::buffer;
 using nuraft::ptr;
 
+// No networking communication in this test.
 class CoordinatorClusterStateTest : public ::testing::Test {
  protected:
   void SetUp() override {}
@@ -67,7 +65,6 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
-  ASSERT_EQ(cluster_state.GetCoordinatorInstances().size(), 0);
 
   ASSERT_TRUE(cluster_state.HasReplicaState("instance3"));
 }
@@ -194,19 +191,6 @@ TEST_F(CoordinatorClusterStateTest, UpdateUUID) {
   ASSERT_EQ(cluster_state.GetCurrentMainUUID(), uuid);
 }
 
-TEST_F(CoordinatorClusterStateTest, AddCoordinatorInstance) {
-  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
-                                        .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                        .coordinator_server = Endpoint{"127.0.0.1", 10111}};
-
-  CoordinatorClusterState cluster_state{};
-  cluster_state.DoAction(config, RaftLogAction::ADD_COORDINATOR_INSTANCE);
-
-  auto instances = cluster_state.GetCoordinatorInstances();
-  ASSERT_EQ(instances.size(), 1);
-  ASSERT_EQ(instances[0].config, config);
-}
-
 TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
   ReplicationInstanceState instance_state{
       CoordinatorToReplicaConfig{.instance_name = "instance3",
@@ -228,25 +212,10 @@ TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
   EXPECT_EQ(instance_state.status, deserialized_instance_state.status);
 }
 
-TEST_F(CoordinatorClusterStateTest, CoordinatorInstanceStateSerialization) {
-  CoordinatorInstanceState instance_state{
-      CoordinatorToCoordinatorConfig{.coordinator_id = 1,
-                                     .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                     .coordinator_server = Endpoint{"127.0.0.1", 10111}}};
-  nlohmann::json j = instance_state;
-  CoordinatorInstanceState deserialized_instance_state = j.get<CoordinatorInstanceState>();
-  ASSERT_EQ(instance_state, deserialized_instance_state);
-}
-
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
   CoordinatorClusterState cluster_state{};
-  CoordinatorToCoordinatorConfig config{.coordinator_id = 1,
-                                        .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                        .coordinator_server = Endpoint{"127.0.0.1", 10111}};
 
-  cluster_state.DoAction(config, RaftLogAction::ADD_COORDINATOR_INSTANCE);
-
-  auto config2 =
+  auto config =
       CoordinatorToReplicaConfig{.instance_name = "instance2",
                                  .mgt_server = Endpoint{"127.0.0.1", 10111},
                                  .bolt_server = Endpoint{"127.0.0.1", 7688},
@@ -257,7 +226,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                  .instance_down_timeout_sec = std::chrono::seconds{5},
                                  .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                  .ssl = std::nullopt};
-  cluster_state.DoAction(config2, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
+  cluster_state.DoAction(config, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
 
   ptr<buffer> data{};
   cluster_state.Serialize(data);

@@ -13,21 +13,6 @@
 
 #include "gflags/gflags.h"
 
-#ifdef MG_ENTERPRISE
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(management_port);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_int32(coordinator_port);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(coordinator_id);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(instance_down_timeout_sec);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(instance_health_check_frequency_sec);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_uint32(instance_get_uuid_frequency_sec);
-#endif
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(replication_replica_check_frequency_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

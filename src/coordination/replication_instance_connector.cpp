@@ -81,13 +81,18 @@ auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback r
   return true;
 }
 
+auto ReplicationInstanceConnector::RegisterReplica(utils::UUID const &uuid,
+                                                   ReplicationClientInfo replication_client_info) -> bool {
+  return client_->RegisterReplica(uuid, std::move(replication_client_info));
+}
+
 auto ReplicationInstanceConnector::StartFrequentCheck() -> void { client_->StartFrequentCheck(); }
 auto ReplicationInstanceConnector::StopFrequentCheck() -> void { client_->StopFrequentCheck(); }
 auto ReplicationInstanceConnector::PauseFrequentCheck() -> void { client_->PauseFrequentCheck(); }
 auto ReplicationInstanceConnector::ResumeFrequentCheck() -> void { client_->ResumeFrequentCheck(); }
 
-auto ReplicationInstanceConnector::ReplicationClientInfo() const -> coordination::ReplicationClientInfo {
-  return client_->ReplicationClientInfo();
+auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+  return client_->GetReplicationClientInfo();
 }
 
 auto ReplicationInstanceConnector::GetSuccessCallback() -> HealthCheckInstanceCallback { return succ_cb_; }
