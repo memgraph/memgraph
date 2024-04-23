@@ -455,12 +455,12 @@ int main(int argc, char **argv) {
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
 
-  int extracted_bolt_port{0};
-  if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
-    extracted_bolt_port = std::stoi(maybe_env_bolt_port);
-  } else {
-    extracted_bolt_port = FLAGS_bolt_port;
-  }
+  int const extracted_bolt_port = [&]() {
+    if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
+      return std::stoi(maybe_env_bolt_port);
+    }
+    return FLAGS_bolt_port;
+  }();  // iile
 
   // singleton coordinator state
 #ifdef MG_ENTERPRISE
@@ -473,7 +473,7 @@ int main(int argc, char **argv) {
                                &extracted_bolt_port](memgraph::flags::CoordinationSetup const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
           coordination_setup.coordinator_id)) {
-      spdlog::trace("Skipping coordinator initialization.");
+      spdlog::trace("Aborting coordinator initialization.");
       return;
     }
 

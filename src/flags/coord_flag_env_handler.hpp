@@ -22,10 +22,10 @@ constexpr const char *kMgCoordinatorId = "MEMGRAPH_COORDINATOR_ID";
 struct CoordinationSetup {
   int management_port;
   int coordinator_port;
-  uint coordinator_id;
+  uint32_t coordinator_id;
 
   CoordinationSetup() = default;
-  explicit CoordinationSetup(int management_port, int coordinator_port, uint16_t coordinator_id)
+  explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id)
       : management_port(management_port), coordinator_port(coordinator_port), coordinator_id(coordinator_id) {}
 
   CoordinationSetup(CoordinationSetup &&) = default;
