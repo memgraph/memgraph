@@ -217,7 +217,7 @@ DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRege
               "The regular expression that should be used to match the entire "
               "entered password to ensure its strength.");
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(fail_by_mg_assert, false, "Fail by mg assert");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(fail_by_segfault, false, "Fail by segfault");
+// // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// DEFINE_bool(fail_by_mg_assert, false, "Fail by mg assert");
+// // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// DEFINE_bool(fail_by_segfault, false, "Fail by segfault");
