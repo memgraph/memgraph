@@ -54,7 +54,8 @@ class TestEnvironment : public ::testing::Environment {
     auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
                                                          memgraph::auth::Auth::Config{/* default */});
     system_state = std::make_unique<memgraph::system::System>();
-    repl_state = std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf));
+    repl_state =
+        std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf), false);
     ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state.get());
   }
 

@@ -24,7 +24,7 @@
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_database"};
 
-memgraph::replication::ReplicationState generic_repl_state{std::nullopt};
+memgraph::replication::ReplicationState generic_repl_state{std::nullopt, false};
 memgraph::storage::Config default_conf(std::string name = "") {
   return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =

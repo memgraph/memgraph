@@ -47,7 +47,7 @@ struct ReplicationInstance {
         dbms{storage_config, repl_state, auth, true},
         db_acc{dbms.Get()},
         db{*db_acc.get()},
-        repl_state{ReplicationStateRootPath(storage_config)},
+        repl_state{ReplicationStateRootPath(storage_config), false},
         repl_handler(repl_state, dbms, system_, auth),
         coordinator_state{replication_config} {
     memgraph::dbms::CoordinatorHandlers::Register(coordinator_state.GetCoordinatorServer(), repl_handler);

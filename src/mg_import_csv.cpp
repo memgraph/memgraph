@@ -717,7 +717,7 @@ int main(int argc, char *argv[]) {
                      .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED,
                      .snapshot_on_exit = true},
       .salient = {.items = {.properties_on_edges = FLAGS_storage_properties_on_edges}}};
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config), false};
   auto store = memgraph::dbms::CreateInMemoryStorage(config, repl_state);
 
   memgraph::utils::Timer load_timer;

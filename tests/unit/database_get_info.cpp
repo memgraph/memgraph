@@ -42,7 +42,7 @@ class InfoTest : public testing::Test {
 
  protected:
   void SetUp() {
-    repl_state_.emplace(ReplicationStateRootPath(config));
+    repl_state_.emplace(ReplicationStateRootPath(config), false);
 #ifdef MG_ENTERPRISE
     dbms_handler_.emplace(config, *repl_state_, auth_, false);
     auto db_acc = dbms_handler_->Get();  // Default db

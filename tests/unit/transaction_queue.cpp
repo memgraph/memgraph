@@ -45,7 +45,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config), false};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
