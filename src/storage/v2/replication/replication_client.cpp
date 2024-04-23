@@ -30,8 +30,8 @@ template <typename>
 namespace memgraph::storage {
 
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
-                                                   utils::UUID main_uuid)
-    : client_{client}, main_uuid_(main_uuid) {}
+                                                   utils::UUID main_uuid, bool is_coordinator_managed)
+    : client_{client}, main_uuid_(main_uuid), is_coordinator_managed_(is_coordinator_managed) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
   uint64_t current_commit_timestamp{kTimestampInitialId};
@@ -92,7 +92,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
           client_name, client_name, client_name);
     };
 #ifdef MG_ENTERPRISE
-    if (!FLAGS_management_port) {
+    if (!is_coordinator_managed_) {
       log_error();
       return;
     }

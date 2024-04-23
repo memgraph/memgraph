@@ -11,7 +11,10 @@ add_library(mg-flags STATIC
         query.cpp
         replication.cpp
         experimental.cpp
-        experimental.hpp)
+        experimental.hpp
+        coord_flag_env_handler.cpp
+        coord_flag_env_handler.hpp
+)
 target_include_directories(mg-flags PUBLIC include)
 target_link_libraries(mg-flags
         PUBLIC spdlog::spdlog mg-settings mg-utils

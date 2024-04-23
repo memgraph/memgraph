@@ -617,6 +617,9 @@ def test_register_one_coord_with_env_vars():
                 "TRACE",
                 "--management-port",
                 "10011",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
@@ -631,6 +634,9 @@ def test_register_one_coord_with_env_vars():
                 "TRACE",
                 "--management-port",
                 "10012",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
@@ -645,6 +651,9 @@ def test_register_one_coord_with_env_vars():
                 "TRACE",
                 "--management-port",
                 "10013",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
@@ -836,6 +845,9 @@ def test_register_one_data_with_env_vars():
                 "TRACE",
                 "--management-port",
                 "10011",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
@@ -850,6 +862,9 @@ def test_register_one_data_with_env_vars():
                 "TRACE",
                 "--management-port",
                 "10012",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
@@ -904,6 +919,9 @@ def test_register_one_data_with_env_vars():
                 "args": [
                     "--log-level",
                     "TRACE",
+                    "--data-recovery-on-startup=false",
+                    "--replication-restore-state-on-startup=true",
+                    "--storage-recover-on-startup=false",
                 ],
                 "log_file": "instance_3.log",
                 "data_directory": f"{TEMP_DIR}/instance_3",
@@ -978,15 +996,23 @@ def test_register_one_data_with_env_vars():
     mg_sleep_and_assert(1, get_vertex_count)
 
     unset_env_flags()
+    interactive_mg_runner.stop_all()
 
 
 def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
-    """
-    This test checks that there are no erros when starting coordinator
-    in case other instances are not set up yet.
-    On setting instances and reseting coordinator everything should be set up
-    """
+    # This test checks that there are no errors when starting coordinator
+    # in case other instances are not set up yet.
+    # On setting instances and resetting coordinator everything should be set up
+
+    # 1. Start coordinator without all data instances
+    # 2. Check that it doesn't crash
+    # 3. Stop coord
+    # 4. Start all other instances
+    # 5. Again start coord which should use env setup
+    # 6. Check everything works
+
     safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.stop_all()
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -997,6 +1023,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
                 "TRACE",
                 "--management-port",
                 "10011",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
@@ -1011,6 +1040,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
                 "TRACE",
                 "--management-port",
                 "10012",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
@@ -1025,6 +1057,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
                 "TRACE",
                 "--management-port",
                 "10013",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
             ],
             "log_file": "instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",

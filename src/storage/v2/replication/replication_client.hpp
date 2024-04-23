@@ -89,7 +89,8 @@ class ReplicationStorageClient {
   friend struct ::memgraph::replication::ReplicationClient;
 
  public:
-  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid);
+  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid,
+                                    bool is_coordinator_managed);
 
   ReplicationStorageClient(ReplicationStorageClient const &) = delete;
   ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
@@ -216,6 +217,7 @@ class ReplicationStorageClient {
       replication::ReplicaState::MAYBE_BEHIND};
 
   const utils::UUID main_uuid_;
+  const bool is_coordinator_managed_{false};
 };
 
 }  // namespace memgraph::storage

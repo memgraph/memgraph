@@ -32,7 +32,7 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
-ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
+ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir, bool is_coordinator_managed) {
   if (!durability_dir) return;
   auto repl_dir = *std::move(durability_dir);
   repl_dir /= kReplicationDirectory;
@@ -57,7 +57,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
-  if (FLAGS_management_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+  if (is_coordinator_managed && std::holds_alternative<RoleReplicaData>(replication_data)) {
     spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }

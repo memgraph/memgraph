@@ -141,10 +141,12 @@ struct Config {
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
-inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
+inline auto ReplicationStateRootPath(memgraph::storage::Config const &config,
+                                     [[maybe_unused]] bool is_coordinator_managed = false)
+    -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !FLAGS_management_port
+      && !is_coordinator_managed
 #endif
   ) {
     spdlog::warn(
