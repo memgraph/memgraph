@@ -46,7 +46,8 @@ class CoordinatorState {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+      -> AddCoordinatorInstanceStatus;
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 

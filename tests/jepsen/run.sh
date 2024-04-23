@@ -26,7 +26,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|mgbuild|test|test-all-individually [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -278,15 +278,16 @@ case $1 in
         CLUSTER_NODES_CLEANUP
     ;;
 
-    mgbuild)
+    unit-tests)
         PROCESS_ARGS "$@"
         PRINT_CONTEXT
-        # docker cp -L mgbuild_debian-12:/memgraph/build/memgraph "${MEMGRAPH_BUILD_PATH}/"
-        # NOTE: mgconsole is interesting inside jepsen container to inspect Memgraph state.
-        # docker cp -L mgbuild_debian-12:/usr/local/bin/mgconsole "${MEMGRAPH_BUILD_PATH}/"
-        echo ""
-        echo "TODO(gitbuda): Build memgraph for Jepsen (on v0.3.5 for Debian 12) via memgraph/memgraph-builder"
-        exit 1
+        COPY_BINARIES
+        docker exec jepsen-control bash -c "cd /jepsen/memgraph && lein test"
+        _JEPSEN_RUN_EXIT_STATUS=$?
+        if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
+            ERROR "Unit tests FAILED" # important for the coder
+            exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
+        fi
     ;;
 
     test)
