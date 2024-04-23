@@ -20,31 +20,29 @@
 
 namespace memgraph::flags {
 
+auto CoordinationSetupInstance() -> CoordinationSetup & {
+  static auto instance = CoordinationSetup{};
+  return instance;
+}
+
 auto GetFinalCoordinationSetup() -> CoordinationSetup {
-  CoordinationSetup coordination_setup{};
+  auto const *maybe_management_port = std::getenv(kMgManagementPort);
+  auto const *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
+  auto const *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
 
-  auto *maybe_management_port = std::getenv(kMgManagementPort);
-  auto *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
-  auto *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
-
-  bool are_envs_set = maybe_management_port || maybe_coordinator_port || maybe_coordinator_id;
-  bool are_flags_set = FLAGS_management_port || FLAGS_coordinator_port || FLAGS_coordinator_id;
+  bool const are_envs_set = maybe_management_port || maybe_coordinator_port || maybe_coordinator_id;
+  bool const are_flags_set = FLAGS_management_port || FLAGS_coordinator_port || FLAGS_coordinator_id;
 
   if (are_envs_set) {
-    coordination_setup.management_port = maybe_management_port ? std::stoi(maybe_management_port) : 0;
-    coordination_setup.coordinator_port = maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0;
-    coordination_setup.coordinator_id =
-        maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0;
-    spdlog::trace("Reading coordinator env variables management_port: {}, coordinator_port: {} and coordinator_id {}.",
-                  coordination_setup.management_port, coordination_setup.coordinator_port,
-                  coordination_setup.coordinator_id);
+    CoordinationSetupInstance() =
+        CoordinationSetup(maybe_management_port ? std::stoi(maybe_management_port) : 0,
+                          maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0,
+                          maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0);
+    spdlog::trace("Read coordinator setup from env variables: {}.", CoordinationSetupInstance().ToString());
   } else if (are_flags_set) {
-    coordination_setup.management_port = FLAGS_management_port;
-    coordination_setup.coordinator_port = FLAGS_coordinator_port;
-    coordination_setup.coordinator_id = FLAGS_coordinator_id;
-    spdlog::trace("Reading coordinator config flags management_port: {}, coordinator_port: {} and coordinator_id {}.",
-                  coordination_setup.management_port, coordination_setup.coordinator_port,
-                  coordination_setup.coordinator_id);
+    CoordinationSetupInstance() =
+        CoordinationSetup(FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id);
+    spdlog::trace("Read coordinator setup from runtime flags {}.", CoordinationSetupInstance().ToString());
   }
 
   if (are_envs_set && are_flags_set) {
@@ -53,7 +51,7 @@ auto GetFinalCoordinationSetup() -> CoordinationSetup {
         "input in environment variables");
   }
 
-  return coordination_setup;
+  return CoordinationSetupInstance();
 }
 
 }  // namespace memgraph::flags

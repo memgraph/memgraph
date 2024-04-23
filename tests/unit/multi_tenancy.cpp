@@ -100,7 +100,7 @@ class MultiTenantTest : public ::testing::Test {
   struct MinMemgraph {
     explicit MinMemgraph(const memgraph::storage::Config &conf)
         : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
-          repl_state{ReplicationStateRootPath(conf), false},
+          repl_state{ReplicationStateRootPath(conf)},
           dbms{conf, repl_state, auth, true},
           interpreter_context{{},
                               &dbms,

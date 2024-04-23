@@ -453,9 +453,7 @@ int main(int argc, char **argv) {
 
   auto const coordination_setup = memgraph::flags::GetFinalCoordinationSetup();
   // singleton replication state
-  memgraph::replication::ReplicationState repl_state{
-      ReplicationStateRootPath(db_config, coordination_setup.management_port != 0),
-      coordination_setup.management_port != 0};
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
 
   int extracted_bolt_port{0};
   if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {

@@ -47,7 +47,7 @@ std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
 
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
-void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_acc, bool is_coordinator_managed) {
+void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_acc) {
   spdlog::info("Restoring replication role.");
 
   // Each individual client has already been restored and started. Here we just go through each database and start its
@@ -56,8 +56,7 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
     spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
     const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
         [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<query::RegisterReplicaError> {
-          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_,
-                                                                            is_coordinator_managed);
+          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
           auto *storage = db_acc->storage();
           client->Start(storage, std::move(db_acc));
           // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
@@ -436,12 +435,11 @@ void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::
   using enum memgraph::flags::Experiments;
   auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
   auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
-  auto const coordination_setup = flags::GetFinalCoordinationSetup();
   if ((is_enterprise && experimental_system_replication) || db_acc->name() == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS
-    memgraph::dbms::RestoreReplication(role_main_data, db_acc, coordination_setup.management_port != 0);
+    memgraph::dbms::RestoreReplication(role_main_data, db_acc);
   } else if (!role_main_data.registered_replicas_.empty()) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
   }

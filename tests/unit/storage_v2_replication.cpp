@@ -111,7 +111,7 @@ class ReplicationTest : public ::testing::Test {
 struct MinMemgraph {
   MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
-        repl_state{ReplicationStateRootPath(conf), false},
+        repl_state{ReplicationStateRootPath(conf)},
         dbms{conf, repl_state
 #ifdef MG_ENTERPRISE
              ,

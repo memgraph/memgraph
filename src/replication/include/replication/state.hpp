@@ -67,7 +67,7 @@ struct RoleReplicaData {
 
 // Global (instance) level object
 struct ReplicationState {
-  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool is_coordinator_managed);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
   ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;

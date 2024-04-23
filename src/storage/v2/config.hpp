@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -141,12 +142,10 @@ struct Config {
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
-inline auto ReplicationStateRootPath(memgraph::storage::Config const &config,
-                                     [[maybe_unused]] bool is_coordinator_managed = false)
-    -> std::optional<std::filesystem::path> {
+inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !is_coordinator_managed
+      && !memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()
 #endif
   ) {
     spdlog::warn(

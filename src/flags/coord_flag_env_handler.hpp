@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <fmt/format.h>
+#include <string>
+
 namespace memgraph::flags {
 
 constexpr const char *kMgManagementPort = "MEMGRAPH_MANAGEMENT_PORT";
@@ -20,7 +23,27 @@ struct CoordinationSetup {
   int management_port;
   int coordinator_port;
   uint coordinator_id;
+
+  CoordinationSetup() = default;
+  explicit CoordinationSetup(int management_port, int coordinator_port, uint16_t coordinator_id)
+      : management_port(management_port), coordinator_port(coordinator_port), coordinator_id(coordinator_id) {}
+
+  CoordinationSetup(CoordinationSetup &&) = default;
+  CoordinationSetup(CoordinationSetup const &) = default;
+
+  CoordinationSetup &operator=(CoordinationSetup const &) = default;
+  CoordinationSetup &operator=(CoordinationSetup &&) = default;
+  ~CoordinationSetup() = default;
+
+  std::string ToString() {
+    return fmt::format("management port: {}, coordinator port {}, coordinator id", management_port, coordinator_port,
+                       coordinator_id);
+  }
+
+  [[nodiscard]] auto IsCoordinatorManaged() const -> bool { return management_port != 0; }
 };
+
+auto CoordinationSetupInstance() -> CoordinationSetup &;
 
 auto GetFinalCoordinationSetup() -> CoordinationSetup;
 

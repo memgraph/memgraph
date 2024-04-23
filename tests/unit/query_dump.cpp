@@ -323,7 +323,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config), false};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -739,7 +739,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     std::filesystem::remove_all(config.durability.storage_directory);
   }};
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config), false);
+  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
   auto db_acc_opt = db_gk.access();
@@ -867,7 +867,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     std::filesystem::remove_all(config.durability.storage_directory);
   }};
 
-  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config), false};
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";

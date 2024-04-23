@@ -36,7 +36,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
       .port = static_cast<uint16_t>(config.management_port),
   };
   data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
-  spdlog::trace("Created coordinator server.");
+  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.ip_address, mgmt_config.port);
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
