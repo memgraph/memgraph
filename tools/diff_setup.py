@@ -9,18 +9,23 @@ class DiffSetup:
     def __init__(self, base_branch: str, gh_context_path: str):
         self._base_branch = base_branch
         self._gh_context_path = gh_context_path
-        self._set_test_suite(False)
+        self._get_default_test_suite(False)
         self._load_gh_context()
 
     def _load_gh_context(self) -> None:
         try:
             with open(self._gh_context_path, "r") as gh_context_file:
                 self._gh_context = json.load(gh_context_file)
+                if not self._get_event_name():
+                    raise KeyError
         except FileNotFoundError:
-            print(f"File not found: {self._gh_context_path}")
+            print(f"Error: file not found {self._gh_context_path}")
             sys.exit(1)
         except json.JSONDecodeError:
-            print(f"Invalid JSON file: {self._gh_context_path}")
+            print(f"Error: invalid JSON file {self._gh_context_path}")
+            sys.exit(1)
+        except KeyError:
+            print(f"Error: invalid GitHub context file {self._gh_context_path}")
             sys.exit(1)
 
     def _get_event_name(self) -> str:
@@ -35,7 +40,7 @@ class DiffSetup:
     def get_test_suite(self) -> dict:
         return self._test_suite
 
-    def _set_test_suite(self, value: bool = False) -> None:
+    def _get_default_test_suite(self, value: bool = False) -> None:
         self._test_suite = {
             "community": {"core": value},
             "coverage": {"core": value},
@@ -78,7 +83,7 @@ class DiffSetup:
         event_name = self._get_event_name()
         print(f"Event name: {event_name}")
         if event_name == "merge_group":
-            self._set_test_suite(True)
+            self._get_default_test_suite(True)
         elif event_name == "pull_request":
             self._setup_pull_request()
         elif event_name == "workflow_dispatch":
@@ -92,7 +97,7 @@ class DiffSetup:
         if run_diff:
             self._setup_test_suite()
         else:
-            self._set_test_suite(False)
+            self._get_default_test_suite(False)
 
 
 def print_test_suite(tests: dict, set_env_vars: bool = False) -> None:
@@ -120,7 +125,6 @@ def parse_args() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
-    print(args)
     diff_setup = DiffSetup(args.base_branch, args.gh_context_path)
     diff_setup.setup_diff_workflow()
     test_suite = diff_setup.get_test_suite()
