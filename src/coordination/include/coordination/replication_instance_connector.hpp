@@ -48,6 +48,8 @@ class ReplicationInstanceConnector {
 
   // TODO: (andi) Fetch from ClusterState
   auto InstanceName() const -> std::string;
+
+  auto BoltSocketAddress() const -> std::string;
   auto ManagementSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 

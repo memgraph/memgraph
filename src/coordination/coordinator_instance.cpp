@@ -156,6 +156,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     spdlog::trace("Instance {} is coordinator", instance.coordinator_id);
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
             .coordinator_server = instance.coordinator_server.SocketAddress(),
+            .bolt_server = instance.bolt_server.SocketAddress(),
             .cluster_role = "coordinator",
             .health = "unknown"};
   };
@@ -176,6 +177,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
         [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
               .management_server = instance.ManagementSocketAddress(),
+              .bolt_server = instance.BoltSocketAddress(),
               .cluster_role = stringify_repl_role(instance),
               .health = stringify_repl_health(instance)};
     };
@@ -200,6 +202,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
+              .bolt_server = instance.config.BoltSocketAddress(),
               .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };

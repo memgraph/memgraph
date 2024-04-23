@@ -20,6 +20,8 @@
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
+#include <string>
+
 namespace memgraph::coordination {
 
 namespace {
@@ -42,6 +44,8 @@ ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorInstance *coord_
       fail_cb_{std::move(fail_cb)} {}
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
+
+auto ReplicationInstanceClient::BoltSocketAddress() const -> std::string { return config_.BoltSocketAddress(); }
 
 auto ReplicationInstanceClient::ManagementSocketAddress() const -> std::string {
   return config_.ManagementSocketAddress();
