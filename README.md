@@ -150,8 +150,11 @@ Welcome to the heart of Memgraph development! We're on a mission to supercharge 
 
 ### Compile from Source
 
-Learn how to download, compile and run Memgraph from source with the [Quick Start](https://memgraph.notion.site/Quick-Start-82a99a85e62a4e3d89f6a9fb6d35626d) guide. 
+Read the ["### Compile from Source
 
+Read the ["Building Memgraph from source"](https://memgraph.com/docs/getting-started/build-memgraph-from-source) documentation page to learn how to download, compile, and run Memgraph from its source code.
+
+"](https://memgraph.com/docs/getting-started/build-memgraph-from-source) documentation page to learn how to download, compile, and run Memgraph from its source code.
 
 ### Explore Memgraph Internals
 
