@@ -1,13 +1,12 @@
 (ns jepsen.memgraph.core
   (:gen-class)
   (:require
-   [clojure.tools.logging :refer [info]]
    [clojure.java.shell :refer [sh]]
    [jepsen [cli :as cli]
     [checker :as checker]
     [generator :as gen]
     [tests :as tests]
-    [nemesis :as jnemesis]]
+    ]
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
