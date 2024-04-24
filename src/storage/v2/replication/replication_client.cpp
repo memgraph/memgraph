@@ -11,6 +11,7 @@
 
 #include <algorithm>
 
+#include "flags/coord_flag_env_handler.hpp"
 #include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -92,7 +93,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
           client_name, client_name, client_name);
     };
 #ifdef MG_ENTERPRISE
-    if (!FLAGS_management_port) {
+    if (!memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()) {
       log_error();
       return;
     }
