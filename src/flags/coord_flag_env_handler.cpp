@@ -14,9 +14,8 @@
 
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
+#include "flags/utils.hpp"
 #include "utils/logging.hpp"
-
-#include <spdlog/spdlog.h>
 
 namespace memgraph::flags {
 
@@ -45,9 +44,12 @@ auto GetFinalCoordinationSetup() -> CoordinationSetup {
     }
     if (are_envs_set) {
       spdlog::trace("Read coordinator setup from env variables: {}.", CoordinationSetupInstance().ToString());
-      return CoordinationSetup(maybe_management_port ? std::stoi(maybe_management_port) : 0,
-                               maybe_coordinator_port ? std::stoi(maybe_coordinator_port) : 0,
-                               maybe_coordinator_id ? static_cast<uint32_t>(std::stoul(maybe_coordinator_id)) : 0);
+      return CoordinationSetup(
+          maybe_management_port ? std::stoi(flags::CanonicalizeString(std::string_view{maybe_management_port})) : 0,
+          maybe_coordinator_port ? std::stoi(flags::CanonicalizeString(std::string_view{maybe_coordinator_port})) : 0,
+          maybe_coordinator_id
+              ? static_cast<uint32_t>(std::stoul(flags::CanonicalizeString(std::string_view{maybe_coordinator_id})))
+              : 0);
     }
     spdlog::trace("Read coordinator setup from runtime flags {}.", CoordinationSetupInstance().ToString());
     return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id};
