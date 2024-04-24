@@ -998,17 +998,27 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   }
 }  // namespace
 
-Callback HandleReplicationQuery(
-    ReplicationQuery *repl_query, const Parameters &parameters, ReplicationQueryHandler &replication_query_handler,
-    const query::InterpreterConfig &config, std::vector<Notification> *notifications,
-    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state) {
+Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
+                                ReplicationQueryHandler &replication_query_handler,
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications
+#ifdef MG_ENTERPRISE
+                                ,
+                                std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-  auto const is_managed_by_coordinator = coordinator_state.has_value() && coordinator_state->get().IsDataInstance();
+  auto const is_managed_by_coordinator = [&]() {
+#ifdef MG_ENTERPRISE
+    return coordinator_state.has_value() && coordinator_state->get().IsDataInstance();
+#else
+    return false;
+#endif
+  }();  // iile
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
@@ -2882,15 +2892,24 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config,
-    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state) {
+    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
+#ifdef MG_ENTERPRISE
+    ,
+    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
   auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler, config,
-                                         notifications, coordinator_state);
+                                         notifications
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         coordinator_state
+#endif
+  );
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4579,8 +4598,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       /// TODO: make replication DB agnostic
       prepared_query =
           PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                                  *interpreter_context_->replication_handler_, current_db_,
-                                  interpreter_context_->config, interpreter_context_->coordinator_state_);
+                                  *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  interpreter_context_->coordinator_state_
+#endif
+          );
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE

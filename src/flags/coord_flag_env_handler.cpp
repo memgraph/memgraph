@@ -41,6 +41,7 @@ auto CoordinationSetupInstance() -> CoordinationSetup & {
 }
 
 void SetFinalCoordinationSetup() {
+#ifdef MG_ENTERPRISE
   auto const *maybe_management_port = std::getenv(kMgManagementPort);
   auto const *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
   auto const *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
@@ -77,6 +78,7 @@ void SetFinalCoordinationSetup() {
     spdlog::trace("Read coordinator setup from runtime flags {}.", CoordinationSetupInstance().ToString());
     return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id};
   }();  // iile
+#endif
 }
 
 }  // namespace memgraph::flags
