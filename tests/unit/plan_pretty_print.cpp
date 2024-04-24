@@ -47,7 +47,7 @@ class PrintToJsonTest : public ::testing::Test {
         dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(dba_storage.get()) {}
 
-  ~PrintToJsonTest() override {
+  void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

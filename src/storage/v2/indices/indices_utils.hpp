@@ -60,8 +60,8 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   {
     auto guard = std::shared_lock{vertex.lock};
     has_label = utils::Contains(vertex.labels, label);
-    deleted = vertex.deleted();
-    delta = vertex.delta();
+    deleted = vertex.deleted;
+    delta = vertex.delta;
   }
   if (!deleted && has_label) {
     return true;
@@ -116,8 +116,8 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
   bool current_value_equal_to_value;
   {
     auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta();
-    deleted = vertex.deleted();
+    delta = vertex.delta;
+    deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     // Avoid IsPropertyEqual if already not possible
     if (delta == nullptr && (deleted || !has_label)) return false;
@@ -184,10 +184,10 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted();
+    deleted = vertex.deleted;
     has_label = utils::Contains(vertex.labels, label);
     current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    delta = vertex.delta();
+    delta = vertex.delta;
   }
 
   // Checking cache has a cost, only do it if we have any deltas
@@ -233,7 +233,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
 
 template <typename TIndexAccessor>
 inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_accessor) {
-  if (vertex.deleted() || !utils::Contains(vertex.labels, label)) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return;
   }
 
@@ -243,7 +243,7 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &i
 template <typename TIndexAccessor>
 inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, PropertyId> label_property_pair,
                                         TIndexAccessor &index_accessor) {
-  if (vertex.deleted() || !utils::Contains(vertex.labels, label_property_pair.first)) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
     return;
   }
   auto value = vertex.properties.GetProperty(label_property_pair.second);

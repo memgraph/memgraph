@@ -216,7 +216,7 @@ bool DiskUniqueConstraints::SyncVertexToUniqueConstraintsStorage(const Vertex &v
   auto disk_transaction = std::unique_ptr<rocksdb::Transaction>(
       kvstore_->db_->BeginTransaction(rocksdb::WriteOptions(), rocksdb::TransactionOptions()));
 
-  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
+  if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
     spdlog::trace("Found old disk key {} for vertex {}", maybe_old_disk_key.value(), vertex.gid.ToString());
     if (auto status = disk_transaction->Delete(maybe_old_disk_key.value()); !status.ok()) {
       return false;
