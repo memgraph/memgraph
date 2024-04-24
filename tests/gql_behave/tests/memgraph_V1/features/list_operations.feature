@@ -418,3 +418,23 @@ Feature: List operators
             | actor.name           | years       | titles                            | years_in_return |
             | 'Carrie-Anne Moss'   | [1999,2003] | ['TheMatrix','TheMatrixReloaded'] | [1999,2003]     |
             | 'Laurence Fishburne' | [1999]      | ['TheMatrix']                     | [1999]          |
+
+    Scenario: Multiple list pattern comprehensions in Return and label index
+        Given graph "graph_keanu"
+        And having executed
+            """
+            CREATE INDEX ON :Person;
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN
+                n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(c:Movie) WHERE c.title CONTAINS 'Matrix' | c.title] AS titles;
+            """
+        Then the result should be:
+            | n.name               | years                 | titles                                                                            |
+            | 'Keanu Reeves'       | [2003,2003,1999,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrix','TheMatrixResurrections'] |
+            | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
+            | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
