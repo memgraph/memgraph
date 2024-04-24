@@ -71,6 +71,11 @@ struct Indices {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) const;
 
+  /// This function should be called whenever a property is modified on an edge.
+  /// @throw std::bad_alloc
+  void UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, Vertex *from_vertex,
+                           Vertex *to_vertex, Edge *edge, const Transaction &tx) const;
+
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                             const Transaction &tx) const;
 

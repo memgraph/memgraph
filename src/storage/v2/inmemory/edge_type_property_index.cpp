@@ -13,6 +13,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "utils/counter.hpp"
 
@@ -23,6 +24,8 @@ using Vertex = memgraph::storage::Vertex;
 using Edge = memgraph::storage::Edge;
 using EdgeRef = memgraph::storage::EdgeRef;
 using EdgeTypeId = memgraph::storage::EdgeTypeId;
+using PropertyId = memgraph::storage::PropertyId;
+using PropertyValue = memgraph::storage::PropertyValue;
 using Transaction = memgraph::storage::Transaction;
 using View = memgraph::storage::View;
 
@@ -66,72 +69,92 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
   });
   return link;
 }
-
 }  // namespace
 
 namespace memgraph::storage {
 
+bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const Entry &rhs) const {
+  if (edge->gid < rhs.edge->gid) {
+    return true;
+  }
+  if (rhs.edge->gid < edge->gid) {
+    return false;
+  }
+  return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) <
+         std::make_tuple(rhs.value, rhs.from_vertex, rhs.to_vertex, rhs.edge, rhs.timestamp);
+}
+
+bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const Entry &rhs) const {
+  return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) ==
+         std::make_tuple(rhs.value, rhs.from_vertex, rhs.to_vertex, rhs.edge, rhs.timestamp);
+}
+
+bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
+
+bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
+
+// Verifiy this
 bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId property,
                                                 utils::SkipList<Vertex>::Accessor vertices) {
-  // auto [it, emplaced] = index_.try_emplace(edge_type);
-  // if (!emplaced) {
-  //   return false;
-  // }
+  auto [it, emplaced] = index_.try_emplace({edge_type, property});
+  if (!emplaced) {
+    return false;
+  }
 
-  // utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  // try {
-  //   auto edge_acc = it->second.access();
-  //   for (auto &from_vertex : vertices) {
-  //     if (from_vertex.deleted) {
-  //       continue;
-  //     }
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  try {
+    auto edge_acc = it->second.access();
+    for (auto &from_vertex : vertices) {
+      if (from_vertex.deleted) {
+        continue;
+      }
 
-  //     for (auto &edge : from_vertex.out_edges) {
-  //       const auto type = std::get<kEdgeTypeIdPos>(edge);
-  //       if (type == edge_type) {
-  //         auto *to_vertex = std::get<kVertexPos>(edge);
-  //         if (to_vertex->deleted) {
-  //           continue;
-  //         }
-  //         edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
-  //       }
-  //     }
-  //   }
-  // } catch (const utils::OutOfMemoryException &) {
-  //   utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-  //   index_.erase(it);
-  //   throw;
-  // }
+      for (auto &edge : from_vertex.out_edges) {
+        const auto type = std::get<kEdgeTypeIdPos>(edge);
+        if (type == edge_type) {
+          auto *to_vertex = std::get<kVertexPos>(edge);
+          if (to_vertex->deleted) {
+            continue;
+          }
+          auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
+          edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
+        }
+      }
+    }
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    index_.erase(it);
+    throw;
+  }
 
   return true;
 }
 
 bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
-  return index_.erase(edge_type) > 0;
+  return index_.erase({edge_type, property}) > 0;
 }
 
 bool InMemoryEdgeTypePropertyIndex::IndexExists(EdgeTypeId edge_type, PropertyId property) const {
-  return index_.find(edge_type) != index_.end();
+  return index_.find({edge_type, property}) != index_.end();
 }
 
 std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::ListIndices() const {
-  // std::vector<EdgeTypeId> ret;
-  // ret.reserve(index_.size());
-  // for (const auto &item : index_) {
-  //   ret.push_back(item.first);
-  // }
-  // return ret;
-  return {};
+  std::vector<std::pair<EdgeTypeId, PropertyId>> ret;
+  ret.reserve(index_.size());
+  for (const auto &item : index_) {
+    ret.push_back({item.first.first, item.first.second});
+  }
+  return ret;
 }
 
 void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
                                                           std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &label_storage : index_) {
+  for (auto &specific_index : index_) {
     if (token.stop_requested()) return;
 
-    auto edges_acc = label_storage.second.access();
+    auto edges_acc = specific_index.second.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
       if (maybe_stop() && token.stop_requested()) return;
 
@@ -143,7 +166,21 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
         continue;
       }
 
-      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted ||
+      // It is possible that entries are identical except for the timestamp and maybe value.
+      // We have to acount for that here. -> TODO
+      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
+      const bool has_next = next_it != edges_acc.end();
+
+      // When we update specific entries in the index, we don't delete the previous entry.
+      // The way they are removed from the index is through this check. The entries should
+      // be right next to each other(in terms of iterator semantics) and the older one
+      // should be removed here.
+      bool redundant_duplicate = has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
+                                 it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+      // TODO inspect if this is actually correct
+      if (redundant_duplicate || vertices_deleted ||
+          !AnyVersionHasLabelProperty(*it->edge, specific_index.first.second, it->value,
+                                      oldest_active_start_timestamp) ||
           !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
             auto *to_vertex = std::get<InMemoryEdgeTypePropertyIndex::kVertexPos>(edge);
             return to_vertex != it->to_vertex;
@@ -156,27 +193,34 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
   }
 }
 
+void InMemoryEdgeTypePropertyIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                                        EdgeTypeId edge_type, PropertyId property, PropertyValue value,
+                                                        uint64_t timestamp) {
+  if (value.IsNull()) {
+    return;
+  }
+
+  auto it = index_.find({edge_type, property});
+  if (it == index_.end()) return;
+
+  auto acc = it->second.access();
+
+  acc.insert({value, from_vertex, to_vertex, edge, timestamp});
+}
+
 uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const {
-  // if (auto it = index_.find(edge_type); it != index_.end()) {
-  //   return it->second.size();
-  // }
+  if (auto it = index_.find({edge_type, property}); it != index_.end()) {
+    return it->second.size();
+  }
   return 0;
 }
 
-void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref,
-                                                         EdgeTypeId edge_type, const Transaction &tx) {
-  auto it = index_.find(edge_type);
-  if (it == index_.end()) {
-    return;
-  }
-  auto acc = it->second.access();
-  acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
-}
-
+// TODO Check if this should work without property and value
 void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
                                                              Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                                             PropertyId property, PropertyValue value,
                                                              const Transaction &tx) {
-  auto it = index_.find(edge_type);
+  auto it = index_.find({edge_type, property});
   if (it == index_.end()) {
     return;
   }
@@ -186,9 +230,9 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
     return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
   });
 
-  acc.remove(Entry{entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
+  acc.remove(Entry{value, entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
                    entry_to_update->timestamp});
-  acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
+  acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
 void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() { index_.clear(); }
@@ -293,8 +337,9 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(Edg
                                                                              View view, Storage *storage,
                                                                              Transaction *transaction) {
   // TODO implement this correctly
-  const auto it = index_.find(edge_type);
-  MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  const auto it = index_.find({edge_type, property});
+  MG_ASSERT(it != index_.end(), "Index for edge-type {} and property {} doesn't exist", edge_type.AsUint(),
+            property.AsUint());
   return {it->second.access(), edge_type, property, view, storage, transaction};
 }
 

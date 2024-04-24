@@ -30,19 +30,21 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> DiskEdgeTypePropertyIndex::ListIn
   return {};
 }
 
+void DiskEdgeTypePropertyIndex::UpdateOnSetProperty(Vertex * /*from_vertex*/, Vertex * /*to_vertex*/, Edge * /*edge*/,
+                                                    EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                                    PropertyValue /*value*/, uint64_t /*timestamp*/) {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
 
-void DiskEdgeTypePropertyIndex::UpdateOnEdgeCreation(Vertex * /*from*/, Vertex * /*to*/, EdgeRef /*edge_ref*/,
-                                                     EdgeTypeId /*edge_type*/, const Transaction & /*tx*/) {
-  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
-}
-
 void DiskEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/,
                                                          Vertex * /*new_from*/, Vertex * /*new_to*/,
                                                          EdgeRef /*edge_ref*/, EdgeTypeId /*edge_type*/,
+                                                         PropertyId /*property*/, PropertyValue /*value*/,
                                                          const Transaction & /*tx*/) {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }

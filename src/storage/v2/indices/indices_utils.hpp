@@ -172,6 +172,57 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       });
 }
 
+inline bool AnyVersionHasLabelProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
+                                       uint64_t timestamp) {
+  Delta const *delta;
+  bool deleted;
+  bool current_value_equal_to_value;
+  {
+    auto guard = std::shared_lock{edge.lock};
+    delta = edge.delta;
+    deleted = edge.deleted;
+    // Avoid IsPropertyEqual if already not possible
+    if (delta == nullptr && (deleted)) return false;
+    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+  }
+
+  if (!deleted && current_value_equal_to_value) {
+    return true;
+  }
+
+  constexpr auto interesting = ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::SET_PROPERTY:
+            if (delta.property.key == key) {
+              current_value_equal_to_value = *delta.property.value == value;
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && current_value_equal_to_value;
+      });
+}
+
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.

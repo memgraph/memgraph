@@ -14,6 +14,7 @@
 #include "storage/v2/disk/edge_type_property_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -71,10 +72,15 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
 }
 
+void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
+                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge, const Transaction &tx) const {
+  edge_type_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
+                                                 tx.start_timestamp);
+}
+
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                    const Transaction &tx) const {
   edge_type_index_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
-  edge_type_property_index_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode) {

@@ -607,15 +607,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
     to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
-
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
                                                   edge_type, transaction_);
-    auto *mem_edge_type_property_index =
-        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
-                                                           edge_ref, edge_type, transaction_);
+
+    // auto *mem_edge_type_property_index =
+    //     static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    // mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
+    //                                                        edge_ref, edge_type, transaction_);
 
     if (config_.enable_edges_metadata) {
       in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
@@ -728,10 +728,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
                                                   edge_type, transaction_);
-    auto *mem_edge_type_property_index =
-        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
-                                                           edge_ref, edge_type, transaction_);
+    // auto *mem_edge_type_property_index =
+    //     static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    // mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
+    //                                                        edge_ref, edge_type, transaction_);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);

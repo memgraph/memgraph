@@ -23,13 +23,14 @@ class DiskEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   std::vector<std::pair<EdgeTypeId, PropertyId>> ListIndices() const override;
 
+  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                           PropertyId property, PropertyValue value, uint64_t timestamp) override;
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) override;
-
   void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, const Transaction &tx) override;
+                                EdgeTypeId edge_type, PropertyId property, PropertyValue value,
+                                const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
 };

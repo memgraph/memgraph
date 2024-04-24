@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <utility>
 
@@ -19,6 +20,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -27,15 +29,18 @@ namespace memgraph::storage {
 class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  private:
   struct Entry {
+    // do we need this?
+    PropertyValue value;
     Vertex *from_vertex;
     Vertex *to_vertex;
-
     Edge *edge;
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) const { return edge->gid < rhs.edge->gid; }
-    bool operator==(const Entry &rhs) const { return edge->gid == rhs.edge->gid; }
+    bool operator<(const Entry &rhs) const;
+    bool operator==(const Entry &rhs) const;
+    bool operator<(const PropertyValue &rhs) const;
+    bool operator==(const PropertyValue &rhs) const;
   };
 
  public:
@@ -55,11 +60,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) override;
+  // Functions that update the index
+  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                           PropertyId property, PropertyValue value, uint64_t timestamp) override;
 
   void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, const Transaction &tx) override;
+                                EdgeTypeId edge_type, PropertyId property, PropertyValue value,
+                                const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
 
@@ -110,7 +117,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   Iterable Edges(EdgeTypeId edge_type, PropertyId property, View view, Storage *storage, Transaction *transaction);
 
  private:
-  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
+  std::map<std::pair<EdgeTypeId, PropertyId>, utils::SkipList<Entry>> index_;
 };
 
 }  // namespace memgraph::storage
