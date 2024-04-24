@@ -646,6 +646,10 @@ class DbAccessor final {
 
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
 
+  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+    return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
+  }
+
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
