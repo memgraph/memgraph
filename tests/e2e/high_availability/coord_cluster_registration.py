@@ -160,9 +160,9 @@ def test_register_repl_instances_then_coordinators():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -225,9 +225,9 @@ def test_register_coordinator_then_repl_instances():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -275,9 +275,9 @@ def test_coordinators_communication_with_restarts():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -374,9 +374,9 @@ def test_unregister_replicas(kill_instance):
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     expected_replicas = [
@@ -417,8 +417,8 @@ def test_unregister_replicas(kill_instance):
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     expected_replicas = [
@@ -451,7 +451,7 @@ def test_unregister_replicas(kill_instance):
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     expected_replicas = []
 
@@ -513,9 +513,9 @@ def test_unregister_main():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -545,9 +545,9 @@ def test_unregister_main():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -568,8 +568,8 @@ def test_unregister_main():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
     ]
 
     expected_replicas = [

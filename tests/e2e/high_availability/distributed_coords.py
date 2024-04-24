@@ -260,9 +260,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -455,9 +455,9 @@ def test_distributed_automatic_failover_with_leadership_change():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -586,9 +586,9 @@ def test_old_main_comes_back_on_new_leader_as_main():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -1053,9 +1053,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
         ]
     )
 
@@ -1086,13 +1086,13 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
             (
                 "instance_3",
                 "127.0.0.1:7689",
                 "",
-                "",
+                "127.0.0.1:10013",
                 "unknown",
                 "unknown",
             ),
@@ -1121,9 +1121,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
         ]
     )
 
@@ -1151,9 +1151,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
         ]
     )
 
@@ -1179,9 +1179,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "unknown"),
-            ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "unknown"),
+            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
         ]
     )
 
@@ -1216,9 +1216,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     follower_data.extend(coordinator_data)
     follower_data.extend(
         [
-            ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
         ]
     )
 
@@ -1365,9 +1365,9 @@ def test_multiple_old_mains_single_failover():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -1475,9 +1475,9 @@ def test_force_reset_works_after_failed_registration():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -1539,9 +1539,9 @@ def test_force_reset_works_after_failed_registration():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -1627,9 +1627,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -1691,9 +1691,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -1779,9 +1779,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -1850,16 +1850,16 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         (
             "instance_2",
             "127.0.0.1:7688",
             "",
-            "",
+            "127.0.0.1:10012",
             "unknown",
             "replica",
         ),  # TODO(antoniofilipovic) What is logic behind unknown state
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -1885,9 +1885,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -1993,9 +1993,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -2078,9 +2078,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "replica"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
     ]
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
@@ -2195,9 +2195,9 @@ def test_coordinator_gets_info_on_other_coordinators():
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -2298,9 +2298,9 @@ def test_coordinator_gets_info_on_other_coordinators():
         ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
         ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -2368,9 +2368,9 @@ def test_registration_works_after_main_set():
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
@@ -2465,9 +2465,9 @@ def test_coordinator_not_leader_registration_does_not_work():
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
     mg_sleep_and_assert(leader_data, show_instances_coord3)
     mg_sleep_and_assert(follower_data, show_instances_coord1)

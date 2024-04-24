@@ -153,7 +153,6 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instance_to_status = [](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
-    spdlog::trace("Instance {} is coordinator", instance.coordinator_id);
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
             .coordinator_server = instance.coordinator_server.SocketAddress(),
             .bolt_server = instance.bolt_server.SocketAddress(),
@@ -202,6 +201,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
+              .management_server = instance.config.ManagementSocketAddress(),
               .bolt_server = instance.config.BoltSocketAddress(),
               .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
