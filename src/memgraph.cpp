@@ -52,7 +52,7 @@
 #include "replication_handler/replication_handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
-#include "storage/config.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
