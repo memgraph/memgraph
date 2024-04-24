@@ -36,6 +36,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
       .port = static_cast<uint16_t>(config.management_port),
   };
   data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
+  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.ip_address, mgmt_config.port);
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
@@ -95,7 +96,8 @@ auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
   return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+    -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
@@ -111,6 +113,12 @@ auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordin
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
+}
+
+auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }
+
+auto CoordinatorState::IsDataInstance() const -> bool {
+  return std::holds_alternative<CoordinatorMainReplicaData>(data_);
 }
 
 }  // namespace memgraph::coordination

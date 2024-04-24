@@ -41,8 +41,9 @@ auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::Inst
   return coordinator_state_.ShowInstances();
 }
 
-auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void {
-  coordinator_state_.AddCoordinatorInstance(config);
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+    -> coordination::AddCoordinatorInstanceStatus {
+  return coordinator_state_.AddCoordinatorInstance(config);
 }
 
 auto CoordinatorHandler::GetLeaderCoordinatorData() const

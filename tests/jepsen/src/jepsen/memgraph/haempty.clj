@@ -15,7 +15,7 @@
 
 (defrecord Client [nodes-config license organization]
   client/Client
-  (open! [this _ node]
+  (open! [this _test node]
     (info "Opening connection to node" node)
     (let [connection (utils/open-bolt node)
           node-config (get nodes-config node)]
@@ -28,7 +28,7 @@
       ((haclient/set-db-setting "enterprise.license" license) session)
       ((haclient/set-db-setting "organization.name" organization) session)))
 
-  (invoke! [this _ op]
+  (invoke! [this _test op]
     (let [node-config (:node-config this)]
       (case (:f op)
         :read (if (contains? node-config :coordinator-id)
@@ -103,10 +103,10 @@
 
 ; TODO: (andi) Rework bank and large clients to avoid using macros.
 
-(defn coordinator-missing
+(defn less-than-three-coordinators
   "Check if there aren't exactly 3 coordinators in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
   [roles]
-  (not= 3 (count (get-coordinators roles))))
+  (< (count (get-coordinators roles)) 3))
 
 (defn more-than-one-main
   "Check if there is more than one main in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
@@ -155,7 +155,7 @@
                               (into {}))
             ; coords-missing-reads are coordinators who have full reads where not all coordinators are present
             coords-missing-reads (->> coord->roles
-                                      (filter (fn [[_ reads]] (some coordinator-missing reads)))
+                                      (filter (fn [[_ reads]] (some less-than-three-coordinators reads)))
                                       (keys))
             ; Check from full reads if there is any where there was more than one main.
             more-than-one-main (->> coord->roles

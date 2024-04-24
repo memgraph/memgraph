@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "gflags/gflags.h"
 
 // Short help flag.
@@ -29,6 +31,8 @@ enum class Experiments : uint8_t {
 
 bool AreExperimentsEnabled(Experiments experiments);
 
-void InitializeExperimental();
+auto ReadExperimental(std::string const &) -> Experiments;
+void SetExperimental(Experiments const &);
+void AppendExperimental(Experiments const &);
 
 }  // namespace memgraph::flags

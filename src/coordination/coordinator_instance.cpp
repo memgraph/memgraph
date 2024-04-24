@@ -153,9 +153,9 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instance_to_status = [](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
-    spdlog::trace("Instance {} is coordinator", instance.coordinator_id);
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-            .raft_socket_address = instance.coordinator_server.SocketAddress(),
+            .coordinator_server = instance.coordinator_server.SocketAddress(),
+            .bolt_server = instance.bolt_server.SocketAddress(),
             .cluster_role = "coordinator",
             .health = "unknown"};
   };
@@ -175,7 +175,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_leader =
         [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
-              .coord_socket_address = instance.CoordinatorSocketAddress(),
+              .management_server = instance.ManagementSocketAddress(),
+              .bolt_server = instance.BoltSocketAddress(),
               .cluster_role = stringify_repl_role(instance),
               .health = stringify_repl_health(instance)};
     };
@@ -200,6 +201,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
+              .management_server = instance.config.ManagementSocketAddress(),
+              .bolt_server = instance.config.BoltSocketAddress(),
               .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };
@@ -591,9 +594,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   }
 
   if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {
-        return instance.CoordinatorSocketAddress() == config.CoordinatorSocketAddress();
+        return instance.ManagementSocketAddress() == config.ManagementSocketAddress();
       })) {
-    return RegisterInstanceCoordinatorStatus::COORD_ENDPOINT_EXISTS;
+    return RegisterInstanceCoordinatorStatus::MGMT_ENDPOINT_EXISTS;
   }
 
   if (std::ranges::any_of(repl_instances_, [&config](ReplicationInstanceConnector const &instance) {
@@ -725,11 +728,32 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
+auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
+    -> AddCoordinatorInstanceStatus {
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_->InstanceName());
 
+  auto const curr_instances = raft_state_->GetCoordinatorInstances();
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.coordinator_id == config.coordinator_id;
+      })) {
+    return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+  }
+
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.coordinator_server.SocketAddress() == config.coordinator_server.SocketAddress();
+      })) {
+    return AddCoordinatorInstanceStatus::COORDINATOR_ENDPOINT_ALREADY_EXISTS;
+  }
+
+  if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
+        return instance.bolt_server.SocketAddress() == config.bolt_server.SocketAddress();
+      })) {
+    return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
+  }
+
   raft_state_->AddCoordinatorInstance(config);
+  return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {

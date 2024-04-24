@@ -40,7 +40,7 @@ namespace {
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
-    SPDLOG_INFO("       Timestamp {}", timestamp);
+    spdlog::trace("       Timestamp {}", timestamp);
     auto delta = ReadWalDeltaData(decoder);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
@@ -587,9 +587,10 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
     transaction_complete = storage::durability::IsWalDeltaDataTypeTransactionEnd(delta.type, version);
 
     if (timestamp < storage->timestamp_) {
+      spdlog::trace("Skipping delta {} {}", timestamp, storage->timestamp_);
       continue;
     }
-    SPDLOG_INFO("  Delta {}", applied_deltas);
+    spdlog::trace("  Delta {}", applied_deltas);
     switch (delta.type) {
       case WalDeltaData::Type::VERTEX_CREATE: {
         spdlog::trace("       Create vertex {}", delta.vertex_create_delete.gid.AsUint());

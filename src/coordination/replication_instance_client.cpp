@@ -20,6 +20,8 @@
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
+#include <string>
+
 namespace memgraph::coordination {
 
 namespace {
@@ -43,8 +45,10 @@ ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorInstance *coord_
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
 
-auto ReplicationInstanceClient::CoordinatorSocketAddress() const -> std::string {
-  return config_.CoordinatorSocketAddress();
+auto ReplicationInstanceClient::BoltSocketAddress() const -> std::string { return config_.BoltSocketAddress(); }
+
+auto ReplicationInstanceClient::ManagementSocketAddress() const -> std::string {
+  return config_.ManagementSocketAddress();
 }
 auto ReplicationInstanceClient::ReplicationSocketAddress() const -> std::string {
   return config_.ReplicationSocketAddress();
@@ -69,7 +73,7 @@ void ReplicationInstanceClient::StartFrequentCheck() {
   instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
                         [this, instance_name = config_.instance_name] {
                           spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
-                                        config_.CoordinatorSocketAddress());
+                                        config_.ManagementSocketAddress());
                           if (SendFrequentHeartbeat()) {
                             succ_cb_(coord_instance_, instance_name);
                             return;

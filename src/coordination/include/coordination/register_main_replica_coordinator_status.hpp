@@ -19,7 +19,7 @@ namespace memgraph::coordination {
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
   NAME_EXISTS,
-  COORD_ENDPOINT_EXISTS,
+  MGMT_ENDPOINT_EXISTS,
   REPL_ENDPOINT_EXISTS,
   NOT_COORDINATOR,
   NOT_LEADER,
@@ -57,6 +57,13 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   FAILED_TO_OPEN_LOCK,
   ENABLE_WRITING_FAILED,
   FAILED_TO_CLOSE_LOCK
+};
+
+enum class AddCoordinatorInstanceStatus : uint8_t {
+  SUCCESS,
+  ID_ALREADY_EXISTS,
+  BOLT_ENDPOINT_ALREADY_EXISTS,
+  COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
 
 }  // namespace memgraph::coordination
