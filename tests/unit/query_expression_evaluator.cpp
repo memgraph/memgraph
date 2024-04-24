@@ -105,7 +105,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
 
 // using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ExpressionEvaluatorTest, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorTest, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorTest, OrOperator) {
   auto *op = this->storage.template Create<OrOperator>(this->storage.template Create<PrimitiveLiteral>(true),
@@ -1240,7 +1240,7 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest<Storage
   }
 };
 
-TYPED_TEST_CASE(ExpressionEvaluatorPropertyLookup, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorPropertyLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
@@ -1432,7 +1432,7 @@ class ExpressionEvaluatorAllPropertiesLookup : public ExpressionEvaluatorTest<St
   }
 };
 
-TYPED_TEST_CASE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
+TYPED_TEST_SUITE(ExpressionEvaluatorAllPropertiesLookup, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
@@ -1533,7 +1533,7 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(FunctionTest, StorageTypes);
+TYPED_TEST_SUITE(FunctionTest, StorageTypes);
 
 template <class... TArgs>
 static TypedValue MakeTypedValueList(TArgs &&...args) {

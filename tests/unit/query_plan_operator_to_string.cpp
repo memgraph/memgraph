@@ -58,7 +58,7 @@ class OperatorToStringTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(OperatorToStringTest, StorageTypes);
+TYPED_TEST_SUITE(OperatorToStringTest, StorageTypes);
 
 TYPED_TEST(OperatorToStringTest, Once) {
   std::shared_ptr<LogicalOperator> last_op;

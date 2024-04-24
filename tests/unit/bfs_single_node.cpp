@@ -105,14 +105,14 @@ TEST_P(SingleNodeBfsTestInMemory, All) {
 
 std::unique_ptr<SingleNodeDb<SingleNodeBfsTestInMemory::StorageType>> SingleNodeBfsTestInMemory::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTestInMemory,
-                        testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE)));
+INSTANTIATE_TEST_SUITE_P(DirectionAndExpansionDepth, SingleNodeBfsTestInMemory,
+                         testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     EdgeType, SingleNodeBfsTestInMemory,
     testing::Combine(testing::Values(-1), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
@@ -120,14 +120,14 @@ INSTANTIATE_TEST_CASE_P(
                                      std::vector<std::string>{"b"}, std::vector<std::string>{"a", "b"}),
                      testing::Bool(), testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTestInMemory,
-                        testing::Combine(testing::Values(-1), testing::Values(-1),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
-                                                         FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
-                                                         FilterLambdaType::ERROR)));
+INSTANTIATE_TEST_SUITE_P(FilterLambda, SingleNodeBfsTestInMemory,
+                         testing::Combine(testing::Values(-1), testing::Values(-1),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
+                                                          FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
+                                                          FilterLambdaType::ERROR)));
 
 class SingleNodeBfsTestOnDisk
     : public ::testing::TestWithParam<
@@ -154,14 +154,14 @@ TEST_P(SingleNodeBfsTestOnDisk, All) {
 
 std::unique_ptr<SingleNodeDb<SingleNodeBfsTestOnDisk::StorageType>> SingleNodeBfsTestOnDisk::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(DirectionAndExpansionDepth, SingleNodeBfsTestOnDisk,
-                        testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE)));
+INSTANTIATE_TEST_SUITE_P(DirectionAndExpansionDepth, SingleNodeBfsTestOnDisk,
+                         testing::Combine(testing::Range(-1, kVertexCount), testing::Range(-1, kVertexCount),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     EdgeType, SingleNodeBfsTestOnDisk,
     testing::Combine(testing::Values(-1), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
@@ -169,11 +169,11 @@ INSTANTIATE_TEST_CASE_P(
                                      std::vector<std::string>{"b"}, std::vector<std::string>{"a", "b"}),
                      testing::Bool(), testing::Values(FilterLambdaType::NONE)));
 
-INSTANTIATE_TEST_CASE_P(FilterLambda, SingleNodeBfsTestOnDisk,
-                        testing::Combine(testing::Values(-1), testing::Values(-1),
-                                         testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                         EdgeAtom::Direction::BOTH),
-                                         testing::Values(std::vector<std::string>{}), testing::Bool(),
-                                         testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
-                                                         FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
-                                                         FilterLambdaType::ERROR)));
+INSTANTIATE_TEST_SUITE_P(FilterLambda, SingleNodeBfsTestOnDisk,
+                         testing::Combine(testing::Values(-1), testing::Values(-1),
+                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
+                                                          EdgeAtom::Direction::BOTH),
+                                          testing::Values(std::vector<std::string>{}), testing::Bool(),
+                                          testing::Values(FilterLambdaType::NONE, FilterLambdaType::USE_FRAME,
+                                                          FilterLambdaType::USE_FRAME_NULL, FilterLambdaType::USE_CTX,
+                                                          FilterLambdaType::ERROR)));

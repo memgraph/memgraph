@@ -67,7 +67,7 @@ class PrintToJsonTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(PrintToJsonTest, StorageTypes);
+TYPED_TEST_SUITE(PrintToJsonTest, StorageTypes);
 
 TYPED_TEST(PrintToJsonTest, Once) {
   std::shared_ptr<LogicalOperator> last_op;

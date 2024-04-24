@@ -124,7 +124,7 @@ TEST_P(FineGrainedBfsTestInMemory, All) {
 
 std::unique_ptr<VertexDb<FineGrainedBfsTestInMemory::StorageType>> FineGrainedBfsTestInMemory::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedBfsTestInMemory,
     testing::Combine(testing::Values(3), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
@@ -164,7 +164,7 @@ TEST_P(FineGrainedBfsTestOnDisk, All) {
 
 std::unique_ptr<VertexDb<FineGrainedBfsTestOnDisk::StorageType>> FineGrainedBfsTestOnDisk::db_{nullptr};
 
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedBfsTestOnDisk,
     testing::Combine(testing::Values(3), testing::Values(-1),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),

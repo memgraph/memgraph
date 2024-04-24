@@ -128,5 +128,5 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedStorageIsolationLevelTests, StorageIsolationLevelTest,
-                        ::testing::ValuesIn(isolation_levels), StorageIsolationLevelTest::PrintToStringParamName());
+INSTANTIATE_TEST_SUITE_P(ParameterizedStorageIsolationLevelTests, StorageIsolationLevelTest,
+                         ::testing::ValuesIn(isolation_levels), StorageIsolationLevelTest::PrintToStringParamName());

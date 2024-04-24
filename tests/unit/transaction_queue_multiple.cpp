@@ -98,7 +98,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TransactionQueueMultipleTest, StorageTypes);
+TYPED_TEST_SUITE(TransactionQueueMultipleTest, StorageTypes);
 
 // Tests whether admin can see transaction of superadmin
 TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {

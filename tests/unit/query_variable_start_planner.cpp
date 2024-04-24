@@ -108,7 +108,7 @@ class TestVariableStartPlanner : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TestVariableStartPlanner, StorageTypes);
+TYPED_TEST_SUITE(TestVariableStartPlanner, StorageTypes);
 
 TYPED_TEST(TestVariableStartPlanner, MatchReturn) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
