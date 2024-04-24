@@ -16,6 +16,7 @@
 #include "replication_coordination_glue/handler.hpp"
 #include "utils/result.hpp"
 
+#include <string>
 #include <utility>
 
 namespace memgraph::coordination {
@@ -42,8 +43,11 @@ auto ReplicationInstanceConnector::IsReadyForUUIDPing() -> bool {
 }
 
 auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_->InstanceName(); }
-auto ReplicationInstanceConnector::CoordinatorSocketAddress() const -> std::string {
-  return client_->CoordinatorSocketAddress();
+
+auto ReplicationInstanceConnector::BoltSocketAddress() const -> std::string { return client_->BoltSocketAddress(); }
+
+auto ReplicationInstanceConnector::ManagementSocketAddress() const -> std::string {
+  return client_->ManagementSocketAddress();
 }
 auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
   return client_->ReplicationSocketAddress();

@@ -470,9 +470,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case COORD_ENDPOINT_EXISTS:
+      case MGMT_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
-            "Couldn't register replica instance since instance with such coordinator endpoint already exists!");
+            "Couldn't register replica instance since instance with such management server already exists!");
       case REPL_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such replication endpoint already exists!");
@@ -1376,13 +1376,17 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "health", "role"};
+      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "health", "role"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
-          return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                  TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
+          return {TypedValue{status.instance_name},
+                  TypedValue{status.bolt_server},
+                  TypedValue{status.coordinator_server},
+                  TypedValue{status.management_server},
+                  TypedValue{status.health},
+                  TypedValue{status.cluster_role}};
         };
 
         return utils::fmap(instances, converter);

@@ -62,7 +62,7 @@ struct ReplicationClientInfo {
 
 struct CoordinatorToReplicaConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
-  auto CoordinatorSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
+  auto ManagementSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
   auto ReplicationSocketAddress() const -> std::string {
     return replication_client_info.replication_server.SocketAddress();
   }
