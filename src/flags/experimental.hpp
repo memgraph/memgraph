@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <string>
+
 #include "gflags/gflags.h"
 
 // Short help flag.

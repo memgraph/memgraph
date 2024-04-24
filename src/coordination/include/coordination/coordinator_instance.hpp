@@ -25,12 +25,12 @@
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
-#include "dbms/constants.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <list>
+#include <range/v3/range/primitives.hpp>
 
 namespace memgraph::coordination {
 

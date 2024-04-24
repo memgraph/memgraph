@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <fmt/format.h>
+#include <cstdint>
 #include <string>
 
 namespace memgraph::flags {
@@ -20,31 +20,20 @@ constexpr const char *kMgCoordinatorPort = "MEMGRAPH_COORDINATOR_PORT";
 constexpr const char *kMgCoordinatorId = "MEMGRAPH_COORDINATOR_ID";
 
 struct CoordinationSetup {
-  int management_port;
-  int coordinator_port;
-  uint32_t coordinator_id;
+  int management_port{0};
+  int coordinator_port{0};
+  uint32_t coordinator_id{0};
 
-  CoordinationSetup() = default;
-  explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id)
-      : management_port(management_port), coordinator_port(coordinator_port), coordinator_id(coordinator_id) {}
+  CoordinationSetup() = delete;
+  explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id);
 
-  CoordinationSetup(CoordinationSetup &&) = default;
-  CoordinationSetup(CoordinationSetup const &) = default;
+  std::string ToString();
 
-  CoordinationSetup &operator=(CoordinationSetup const &) = default;
-  CoordinationSetup &operator=(CoordinationSetup &&) = default;
-  ~CoordinationSetup() = default;
-
-  std::string ToString() {
-    return fmt::format("management port: {}, coordinator port {}, coordinator id", management_port, coordinator_port,
-                       coordinator_id);
-  }
-
-  [[nodiscard]] auto IsCoordinatorManaged() const -> bool { return management_port != 0; }
+  [[nodiscard]] auto IsCoordinatorManaged() const -> bool;
 };
 
 auto CoordinationSetupInstance() -> CoordinationSetup &;
 
-auto GetFinalCoordinationSetup() -> CoordinationSetup;
+void SetFinalCoordinationSetup();
 
 }  // namespace memgraph::flags

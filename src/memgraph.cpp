@@ -12,6 +12,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <optional>
+#include <stdexcept>
+#include <string>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -25,7 +28,9 @@
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
+#include "flags/log_level.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -43,9 +48,11 @@
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
+#include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
+#include "storage/config.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
@@ -451,7 +458,8 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
-  auto const coordination_setup = memgraph::flags::GetFinalCoordinationSetup();
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
 

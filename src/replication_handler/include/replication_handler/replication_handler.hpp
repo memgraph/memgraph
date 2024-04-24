@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <utility>
+
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/coord_flag_env_handler.hpp"

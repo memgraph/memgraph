@@ -30,9 +30,11 @@
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/database.hpp"
@@ -64,6 +66,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"

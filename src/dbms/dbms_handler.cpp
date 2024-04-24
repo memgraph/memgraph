@@ -16,7 +16,6 @@
 
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
-#include "flags/coord_flag_env_handler.hpp"
 #include "flags/experimental.hpp"
 #include "spdlog/spdlog.h"
 #include "system/include/system/system.hpp"

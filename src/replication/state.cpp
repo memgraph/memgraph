@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/state.hpp"
 #include <optional>
+#include <variant>
 
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
+#include "replication/state.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
 #include "utils/result.hpp"

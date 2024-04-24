@@ -11,21 +11,36 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <string>
+#include <string_view>
 
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
-#include "utils/logging.hpp"
 
-#include "range/v3/all.hpp"
+#include <fmt/core.h>
+#include <spdlog/spdlog.h>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/drop_while.hpp>
+#include <range/v3/view/take_while.hpp>
 
 namespace memgraph::flags {
 
+CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id)
+    : management_port(management_port), coordinator_port(coordinator_port), coordinator_id(coordinator_id) {}
+
+std::string CoordinationSetup::ToString() {
+  return fmt::format("management port: {}, coordinator port {}, coordinator id", management_port, coordinator_port,
+                     coordinator_id);
+}
+
+[[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool { return management_port != 0; }
+
 auto CoordinationSetupInstance() -> CoordinationSetup & {
-  static auto instance = CoordinationSetup{};
+  static auto instance = CoordinationSetup{0, 0, 0};
   return instance;
 }
 
-auto GetFinalCoordinationSetup() -> CoordinationSetup {
+void SetFinalCoordinationSetup() {
   auto const *maybe_management_port = std::getenv(kMgManagementPort);
   auto const *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
   auto const *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
@@ -48,7 +63,7 @@ auto GetFinalCoordinationSetup() -> CoordinationSetup {
 
   CoordinationSetupInstance() = [&]() {
     if (!are_envs_set && !are_flags_set) {
-      return CoordinationSetup{};
+      return CoordinationSetup{0, 0, 0};
     }
     if (are_envs_set) {
       spdlog::trace("Read coordinator setup from env variables: {}.", CoordinationSetupInstance().ToString());
@@ -62,8 +77,6 @@ auto GetFinalCoordinationSetup() -> CoordinationSetup {
     spdlog::trace("Read coordinator setup from runtime flags {}.", CoordinationSetupInstance().ToString());
     return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id};
   }();  // iile
-
-  return CoordinationSetupInstance();
 }
 
 }  // namespace memgraph::flags
