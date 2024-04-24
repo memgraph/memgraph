@@ -38,7 +38,6 @@ struct Vertex {
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
-  PropertyStore properties;
   mutable utils::RWSpinLock lock;
   bool deleted;
   // uint8_t PAD;
