@@ -2,8 +2,7 @@
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [jepsen [generator :as gen]
-             [client :as client]]
+            [jepsen [generator :as gen]]
             [jepsen.memgraph.utils :as utils]))
 
 (dbclient/defquery detach-delete-all
@@ -46,17 +45,6 @@
   (gen/each-thread (gen/phases (cycle [(gen/once register-replicas)
                                        (gen/time-limit 5 generator)]))))
 
-(defmacro replication-client
-  "Create Client for replication tests.
-  Every replication client contains connection, node, replication role and
-  the node config for all nodes.
-  Adding additional fields is also possible."
-  [name [& fields] & specs]
-  (concat `(defrecord ~name [~'conn ~'node ~'replication-role ~'nodes-config ~@fields]
-             client/Client)
-          specs))
-
-
 (defn replication-open-connection
   "Open a connection to a node using the client.
   After the connection is opened set the correct
@@ -76,23 +64,3 @@
            :replication-role role
            :conn connection
            :node node)))
-
-(defmacro replication-invoke-case
-  "Call the case method on the op using the defined cases
-  while a handler for :register case is added."
-  [f & cases]
-  (concat (list 'case f
-                :register '(if (= replication-role :main)
-                             (do
-                               (doseq [n (filter #(= (:replication-role (val %))
-                                                     :replica)
-                                                 nodes-config)]
-                                 (try
-                                   (utils/with-session conn session
-                                     ((client/create-register-replica-query
-                                       (first n)
-                                       (second n)) session))
-                                   (catch Exception e)))
-                               (assoc op :type :ok))
-                             (assoc op :type :fail)))
-          cases))

@@ -655,6 +655,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return;
     }
 
+    if (parent->GetTypeInfo() == plan::RollUpApply::kType) {
+      auto *parent_rollup = dynamic_cast<plan::RollUpApply *>(parent);
+      parent_rollup->input_ = input;
+      return;
+    }
+
     // if we're sure that we want to set on parent, this should never happen
     LOG_FATAL("Error during index rewriting of the query!");
   }

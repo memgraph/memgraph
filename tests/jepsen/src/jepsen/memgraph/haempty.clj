@@ -15,7 +15,7 @@
 
 (defrecord Client [nodes-config license organization]
   client/Client
-  (open! [this _ node]
+  (open! [this _test node]
     (info "Opening connection to node" node)
     (let [connection (utils/open-bolt node)
           node-config (get nodes-config node)]
@@ -28,7 +28,7 @@
       ((haclient/set-db-setting "enterprise.license" license) session)
       ((haclient/set-db-setting "organization.name" organization) session)))
 
-  (invoke! [this _ op]
+  (invoke! [this _test op]
     (let [node-config (:node-config this)]
       (case (:f op)
         :read (if (contains? node-config :coordinator-id)

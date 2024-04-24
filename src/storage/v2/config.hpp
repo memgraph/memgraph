@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <filesystem>
 
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -144,7 +145,7 @@ struct Config {
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !FLAGS_management_port
+      && !memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()
 #endif
   ) {
     spdlog::warn(

@@ -12,11 +12,12 @@
              [store :as store]
              [checker :as checker]
              [generator :as gen]
+             [client :as client]
              [history :as h]
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
-            [jepsen.memgraph.client :as client]
+            [jepsen.memgraph.client :as mgclient]
             [jepsen.memgraph.utils :as utils]))
 
 (def account-num
@@ -58,67 +59,80 @@
       (update-balance tx {:id from :amount (- amount)})
       (update-balance tx {:id to :amount amount}))))
 
-(client/replication-client Client []
-                           ; Open connection to the node. Setup each node.
-                           (open! [this test node]
-                                  (client/replication-open-connection this node nodes-config))
-                           ; On main detach-delete-all and create accounts.
-                           (setup! [this test]
-                                   (when (= replication-role :main)
-                                     (utils/with-session conn session
-                                       (do
-                                         (client/detach-delete-all session)
-                                         (dotimes [i account-num]
-                                           (info "Creating account:" i)
-                                           (create-account session {:id i :balance starting-balance}))))))
-                           (invoke! [this test op]
-                                    (client/replication-invoke-case (:f op)
-                                                                    ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
-                                                                    ; Read always succeeds and returns all accounts.
-                                                                    ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
-                                                                    :read (utils/with-session conn session
-                                                                            (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
-                                                                                  total (reduce + (map :balance accounts))]
-                                                                              (assoc op
-                                                                                     :type :ok
-                                                                                     :value {:accounts accounts
-                                                                                             :node node
-                                                                                             :total total
-                                                                                             :correct (= total (* account-num starting-balance))})))
+(defrecord Client [nodes-config]
+  client/Client
+  ; Open connection to the node. Setup each node.
+  (open! [this _test node]
+    (info "Opening connection to node" node)
+    (mgclient/replication-open-connection this node nodes-config))
+  ; On main detach-delete-all and create accounts.
+  (setup! [this _test]
+    (when (= (:replication-role this) :main)
+      (utils/with-session (:conn this) session
+        (do
+          (mgclient/detach-delete-all session)
+          (dotimes [i account-num]
+            (info "Creating account:" i)
+            (create-account session {:id i :balance starting-balance}))))))
+  (invoke! [this _test op]
+    (case (:f op)
+      ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
+      ; Read always succeeds and returns all accounts.
+      ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
+      :read (utils/with-session (:conn this) session
+              (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                    total (reduce + (map :balance accounts))]
+                (assoc op
+                       :type :ok
+                       :value {:accounts accounts
+                               :node (:node this)
+                               :total total
+                               :correct (= total (* account-num starting-balance))})))
+      :register (if (= (:replication-role this) :main)
+                  (do
+                    (doseq [n (filter #(= (:replication-role (val %))
+                                          :replica)
+                                      nodes-config)]
+                      (try
+                        (utils/with-session (:conn this) session
+                          ((mgclient/create-register-replica-query
+                            (first n)
+                            (second n)) session))
+                        (catch Exception _e)))
+                    (assoc op :type :ok))
+                  (assoc op :type :fail))
 
-; Transfer money from one account to another. Only executed on main.
-                                                                    ; If the transferring succeeds, return :ok, otherwise return :fail.
-                                                                    ; Transfer will fail if the account doesn't exist or if the account doesn't have enough or if update-balance
-                                                                    ; doesn't return anything.
-                                                                    ; Allow the exception due to down sync replica.
-                                                                    :transfer (if (= replication-role :main)
-                                                                                (try
-                                                                                  (let [transfer-info (:value op)]
-                                                                                    (assoc op
-                                                                                           :type (if
-                                                                                                  (transfer-money
-                                                                                                   conn
-                                                                                                   (:from transfer-info)
-                                                                                                   (:to transfer-info)
-                                                                                                   (:amount transfer-info))
-                                                                                                   :ok
-                                                                                                   :fail)))
-                                                                                  (catch Exception e
-                                                                                    (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                                                                                      (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
-                                                                                      (assoc op :type :fail :info (str e)))))
-                                                                                (assoc op :type :fail :info "Not main node."))))
-                           ; On teardown! only main will detach-delete-all.
-                           (teardown! [this test]
-                                      (when (= replication-role :main)
-                                        (utils/with-session conn session
-                                          (try
-                                            ; Can fail for various reasons, not important at this point.
-                                            (client/detach-delete-all session)
-                                            (catch Exception _)))))
-                           ; Close connection to the node.
-                           (close! [_ est]
-                                   (dbclient/disconnect conn)))
+      ; Transfer money from one account to another. Only executed on main.
+      ; If the transferring succeeds, return :ok, otherwise return :fail.
+      ; Transfer will fail if the account doesn't exist or if the account doesn't have enough or if update-balance
+      ; doesn't return anything.
+      ; Allow the exception due to down sync replica.
+      :transfer (if (= (:replication-role this) :main)
+                  (try
+                    (let [transfer-info (:value op)]
+                      (assoc op
+                             :type (if
+                                    (transfer-money
+                                     (:conn this)
+                                     (:from transfer-info)
+                                     (:to transfer-info)
+                                     (:amount transfer-info))
+                                     :ok
+                                     :fail)))
+                    (catch Exception e
+                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                        (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
+                        (assoc op :type :fail :info (str e)))))
+                  (assoc op :type :fail :info "Not main node."))))
+  ; On teardown! only main will detach-delete-all.
+  (teardown! [this _test]
+    (when (= (:replication-role this) :main)
+      (utils/with-session (:conn this) session
+        (try
+          (mgclient/detach-delete-all session)
+          (catch Exception _)))))
+  (close! [this _test]
+    (dbclient/disconnect (:conn this))))
 
 (defn read-balances
   "Read the current state of all accounts"
@@ -251,10 +265,10 @@
 (defn workload
   "Basic test workload"
   [opts]
-  {:client    (Client. nil nil nil (:nodes-config opts))
+  {:client    (Client. (:nodes-config opts))
    :checker   (checker/compose
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (client/replication-gen (gen/mix [read-balances valid-transfer]))
+   :generator (mgclient/replication-gen (gen/mix [read-balances valid-transfer]))
    :final-generator {:clients (gen/once read-balances) :recovery-time 20}})

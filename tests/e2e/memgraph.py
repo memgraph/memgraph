@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import Optional
 
 import mgclient
 
@@ -110,7 +111,7 @@ class MemgraphInstanceRunner:
         conn.autocommit = True
         return conn
 
-    def start(self, restart=False, args=None, setup_queries=None):
+    def start(self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None):
         if not restart and self.is_running():
             return
         self.stop()
@@ -124,7 +125,10 @@ class MemgraphInstanceRunner:
             "300",
             "--storage-properties-on-edges",
         ] + self.args
-        self.bolt_port = extract_bolt_port(args_mg)
+        if bolt_port:
+            self.bolt_port = bolt_port
+        else:
+            self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         wait_for_server(self.bolt_port)
         self.execute_setup_queries(setup_queries)

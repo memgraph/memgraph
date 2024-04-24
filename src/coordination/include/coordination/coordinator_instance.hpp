@@ -30,6 +30,7 @@
 #include "utils/thread_pool.hpp"
 
 #include <list>
+#include <range/v3/range/primitives.hpp>
 
 namespace memgraph::coordination {
 
@@ -76,6 +77,9 @@ class CoordinatorInstance {
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
+    if (ranges::empty(alive_instances)) {
+      return std::nullopt;
+    }
     auto const get_ts = [](ReplicationInstanceConnector &replica) {
       spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
       return replica.GetClient().SendGetInstanceTimestampsRpc();
