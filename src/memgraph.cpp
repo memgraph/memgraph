@@ -493,7 +493,6 @@ int main(int argc, char **argv) {
                                                               coordination_setup.coordinator_port, extracted_bolt_port,
                                                               high_availability_data_dir});
     } else {
-      // TODO(antoniofilipovic): Fix
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
   };
@@ -565,9 +564,10 @@ int main(int argc, char **argv) {
 #endif
   }
 
+  // Tied to coord initialization, must happen after coordinator is initialized
   auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
   if (maybe_ha_init_file) {
-    spdlog::trace("initializing coordinator from cypher file.");
+    spdlog::trace("Initializing coordinator from cypher file.");
     InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
   }
 

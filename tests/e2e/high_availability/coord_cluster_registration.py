@@ -111,6 +111,86 @@ def get_instances_description():
     }
 
 
+def get_instances_description_no_coord():
+    return {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10011",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10012",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10013",
+                "--data-recovery-on-startup=false",
+                "--replication-restore-state-on-startup=true",
+                "--storage-recover-on-startup=false",
+            ],
+            "log_file": "instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
+            ],
+            "log_file": "coordinator1.log",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+            ],
+            "log_file": "coordinator2.log",
+            "setup_queries": [],
+        },
+    }
+
+
 def unset_env_flags():
     os.unsetenv("MEMGRAPH_EXPERIMENTAL_ENABLED")
     os.unsetenv("MEMGRAPH_COORDINATOR_PORT")
@@ -607,84 +687,8 @@ def test_unregister_main():
 
 def test_register_one_coord_with_env_vars():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = {
-        "instance_1": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7687",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10011",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
-            "setup_queries": [],
-        },
-        "instance_2": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7688",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10012",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
-            "setup_queries": [],
-        },
-        "instance_3": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7689",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10013",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
-            "setup_queries": [],
-        },
-        "coordinator_1": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7690",
-                "--log-level=TRACE",
-                "--coordinator-id=1",
-                "--coordinator-port=10111",
-            ],
-            "log_file": "coordinator1.log",
-            "setup_queries": [],
-        },
-        "coordinator_2": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7691",
-                "--log-level=TRACE",
-                "--coordinator-id=2",
-                "--coordinator-port=10112",
-            ],
-            "log_file": "coordinator2.log",
-            "setup_queries": [],
-        },
-    }
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    memgraph_instances_desc = get_instances_description_no_coord()
+    interactive_mg_runner.start_all(memgraph_instances_desc)
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
@@ -731,21 +735,21 @@ def test_register_one_coord_with_env_vars():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "replica"),
-        ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -760,24 +764,24 @@ def test_register_one_coord_with_env_vars():
             == "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!"
         )
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "main"),
-        ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "unknown"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -787,19 +791,19 @@ def test_register_one_coord_with_env_vars():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "main"),
-        ("instance_2", "", "", "unknown", "replica"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
     ]
 
     expected_replicas = [
@@ -957,21 +961,21 @@ def test_register_one_data_with_env_vars():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "replica"),
-        ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -1013,89 +1017,13 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
 
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all()
-    MEMGRAPH_INSTANCES_DESCRIPTION = {
-        "instance_1": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7687",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10011",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
-            "setup_queries": [],
-        },
-        "instance_2": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7688",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10012",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
-            "setup_queries": [],
-        },
-        "instance_3": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7689",
-                "--log-level",
-                "TRACE",
-                "--management-port",
-                "10013",
-                "--data-recovery-on-startup=false",
-                "--replication-restore-state-on-startup=true",
-                "--storage-recover-on-startup=false",
-            ],
-            "log_file": "instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
-            "setup_queries": [],
-        },
-        "coordinator_1": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7690",
-                "--log-level=TRACE",
-                "--coordinator-id=1",
-                "--coordinator-port=10111",
-            ],
-            "log_file": "coordinator1.log",
-            "setup_queries": [],
-        },
-        "coordinator_2": {
-            "args": [
-                "--experimental-enabled=high-availability",
-                "--bolt-port",
-                "7691",
-                "--log-level=TRACE",
-                "--coordinator-id=2",
-                "--coordinator-port=10112",
-            ],
-            "log_file": "coordinator2.log",
-            "setup_queries": [],
-        },
-    }
+    memgraph_instances_desc = get_instances_description_no_coord()
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
-    os.mkdir(TEMP_DIR)
+    safe_execute(os.mkdir, TEMP_DIR)
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
@@ -1127,9 +1055,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     )
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
-    expected_cluster = [
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-    ]
+    expected_cluster = [("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator")]
 
     def check_coordinator3():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
@@ -1141,7 +1067,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     # intentionally unset flags here because other instances might read them
     unset_env_flags()
 
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(memgraph_instances_desc)
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -1167,21 +1093,21 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
         return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "replica"),
-        ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "main"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -1196,24 +1122,24 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
             == "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!"
         )
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "down", "unknown"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "main"),
-        ("instance_2", "", "", "unknown", "replica"),
-        ("instance_3", "", "", "unknown", "unknown"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "", "unknown", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
@@ -1223,19 +1149,19 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "main"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
     ]
 
     expected_cluster_shared = [
-        ("coordinator_1", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("instance_1", "", "", "unknown", "main"),
-        ("instance_2", "", "", "unknown", "replica"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "", "unknown", "replica"),
     ]
 
     expected_replicas = [
@@ -1262,8 +1188,10 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
 
 
 def test_add_coord_instance_fails():
+    interactive_mg_runner.stop_all()
     safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    memgraph_instances_description_all = get_instances_description()
+    interactive_mg_runner.start_all(memgraph_instances_description_all)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 

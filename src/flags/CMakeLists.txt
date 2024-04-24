@@ -14,7 +14,6 @@ add_library(mg-flags STATIC
         experimental.hpp
         coord_flag_env_handler.cpp
         coord_flag_env_handler.hpp
-        utils.hpp
 )
 target_include_directories(mg-flags PUBLIC include)
 target_link_libraries(mg-flags
