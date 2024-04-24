@@ -21,7 +21,6 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
-#include "storage/v2/tco_delta.hpp"
 #include "storage/v2/tco_vector.hpp"
 #include "utils/rw_spin_lock.hpp"
 
