@@ -21,7 +21,7 @@ inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
     head = head->next;
   }
   if (head->action == storage::Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-    // return head->old_disk_key.value;
+    return head->old_disk_key.value.as_opt_str();
   }
   return std::nullopt;
 }
