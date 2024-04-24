@@ -24,7 +24,6 @@ struct CoordinationSetup {
   int coordinator_port{0};
   uint32_t coordinator_id{0};
 
-  CoordinationSetup() = delete;
   explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id);
 
   std::string ToString();

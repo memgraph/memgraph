@@ -1000,7 +1000,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
 Callback HandleReplicationQuery(
     ReplicationQuery *repl_query, const Parameters &parameters, ReplicationQueryHandler &replication_query_handler,
-    CurrentDB &current_db, const query::InterpreterConfig &config, std::vector<Notification> *notifications,
+    const query::InterpreterConfig &config, std::vector<Notification> *notifications,
     std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
@@ -2882,15 +2882,15 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
 PreparedQuery PrepareReplicationQuery(
     ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
-    ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db, const InterpreterConfig &config,
+    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config,
     std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler,
-                                         current_db, config, notifications, coordinator_state);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler, config,
+                                         notifications, coordinator_state);
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](

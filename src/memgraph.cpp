@@ -18,6 +18,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "coordination/coordinator_handlers.hpp"
@@ -66,6 +67,7 @@
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
+#include <boost/asio/ip/address.hpp>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
