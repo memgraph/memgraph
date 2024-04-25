@@ -478,7 +478,7 @@ Feature: Match
                   ({a: DATETIME('2024-01-22T08:42:31+00:30')}),
                   ({a: DATETIME('2024-01-22T08:57:31+00:45')}),
                   ({a: DATETIME('2024-01-22T09:12:31[Europe/Zurich]')}),
-                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Warsaw]')})
+                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Warsaw]')});
             """
         When executing query:
             """
