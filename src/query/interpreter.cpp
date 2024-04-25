@@ -432,6 +432,45 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void DemoteInstance(std::string_view instance_name) override {
+    auto status = coordinator_handler_.DemoteInstanceToReplica(instance_name);
+    switch (status) {
+      using enum memgraph::coordination::DemoteInstanceCoordinatorStatus;
+      case NO_INSTANCE_WITH_NAME:
+        throw QueryRuntimeException("No instance with such name!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException("Couldn't demote instance to replica since raft server couldn't append the log!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't demote instance to replica because the last action didn't finish successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't demote instance to replica as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't demote  instance to replica as cluster didn't accept successful finish of action!");
+      case SUCCESS:
+        break;
+    }
+  }
+
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server,
                                    std::chrono::seconds const &instance_check_frequency,
@@ -1340,11 +1379,26 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
       if (!coordinator_state->IsCoordinator()) {
-        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+        throw QueryRuntimeException("Only coordinator can unregister instance!");
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_name = coordinator_query->instance_name_]() mutable {
         handler.UnregisterInstance(instance_name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::UNREGISTER_INSTANCE,
+          fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
+
+      return callback;
+
+    case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can demote instance!");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        handler.DemoteInstance(instance_name);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(

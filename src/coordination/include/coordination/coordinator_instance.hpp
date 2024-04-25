@@ -74,6 +74,8 @@ class CoordinatorInstance {
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
+  auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {

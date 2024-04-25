@@ -40,6 +40,8 @@ class CoordinatorHandler {
 
   auto SetReplicationInstanceToMain(std::string_view instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
+  auto DemoteInstanceToReplica(std::string_view instance_name) -> coordination::DemoteInstanceCoordinatorStatus;
+
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
