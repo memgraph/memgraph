@@ -450,8 +450,8 @@ class WalFileTest : public ::testing::TestWithParam<bool> {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(EdgesWithProperties, WalFileTest, ::testing::Values(true));
-INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, WalFileTest, ::testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(EdgesWithProperties, WalFileTest, ::testing::Values(true));
+INSTANTIATE_TEST_SUITE_P(EdgesWithoutProperties, WalFileTest, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(WalFileTest, EmptyFile) {
@@ -813,5 +813,5 @@ TEST_P(StorageModeWalFileTest, StorageModeData) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedWalStorageModeTests, StorageModeWalFileTest, ::testing::ValuesIn(storage_modes),
-                        StorageModeWalFileTest::PrintStringParamToName());
+INSTANTIATE_TEST_SUITE_P(ParameterizedWalStorageModeTests, StorageModeWalFileTest, ::testing::ValuesIn(storage_modes),
+                         StorageModeWalFileTest::PrintStringParamToName());

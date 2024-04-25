@@ -47,7 +47,7 @@ class TestSymbolGenerator : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TestSymbolGenerator, StorageTypes);
+TYPED_TEST_SUITE(TestSymbolGenerator, StorageTypes);
 
 TYPED_TEST(TestSymbolGenerator, MatchNodeReturn) {
   // MATCH (node_atom_1) RETURN node_atom_1

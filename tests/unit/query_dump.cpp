@@ -354,7 +354,7 @@ class DumpTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(DumpTest, StorageTypes);
+TYPED_TEST_SUITE(DumpTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EmptyGraph) {

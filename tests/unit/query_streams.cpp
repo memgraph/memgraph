@@ -200,7 +200,7 @@ class StreamsTestFixture : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(StreamsTestFixture, StorageTypes);
+TYPED_TEST_SUITE(StreamsTestFixture, StorageTypes);
 
 TYPED_TEST(StreamsTestFixture, SimpleStreamManagement) {
   auto check_data = this->CreateDefaultStreamCheckData();

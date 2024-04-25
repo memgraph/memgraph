@@ -93,7 +93,7 @@ class TriggerContextTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TriggerContextTest, StorageTypes);
+TYPED_TEST_SUITE(TriggerContextTest, StorageTypes);
 
 namespace {
 void CheckTypedValueSize(const memgraph::query::TriggerContext &trigger_context,
@@ -948,7 +948,7 @@ class TriggerStoreTest : public ::testing::Test {
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_accessor;
 };
 
-TYPED_TEST_CASE(TriggerStoreTest, StorageTypes);
+TYPED_TEST_SUITE(TriggerStoreTest, StorageTypes);
 
 TYPED_TEST(TriggerStoreTest, Restore) {
   std::optional<memgraph::query::TriggerStore> store;

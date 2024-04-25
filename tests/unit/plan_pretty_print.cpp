@@ -47,7 +47,7 @@ class PrintToJsonTest : public ::testing::Test {
         dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
         dba(dba_storage.get()) {}
 
-  ~PrintToJsonTest() override {
+  void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -67,7 +67,7 @@ class PrintToJsonTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(PrintToJsonTest, StorageTypes);
+TYPED_TEST_SUITE(PrintToJsonTest, StorageTypes);
 
 TYPED_TEST(PrintToJsonTest, Once) {
   std::shared_ptr<LogicalOperator> last_op;
