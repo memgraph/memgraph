@@ -56,7 +56,7 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ReadWriteTypeCheckTest, StorageTypes);
+TYPED_TEST_SUITE(ReadWriteTypeCheckTest, StorageTypes);
 
 TYPED_TEST(ReadWriteTypeCheckTest, NONEOps) {
   std::shared_ptr<LogicalOperator> once = std::make_shared<Once>();

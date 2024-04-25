@@ -69,7 +69,7 @@ class AllTypesFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(AllTypesFixture, StorageTypes);
+TYPED_TEST_SUITE(AllTypesFixture, StorageTypes);
 
 void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
 
@@ -354,7 +354,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueArithmeticTest, StorageTypes);
+TYPED_TEST_SUITE(TypedValueArithmeticTest, StorageTypes);
 
 TYPED_TEST(TypedValueArithmeticTest, Sum) {
   this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
@@ -490,7 +490,7 @@ class TypedValueLogicTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueLogicTest, StorageTypes);
+TYPED_TEST_SUITE(TypedValueLogicTest, StorageTypes);
 
 TYPED_TEST(TypedValueLogicTest, LogicalAnd) {
   this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });

@@ -65,7 +65,7 @@ class FineGrainedAuthCheckerFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(FineGrainedAuthCheckerFixture, StorageTypes);
+TYPED_TEST_SUITE(FineGrainedAuthCheckerFixture, StorageTypes);
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, GrantedAllLabels) {
   memgraph::auth::User user{"test"};
