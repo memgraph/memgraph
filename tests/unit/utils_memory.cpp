@@ -266,7 +266,7 @@ class AllocatorTest : public ::testing::Test {};
 
 using ContainersWithAllocators = ::testing::Types<ContainerWithAllocatorLast, ContainerWithAllocatorFirst>;
 
-TYPED_TEST_CASE(AllocatorTest, ContainersWithAllocators);
+TYPED_TEST_SUITE(AllocatorTest, ContainersWithAllocators);
 
 TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
   std::vector<TypeParam, memgraph::utils::Allocator<TypeParam>> vec(memgraph::utils::NewDeleteResource());

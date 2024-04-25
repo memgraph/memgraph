@@ -112,7 +112,7 @@ class QueryExecution : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryExecution, StorageTypes);
+TYPED_TEST_SUITE(QueryExecution, StorageTypes);
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
   // validating bug where expanding from Null (due to a preceeding optional

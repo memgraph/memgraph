@@ -99,8 +99,8 @@ class IndexTest : public testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 
-TYPED_TEST_CASE(IndexTest, StorageTypes);
-// TYPED_TEST_CASE(IndexTest, InMemoryStorageType);
+TYPED_TEST_SUITE(IndexTest, StorageTypes);
+// TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCreate) {
