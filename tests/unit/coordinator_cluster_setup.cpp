@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
+using memgraph::coordination::AddCoordinatorInstanceStatus;
 using memgraph::coordination::CoordinatorInstance;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorState;
@@ -66,16 +67,46 @@ struct ReplicationInstance {
 // Networking is used in this test, be careful with ports used.
 class HighAvailabilityClusterSetupTest : public ::testing::Test {
  public:
-  HighAvailabilityClusterSetupTest() {
-    coordinator1.AddCoordinatorInstance(
-        CoordinatorToCoordinatorConfig{.coordinator_id = 2,
-                                       .bolt_server = Endpoint{"0.0.0.0", 7691},
-                                       .coordinator_server = Endpoint{"0.0.0.0", 10112}});
+  HighAvailabilityClusterSetupTest() {}
 
-    coordinator1.AddCoordinatorInstance(
-        CoordinatorToCoordinatorConfig{.coordinator_id = 3,
-                                       .bolt_server = Endpoint{"0.0.0.0", 7692},
-                                       .coordinator_server = Endpoint{"0.0.0.0", 10113}});
+ protected:
+  // Wait so that replication instances and other coordinators have time to get up.
+  auto TryNTimesAddCoordinatorInstance(CoordinatorInstance &coordinator, CoordinatorToCoordinatorConfig const &config,
+                                       int const n) {
+    for (int i = 0; i < n; ++i) {
+      auto const status = coordinator.AddCoordinatorInstance(config);
+      if (status == AddCoordinatorInstanceStatus::SUCCESS) return true;
+    }
+    return false;
+  }
+
+  // Wait so that replication instances and other coordinators have time to get up.
+  auto TryNTimesRegisterReplicationInstance(CoordinatorInstance &coordinator, CoordinatorToReplicaConfig const &config,
+                                            int const n) {
+    for (int i = 0; i < n; ++i) {
+      auto const status = coordinator.RegisterReplicationInstance(config);
+      if (status == RegisterInstanceCoordinatorStatus::SUCCESS) return true;
+    }
+    return false;
+  }
+
+  void Register() {
+    MG_ASSERT(TryNTimesAddCoordinatorInstance(
+                  coordinator1,
+                  CoordinatorToCoordinatorConfig{.coordinator_id = 2,
+                                                 .bolt_server = Endpoint{"0.0.0.0", 7691},
+                                                 .coordinator_server = Endpoint{"0.0.0.0", 10112}},
+                  5),
+              "Failed to add coordinator2");
+
+    MG_ASSERT(TryNTimesAddCoordinatorInstance(
+                  coordinator1,
+                  CoordinatorToCoordinatorConfig{.coordinator_id = 3,
+                                                 .bolt_server = Endpoint{"0.0.0.0", 7692},
+                                                 .coordinator_server = Endpoint{"0.0.0.0", 10113}},
+                  5),
+              "Failed to add coordinator3");
+
     {
       auto const coord_to_instance_config =
           CoordinatorToReplicaConfig{.instance_name = "instance1",
@@ -88,9 +119,8 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
-
-      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
-      MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance1");
+      MG_ASSERT(TryNTimesRegisterReplicationInstance(coordinator1, coord_to_instance_config, 5),
+                "Failed to register instance1");
     }
     {
       auto const coord_to_instance_config =
@@ -105,8 +135,8 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
 
-      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
-      MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance2");
+      MG_ASSERT(TryNTimesRegisterReplicationInstance(coordinator1, coord_to_instance_config, 5),
+                "Failed to register instance2");
     }
     {
       auto const coord_to_instance_config =
@@ -121,8 +151,8 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
 
-      auto const status = coordinator1.RegisterReplicationInstance(coord_to_instance_config);
-      MG_ASSERT(status == RegisterInstanceCoordinatorStatus::SUCCESS, "Failed to register instance3");
+      MG_ASSERT(TryNTimesRegisterReplicationInstance(coordinator1, coord_to_instance_config, 5),
+                "Failed to register instance3");
     }
     {
       auto const status = coordinator1.SetReplicationInstanceToMain("instance1");
@@ -130,7 +160,6 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
     }
   }
 
- protected:
   void SetUp() override { Clear(); }
 
   void TearDown() override { Clear(); }
@@ -184,6 +213,7 @@ class HighAvailabilityClusterSetupTest : public ::testing::Test {
 };
 
 TEST_F(HighAvailabilityClusterSetupTest, CreateCluster1) {
+  Register();
   auto const leader_instances = coordinator1.ShowInstances();
   EXPECT_EQ(leader_instances.size(), 6);
   ASSERT_NE(std::ranges::find_if(leader_instances,
