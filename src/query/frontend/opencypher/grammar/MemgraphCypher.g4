@@ -220,6 +220,8 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setInstanceToMain
                  | showInstances
                  | addCoordinatorInstance
+                 | forceResetClusterStateOnCoordinator
+                 | demoteInstanceOnCoordinator
                  ;
 
 triggerQuery : createTrigger
@@ -422,6 +424,10 @@ configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
+
+forceResetClusterStateOnCoordinator : FORCE RESET CLUSTER STATE ;
+
+demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 

@@ -657,6 +657,60 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   return RegisterInstanceCoordinatorStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (!is_leader_ready_) {
+    spdlog::trace(" Is leader ready is in state {}", is_leader_ready_);
+    return DemoteInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  if (raft_state_->IsLockOpened()) {
+    return DemoteInstanceCoordinatorStatus::LOCK_OPENED;
+  }
+
+  if (!raft_state_->AppendOpenLock()) {
+    spdlog::error("Failed to open lock to demote instance to REPLICA");
+    return DemoteInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
+  }
+
+  utils::OnScopeExit const do_reset{[this]() {
+    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
+      spdlog::trace(
+          "Adding task to try force reset cluster as lock didn't close successfully after demote of instance.");
+      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      return;
+    }
+    spdlog::trace("Lock is not opened anymore or coordinator is not leader after demoting instance.");
+  }};
+
+  auto const name_matches = [&instance_name](ReplicationInstanceConnector const &instance) {
+    return instance.InstanceName() == instance_name;
+  };
+
+  auto instance = std::ranges::find_if(repl_instances_, name_matches);
+  if (instance == repl_instances_.end()) {
+    return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  if (!instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
+                                 &CoordinatorInstance::ReplicaFailCallback)) {
+    spdlog::error("Failed to send demote to replica rpc for instance {}", instance_name);
+    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  if (!raft_state_->AppendSetInstanceAsReplicaLog(instance->InstanceName())) {
+    spdlog::error("Failed to send demote to replica rpc for instance {}", instance_name);
+    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  if (!raft_state_->AppendCloseLock()) {
+    return DemoteInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
+  }
+
+  return DemoteInstanceCoordinatorStatus::SUCCESS;
+}
+
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};

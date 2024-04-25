@@ -32,6 +32,11 @@ auto CoordinatorHandler::UnregisterReplicationInstance(std::string_view instance
   return coordinator_state_.UnregisterReplicationInstance(instance_name);
 }
 
+auto CoordinatorHandler::DemoteInstanceToReplica(std::string_view instance_name)
+    -> coordination::DemoteInstanceCoordinatorStatus {
+  return coordinator_state_.DemoteInstanceToReplica(instance_name);
+}
+
 auto CoordinatorHandler::SetReplicationInstanceToMain(std::string_view instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
   return coordinator_state_.SetReplicationInstanceToMain(instance_name);

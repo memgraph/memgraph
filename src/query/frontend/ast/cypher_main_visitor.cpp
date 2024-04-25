@@ -449,6 +449,21 @@ antlrcpp::Any CypherMainVisitor::visitUnregisterInstanceOnCoordinator(
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitForceResetClusterStateOnCoordinator(
+    MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE;
+  return coordinator_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDemoteInstanceOnCoordinator(
+    MemgraphCypher::DemoteInstanceOnCoordinatorContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::DEMOTE_INSTANCE;
+  coordinator_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
