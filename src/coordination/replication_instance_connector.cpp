@@ -16,6 +16,7 @@
 #include "replication_coordination_glue/handler.hpp"
 #include "utils/result.hpp"
 
+#include <chrono>
 #include <string>
 #include <utility>
 

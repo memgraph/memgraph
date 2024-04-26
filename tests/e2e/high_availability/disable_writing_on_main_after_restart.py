@@ -16,7 +16,12 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -147,7 +152,9 @@ def test_writing_disabled_on_main_restart():
     )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_coord3 = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),

@@ -15,7 +15,12 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -249,7 +254,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -479,7 +484,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -752,7 +757,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1039,7 +1044,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
     expected_data_on_coord = [
@@ -1187,7 +1192,7 @@ def test_replication_works_on_failover_simple():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1307,7 +1312,7 @@ def test_replication_works_on_replica_instance_restart():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1373,7 +1378,7 @@ def test_replication_works_on_replica_instance_restart():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1421,7 +1426,7 @@ def test_show_instances():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1497,7 +1502,7 @@ def test_simple_automatic_failover():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1587,7 +1592,7 @@ def test_replica_instance_restarts():
     cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
     expected_data_up = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1629,7 +1634,7 @@ def test_automatic_failover_main_back_as_replica():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_after_failover = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -1668,7 +1673,7 @@ def test_automatic_failover_main_back_as_main():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_all_down = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),

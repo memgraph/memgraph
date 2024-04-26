@@ -17,7 +17,12 @@ import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_any_function,
@@ -239,12 +244,12 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -353,7 +358,7 @@ def test_distributed_automatic_failover():
     coord_cursor = connect(host="localhost", port=7692).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -434,12 +439,12 @@ def test_distributed_automatic_failover_with_leadership_change():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -564,12 +569,12 @@ def test_old_main_comes_back_on_new_leader_as_main():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
 
@@ -739,7 +744,7 @@ def test_registering_4_coords():
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -876,7 +881,7 @@ def test_registering_coord_log_store():
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     coordinators = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1029,7 +1034,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     def get_func_show_instances(cursor):
         def show_instances_follower_coord():
-            return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+            return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
         return show_instances_follower_coord
 
@@ -1265,7 +1270,7 @@ def test_multiple_old_mains_single_failover():
         execute_and_fetch_all(coord_cursor_3, query)
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coordinators = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1319,12 +1324,12 @@ def test_multiple_old_mains_single_failover():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1425,17 +1430,17 @@ def test_force_reset_works_after_failed_registration():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1577,17 +1582,17 @@ def test_force_reset_works_after_failed_registration_and_main_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1729,17 +1734,17 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -1943,17 +1948,17 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -2061,12 +2066,12 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -2145,17 +2150,17 @@ def test_coordinator_gets_info_on_other_coordinators():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -2256,7 +2261,7 @@ def test_coordinator_gets_info_on_other_coordinators():
     coord_cursor_4 = connect(host="localhost", port=7693).cursor()
 
     def show_instances_coord4():
-        return sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -2318,17 +2323,17 @@ def test_registration_works_after_main_set():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
@@ -2415,17 +2420,17 @@ def test_coordinator_not_leader_registration_does_not_work():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
         ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),

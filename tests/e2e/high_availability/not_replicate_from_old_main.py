@@ -10,13 +10,12 @@
 # licenses/APL.txt.
 
 import os
-import shutil
 import sys
 import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, ignore_elapsed_time_from_results
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -200,7 +199,9 @@ def test_not_replicate_old_main_register_new_cluster():
     first_cluster_coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(first_cluster_coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(first_cluster_coord_cursor, "SHOW INSTANCES;")))
+        )
 
     expected_data_up_first_cluster = [
         ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
@@ -256,7 +257,9 @@ def test_not_replicate_old_main_register_new_cluster():
     # 4
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(second_cluster_coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(second_cluster_coord_cursor, "SHOW INSTANCES;")))
+        )
 
     expected_data_up_second_cluster = [
         ("coordinator_1", "0.0.0.0:7691", "0.0.0.0:10112", "", "up", "coordinator"),
