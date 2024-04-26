@@ -183,10 +183,10 @@ class CoordinatorInstance {
         is_leader_ready_ = true;
         spdlog::trace("Lock is not opened anymore and coordinator is leader, not doing force reset again.");
       }
-      if constexpr (!IsUserAction) {
+      if (!IsUserAction) {
         if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
           spdlog::trace("Adding task to try force reset cluster again as lock is opened still.");
-          thread_pool_.AddTask([this]() { this->ForceResetCluster<false>(); });
+          thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
         }
       }
     }};
@@ -245,14 +245,14 @@ class CoordinatorInstance {
     }
 
     auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_instances);
-
+    spdlog::trace(" Maybe most up to date instance {}", maybe_most_up_to_date_instance.value_or("a"));
     if (!maybe_most_up_to_date_instance.has_value()) {
       spdlog::error("Couldn't choose instance for failover, check logs for more details.");
       return ForceResetClusterStateStatus::NO_NEW_MAIN;
     }
 
     auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
-
+    spdlog::trace("Found new main");
     auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
       return repl_instance.InstanceName() != new_main.InstanceName();
     };
@@ -310,13 +310,12 @@ class CoordinatorInstance {
     if (!raft_state_->AppendCloseLock()) {
       spdlog::error("Aborting force reset as we failed to close lock on action.");
       return ForceResetClusterStateStatus::FAILED_TO_CLOSE_LOCK;
-      ;
     }
 
     std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
 
-    if constexpr (!IsUserAction) {
-      MG_ASSERT(raft_state_->IsLockOpened(), "After force reset we need to be in healthy state.");
+    if (!IsUserAction) {
+      MG_ASSERT(!raft_state_->IsLockOpened(), "After force reset we need to be in healthy state.");
     }
 
     return ForceResetClusterStateStatus::SUCCESS;
