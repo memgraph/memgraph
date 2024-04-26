@@ -162,12 +162,13 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   };
 
   auto const coord_instance_to_status =
-      [&stringify_coord_health](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+      [this, &stringify_coord_health](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
             .coordinator_server = instance.coordinator_server.SocketAddress(),
             .bolt_server = instance.bolt_server.SocketAddress(),
             .cluster_role = "coordinator",
-            .health = stringify_coord_health(instance)};
+            .health = stringify_coord_health(instance),
+            .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
   };
 
   auto instances_status = utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
@@ -189,7 +190,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
               .management_server = instance.ManagementSocketAddress(),
               .bolt_server = instance.BoltSocketAddress(),
               .cluster_role = stringify_repl_role(instance),
-              .health = stringify_repl_health(instance)};
+              .health = stringify_repl_health(instance),
+              .last_succ_resp_ms = instance.LastSuccRespMs().count()};
     };
 
     {

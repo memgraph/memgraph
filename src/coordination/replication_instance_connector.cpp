@@ -148,5 +148,13 @@ void ReplicationInstanceConnector::SetCallbacks(HealthCheckInstanceCallback succ
   fail_cb_ = fail_cb;
 }
 
+auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::milliseconds {
+  using std::chrono::duration_cast;
+  using std::chrono::milliseconds;
+  using std::chrono::system_clock;
+
+  return duration_cast<milliseconds>(system_clock::now() - last_response_time_);
+}
+
 }  // namespace memgraph::coordination
 #endif
