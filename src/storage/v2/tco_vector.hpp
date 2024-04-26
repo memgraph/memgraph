@@ -12,6 +12,7 @@
 #pragma once
 
 #include <iterator>
+#include <utility>
 #include <vector>
 
 namespace memgraph::storage {
@@ -22,17 +23,18 @@ template <typename T>
 class TcoVector {
  private:
   T *data_;
-  uint32_t size_;      // max 4 million
-  uint32_t capacity_;  // max 4 million
+  uint32_t size_;      // max 4 billion
+  uint32_t capacity_;  // max 4 billion
 
  public:
   TcoVector() : data_(nullptr), size_(0), capacity_(0) {}
 
   TcoVector(const TcoVector &in) {
     reserve(in.size_);
-    memcpy(data_, in.data_, in.size_ * sizeof(T));
+    std::copy(in.begin(), in.end(), data_);
     size_ = in.size_;
   }
+
   TcoVector(TcoVector &&in) : data_{in.data_}, size_{in.size_}, capacity_{in.capacity_} {
     if (&in != this) {
       in.data_ = nullptr;
@@ -40,28 +42,28 @@ class TcoVector {
       in.capacity_ = 0;
     }
   }
-  TcoVector<T> &operator=(TcoVector<T> &in) {
+
+  TcoVector<T> &operator=(const TcoVector<T> &in) {
     reserve(in.size_);
-    memcpy(data_, in.data_, in.size_ * sizeof(T));
+    std::copy(in.begin(), in.end(), data_);
     size_ = in.size_;
     return *this;
   }
+
   TcoVector<T> &operator=(TcoVector<T> &&in) {
     if (&in != this) {
-      data_ = in.data_;
-      size_ = in.size_;
-      capacity_ = in.capacity_;
-      in.data_ = nullptr;
-      in.size_ = 0;
-      in.capacity_ = 0;
+      data_ = std::exchange(in.data_, nullptr);
+      size_ = std::exchange(in.size_, 0);
+      capacity_ = std::exchange(in.capacity_, 0);
     }
     return *this;
   }
+
   ~TcoVector() { delete[] data_; }
 
-  TcoVector(const std::vector<T> &in) {
+  explicit TcoVector(const std::vector<T> &in) {
     reserve(in.size());
-    memcpy(data_, in.data(), in.size() * sizeof(T));
+    std::copy(in.begin(), in.end(), data_);
     size_ = in.size();
   }
 
