@@ -142,7 +142,7 @@ class CoordinatorQueryHandler {
         : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  /// @throw QueryRuntimeException if an error occurred.
   virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                            std::string_view replication_server,
                                            std::chrono::seconds const &instance_health_check_frequency,
@@ -150,18 +150,22 @@ class CoordinatorQueryHandler {
                                            std::chrono::seconds const &instance_get_uuid_frequency,
                                            std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  /// @throw QueryRuntimeException if an error occurred.
   virtual void UnregisterInstance(std::string_view instance_name) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  /// @throw QueryRuntimeException if an error occurred.
   virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  /// @throw QueryRuntimeException if an error occurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
+  /// @throw QueryRuntimeException if an error occurred.
   virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
                                       std::string_view coordinator_server) -> void = 0;
+
+  virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
+
+  virtual void ForceResetClusterState() = 0;
 };
 #endif
 

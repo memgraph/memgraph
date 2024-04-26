@@ -78,5 +78,17 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR
 };
 
+enum class ForceResetClusterStateStatus : uint8_t {
+  NOT_LEADER,
+  RPC_FAILED,
+  ACTION_FAILED,
+  RAFT_LOG_ERROR,
+  NO_NEW_MAIN,
+  SUCCESS,
+  FAILED_TO_OPEN_LOCK,
+  FAILED_TO_CLOSE_LOCK,
+  NOT_COORDINATOR
+};
+
 }  // namespace memgraph::coordination
 #endif

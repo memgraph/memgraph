@@ -70,7 +70,7 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     if (raft_state_->IsLockOpened()) {
       spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::info("Leader changed, starting all replication instances!");
@@ -213,181 +213,12 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   return instances_status;
 }
 
-void CoordinatorInstance::ForceResetCluster() {
-  // Force reset tries to return cluster to state in which we have all the replicas we had before
-  // and try to do failover to new MAIN. Only then is force reset successful
+auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateStatus {
+  return ForceResetCluster<true>();
+}
 
-  // 0. Open lock
-  // 1. Try to demote each instance to replica
-  // 2. Instances which are demoted proceed in next step as part of selection process
-  // 3. For selected instances try to send SWAP UUID and update log -> both must succeed
-  // 4. Do failover
-  // 5. For instances which were down set correct callback as before
-  // 6. After instance get's back up, do steps needed to recover
-
-  spdlog::trace("Force resetting cluster!");
-  // Ordering is important here, we must stop frequent check before
-  // taking lock to avoid deadlock between us stopping thread and thread wanting to take lock but can't because
-  // we have it
-  std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
-    spdlog::trace("Stopping frequent check for instance {}", repl_instance.InstanceName());
-    repl_instance.StopFrequentCheck();
-    spdlog::trace("Stopped frequent check for instance {}", repl_instance.InstanceName());
-  });
-  spdlog::trace("Stopped all replication instance frequent checks.");
-  auto lock = std::unique_lock{coord_instance_lock_};
-  repl_instances_.clear();
-
-  if (!raft_state_->IsLeader()) {
-    spdlog::trace("Exiting force reset as coordinator is not any more leader!");
-    return;
-  }
-
-  if (!raft_state_->AppendOpenLock()) {
-    spdlog::trace("Appending log force reset failed, aborting force reset");
-    // Here we want to continue doing force reset or kill coordinator. If we can't append open lock,
-    // then we must be follower, and some other coordinator will continue trying force reset. Otherwise
-    // we are leader  but append lock failed, so we are in wrong state.
-    MG_ASSERT(!raft_state_->IsLeader(), "Coordinator is leader but append open lock failed, encountered wrong state.");
-    return;
-  }
-
-  utils::OnScopeExit const maybe_do_another_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace("Adding task to try force reset cluster again as lock is opened still.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
-    } else if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
-      is_leader_ready_ = true;
-      spdlog::trace("Lock is not opened anymore and coordinator is leader, not doing force reset again.");
-    } else {
-      spdlog::trace("Lock is not opened anymore or coordinator is not leader, not doing force reset again.");
-    }
-  }};
-
-  auto const instances = raft_state_->GetReplicationInstances();
-
-  // To each instance we send RPC
-  // If RPC fails we consider instance dead
-  // Otherwise we consider instance alive
-  // If at any point later RPC fails for alive instance, we consider this failure
-
-  std::ranges::for_each(instances, [this](auto &replica) {
-    auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
-
-    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::ReplicaSuccessCallback,
-                                 &CoordinatorInstance::ReplicaFailCallback);
-  });
-
-  auto instances_mapped_to_resp = repl_instances_ | ranges::views::transform([](auto &instance) {
-                                    return std::pair{instance.InstanceName(), instance.SendFrequentHeartbeat()};
-                                  }) |
-                                  ranges::to<std::unordered_map<std::string, bool>>();
-
-  auto alive_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto const &instance) {
-                           return instances_mapped_to_resp[instance.InstanceName()];
-                         });
-
-  auto demote_to_replica_failed = [this](auto &instance) {
-    if (!instance.DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
-                                  &CoordinatorInstance::ReplicaFailCallback)) {
-      return true;
-    }
-    return !raft_state_->AppendSetInstanceAsReplicaLog(instance.InstanceName());
-  };
-  if (std::ranges::any_of(alive_instances, demote_to_replica_failed)) {
-    spdlog::error("Failed to send log instance demoted to replica.");
-    return;
-  }
-
-  auto const new_uuid = utils::UUID{};
-
-  auto update_uuid_failed = [&new_uuid, this](auto &repl_instance) {
-    if (!repl_instance.SendSwapAndUpdateUUID(new_uuid)) {
-      return true;
-    }
-    return !raft_state_->AppendUpdateUUIDForInstanceLog(repl_instance.InstanceName(), new_uuid);
-  };
-  if (std::ranges::any_of(alive_instances, update_uuid_failed)) {
-    spdlog::error("Force reset failed since update log swap uuid failed, assuming coordinator is now follower.");
-    return;
-  }
-
-  if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_uuid)) {
-    spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
-    return;
-  }
-
-  auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_instances);
-
-  if (!maybe_most_up_to_date_instance.has_value()) {
-    spdlog::error("Couldn't choose instance for failover, check logs for more details.");
-    return;
-  }
-
-  auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
-
-  auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
-    return repl_instance.InstanceName() != new_main.InstanceName();
-  };
-  auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
-                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                           ranges::to<ReplicationClientsInfo>();
-
-  if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
-                              &CoordinatorInstance::MainFailCallback)) {
-    spdlog::warn("Force reset failed since promoting replica to main failed.");
-    return;
-  }
-
-  // This will set cluster in healthy state again
-  if (!raft_state_->AppendSetInstanceAsMainLog(*maybe_most_up_to_date_instance, new_uuid)) {
-    spdlog::error("Update log for new MAIN failed");
-    return;
-  }
-
-  // We need to clear repl instances in the beginning as we don't know where exactly action failed and
-  // we need to recreate state from raft log
-  // If instance in raft log is MAIN, it can be REPLICA but raft append failed when we demoted it
-  // If instance in raft log is REPLICA, it can be MAIN but raft log failed when we promoted it
-  // CRUX of problem: We need demote callbacks which will demote instance to replica and only then change to
-  // REPLICA callbacks
-
-  auto needs_demote_setup_failed = [&instances_mapped_to_resp, this](ReplicationInstanceConnector &repl_instance) {
-    if (instances_mapped_to_resp[repl_instance.InstanceName()]) {
-      return false;
-    }
-    if (!raft_state_->AppendInstanceNeedsDemote(repl_instance.InstanceName())) {
-      return true;
-    }
-    repl_instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
-    return false;
-  };
-
-  if (std::ranges::any_of(repl_instances_, needs_demote_setup_failed)) {
-    spdlog::error("Raft log didn't accept that some instances are in unknown state.");
-    return;
-  }
-
-  auto check_correct_callbacks_set = [this](auto &repl_instance) {
-    if (raft_state_->HasReplicaState(repl_instance.InstanceName())) {
-      MG_ASSERT(repl_instance.GetSuccessCallback() == &CoordinatorInstance::ReplicaSuccessCallback &&
-                    repl_instance.GetFailCallback() == &CoordinatorInstance::ReplicaFailCallback,
-                "Callbacks are wrong");
-    } else {
-      MG_ASSERT(repl_instance.GetSuccessCallback() == &CoordinatorInstance::MainSuccessCallback &&
-                repl_instance.GetFailCallback() == &CoordinatorInstance::MainFailCallback);
-    }
-  };
-  std::ranges::for_each(alive_instances, check_correct_callbacks_set);
-
-  if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Aborting force reset as we failed to close lock on action.");
-    return;
-  }
-
-  std::ranges::for_each(repl_instances_, [](auto &instance) { instance.StartFrequentCheck(); });
-
-  MG_ASSERT(!raft_state_->IsLockOpened(), "After force reset we need to be in healthy state.");
+auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
+  return ForceResetCluster<false>();
 }
 
 auto CoordinatorInstance::TryFailover() -> void {
@@ -420,7 +251,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster as lock is still opened after failover.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Failover done, lock is not opened anymore or coordinator is not leader.");
@@ -518,7 +349,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after setting instance to MAIN.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader, after setting instance to MAIN.");
@@ -613,7 +444,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after registration of instance.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
@@ -661,11 +492,12 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (!is_leader_ready_) {
-    spdlog::trace(" Is leader ready is in state {}", is_leader_ready_);
+    spdlog::trace("Is leader ready is in state {}", is_leader_ready_);
     return DemoteInstanceCoordinatorStatus::NOT_LEADER;
   }
 
   if (raft_state_->IsLockOpened()) {
+    spdlog::error("Lock is still opened.");
     return DemoteInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
@@ -678,7 +510,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after demote of instance.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after demoting instance.");
@@ -748,7 +580,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster as lock didn't close successfully after unregistration of instance.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Unregistration done. Lock is not opened anymore or coordinator is not leader.");
@@ -862,7 +694,7 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
           "Adding task to try force reset cluster again as lock is opened still after setting instance needs demote.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader.");
@@ -930,7 +762,7 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
   utils::OnScopeExit const do_force_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace("Adding task to try force reset cluster again as lock is opened still after demoting instance.");
-      thread_pool_.AddTask([this]() { this->ForceResetCluster(); });
+      thread_pool_.AddTask([this]() { this->ForceResetClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader.");
