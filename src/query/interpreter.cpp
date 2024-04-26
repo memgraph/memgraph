@@ -432,17 +432,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void DemoteInstance(std::string_view instance_name) override {
+  void DemoteInstanceToReplica(std::string_view instance_name) override {
     auto status = coordinator_handler_.DemoteInstanceToReplica(instance_name);
     switch (status) {
       using enum memgraph::coordination::DemoteInstanceCoordinatorStatus;
       case NO_INSTANCE_WITH_NAME:
         throw QueryRuntimeException("No instance with such name!");
       case NOT_COORDINATOR:
-        throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
+        throw QueryRuntimeException("DEMOTE INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        auto const *common_message = "Couldn't demote instance to replica since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
                                       common_message, maybe_leader_coordinator->coordinator_id,
@@ -454,18 +454,64 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
             common_message);
       }
       case RAFT_LOG_ERROR:
-        throw QueryRuntimeException("Couldn't demote instance to replica since raft server couldn't append the log!");
+        throw QueryRuntimeException(
+            "Couldn't demote instance to replica since raft server couldn't append the log. "
+            "Coordinator may not be leader anymore!");
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
       case LOCK_OPENED:
         throw QueryRuntimeException(
-            "Couldn't demote instance to replica because the last action didn't finish successfully!");
+            "Couldn't successfully finish action demote instance to replica because the last action didn't finish "
+            "successfully!");
       case FAILED_TO_OPEN_LOCK:
         throw QueryRuntimeException("Couldn't demote instance to replica as cluster didn't accept start of action!");
       case FAILED_TO_CLOSE_LOCK:
         throw QueryRuntimeException(
             "Couldn't demote  instance to replica as cluster didn't accept successful finish of action!");
+      case SUCCESS:
+        break;
+    }
+  }
+
+  void ForceResetClusterState() override {
+    auto status = coordinator_handler_.ForceResetClusterState();
+    switch (status) {
+      using enum memgraph::coordination::ForceResetClusterStateStatus;
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Force reset cluster state query can only be run on a coordinator!");
+      case ACTION_FAILED:
+        throw QueryRuntimeException("Check logs for more details, one action didn't complete successfully!");
+      case NO_NEW_MAIN:
+        throw QueryRuntimeException(
+            "Coordinator couldn't find new instance to be promoted to main, force reset failed!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't do force reset since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException(
+            "Couldn't force reset cluster state since raft server couldn't append the log. "
+            "Coordinator may not be leader anymore!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't force reset cluster state since RPC to one of the instances failed. Check logs for more "
+            "details!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't force reset cluster state as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't finish force reset as cluster didn't accept successful finish of action. Some coordinators may "
+            "be down!");
       case SUCCESS:
         break;
     }
@@ -1398,12 +1444,25 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_name = coordinator_query->instance_name_]() mutable {
-        handler.DemoteInstance(instance_name);
+        handler.DemoteInstanceToReplica(instance_name);
         return std::vector<std::vector<TypedValue>>();
       };
       notifications->emplace_back(
-          SeverityLevel::INFO, NotificationCode::UNREGISTER_INSTANCE,
-          fmt::format("Coordinator has unregistered instance {}.", coordinator_query->instance_name_));
+          SeverityLevel::INFO, NotificationCode::DEMOTE_INSTANCE_TO_REPLICA,
+          fmt::format("Coordinator has demoted instance to replica {}.", coordinator_query->instance_name_));
+
+      return callback;
+
+    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can force reset cluster!");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        handler.ForceResetClusterState();
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::FORCE_RESET_CLUSTER_STATE,
+                                  fmt::format("Coordinator has force reset cluster state."));
 
       return callback;
 

@@ -71,7 +71,7 @@ auto CoordinatorState::UnregisterReplicationInstance(std::string_view instance_n
 
 auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
-            "Coordinator cannot unregister instance since variant holds wrong alternative");
+            "Coordinator cannot demote instance to replica since variant holds wrong alternative");
 
   return std::visit(
       memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
@@ -80,6 +80,19 @@ auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -
                                   [&instance_name](CoordinatorInstance &coordinator_instance) {
                                     return coordinator_instance.DemoteInstanceToReplica(instance_name);
                                   }},
+      data_);
+}
+
+auto CoordinatorState::ForceResetClusterState() -> ForceResetClusterStateStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot force reset cluster state since variant holds wrong alternative.");
+
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+            return ForceResetClusterStateStatus::NOT_COORDINATOR;
+          },
+          [](CoordinatorInstance &coordinator_instance) { return coordinator_instance.TryForceResetClusterState(); }},
       data_);
 }
 
