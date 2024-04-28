@@ -620,7 +620,8 @@ class FakeDbAccessor {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property) const {
+  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type,
+                                   memgraph::storage::PropertyId property) const {
     for (const auto &index : edge_type_property_index_) {
       if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return true;

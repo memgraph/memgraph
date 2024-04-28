@@ -25,9 +25,11 @@
 
 #include <gflags/gflags.h>
 
+#include "query/frontend/ast/ast.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
@@ -85,7 +87,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAll &op) override {
     prev_ops_.pop_back();
 
-    if (EdgeTypeIndexingPossible() || maybe_id_lookup_value_) {
+    if (EdgeTypePropertyIndexingPossible() || EdgeTypeIndexingPossible() || maybe_id_lookup_value_) {
       SetOnParent(op.input());
     }
 
@@ -100,11 +102,15 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       const bool expansion_is_named = !(op.common_.edge_symbol.IsSymbolAnonym());
       const bool expdanded_node_not_named = op.common_.node_symbol.IsSymbolAnonym();
 
-      edge_type_index_exist = only_one_edge_type ? db_->EdgeTypeIndexExists(op.common_.edge_types.front()) : false;
+      edge_symbol_ = op.common_.edge_symbol;
+
+      if (only_one_edge_type) {
+        edge_type_ = op.common_.edge_types.front();
+        edge_type_index_exist_ = db_->EdgeTypeIndexExists(edge_type_);
+      }
 
       scanall_under_expand_ = only_one_edge_type && expansion_is_named && expdanded_node_not_named;
 
-      const auto &output_symbol = op.common_.edge_symbol;
       const auto &modified_symbols = op.ModifiedSymbols(*symbol_table_);
       std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
       auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -116,11 +122,35 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         return true;
       };
 
-      for (const auto &filter : filters_.IdFilters(output_symbol)) {
+      // Check if we filter based on the id of the edge.
+      for (const auto &filter : filters_.IdFilters(edge_symbol_)) {
         if (filter.id_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
         maybe_id_lookup_value_ = filter.id_filter->value_;
         filter_exprs_for_removal_.insert(filter.expression);
         filters_.EraseFilter(filter);
+      }
+
+      if (!scanall_under_expand_) {
+        return true;
+      }
+
+      // Check if we filter based on a property of the edge.
+      storage::PropertyId maybe_property;
+
+      for (const auto &filter : filters_.PropertyFilters(edge_symbol_)) {
+        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+
+        const auto &property = filter.property_filter->property_;
+        maybe_property = GetProperty(property);
+        if (db_->EdgeTypePropertyIndexExists(edge_type_, maybe_property)) {
+          property_ = maybe_property;
+
+          maybe_id_lookup_value_ = filter.property_filter->value_;
+          filter_exprs_for_removal_.insert(filter.expression);
+          filters_.EraseFilter(filter);
+
+          break;
+        }
       }
     }
 
@@ -130,12 +160,10 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Expand &op) override {
     prev_ops_.pop_back();
 
-    if (EdgeTypeIndexingPossible() || maybe_id_lookup_value_) {
-      auto indexed_scan = GenEdgeTypeScan(op);
+    auto indexed_scan = GenEdgeTypeScan(op);
+    if (indexed_scan) {
       SetOnParent(std::move(indexed_scan));
-      return true;
     }
-
     return true;
   }
 
@@ -534,17 +562,60 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Expression *> filter_exprs_for_removal_;
   std::vector<LogicalOperator *> prev_ops_;
   std::unordered_set<Symbol> cartesian_symbols_;
+  storage::EdgeTypeId edge_type_;
+  std::optional<storage::PropertyId> property_;
 
+  Symbol edge_symbol_;
   memgraph::query::Expression *maybe_id_lookup_value_ = nullptr;
 
+  storage::LabelId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToLabel(edge_type.name); }
+
+  storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
+
+  // std::optional<storage::PropertyId> EdgeTypePropertyIndexingPossible(const std::unordered_set<Symbol>
+  // &bound_symbols) {
+  //   // Determine if the current query is filtering on a property of a given edge.
+  //   auto are_bound = [&bound_symbols](const auto &used_symbols) {
+  //     for (const auto &used_symbol : used_symbols) {
+  //       if (!utils::Contains(bound_symbols, used_symbol)) {
+  //         return false;
+  //       }
+  //     }
+  //     return true;
+  //   };
+
+  //   storage::PropertyId ret;
+  //   const bool edge_type_property_indexing_possible =
+  //       once_under_scanall_ && edge_type_index_exist_ && property_filter_on_edge_;
+
+  //   for (const auto &filter : filters_.PropertyFilters(edge_symbol_)) {
+  //     if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
+
+  //     const auto &property = filter.property_filter->property_;
+  //     ret = GetProperty(property);
+  //     if (edge_type_property_indexing_possible && db_->EdgeTypePropertyIndexExists(edge_type_, ret)) {
+  //       return ret;
+  //     }
+
+  //     maybe_id_lookup_value_ = filter.property_filter->value_;
+  //     filter_exprs_for_removal_.insert(filter.expression);
+  //     filters_.EraseFilter(filter);
+  //   }
+
+  //   return {};
+  // }
+
   bool EdgeTypeIndexingPossible() const {
-    return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist;
+    return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist_;
   }
+
+  bool EdgeTypePropertyIndexingPossible() const { return scanall_under_expand_ && once_under_scanall_ && property_; }
 
   bool expand_under_produce_ = false;
   bool scanall_under_expand_ = false;
   bool once_under_scanall_ = false;
-  bool edge_type_index_exist = false;
+  bool edge_type_index_exist_ = false;
+  // bool property_filter_on_edge_ = false;
 
   bool DefaultPreVisit() override {
     throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
@@ -555,16 +626,23 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &output_symbol = expand.common_.edge_symbol;
     const auto &view = expand.view_;
 
-    if (EdgeTypeIndexingPossible()) {
-      auto edge_type = expand.common_.edge_types.front();
-      return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type, view);
-    }
-
     if (maybe_id_lookup_value_) {
       return std::make_unique<ScanAllByEdgeId>(input, output_symbol, maybe_id_lookup_value_, view);
     }
 
-    LOG_FATAL("Fatal error while rewriting query plan.");
+    // const auto &modified_symbols = expand.ModifiedSymbols(*symbol_table_);
+    // std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
+
+    if (EdgeTypePropertyIndexingPossible()) {
+      return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
+    }
+
+    if (EdgeTypeIndexingPossible()) {
+      return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type_, view);
+    }
+
+    // LOG_FATAL("Fatal error while rewriting query plan.");
+    return nullptr;
   }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {

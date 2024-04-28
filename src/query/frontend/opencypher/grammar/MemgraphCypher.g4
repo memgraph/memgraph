@@ -567,9 +567,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 

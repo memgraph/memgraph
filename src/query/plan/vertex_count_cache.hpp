@@ -80,6 +80,10 @@ class VertexCountCache {
 
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexExists(edge_type); }
 
+  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    return db_->EdgeTypePropertyIndexExists(edge_type, property);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return db_->GetIndexStats(label);
   }
