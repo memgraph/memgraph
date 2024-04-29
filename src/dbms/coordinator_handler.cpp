@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <optional>
+#include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"

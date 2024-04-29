@@ -2527,22 +2527,22 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data_original = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2607,9 +2607,9 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 4.
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -2673,22 +2673,22 @@ def test_coordinator_user_action_force_reset_works():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2752,9 +2752,9 @@ def test_coordinator_user_action_force_reset_works():
     # 4.
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),

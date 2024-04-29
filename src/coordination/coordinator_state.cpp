@@ -11,18 +11,19 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_state.hpp"
+#include <algorithm>
+#include <optional>
+#include <string_view>
+#include <variant>
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
-
-#include <algorithm>
-#include <optional>
-#include <variant>
 
 namespace memgraph::coordination {
 

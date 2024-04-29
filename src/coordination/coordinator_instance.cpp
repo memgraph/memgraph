@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <iterator>
 #include <memory>

@@ -21,6 +21,8 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <support/Any.h>
+
 namespace memgraph::query::frontend {
 
 using antlropencypher::MemgraphCypher;

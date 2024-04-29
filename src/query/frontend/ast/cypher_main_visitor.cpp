@@ -450,7 +450,7 @@ antlrcpp::Any CypherMainVisitor::visitUnregisterInstanceOnCoordinator(
 }
 
 antlrcpp::Any CypherMainVisitor::visitForceResetClusterStateOnCoordinator(
-    MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) {
+    MemgraphCypher::ForceResetClusterStateOnCoordinatorContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE;
   return coordinator_query;

@@ -25,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
@@ -35,6 +36,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/database.hpp"

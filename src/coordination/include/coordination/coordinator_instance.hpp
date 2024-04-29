@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_server.hpp"
