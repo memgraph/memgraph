@@ -15,7 +15,9 @@
 
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/uuid.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -25,8 +27,6 @@
 
 #include <fmt/format.h>
 #include "json/json.hpp"
-#include "utils/logging.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
@@ -91,6 +91,7 @@ struct CoordinatorToCoordinatorConfig {
   uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
+  std::chrono::seconds instance_down_timeout_sec{5};
 
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
@@ -125,8 +126,8 @@ void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);
 
-void to_json(nlohmann::json &j, InstanceUUIDUpdate const &config);
-void from_json(nlohmann::json const &j, InstanceUUIDUpdate &config);
+void to_json(nlohmann::json &j, InstanceUUIDUpdate const &instance_uuid_update);
+void from_json(nlohmann::json const &j, InstanceUUIDUpdate &instance_uuid_update);
 
 }  // namespace memgraph::coordination
 #endif

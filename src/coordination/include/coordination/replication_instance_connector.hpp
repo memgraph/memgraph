@@ -87,6 +87,9 @@ class ReplicationInstanceConnector {
 
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
 
+  // Time passed from the last successful response in milliseconds.
+  auto LastSuccRespMs() const -> std::chrono::milliseconds;
+
  protected:
   auto UpdateReplicaLastResponseUUID() -> void;
   std::unique_ptr<ReplicationInstanceClient> client_;

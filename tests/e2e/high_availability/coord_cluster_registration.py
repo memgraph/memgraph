@@ -15,7 +15,12 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -40,7 +45,7 @@ def get_instances_description():
                 "--management-port",
                 "10011",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -54,7 +59,7 @@ def get_instances_description():
                 "--management-port",
                 "10012",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -68,7 +73,7 @@ def get_instances_description():
                 "--management-port",
                 "10013",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -81,7 +86,7 @@ def get_instances_description():
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator1.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -93,7 +98,7 @@ def get_instances_description():
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
             ],
-            "log_file": "coordinator2.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -105,7 +110,7 @@ def get_instances_description():
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
             ],
-            "log_file": "coordinator3.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
             "setup_queries": [],
         },
     }
@@ -126,7 +131,7 @@ def get_instances_description_no_coord():
                 "--replication-restore-state-on-startup=true",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -143,7 +148,7 @@ def get_instances_description_no_coord():
                 "--replication-restore-state-on-startup=true",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -160,7 +165,7 @@ def get_instances_description_no_coord():
                 "--replication-restore-state-on-startup=true",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -173,7 +178,7 @@ def get_instances_description_no_coord():
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator1.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -185,7 +190,7 @@ def get_instances_description_no_coord():
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
             ],
-            "log_file": "coordinator2.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
         },
     }
@@ -230,12 +235,14 @@ def test_register_repl_instances_then_coordinators():
     )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -245,7 +252,9 @@ def test_register_repl_instances_then_coordinators():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_shared = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
@@ -261,7 +270,9 @@ def test_register_repl_instances_then_coordinators():
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
@@ -296,12 +307,14 @@ def test_register_coordinator_then_repl_instances():
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -311,7 +324,9 @@ def test_register_coordinator_then_repl_instances():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_shared = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
@@ -327,7 +342,9 @@ def test_register_coordinator_then_repl_instances():
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
@@ -374,14 +391,18 @@ def test_coordinators_communication_with_restarts():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
 
@@ -439,13 +460,19 @@ def test_unregister_replicas(kill_instance):
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     main_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -453,9 +480,9 @@ def test_unregister_replicas(kill_instance):
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -497,9 +524,9 @@ def test_unregister_replicas(kill_instance):
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
@@ -532,9 +559,9 @@ def test_unregister_replicas(kill_instance):
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
@@ -584,18 +611,24 @@ def test_unregister_main():
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -625,9 +658,9 @@ def test_unregister_main():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -649,9 +682,9 @@ def test_unregister_main():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
     ]
@@ -714,7 +747,7 @@ def test_register_one_coord_with_env_vars():
                 "args": [
                     "--log-level=TRACE",
                 ],
-                "log_file": "coordinator3.log",
+                "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
                 "setup_queries": [],
                 "default_bolt_port": 7692,
             },
@@ -726,18 +759,24 @@ def test_register_one_coord_with_env_vars():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -767,9 +806,9 @@ def test_register_one_coord_with_env_vars():
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -791,9 +830,9 @@ def test_register_one_coord_with_env_vars():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
     ]
@@ -853,7 +892,7 @@ def test_register_one_data_with_env_vars():
                 "--replication-restore-state-on-startup=true",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -870,7 +909,7 @@ def test_register_one_data_with_env_vars():
                 "--replication-restore-state-on-startup=true",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -883,7 +922,7 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator1.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -895,7 +934,7 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
             ],
-            "log_file": "coordinator2.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -907,7 +946,7 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
             ],
-            "log_file": "coordinator3.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
             "setup_queries": [],
         },
     }
@@ -927,7 +966,7 @@ def test_register_one_data_with_env_vars():
                     "--replication-restore-state-on-startup=true",
                     "--storage-recover-on-startup=false",
                 ],
-                "log_file": "instance_3.log",
+                "log_file": "high_availability/coord_cluster_registration/instance_3.log",
                 "data_directory": f"{TEMP_DIR}/instance_3",
                 "setup_queries": [],
                 "default_bolt_port": 7689,
@@ -952,18 +991,24 @@ def test_register_one_data_with_env_vars():
         execute_and_fetch_all(coordinator3_cursor, query)
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -1043,7 +1088,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
             "args": [
                 "--log-level=TRACE",
             ],
-            "log_file": "coordinator3.log",
+            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
             "setup_queries": [],
             "default_bolt_port": 7692,
         },
@@ -1055,10 +1100,12 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     )
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
-    expected_cluster = [("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator")]
+    expected_cluster = [("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator")]
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     mg_sleep_and_assert(expected_cluster, check_coordinator3)
 
@@ -1084,18 +1131,24 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     def check_coordinator1():
-        return sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator2():
-        return sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -1125,9 +1178,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1149,9 +1202,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     expected_cluster = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
     ]
