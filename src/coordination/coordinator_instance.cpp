@@ -68,6 +68,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
+    if (is_shutting_down_.load(std::memory_order_acquire)) {
+      return;
+    }
     if (raft_state_->IsLockOpened()) {
       spdlog::error("Leader hasn't encountered healthy state, doing force reset of cluster.");
       // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to force reset
@@ -135,6 +138,22 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
       spdlog::info("Stopped all replication instance frequent checks.");
     });
   };
+}
+
+CoordinatorInstance::~CoordinatorInstance() {
+  // Order is important:
+  // 1. Thread pool might be running with force reset, or become follower, so we should shut that down
+  // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do force reset
+  // 3. Frequent checks running, we need to stop them before raft_state_ is destroyed
+  ShuttingDown();
+  thread_pool_.Shutdown();
+  // We don't need to take lock as force reset can't be running, coordinator can't become follower,
+  // user queries can't be running as memgraph awaits server shutdown
+  std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
+    spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
+    repl_instance.StopFrequentCheck();
+    spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
+  });
 }
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
@@ -215,7 +234,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   return instances_status;
 }
 
-auto CoordinatorInstance::ForceResetCluster() -> ForceResetClusterStateStatus {
+auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
   // Force reset tries to return cluster to state in which we have all the replicas we had before
   // and try to do failover to new MAIN. Only then is force reset successful
 
@@ -228,6 +247,11 @@ auto CoordinatorInstance::ForceResetCluster() -> ForceResetClusterStateStatus {
   // 6. After instance gets back up, do steps needed to recover
 
   spdlog::trace("Force resetting cluster!");
+
+  if (is_shutting_down_.load(std::memory_order_acquire)) {
+    return ForceResetClusterStateStatus::SHUTTING_DOWN;
+  }
+
   // Ordering is important here, we must stop frequent check before
   // taking lock to avoid deadlock between us stopping thread and thread wanting to take lock but can't because
   // we have it
@@ -391,14 +415,13 @@ auto CoordinatorInstance::ForceResetCluster() -> ForceResetClusterStateStatus {
   return ForceResetClusterStateStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateStatus { return ForceResetCluster(); }
+auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateStatus { return ForceResetCluster_(); }
 
 auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
   // TODO(antoniofilipovic): Implement exponential backoff
   while (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
     spdlog::trace("Doing force reset as lock is still opened on leader.");
-
-    auto const result = ForceResetCluster();
+    auto const result = ForceResetCluster_();
     switch (result) {
       case (ForceResetClusterStateStatus::SUCCESS):
         spdlog::trace("Force reset was success.");
@@ -406,19 +429,24 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
       case ForceResetClusterStateStatus::NOT_LEADER:
         spdlog::trace("Stopping force reset as coordinator is not leader anymore.");
         return result;
+      case ForceResetClusterStateStatus::SHUTTING_DOWN:
+        spdlog::trace("Stopping force as coordinator is shutting down.");
+        return result;
       case ForceResetClusterStateStatus::RPC_FAILED:
       case ForceResetClusterStateStatus::ACTION_FAILED:
       case ForceResetClusterStateStatus::RAFT_LOG_ERROR:
       case ForceResetClusterStateStatus::NO_NEW_MAIN:
       case ForceResetClusterStateStatus::FAILED_TO_OPEN_LOCK:
       case ForceResetClusterStateStatus::FAILED_TO_CLOSE_LOCK:
-      case ForceResetClusterStateStatus::NOT_COORDINATOR:
+      case ForceResetClusterStateStatus::NOT_COORDINATOR:  // shouldn't happen
         break;
     }
   }
 
   return ForceResetClusterStateStatus::SUCCESS;  // Shouldn't execute
 }
+
+void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_acq_rel); }
 
 auto CoordinatorInstance::TryFailover() -> void {
   auto const is_replica = [this](ReplicationInstanceConnector const &instance) {

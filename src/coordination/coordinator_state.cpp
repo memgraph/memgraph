@@ -148,5 +148,11 @@ auto CoordinatorState::IsDataInstance() const -> bool {
   return std::holds_alternative<CoordinatorMainReplicaData>(data_);
 }
 
+void CoordinatorState::ShutDownCoordinator() {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
+  std::get<CoordinatorInstance>(data_).ShuttingDown();
+}
+
 }  // namespace memgraph::coordination
 #endif

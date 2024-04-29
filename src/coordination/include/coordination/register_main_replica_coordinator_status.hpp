@@ -87,7 +87,8 @@ enum class ForceResetClusterStateStatus : uint8_t {
   SUCCESS,
   FAILED_TO_OPEN_LOCK,
   FAILED_TO_CLOSE_LOCK,
-  NOT_COORDINATOR
+  NOT_COORDINATOR,
+  SHUTTING_DOWN
 };
 
 }  // namespace memgraph::coordination

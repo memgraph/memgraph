@@ -480,6 +480,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::ForceResetClusterStateStatus;
       case NOT_COORDINATOR:
         throw QueryRuntimeException("Force reset cluster state query can only be run on a coordinator!");
+      case SHUTTING_DOWN:
+        throw QueryRuntimeException("Force reset cluster aborted as coordinator is shutting down!");
       case ACTION_FAILED:
         throw QueryRuntimeException("Check logs for more details, one action didn't complete successfully!");
       case NO_NEW_MAIN:

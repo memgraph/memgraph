@@ -63,6 +63,8 @@ class CoordinatorState {
   auto IsCoordinator() const -> bool;
   auto IsDataInstance() const -> bool;
 
+  void ShutDownCoordinator();
+
  private:
   struct CoordinatorMainReplicaData {
     std::unique_ptr<CoordinatorServer> coordinator_server_;
