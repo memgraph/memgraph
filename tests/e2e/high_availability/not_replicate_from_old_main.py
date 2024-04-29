@@ -29,12 +29,12 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 MEMGRAPH_FIRST_CLUSTER_DESCRIPTION = {
     "shared_replica": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7688", "--log-level", "TRACE"],
-        "log_file": "replica2.log",
+        "log_file": "high_availability/not_replicate_from_old_main/replica2.log",
         "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
     },
     "main1": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7687", "--log-level", "TRACE"],
-        "log_file": "main.log",
+        "log_file": "high_availability/not_replicate_from_old_main/main.log",
         "setup_queries": ["REGISTER REPLICA shared_replica SYNC TO '127.0.0.1:10001' ;"],
     },
 }
@@ -43,12 +43,12 @@ MEMGRAPH_FIRST_CLUSTER_DESCRIPTION = {
 MEMGRAPH_SECOND_CLUSTER_DESCRIPTION = {
     "replica": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7689", "--log-level", "TRACE"],
-        "log_file": "replica.log",
+        "log_file": "high_availability/not_replicate_from_old_main/replica.log",
         "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
     },
     "main_2": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level", "TRACE"],
-        "log_file": "main_2.log",
+        "log_file": "high_availability/not_replicate_from_old_main/main_2.log",
         "setup_queries": [
             "REGISTER REPLICA shared_replica SYNC TO '127.0.0.1:10001' ;",
             "REGISTER REPLICA replica SYNC TO '127.0.0.1:10002' ; ",
