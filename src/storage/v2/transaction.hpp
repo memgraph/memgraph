@@ -47,7 +47,6 @@ struct Transaction {
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
-        delta_store{},
         md_deltas(utils::NewDeleteResource()),
         must_abort(false),
         isolation_level(isolation_level),

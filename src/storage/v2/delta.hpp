@@ -69,6 +69,7 @@ struct DeltaMemoryResource : std::pmr::memory_resource {
     auto earlest_slab_position = alignSize(sizeof(header), alignment);
     auto max_slab_capacity = PAGE_SIZE - earlest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
+      // dedicated allocation
       auto required_bytes = bytes + earlest_slab_position;
       auto *newmem = reinterpret_cast<header *>(aligned_alloc(alignment, required_bytes));
       if (!newmem) throw std::bad_alloc{};
@@ -272,20 +273,16 @@ struct Delta {
         command_id(0),
         old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
-  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id,
-        std::pmr::memory_resource * /*res*/)
+  Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
 
-  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id,
-        std::pmr::memory_resource * /*res*/)
+  Delta(RecreateObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::RECREATE_OBJECT) {}
 
-  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id,
-        std::pmr::memory_resource * /*res*/)
+  Delta(AddLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::ADD_LABEL, .value = label} {}
 
-  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id,
-        std::pmr::memory_resource * /*res*/)
+  Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
   Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue value, std::atomic<uint64_t> *timestamp,
@@ -299,25 +296,25 @@ struct Delta {
         } {}
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id, std::pmr::memory_resource * /*res*/)
+        uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id, std::pmr::memory_resource * /*res*/)
+        uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id, std::pmr::memory_resource * /*res*/)
+        uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id, std::pmr::memory_resource * /*res*/)
+        uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}

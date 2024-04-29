@@ -53,9 +53,11 @@ using PageAlignedList = std::forward_list<T, PageAlignedAllocator<T>>;
 template <std::size_t N>
 using delta_slab = memgraph::utils::static_vector<Delta, N>;
 
-// This is for how many deltas can exist in delta_slab no larger than PAGE_SIZE
+// This is for how many deltas can exist in delta_slab no larger than PAGE_SIZE * 4
 // assumption `sizeof(void *)` if for the node pointer inside forward_list's node
-constexpr auto kMaxDeltas = (PAGE_SIZE - sizeof(void *) - delta_slab<0>::header_size()) / sizeof(Delta);
+// We can do 4 pages, because if unused, those pages would
+// not contribute to RSS (static_vector ensures buffer in uninitialised)
+constexpr auto kMaxDeltas = (PAGE_SIZE * 4 - sizeof(void *) - delta_slab<0>::header_size()) / sizeof(Delta);
 
 // Flattern iterators used here becasue we can't use
 // `std::views::join` becasue stack-use-after-scope
@@ -262,13 +264,20 @@ struct delta_container {
   template <typename... Args>
   auto emplace(Args &&...args) -> Delta & {
     auto do_emplace = [&]() -> Delta & {
-      if (!memory_resource_) [[unlikely]] {
-        // TODO: only do for actions that maybe require allocation
-        memory_resource_ = std::make_unique<DeltaMemoryResource>();
+      if constexpr (std::is_constructible_v<Delta, Args...>) {
+        // no need for memory_resource
+        auto &delta = deltas_.front().emplace(std::forward<Args>(args)...);
+        ++size_;
+        return delta;
+      } else {
+        // requires memory_resource
+        if (!memory_resource_) [[unlikely]] {
+          memory_resource_ = std::make_unique<DeltaMemoryResource>();
+        }
+        auto &delta = deltas_.front().emplace(std::forward<Args>(args)..., memory_resource_.get());
+        ++size_;
+        return delta;
       }
-      auto &delta = deltas_.front().emplace(std::forward<Args>(args)..., memory_resource_.get());
-      ++size_;
-      return delta;
     };
 
     if (deltas_.empty() || deltas_.front().is_full()) [[unlikely]] {
@@ -288,10 +297,6 @@ struct delta_container {
     deltas_.clear();
     memory_resource_.reset();
     size_ = 0;
-  }
-
-  void unlink() {
-    // Do I move GC code here?
   }
 
   bool empty() const { return deltas_.empty(); }

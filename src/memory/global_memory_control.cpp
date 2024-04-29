@@ -19,6 +19,8 @@
 
 #if USE_JEMALLOC
 #include "jemalloc/jemalloc.h"
+#else
+#include <malloc.h>
 #endif
 
 namespace memgraph::memory {
@@ -276,6 +278,8 @@ void UnsetHooks() {
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
   mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+#else
+  malloc_trim(0);
 #endif
 }
 

@@ -106,6 +106,7 @@ struct static_vector {
   static_vector(static_vector const &other) requires(!std::is_copy_constructible_v<T>) = delete;
 
   static_vector &operator=(static_vector const &other) requires(std::is_copy_assignable_v<T>) {
+    if (this == std::addressof(other)) return *this;
     auto const b = begin();
     auto const ob = other.begin();
     if (other.size_ < size_) {
@@ -151,7 +152,7 @@ struct static_vector {
     assert(!is_full());
     auto *new_item = &*(begin() + size_);
     std::construct_at(new_item, std::forward<Args>(args)...);
-    ++size_;  // increment after sucessful construction
+    ++size_;  // increment after successful construction
     return *std::launder(new_item);
   }
 
@@ -159,7 +160,7 @@ struct static_vector {
 
  private:
   std::size_t size_ = 0;
-  // deliberatly an uninitialised buffer
+  // deliberately an uninitialised buffer
   alignas(alignof(T)) std::byte buffer_[N * sizeof(T)];
 };
 
