@@ -137,6 +137,7 @@ class CoordinatorInstance {
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   std::atomic<bool> is_leader_ready_{false};
+
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
