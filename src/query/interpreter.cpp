@@ -1375,7 +1375,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "health", "role"};
+      callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
+                         "health", "role",        "last_succ_resp_ms"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
@@ -1385,7 +1386,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                   TypedValue{status.coordinator_server},
                   TypedValue{status.management_server},
                   TypedValue{status.health},
-                  TypedValue{status.cluster_role}};
+                  TypedValue{status.cluster_role},
+                  TypedValue{status.last_succ_resp_ms}};
         };
 
         return utils::fmap(instances, converter);

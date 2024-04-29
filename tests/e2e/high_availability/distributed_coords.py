@@ -17,7 +17,12 @@ import time
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_any_function,
@@ -239,17 +244,17 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -270,9 +275,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     interactive_mg_runner.start(inner_instances_description, "instance_3")
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -353,12 +358,12 @@ def test_distributed_automatic_failover():
     coord_cursor = connect(host="localhost", port=7692).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -434,17 +439,17 @@ def test_distributed_automatic_failover_with_leadership_change():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -564,19 +569,19 @@ def test_old_main_comes_back_on_new_leader_as_main():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -739,13 +744,13 @@ def test_registering_4_coords():
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "coordinator"),
+        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -876,13 +881,13 @@ def test_registering_coord_log_store():
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "coordinator"),
+        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "coordinator"),
     ]
 
     basic_instances = [
@@ -1029,35 +1034,27 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     def get_func_show_instances(cursor):
         def show_instances_follower_coord():
-            return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+            return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
         return show_instances_follower_coord
 
-    coordinator_data = [
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    follower_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
         ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
-
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
-
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
-        ]
-    )
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
@@ -1072,32 +1069,23 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 4
 
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
-        ]
-    )
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-            (
-                "instance_3",
-                "127.0.0.1:7689",
-                "",
-                "127.0.0.1:10013",
-                "unknown",
-                "unknown",
-            ),
-        ]
-    )
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
 
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
@@ -1107,25 +1095,23 @@ def test_multiple_failovers_in_row_no_leadership_change():
     interactive_mg_runner.kill(inner_memgraph_instances, "instance_1")
 
     # 6
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
-        ]
-    )
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
-        ]
-    )
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
 
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
@@ -1137,25 +1123,23 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 8
 
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
-        ]
-    )
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
-        ]
-    )
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
+    ]
 
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
@@ -1165,25 +1149,23 @@ def test_multiple_failovers_in_row_no_leadership_change():
     interactive_mg_runner.kill(inner_memgraph_instances, "instance_2")
 
     # 10
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "unknown"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
-        ]
-    )
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "unknown"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+    ]
 
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
@@ -1202,25 +1184,23 @@ def test_multiple_failovers_in_row_no_leadership_change():
     interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
 
     # 13
-    leader_data = []
-    leader_data.extend(coordinator_data)
-    leader_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
-        ]
-    )
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+    ]
 
-    follower_data = []
-    follower_data.extend(coordinator_data)
-    follower_data.extend(
-        [
-            ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-            ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-            ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
-        ]
-    )
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+    ]
 
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
     mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
@@ -1290,12 +1270,12 @@ def test_multiple_old_mains_single_failover():
         execute_and_fetch_all(coord_cursor_3, query)
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
     ]
 
     basic_instances = [
@@ -1344,17 +1324,17 @@ def test_multiple_old_mains_single_failover():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1450,22 +1430,22 @@ def test_force_reset_works_after_failed_registration():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -1527,9 +1507,9 @@ def test_force_reset_works_after_failed_registration():
 
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -1602,22 +1582,22 @@ def test_force_reset_works_after_failed_registration_and_main_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -1679,9 +1659,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -1754,22 +1734,22 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -1838,9 +1818,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 5
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -1873,9 +1853,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 7
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -1968,22 +1948,22 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2066,9 +2046,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # 7
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
@@ -2086,12 +2066,12 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
     mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
@@ -2170,22 +2150,22 @@ def test_coordinator_gets_info_on_other_coordinators():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2281,13 +2261,13 @@ def test_coordinator_gets_info_on_other_coordinators():
     coord_cursor_4 = connect(host="localhost", port=7693).cursor()
 
     def show_instances_coord4():
-        return sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "down", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2343,22 +2323,22 @@ def test_registration_works_after_main_set():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -2440,22 +2420,22 @@ def test_coordinator_not_leader_registration_does_not_work():
     # 2
 
     def show_instances_coord3():
-        return sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
-        return sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     def show_instances_coord2():
-        return sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),

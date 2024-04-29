@@ -16,6 +16,7 @@
 #include "replication_coordination_glue/handler.hpp"
 #include "utils/result.hpp"
 
+#include <chrono>
 #include <string>
 #include <utility>
 
@@ -146,6 +147,14 @@ void ReplicationInstanceConnector::SetCallbacks(HealthCheckInstanceCallback succ
                                                 HealthCheckInstanceCallback fail_cb) {
   succ_cb_ = succ_cb;
   fail_cb_ = fail_cb;
+}
+
+auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::milliseconds {
+  using std::chrono::duration_cast;
+  using std::chrono::milliseconds;
+  using std::chrono::system_clock;
+
+  return duration_cast<milliseconds>(system_clock::now() - last_response_time_);
 }
 
 }  // namespace memgraph::coordination
