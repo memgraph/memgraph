@@ -42,12 +42,11 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-#TODO: upgrade to cmake 3.24 + CheckIPOSupported
-#cmake_policy(SET CMP0138 NEW)
-#include(CheckIPOSupported)
-#check_ipo_supported()
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+cmake_policy(SET CMP0138 NEW)
+include(CheckIPOSupported)
+check_ipo_supported()
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
