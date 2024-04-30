@@ -14,7 +14,7 @@
 #include <fmt/format.h>
 #include <chrono>
 #include <cmath>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <string_view>
 #include <utility>

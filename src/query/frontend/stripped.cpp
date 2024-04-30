@@ -13,7 +13,7 @@
 
 #include <cctype>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <span>
 #include <string>
 #include <utility>

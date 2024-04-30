@@ -15,7 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <iostream>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>

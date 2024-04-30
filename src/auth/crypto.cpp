@@ -16,6 +16,7 @@
 #include <openssl/opensslv.h>
 #include <openssl/sha.h>
 
+#include <iostream>
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"

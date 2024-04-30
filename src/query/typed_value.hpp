@@ -12,7 +12,7 @@
 #pragma once
 
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
