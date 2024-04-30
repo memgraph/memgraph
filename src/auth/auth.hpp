@@ -123,6 +123,16 @@ class Auth final {
   std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
 
   /**
+   * Authenticates a user using a bearer token, i.e. the identity provider response.
+   *
+   * @param response
+   *
+   * @return the role when the identity provider response is valid, nullopt otherwise
+   * @throw AuthException if unable to authenticate for any other reason.
+   */
+  std::optional<UserOrRole> BearerAuthentication(const std::string &identity_provider_response);
+
+  /**
    * Gets a user from the storage.
    *
    * @param username

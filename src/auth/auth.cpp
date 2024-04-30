@@ -300,6 +300,53 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   return user;
 }
 
+std::optional<UserOrRole> BearerAuthentication(const std::string &identity_provider_response) {
+  if (!module_.IsUsed()) {  // TODO: check if the flag refers to the right module
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate via bearer token without using the right external module. https://memgr.ph/auth"));
+  }
+
+  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+  if (license_check_result.HasError()) {
+    spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+    return std::nullopt;
+  }
+
+  nlohmann::json params = nlohmann::json::object();
+  params["response"] = identity_provider_response;
+  // TODO: get SAML settings here from the flags and pass them as a parameter
+
+  auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
+
+  // Verify response integrity.
+  if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end() ||
+      ret.find("username") == ret.end()) {
+    return std::nullopt;
+  }
+  const auto &ret_authenticated = ret.at("authenticated");
+  const auto &ret_role = ret.at("role");
+  const auto &ret_username = ret.at("username");
+  if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
+    return std::nullopt;
+  }
+  auto is_authenticated = ret_authenticated.get<bool>();
+  const auto &rolename = ret_role.get<std::string>();
+  const auto &username = ret_username.get<std::string>();
+
+  // Check if role is present
+  auto role = GetRole(rolename);
+  if (!role) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
+                                        username, rolename, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+
+  // Authenticate the user.
+  if (!is_authenticated) return std::nullopt;
+
+  return RoleWUsername{username, std::move(*role)};
+}
+
 void Auth::LinkUser(User &user) const {
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
