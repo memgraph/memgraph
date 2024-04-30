@@ -42,13 +42,6 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-#TODO: upgrade to cmake 3.24 + CheckIPOSupported
-#cmake_policy(SET CMP0138 NEW)
-#include(CheckIPOSupported)
-#check_ipo_supported()
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
-
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
@@ -220,6 +213,13 @@ add_link_options(-fuse-ld=lld)
 string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
 separate_arguments(LD_LIBS)
 link_directories(${LD_LIBS})
+
+# After linker is set, check we can use link-time optimization
+cmake_policy(SET CMP0138 NEW)
+include(CheckIPOSupported)
+check_ipo_supported() # fatal error if IPO is not supported
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
