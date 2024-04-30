@@ -396,7 +396,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     auto &database = *db->get();
     database.streams()->StopAll();
     database.streams()->DropAll();
-    database.thread_pool()->Shutdown();
+    database.thread_pool()->ShutDown();
   }
 
   // Remove from durability list
