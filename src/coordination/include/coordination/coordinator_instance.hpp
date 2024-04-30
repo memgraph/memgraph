@@ -49,7 +49,6 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
   CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;
   CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
-
   ~CoordinatorInstance();
 
   [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)

@@ -67,6 +67,18 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   raft_state_->InitRaftServer();
 }
 
+CoordinatorInstance::~CoordinatorInstance() {
+  // Order is important:
+  // 1. Thread pool might be running with force reset, or become follower, so we should shut that down
+  // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do force reset
+  // 3. Frequent checks running, we need to stop them before raft_state_ is destroyed
+  ShuttingDown();
+  thread_pool_.Shutdown();
+  // We don't need to take lock as force reset can't be running, coordinator can't become follower,
+  // user queries can't be running as memgraph awaits server shutdown
+  std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopFrequentCheck(); });
+}
+
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     if (is_shutting_down_.load(std::memory_order_acquire)) {
@@ -139,22 +151,6 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
       spdlog::info("Stopped all replication instance frequent checks.");
     });
   };
-}
-
-CoordinatorInstance::~CoordinatorInstance() {
-  // Order is important:
-  // 1. Thread pool might be running with force reset, or become follower, so we should shut that down
-  // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do force reset
-  // 3. Frequent checks running, we need to stop them before raft_state_ is destroyed
-  ShuttingDown();
-  thread_pool_.Shutdown();
-  // We don't need to take lock as force reset can't be running, coordinator can't become follower,
-  // user queries can't be running as memgraph awaits server shutdown
-  std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
-    spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
-    repl_instance.StopFrequentCheck();
-    spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
-  });
 }
 
 auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_instance_name)
