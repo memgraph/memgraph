@@ -15,7 +15,12 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -41,7 +46,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--storage-recover-on-startup=false",
             "--data-recovery-on-startup=false",
         ],
-        "log_file": "instance_1.log",
+        "log_file": "high_availability/single_coordinator/instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
         "setup_queries": [],
     },
@@ -58,7 +63,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--storage-recover-on-startup=false",
             "--data-recovery-on-startup=false",
         ],
-        "log_file": "instance_2.log",
+        "log_file": "high_availability/single_coordinator/instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
         "setup_queries": [],
     },
@@ -75,7 +80,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--storage-recover-on-startup=false",
             "--data-recovery-on-startup=false",
         ],
-        "log_file": "instance_3.log",
+        "log_file": "high_availability/single_coordinator/instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
         "setup_queries": [],
     },
@@ -88,7 +93,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=1",
             "--coordinator-port=10111",
         ],
-        "log_file": "coordinator.log",
+        "log_file": "high_availability/single_coordinator/coordinator.log",
         "setup_queries": [
             "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
             "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
@@ -133,7 +138,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/single_coordinator/instance_1.log",
             "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
@@ -151,7 +156,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/single_coordinator/instance_2.log",
             "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
@@ -170,7 +175,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/single_coordinator/instance_3.log",
             "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
@@ -183,7 +188,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator.log",
+            "log_file": "high_availability/single_coordinator/coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
@@ -249,10 +254,10 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -269,7 +274,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     new_expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -289,7 +294,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     new_expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "replica"),
@@ -344,7 +349,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/single_coordinator/instance_1.log",
             "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
@@ -362,7 +367,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/single_coordinator/instance_2.log",
             "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
@@ -381,7 +386,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/single_coordinator/instance_3.log",
             "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
@@ -400,7 +405,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_4.log",
+            "log_file": "high_availability/single_coordinator/instance_4.log",
             "data_directory": f"{temp_dir}/instance_4",
             "setup_queries": [],
         },
@@ -413,7 +418,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator.log",
+            "log_file": "high_availability/single_coordinator/coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
@@ -479,10 +484,10 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -506,7 +511,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 6
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -531,7 +536,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 10
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -550,7 +555,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -573,7 +578,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "replica"),
@@ -631,7 +636,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/single_coordinator/instance_1.log",
             "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
@@ -649,7 +654,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/single_coordinator/instance_2.log",
             "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
@@ -668,7 +673,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/single_coordinator/instance_3.log",
             "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
@@ -687,7 +692,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_4.log",
+            "log_file": "high_availability/single_coordinator/instance_4.log",
             "data_directory": f"{temp_dir}/instance_4",
             "setup_queries": [],
         },
@@ -700,7 +705,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator.log",
+            "log_file": "high_availability/single_coordinator/coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
@@ -752,10 +757,10 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -787,7 +792,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 7
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -821,7 +826,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -836,7 +841,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 13
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -918,7 +923,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_1.log",
+            "log_file": "high_availability/single_coordinator/instance_1.log",
             "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
@@ -936,7 +941,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 f"--data-recovery-on-startup={data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_2.log",
+            "log_file": "high_availability/single_coordinator/instance_2.log",
             "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
@@ -955,7 +960,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_3.log",
+            "log_file": "high_availability/single_coordinator/instance_3.log",
             "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
@@ -974,7 +979,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 f"{data_recovery}",
                 "--storage-recover-on-startup=false",
             ],
-            "log_file": "instance_4.log",
+            "log_file": "high_availability/single_coordinator/instance_4.log",
             "data_directory": f"{temp_dir}/instance_4",
             "setup_queries": [],
         },
@@ -987,7 +992,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
             ],
-            "log_file": "coordinator.log",
+            "log_file": "high_availability/single_coordinator/coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
@@ -1039,11 +1044,11 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_instances():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1075,7 +1080,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     # 7
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1101,7 +1106,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_4")
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1118,7 +1123,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     # 11
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1187,10 +1192,10 @@ def test_replication_works_on_failover_simple():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1307,10 +1312,10 @@ def test_replication_works_on_replica_instance_restart():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1373,10 +1378,10 @@ def test_replication_works_on_replica_instance_restart():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1421,10 +1426,10 @@ def test_show_instances():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1447,7 +1452,7 @@ def test_show_instances():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1457,7 +1462,7 @@ def test_show_instances():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1497,10 +1502,10 @@ def test_simple_automatic_failover():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1587,10 +1592,10 @@ def test_replica_instance_restarts():
     cursor = connect(host="localhost", port=7690).cursor()
 
     def show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
     expected_data_up = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1600,7 +1605,7 @@ def test_replica_instance_restarts():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_down = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1629,10 +1634,10 @@ def test_automatic_failover_main_back_as_replica():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_after_failover = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1640,7 +1645,7 @@ def test_automatic_failover_main_back_as_replica():
     mg_sleep_and_assert(expected_data_after_failover, retrieve_data_show_repl_cluster)
 
     expected_data_after_main_coming_back = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "replica"),
@@ -1668,10 +1673,10 @@ def test_automatic_failover_main_back_as_main():
     coord_cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data_show_repl_cluster():
-        return sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_all_down = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "down", "unknown"),
@@ -1681,7 +1686,7 @@ def test_automatic_failover_main_back_as_main():
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
     expected_data_main_back = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
@@ -1699,7 +1704,7 @@ def test_automatic_failover_main_back_as_main():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data_replicas_back = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
         ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),

@@ -26,6 +26,7 @@ struct InstanceStatus {
   std::string bolt_server;
   std::string cluster_role;
   std::string health;
+  int64_t last_succ_resp_ms;
 
   friend bool operator==(InstanceStatus const &lhs, InstanceStatus const &rhs) = default;
 };
