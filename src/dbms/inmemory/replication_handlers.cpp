@@ -10,18 +10,20 @@
 // licenses/APL.txt.
 
 #include "dbms/inmemory/replication_handlers.hpp"
-#include <chrono>
-#include <optional>
+
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+
+#include <spdlog/spdlog.h>
+#include <cstdint>
+#include <optional>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
@@ -546,6 +548,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   slk::Save(res, res_builder);
 }
 
+// The number of applied deltas also includes skipped deltas.
 uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage *storage,
                                                         storage::durability::BaseDecoder *decoder,
                                                         const uint64_t version) {
@@ -575,10 +578,11 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
     return &commit_timestamp_and_accessor->second;
   };
 
-  uint64_t applied_deltas = 0;
+  uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
+  uint64_t applied_deltas = 0;     // Non-skipped deltas
   auto max_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
 
-  for (bool transaction_complete = false; !transaction_complete; ++applied_deltas) {
+  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     const auto [timestamp, delta] = ReadDelta(decoder);
     if (timestamp > max_commit_timestamp) {
       max_commit_timestamp = timestamp;
@@ -590,7 +594,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
       spdlog::trace("Skipping delta {} {}", timestamp, storage->timestamp_);
       continue;
     }
-    spdlog::trace("  Delta {}", applied_deltas);
+    spdlog::trace("  Delta {}", current_delta_idx);
     switch (delta.type) {
       case WalDeltaData::Type::VERTEX_CREATE: {
         spdlog::trace("       Create vertex {}", delta.vertex_create_delete.gid.AsUint());
@@ -919,6 +923,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
         break;
       }
     }
+    applied_deltas++;
   }
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
@@ -926,6 +931,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage
   storage->repl_storage_state_.last_commit_timestamp_ = max_commit_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return applied_deltas;
+  return current_delta_idx;
 }
 }  // namespace memgraph::dbms

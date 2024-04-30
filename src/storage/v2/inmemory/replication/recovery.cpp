@@ -98,10 +98,8 @@ uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
-  const auto [buffer, buffer_size] = wal_file.CurrentFileBuffer();
-  stream.AppendSize(file.GetSize() + buffer_size);
+  stream.AppendSize(file.GetSize());
   stream.AppendFileData(&file);
-  stream.AppendBufferData(buffer, buffer_size);
   auto response = stream.Finalize();
   return response.current_commit_timestamp;
 }
