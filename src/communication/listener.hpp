@@ -133,7 +133,7 @@ class Listener final {
                 // blocking `Write` calls and to signal an event that the
                 // session is closed. Session cleanup will be done in the event
                 // process function.
-                session->socket().Shutdown();
+                session->socket().ShutDown();
               }
             }
           }

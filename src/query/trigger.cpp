@@ -229,7 +229,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, 
   while (cursor->Pull(frame, ctx))
     ;
 
-  cursor->Shutdown();
+  cursor->ShutDown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
 }
 

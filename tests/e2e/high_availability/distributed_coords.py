@@ -27,6 +27,7 @@ from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_any_function,
     mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_for_a_while,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -2631,10 +2632,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
 
-    # We are explicitly waiting here if failover will happen - we expect it shouldn't happen
-    time.sleep(FAILOVER_PERIOD + 1)
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert_for_a_while(leader_data, show_instances_coord3, FAILOVER_PERIOD + 1)
     mg_sleep_and_assert(follower_data, show_instances_coord1)
     mg_sleep_and_assert(follower_data, show_instances_coord2)
 

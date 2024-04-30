@@ -144,6 +144,9 @@ class CoordinatorInstance {
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  // Raft updates leadership before callback is executed. IsLeader() can return true, but
+  // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
+  // accept queries.
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
@@ -153,7 +156,7 @@ class CoordinatorInstance {
 
   std::unique_ptr<RaftState> raft_state_;
 
-  // Thread pool must be destructed first, because there is option we are doing force reset in thread
+  // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
 };

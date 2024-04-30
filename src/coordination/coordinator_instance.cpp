@@ -63,17 +63,23 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 
+  // Delay constructing of Raft state until everything is constructed in coordinator instance
+  // since raft state will call become leader callback or become follower callback on construction.
+  // If something is not yet constructed in coordinator instance, we get UB
   raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
   raft_state_->InitRaftServer();
 }
 
 CoordinatorInstance::~CoordinatorInstance() {
+  // Coordinator instance can be stuck in infinite loop of doing force reset. We need to notify thread
+  // that we are shutting down, and we need to stop frequent checks and thread pool before anything is destructed
+  // otherwise thread pool can get task become leader, when raft_state_ ptr is already destructed
   // Order is important:
   // 1. Thread pool might be running with force reset, or become follower, so we should shut that down
   // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do force reset
   // 3. Frequent checks running, we need to stop them before raft_state_ is destroyed
   ShuttingDown();
-  thread_pool_.Shutdown();
+  thread_pool_.ShutDown();
   // We don't need to take lock as force reset can't be running, coordinator can't become follower,
   // user queries can't be running as memgraph awaits server shutdown
   std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopFrequentCheck(); });
@@ -425,7 +431,11 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
   return ForceResetClusterStateStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateStatus { return ForceResetCluster_(); }
+auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateStatus {
+  // Follows nomenclature from replication handler where Try<> means doing action from
+  // user query
+  return ForceResetCluster_();
+}
 
 auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
   // TODO(antoniofilipovic): Implement exponential backoff
