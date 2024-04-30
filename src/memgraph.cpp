@@ -656,7 +656,7 @@ int main(int argc, char **argv) {
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server,
+                      &metrics_server, &coordinator_state,
 #endif
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -669,6 +669,9 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
+    if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
+      coordinator_state->ShutDownCoordinator();
+    }
 #endif
   };
 

@@ -27,7 +27,7 @@ void ThreadPool::AddTask(std::function<void()> new_task) {
   queue_cv_.notify_one();
 }
 
-void ThreadPool::Shutdown() {
+void ThreadPool::ShutDown() {
   terminate_pool_.store(true);
   {
     std::unique_lock pool_guard(pool_lock_);
@@ -46,7 +46,7 @@ void ThreadPool::Shutdown() {
 
 ThreadPool::~ThreadPool() {
   if (!stopped_.load()) {
-    Shutdown();
+    ShutDown();
   }
 }
 
