@@ -453,11 +453,17 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
         spdlog::trace("Stopping force as coordinator is shutting down.");
         return result;
       case ForceResetClusterStateStatus::RPC_FAILED:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::ACTION_FAILED:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::RAFT_LOG_ERROR:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::NO_NEW_MAIN:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::FAILED_TO_OPEN_LOCK:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::FAILED_TO_CLOSE_LOCK:
+        [[fallthrough]];
       case ForceResetClusterStateStatus::NOT_COORDINATOR:  // shouldn't happen
         break;
     }
