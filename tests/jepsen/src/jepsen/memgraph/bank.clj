@@ -166,10 +166,10 @@
                            (filter #(= :ok (:type %)))
                            (filter #(= :read (:f %))))
             bad-reads (->> ok-reads
-                           (map #(->> % :value :accounts))
-                           (filter #(= (count %) 5))
-                           (map (fn [op]
-                                  (let [balances       (map :balance op)
+                           (map #(->> % :value))
+                           (filter #(= (count (:accounts %)) 5))
+                           (map (fn [value]
+                                  (let [balances  (map :balance (:accounts value))
                                         expected-total (* account-num starting-balance)]
                                     (cond (and
                                            (not-empty balances)
@@ -179,12 +179,12 @@
                                           {:type :wrong-total
                                            :expected expected-total
                                            :found (reduce + balances)
-                                           :op op}
+                                           :value value}
 
                                           (some neg? balances)
                                           {:type :negative-value
                                            :found balances
-                                           :op op}))))
+                                           :op value}))))
                            (filter identity)
                            (into []))
             empty-nodes (let [all-nodes (->> ok-reads
