@@ -16,7 +16,12 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, safe_execute
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -44,7 +49,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "instance_1.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
         "setup_queries": [],
     },
@@ -63,7 +68,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "instance_2.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
         "setup_queries": [],
     },
@@ -82,7 +87,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "10",
         ],
-        "log_file": "instance_3.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
         "setup_queries": [],
     },
@@ -95,7 +100,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=1",
             "--coordinator-port=10111",
         ],
-        "log_file": "coordinator1.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator1.log",
         "setup_queries": [],
     },
     "coordinator_2": {
@@ -107,7 +112,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=2",
             "--coordinator-port=10112",
         ],
-        "log_file": "coordinator2.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator2.log",
         "setup_queries": [],
     },
     "coordinator_3": {
@@ -120,7 +125,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-port=10113",
             "--also-log-to-stderr",
         ],
-        "log_file": "coordinator3.log",
+        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator3.log",
         "setup_queries": [],
     },
 }
@@ -147,12 +152,14 @@ def test_writing_disabled_on_main_restart():
     )
 
     def check_coordinator3():
-        return sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
+        )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -160,9 +167,9 @@ def test_writing_disabled_on_main_restart():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
@@ -180,9 +187,9 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 

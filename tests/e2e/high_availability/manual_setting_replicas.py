@@ -34,7 +34,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port",
             "10013",
         ],
-        "log_file": "main.log",
+        "log_file": "high_availability/manual_setting_replicas/main.log",
         "setup_queries": [],
     },
 }
