@@ -300,7 +300,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
     });
 
     if (first_user) {
-      spdlog::info("{} is first created user. Granting all privileges.", username);
+      spdlog::info("{} is the first created user. Granting all privileges.", username);
       GrantPrivilege(
           username, memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE
