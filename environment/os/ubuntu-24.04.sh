@@ -3,7 +3,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "ubuntu-22.04"
+check_operating_system "ubuntu-24.04"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -120,7 +120,7 @@ install() {
         fi
         if [ "$pkg" == dotnet-sdk-6.0 ]; then
             if ! dpkg -s dotnet-sdk-6.0 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
                 apt-get update
                 apt-get install -y apt-transport-https dotnet-sdk-6.0
