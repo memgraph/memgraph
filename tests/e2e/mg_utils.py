@@ -17,10 +17,7 @@ def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=
     return result
 
 
-def mg_sleep_and_assert_for_a_while(
-    expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2
-) -> None:
-    result = function_to_retrieve_data()
+def mg_assert_until(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2) -> None:
     start_time = time.time()
     duration = time.time() - start_time
     while duration < max_duration:
