@@ -44,6 +44,8 @@ add_library(mg-storage-v2 STATIC
         replication/rpc.cpp
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
+        label_set.hpp
+        label_set.cpp
 )
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)

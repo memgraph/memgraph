@@ -18,6 +18,7 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/label_set.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/rw_spin_lock.hpp"
 
