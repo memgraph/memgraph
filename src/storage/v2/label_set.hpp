@@ -41,8 +41,8 @@ struct label_set {
   using const_reference = value_type const &;
   using size_type = uint32_t;
 
-  using iterator = LabelId *;
-  using const_iterator = LabelId const *;
+  using iterator = value_type *;
+  using const_iterator = value_type const *;
 
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
@@ -50,7 +50,7 @@ struct label_set {
   label_set() = default;
   label_set(label_set const &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
     if (capacity_ != kSmallCapacity) [[unlikely]] {
-      buffer_ = new LabelId[capacity_];
+      buffer_ = new value_type[capacity_];
     }
     std::ranges::copy(other, begin());
   }
@@ -67,7 +67,7 @@ struct label_set {
     if (other.size_ <= capacity_) {
       std::ranges::copy(other, begin());
     } else {
-      auto new_buffer = new LabelId[other.size_];
+      auto new_buffer = new value_type[other.size_];
       std::ranges::copy(other, new_buffer);
       if (capacity_ != kSmallCapacity) [[unlikely]] {
         delete[] buffer_;
@@ -98,10 +98,10 @@ struct label_set {
     }
   }
 
-  explicit label_set(std::span<LabelId const> other)
+  explicit label_set(std::span<value_type const> other)
       : size_(other.size()), capacity_{std::max<size_type>(other.size(), kSmallCapacity)} {
     if (capacity_ != kSmallCapacity) [[unlikely]] {
-      buffer_ = new LabelId[capacity_];
+      buffer_ = new value_type[capacity_];
     }
     std::ranges::copy(other, begin());
   }
@@ -120,10 +120,10 @@ struct label_set {
   auto crbegin() const -> const_reverse_iterator { return const_reverse_iterator{end()}; }
   auto crend() const -> const_reverse_iterator { return const_reverse_iterator{begin()}; }
 
-  void push_back(LabelId id) {
+  void push_back(value_type id) {
     if (size_ == capacity_) {
       auto new_cap = capacity_ * 2;
-      auto new_buffer = new LabelId[new_cap];
+      auto new_buffer = new value_type[new_cap];
       std::ranges::copy(*this, new_buffer);
       if (capacity_ != kSmallCapacity) delete[] buffer_;
       buffer_ = new_buffer;
@@ -132,7 +132,7 @@ struct label_set {
     begin()[size_] = id;
     ++size_;
   };
-  void emplace_back(LabelId id) { push_back(id); };
+  void emplace_back(value_type id) { push_back(id); };
   auto back() -> reference { return *rbegin(); };
   auto back() const -> const_reference { return *crbegin(); }
   void pop_back() {
@@ -140,7 +140,7 @@ struct label_set {
   }
   void reserve(size_type new_cap) {
     if (capacity_ < new_cap) {
-      auto new_buffer = new LabelId[new_cap];
+      auto new_buffer = new value_type[new_cap];
       std::ranges::copy(*this, new_buffer);
       if (capacity_ != kSmallCapacity) delete[] buffer_;
       buffer_ = new_buffer;
@@ -155,13 +155,15 @@ struct label_set {
   auto operator[](size_t idx) const -> const_reference { return *(begin() + idx); }
 
  private:
-  static constexpr size_type kSmallCapacity = sizeof(LabelId *) / sizeof(LabelId);
+  static_assert(sizeof(value_type) <= sizeof(value_type *),
+                "Small buffer must be large enough for at least one element");
+  static constexpr size_type kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
   size_type size_ = 0;
   size_type capacity_ = kSmallCapacity;
   union {
-    std::array<LabelId, kSmallCapacity> small_buffer_;
-    LabelId *buffer_;
+    std::array<value_type, kSmallCapacity> small_buffer_;
+    value_type *buffer_;
   };
 };
 
