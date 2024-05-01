@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/label_set.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -149,7 +150,7 @@ inline std::string SerializeEdgeAsValue(const std::string &src_vertex_gid, const
 }
 
 inline std::string SerializeVertexAsValueForAuxiliaryStorages(storage::LabelId label_to_remove,
-                                                              const std::vector<storage::LabelId> &vertex_labels,
+                                                              std::span<storage::LabelId const> vertex_labels,
                                                               const storage::PropertyStore &property_store) {
   std::vector<storage::LabelId> labels_without_target;
   labels_without_target.reserve(vertex_labels.size());
@@ -215,7 +216,7 @@ inline std::string SerializeVertexAsKeyForUniqueConstraint(const storage::LabelI
 }
 
 inline std::string SerializeVertexAsValueForUniqueConstraint(const storage::LabelId &constraint_label,
-                                                             const std::vector<storage::LabelId> &vertex_labels,
+                                                             std::span<storage::LabelId const> vertex_labels,
                                                              const storage::PropertyStore &property_store) {
   return SerializeVertexAsValueForAuxiliaryStorages(constraint_label, vertex_labels, property_store);
 }
@@ -246,7 +247,7 @@ inline std::string SerializeVertexAsKeyForLabelIndex(storage::LabelId label, sto
 inline std::string_view ExtractGidFromLabelIndexStorage(const std::string &key) { return ExtractGidFromKey(key); }
 
 inline std::string SerializeVertexAsValueForLabelIndex(storage::LabelId indexing_label,
-                                                       const std::vector<storage::LabelId> &vertex_labels,
+                                                       std::span<storage::LabelId const> vertex_labels,
                                                        const storage::PropertyStore &property_store) {
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }
@@ -288,7 +289,7 @@ inline std::string SerializeVertexAsKeyForLabelPropertyIndex(storage::LabelId la
 }
 
 inline std::string SerializeVertexAsValueForLabelPropertyIndex(storage::LabelId indexing_label,
-                                                               const std::vector<storage::LabelId> &vertex_labels,
+                                                               std::span<storage::LabelId const> vertex_labels,
                                                                const storage::PropertyStore &property_store) {
   return SerializeVertexAsValueForAuxiliaryStorages(indexing_label, vertex_labels, property_store);
 }

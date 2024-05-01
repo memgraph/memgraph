@@ -45,6 +45,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/label_set.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
@@ -1359,12 +1360,12 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
 }
 
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, std::vector<LabelId> label_ids,
+                                                 storage::Gid gid, std::span<storage::LabelId const> label_ids,
                                                  PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
-  it->labels = std::move(label_ids);
+  it->labels = memgraph::storage::label_set(label_ids.begin(), label_ids.end());
   it->properties = std::move(properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};

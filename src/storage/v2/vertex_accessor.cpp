@@ -215,10 +215,10 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
-Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
+Result<label_set> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
-  std::vector<LabelId> labels;
+  label_set labels;
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};

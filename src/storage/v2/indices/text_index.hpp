@@ -42,7 +42,7 @@ class TextIndex {
 
   std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
-  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(const std::vector<LabelId> &labels);
+  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<LabelId const> labels);
 
   void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
                              const std::string &property_values_as_str,

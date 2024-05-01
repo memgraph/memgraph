@@ -91,7 +91,7 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format on
 }
 
-inline auto Labels_ActionMethod(std::vector<LabelId> &labels) {
+inline auto Labels_ActionMethod(storage::label_set &labels) {
   using enum Delta::Action;
   // clang-format off
   return utils::Overloaded{

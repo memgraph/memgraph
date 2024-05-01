@@ -33,7 +33,7 @@ struct Vertex {
 
   const Gid gid;
 
-  std::vector<LabelId> labels;
+  label_set labels;
   PropertyStore properties;
 
   std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;

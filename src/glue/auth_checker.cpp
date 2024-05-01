@@ -27,7 +27,7 @@
 #ifdef MG_ENTERPRISE
 namespace {
 bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
-                        const std::vector<memgraph::storage::LabelId> &labels,
+                        std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;

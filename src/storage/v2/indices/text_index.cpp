@@ -112,7 +112,7 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(std::span<LabelId const> labels) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }

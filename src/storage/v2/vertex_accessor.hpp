@@ -59,7 +59,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<LabelId>> Labels(View view) const;
+  Result<label_set> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
