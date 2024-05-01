@@ -42,12 +42,11 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-#TODO: upgrade to cmake 3.24 + CheckIPOSupported
-#cmake_policy(SET CMP0138 NEW)
-#include(CheckIPOSupported)
-#check_ipo_supported()
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
+cmake_policy(SET CMP0138 NEW)
+include(CheckIPOSupported)
+check_ipo_supported()
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -198,6 +197,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
     -Werror=return-stack-address \
     -Wno-c99-designator -Wmissing-field-initializers \
     -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
+
+add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>)
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO

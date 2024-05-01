@@ -13,9 +13,10 @@
 
 #include "flags/coord_flag_env_handler.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_replication/enums.hpp"
+#include "storage/v2/storage_replication/recovery.hpp"
+#include "storage/v2/storage_replication/replication_client.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"

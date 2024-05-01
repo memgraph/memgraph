@@ -21,7 +21,7 @@ struct InterpreterFaker {
     interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }
 
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query, const memgraph::storage::PropertyValue::map_t &params = {}) {
     const auto [header, _1, qid, _2] = interpreter.Prepare(query, params, {});
     auto &db = interpreter.current_db_.db_acc_;
     ResultStreamFaker stream(db ? db->get()->storage() : nullptr);
@@ -39,7 +39,7 @@ struct InterpreterFaker {
    *
    * Return the query stream.
    */
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query, const memgraph::storage::PropertyValue::map_t &params = {}) {
     auto prepare_result = Prepare(query, params);
     auto &stream = prepare_result.first;
     auto summary = interpreter.Pull(&stream, {}, prepare_result.second);

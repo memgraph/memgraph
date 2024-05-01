@@ -162,8 +162,8 @@ class DeltaGenerator final {
 
     void Finalize(bool append_transaction_end = true) {
       auto commit_timestamp = gen_->timestamp_++;
-      if (transaction_.deltas.empty()) return;
-      for (const auto &delta : transaction_.deltas) {
+      if (transaction_.delta_store.empty()) return;
+      for (const auto &delta : transaction_.delta_store) {
         auto owner = delta.prev.Get();
         while (owner.type == memgraph::storage::PreviousPtr::Type::DELTA) {
           owner = owner.delta->prev.Get();
@@ -179,7 +179,7 @@ class DeltaGenerator final {
       if (append_transaction_end) {
         gen_->wal_file_.AppendTransactionEnd(commit_timestamp);
         if (gen_->valid_) {
-          gen_->UpdateStats(commit_timestamp, transaction_.deltas.size() + 1);
+          gen_->UpdateStats(commit_timestamp, transaction_.delta_store.size() + 1);
           for (auto &data : data_) {
             if (data.type == memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY) {
               // We need to put the final property value into the SET_PROPERTY

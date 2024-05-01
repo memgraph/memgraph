@@ -53,13 +53,13 @@ struct DatabaseState {
   struct Vertex {
     int64_t id;
     std::set<std::string, std::less<>> labels;
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
   };
 
   struct Edge {
     int64_t from, to;
     std::string edge_type;
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
   };
 
   struct LabelItem {
@@ -165,7 +165,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     for (const auto &label : *maybe_labels) {
       labels.insert(dba->LabelToName(label));
     }
-    std::map<std::string, memgraph::storage::PropertyValue> props;
+    memgraph::storage::PropertyValue::map_t props;
     auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
     MG_ASSERT(maybe_properties.HasValue());
     for (const auto &kv : *maybe_properties) {
@@ -184,7 +184,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     MG_ASSERT(maybe_edges.HasValue());
     for (const auto &edge : maybe_edges->edges) {
       const auto &edge_type_name = dba->EdgeTypeToName(edge.EdgeType());
-      std::map<std::string, memgraph::storage::PropertyValue> props;
+      memgraph::storage::PropertyValue::map_t props;
       auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
       MG_ASSERT(maybe_properties.HasValue());
       for (const auto &kv : *maybe_properties) {
@@ -251,7 +251,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
 
 memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Accessor *dba,
                                                const std::vector<std::string> &labels,
-                                               const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                               const memgraph::storage::PropertyValue::map_t &props,
                                                bool add_property_id = true) {
   MG_ASSERT(dba);
   auto vertex = dba->CreateVertex();
@@ -272,7 +272,7 @@ memgraph::storage::VertexAccessor CreateVertex(memgraph::storage::Storage::Acces
 memgraph::storage::EdgeAccessor CreateEdge(memgraph::storage::Storage::Accessor *dba,
                                            memgraph::storage::VertexAccessor *from,
                                            memgraph::storage::VertexAccessor *to, const std::string &edge_type_name,
-                                           const std::map<std::string, memgraph::storage::PropertyValue> &props,
+                                           const memgraph::storage::PropertyValue::map_t &props,
                                            bool add_property_id = true) {
   MG_ASSERT(dba);
   auto edge = dba->CreateEdge(from, to, dba->NameToEdgeType(edge_type_name));
@@ -715,8 +715,8 @@ TYPED_TEST(DumpTest, UniqueConstraints) {
 TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
   {
     auto dba = this->db->Access();
-    std::map<std::string, memgraph::storage::PropertyValue> prop1 = {
-        {"nested1", memgraph::storage::PropertyValue(1337)}, {"nested2", memgraph::storage::PropertyValue(3.14)}};
+    memgraph::storage::PropertyValue::map_t prop1 = {{"nested1", memgraph::storage::PropertyValue(1337)},
+                                                     {"nested2", memgraph::storage::PropertyValue(3.14)}};
 
     CreateVertex(
         dba.get(), {"Label1", "Label2"},
@@ -1162,7 +1162,7 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
     memgraph::query::AllowEverythingAuthChecker auth_checker;
     memgraph::query::InterpreterConfig::Query query_config;
     memgraph::query::DbAccessor dba(acc.get());
-    const std::map<std::string, memgraph::storage::PropertyValue> props;
+    const memgraph::storage::PropertyValue::map_t props;
     trigger_store->AddTrigger(trigger_name, trigger_statement, props, trigger_event_type, trigger_phase, &ast_cache,
                               &dba, query_config, auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   }

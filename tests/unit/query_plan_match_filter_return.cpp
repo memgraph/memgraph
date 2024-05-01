@@ -104,13 +104,13 @@ TYPED_TEST(MatchReturnFixture, MatchReturn) {
     return PullAll(*produce, &context);
   };
 
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::NEW));
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
+  ASSERT_EQ(2, test_pull_count(memgraph::storage::View::NEW));
+  ASSERT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
   this->dba.InsertVertex();
-  EXPECT_EQ(3, test_pull_count(memgraph::storage::View::NEW));
-  EXPECT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
+  ASSERT_EQ(3, test_pull_count(memgraph::storage::View::NEW));
+  ASSERT_EQ(2, test_pull_count(memgraph::storage::View::OLD));
   this->dba.AdvanceCommand();
-  EXPECT_EQ(3, test_pull_count(memgraph::storage::View::OLD));
+  ASSERT_EQ(3, test_pull_count(memgraph::storage::View::OLD));
 }
 
 TYPED_TEST(MatchReturnFixture, MatchReturnPath) {

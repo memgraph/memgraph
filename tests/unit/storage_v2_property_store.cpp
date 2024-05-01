@@ -46,12 +46,12 @@ const memgraph::storage::PropertyValue kSampleValues[] = {
         memgraph::storage::PropertyValue(-33.33)}),
     memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue(), memgraph::storage::PropertyValue(false)}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
         {"sample", memgraph::storage::PropertyValue()}, {"key", memgraph::storage::PropertyValue(false)}}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
-        {"test", memgraph::storage::PropertyValue(33)},
-        {"map", memgraph::storage::PropertyValue(std::string("sample"))},
-        {"item", memgraph::storage::PropertyValue(-33.33)}}),
+    memgraph::storage::PropertyValue(
+        memgraph::storage::PropertyValue::map_t{{"test", memgraph::storage::PropertyValue(33)},
+                                                {"map", memgraph::storage::PropertyValue(std::string("sample"))},
+                                                {"item", memgraph::storage::PropertyValue(-33.33)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
 };
 
@@ -254,7 +254,7 @@ TEST(PropertyStore, EmptySet) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123),
                                                     memgraph::storage::PropertyValue()};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
   std::vector<memgraph::storage::PropertyValue> data{
       memgraph::storage::PropertyValue(true),    memgraph::storage::PropertyValue(123),
@@ -293,7 +293,7 @@ TEST(PropertyStore, FullSet) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123),
                                                     memgraph::storage::PropertyValue()};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
   std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> data{
       {memgraph::storage::PropertyId::FromInt(1), memgraph::storage::PropertyValue(true)},
@@ -598,41 +598,38 @@ TEST(PropertyStore, IsPropertyEqualMap) {
   memgraph::storage::PropertyStore props;
   auto prop = memgraph::storage::PropertyId::FromInt(42);
   ASSERT_TRUE(props.SetProperty(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+      prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                 {"abc", memgraph::storage::PropertyValue(42)}, {"zyx", memgraph::storage::PropertyValue("test")}})));
   ASSERT_TRUE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+      prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                 {"abc", memgraph::storage::PropertyValue(42)}, {"zyx", memgraph::storage::PropertyValue("test")}})));
 
   // Different length.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
-                {"fgh", memgraph::storage::PropertyValue(24)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
+                                               {"fgh", memgraph::storage::PropertyValue(24)}})));
 
   // Same length, different value.
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+      prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                 {"abc", memgraph::storage::PropertyValue(42)}, {"zyx", memgraph::storage::PropertyValue("testt")}})));
 
   // Same length, different key (different length).
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+      prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                 {"abc", memgraph::storage::PropertyValue(42)}, {"zyxw", memgraph::storage::PropertyValue("test")}})));
 
   // Same length, different key (same length).
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+      prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                 {"abc", memgraph::storage::PropertyValue(42)}, {"zyw", memgraph::storage::PropertyValue("test")}})));
 
   // Shortened and extended.
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
-                {"abc", memgraph::storage::PropertyValue(42)}})));
-  ASSERT_FALSE(props.IsPropertyEqual(
-      prop, memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
-                {"abc", memgraph::storage::PropertyValue(42)},
-                {"sdf", memgraph::storage::PropertyValue(true)},
-                {"zyx", memgraph::storage::PropertyValue("test")}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
+                                               {"abc", memgraph::storage::PropertyValue(42)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
+                                               {"abc", memgraph::storage::PropertyValue(42)},
+                                               {"sdf", memgraph::storage::PropertyValue(true)},
+                                               {"zyx", memgraph::storage::PropertyValue("test")}})));
 }
 
 TEST(PropertyStore, IsPropertyEqualTemporalData) {
@@ -655,7 +652,7 @@ TEST(PropertyStore, SetMultipleProperties) {
   std::vector<memgraph::storage::PropertyValue> vec{memgraph::storage::PropertyValue(true),
                                                     memgraph::storage::PropertyValue(123),
                                                     memgraph::storage::PropertyValue()};
-  std::map<std::string, memgraph::storage::PropertyValue> map{{"nandare", memgraph::storage::PropertyValue(false)}};
+  memgraph::storage::PropertyValue::map_t map{{"nandare", memgraph::storage::PropertyValue(false)}};
   const memgraph::storage::TemporalData temporal{memgraph::storage::TemporalType::LocalDateTime, 23};
   // The order of property ids are purposfully not monotonic to test that PropertyStore orders them properly
   const std::vector<std::pair<memgraph::storage::PropertyId, memgraph::storage::PropertyValue>> data{

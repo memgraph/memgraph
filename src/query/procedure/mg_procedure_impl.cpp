@@ -1781,12 +1781,12 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
-  memgraph::storage::PropertyValue result{std::map<std::string, memgraph::storage::PropertyValue>{}};
-  auto &result_map = result.ValueMap();
+  auto result_map = memgraph::storage::PropertyValue::map_t{};
+  result_map.reserve(map.items.size());
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
   }
-  return result;
+  return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
@@ -4230,9 +4230,10 @@ struct MgProcedureResultStream final {
   }
 };
 
-std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_map *params) {
-  std::map<std::string, memgraph::storage::PropertyValue> query_params;
-  for (auto &[k, v] : params->items) {
+auto CreateQueryParams(mgp_map *params) -> memgraph::storage::PropertyValue::map_t {
+  memgraph::storage::PropertyValue::map_t query_params;
+  query_params.reserve(params->items.size());
+  for (auto const &[k, v] : params->items) {
     query_params.emplace(k, ToPropertyValue(v));
   }
 

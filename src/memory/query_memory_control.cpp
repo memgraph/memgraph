@@ -12,7 +12,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <shared_mutex>
 #include <thread>

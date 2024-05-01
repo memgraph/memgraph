@@ -13,7 +13,7 @@
 
 #include <netinet/in.h>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <string>
 

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <gflags/gflags.h>
+#include <iostream>
 #include <limits>
 #include "utils/flag_validation.hpp"
 

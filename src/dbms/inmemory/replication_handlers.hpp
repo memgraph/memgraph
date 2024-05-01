@@ -13,7 +13,7 @@
 
 #include "replication/replication_server.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_replication/serialization.hpp"
 
 namespace memgraph::storage {
 class InMemoryStorage;

@@ -26,6 +26,7 @@
 #include <math.h>
 #include <json/json.hpp>
 
+#include <iostream>
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/init.hpp"

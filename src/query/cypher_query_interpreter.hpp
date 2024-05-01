@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -85,7 +85,7 @@ struct QueryCacheEntry {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
+  storage::PropertyValue::map_t user_parameters;
   Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
@@ -94,7 +94,7 @@ struct ParsedQuery {
   bool is_cacheable{true};
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, const storage::PropertyValue::map_t &params,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {

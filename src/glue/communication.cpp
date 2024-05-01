@@ -258,8 +258,10 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
       return storage::PropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
-      std::map<std::string, storage::PropertyValue> map;
-      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToPropertyValue(kv.second));
+      auto const &srcMap = value.ValueMap();
+      storage::PropertyValue::map_t map;
+      map.reserve(srcMap.size());
+      for (const auto &kv : srcMap) map.emplace(kv.first, ToPropertyValue(kv.second));
       return storage::PropertyValue(std::move(map));
     }
     case Value::Type::Vertex:

@@ -300,6 +300,9 @@ target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
 add_unit_test(lru_cache.cpp)
 target_link_libraries(${test_prefix}lru_cache mg-utils)
 
+add_unit_test(utils_static_vector.cpp)
+target_link_libraries(${test_prefix}utils_static_vector mg::utils)
+
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
@@ -309,6 +312,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+
+add_unit_test(storage_v2_delta_container.cpp)
+target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
 
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)

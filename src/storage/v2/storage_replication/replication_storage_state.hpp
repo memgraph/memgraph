@@ -26,10 +26,10 @@
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/database_access.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/global.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_replication/enums.hpp"
+#include "storage/v2/storage_replication/global.hpp"
+#include "storage/v2/storage_replication/rpc.hpp"
+#include "storage/v2/storage_replication/serialization.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {

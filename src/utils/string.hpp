@@ -18,7 +18,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iomanip>
-#include <iostream>
+#include <iosfwd>
 #include <iterator>
 #include <random>
 #include <regex>

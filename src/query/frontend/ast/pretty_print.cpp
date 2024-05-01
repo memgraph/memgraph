@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -104,6 +104,8 @@ void PrintObject(std::ostream *out, const std::vector<T> &vec);
 template <typename K, typename V>
 void PrintObject(std::ostream *out, const std::map<K, V> &map);
 
+void PrintObject(std::ostream *out, const storage::PropertyValue::map_t &map);
+
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
   static_assert(!std::is_convertible_v<T, Expression *>,
@@ -182,6 +184,16 @@ void PrintObject(std::ostream *out, const std::vector<T> &vec) {
 
 template <typename K, typename V>
 void PrintObject(std::ostream *out, const std::map<K, V> &map) {
+  *out << "{";
+  utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
+    PrintObject(&stream, item.first);
+    stream << ": ";
+    PrintObject(&stream, item.second);
+  });
+  *out << "}";
+}
+
+void PrintObject(std::ostream *out, const storage::PropertyValue::map_t &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
     PrintObject(&stream, item.first);

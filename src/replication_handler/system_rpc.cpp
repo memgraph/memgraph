@@ -16,7 +16,7 @@
 #include "auth/rpc.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/storage_replication/rpc.hpp"
 #include "utils/enum.hpp"
 
 namespace memgraph::slk {

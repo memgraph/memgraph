@@ -34,9 +34,8 @@ namespace memgraph::query {
 
 enum class TransactionStatus;
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query,
-                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+  explicit Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
   void Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, double max_execution_time_sec,
@@ -84,10 +83,10 @@ struct TriggerStore {
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
 
-  void AddTrigger(std::string name, const std::string &query,
-                  const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                  TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
+  void AddTrigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+                  TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
+                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                  std::shared_ptr<QueryUserOrRole> owner);
 
   void DropTrigger(const std::string &name);
   void DropAll();

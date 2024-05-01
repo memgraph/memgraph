@@ -20,7 +20,7 @@
 
 #include <storage/v2/inmemory/storage.hpp>
 #include <storage/v2/property_value.hpp>
-#include <storage/v2/replication/enums.hpp>
+#include <storage/v2/storage_replication/enums.hpp>
 #include "auth/auth.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"

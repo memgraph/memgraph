@@ -231,7 +231,7 @@ static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int
 const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
 const PropertyValue kSmallestString = PropertyValue("");
 const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
+const PropertyValue kSmallestMap = PropertyValue{PropertyValue::map_t{}};
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 

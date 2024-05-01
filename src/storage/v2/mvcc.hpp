@@ -114,46 +114,45 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+  return &transaction->delta_store.emplace(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
 }
 
-inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
+inline Delta *CreateDeleteObjectDelta(Transaction *transaction, delta_container *deltas) {
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
+  return &deltas->emplace(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
-                                                  std::string &&ts) {
+                                                  std::string_view ts) {
   transaction->EnsureCommitTimestampExists();
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
+  return &transaction->delta_store.emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
-inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
-                                                  std::string &&ts) {
+inline Delta *CreateDeleteDeserializedObjectDelta(delta_container *deltas, std::optional<std::string> old_disk_key,
+                                                  std::string_view ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
+  return &deltas->emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key, const uint64_t ts) {
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas, std::optional<std::string> old_disk_key,
+                                                       const uint64_t ts) {
+  return &deltas.emplace(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
 }
 
-/// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key, const std::string &ts) {
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas, std::optional<std::string> old_disk_key,
+                                                       const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
+  return CreateDeleteDeserializedIndexObjectDelta(deltas, std::move(old_disk_key), ts_id);
 }
 
 /// This function creates a delta in the transaction for the object and links
@@ -165,7 +164,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
     return;
   }
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+  auto delta = &transaction->delta_store.emplace(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                  transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`

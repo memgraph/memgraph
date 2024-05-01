@@ -13,7 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <string>

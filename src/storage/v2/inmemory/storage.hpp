@@ -20,16 +20,16 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
-#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_replication/replication_client.hpp"
 
 /// REPLICATION ///
 #include "replication/config.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
-#include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_replication/enums.hpp"
+#include "storage/v2/storage_replication/replication_storage_state.hpp"
+#include "storage/v2/storage_replication/rpc.hpp"
+#include "storage/v2/storage_replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
 #include "utils/resource_lock.hpp"
@@ -470,14 +470,14 @@ class InMemoryStorage final : public Storage {
   std::mutex gc_lock_;
 
   struct GCDeltas {
-    GCDeltas(uint64_t mark_timestamp, std::deque<Delta> deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
+    GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
         : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
 
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
-    std::deque<Delta> deltas_;                                   //!< the deltas that need cleaning
+    delta_container deltas_;                                     //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 

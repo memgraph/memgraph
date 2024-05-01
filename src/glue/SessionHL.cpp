@@ -39,10 +39,12 @@ namespace {
 auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
-  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
+  auto metadata_pv = memgraph::storage::PropertyValue::map_t{};
 
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
-    for (const auto &[key, bolt_md] : it->second.ValueMap()) {
+    auto &srcMap = it->second.ValueMap();
+    metadata_pv.reserve(srcMap.size());
+    for (const auto &[key, bolt_md] : srcMap) {
       metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
     }
   }
@@ -207,7 +209,8 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
     const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
     const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  std::map<std::string, memgraph::storage::PropertyValue> params_pv;
+  storage::PropertyValue::map_t params_pv;
+  params_pv.reserve(params.size());
   for (const auto &[key, bolt_param] : params) {
     params_pv.emplace(key, ToPropertyValue(bolt_param));
   }

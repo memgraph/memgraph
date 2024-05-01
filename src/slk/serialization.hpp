@@ -15,7 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <iostream>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <optional>
@@ -26,6 +26,8 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include <boost/container/flat_map.hpp>
 
 #include "slk/streams.hpp"
 #include "utils/cast.hpp"
@@ -76,15 +78,15 @@ void Save(const std::set<T, Cmp> &obj, Builder *builder);
 template <typename T, typename Cmp>
 void Load(std::set<T, Cmp> *obj, Reader *reader);
 
-template <typename K, typename V>
-void Save(const std::map<K, V> &obj, Builder *builder);
-template <typename K, typename V>
-void Load(std::map<K, V> *obj, Reader *reader);
+template <typename K, typename V, typename Cmp, typename Alloc>
+void Save(const std::map<K, V, Cmp, Alloc> &obj, Builder *builder);
+template <typename K, typename V, typename Cmp, typename Alloc>
+void Load(std::map<K, V, Cmp, Alloc> *obj, Reader *reader);
 
-template <typename K, typename V>
-void Save(const std::unordered_map<K, V> &obj, Builder *builder);
-template <typename K, typename V>
-void Load(std::unordered_map<K, V> *obj, Reader *reader);
+template <typename K, typename V, typename Cmp, typename Alloc>
+void Save(const std::unordered_map<K, V, Cmp, Alloc> &obj, Builder *builder);
+template <typename K, typename V, typename Cmp, typename Alloc>
+void Load(std::unordered_map<K, V, Cmp, Alloc> *obj, Reader *reader);
 
 template <typename T>
 void Save(const std::unique_ptr<T> &obj, Builder *builder);
@@ -250,38 +252,53 @@ inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
   }
 }
 
-#define MAKE_MAP_SAVE(map_type)                                   \
-  template <typename K, typename V>                               \
-  inline void Save(const map_type<K, V> &obj, Builder *builder) { \
-    uint64_t size = obj.size();                                   \
-    Save(size, builder);                                          \
-    for (const auto &item : obj) {                                \
-      Save(item.first, builder);                                  \
-      Save(item.second, builder);                                 \
-    }                                                             \
+#define MAKE_MAP_SAVE(map_type)                                               \
+  template <typename K, typename V, typename Cmp, typename Alloc>             \
+  inline void Save(const map_type<K, V, Cmp, Alloc> &obj, Builder *builder) { \
+    uint64_t size = obj.size();                                               \
+    Save(size, builder);                                                      \
+    for (const auto &item : obj) {                                            \
+      Save(item.first, builder);                                              \
+      Save(item.second, builder);                                             \
+    }                                                                         \
   }
 
 MAKE_MAP_SAVE(std::map)
 MAKE_MAP_SAVE(std::unordered_map)
+MAKE_MAP_SAVE(boost::container::flat_map)
 
 #undef MAKE_MAP_SAVE
 
-#define MAKE_MAP_LOAD(map_type)                           \
-  template <typename K, typename V>                       \
-  inline void Load(map_type<K, V> *obj, Reader *reader) { \
-    uint64_t size = 0;                                    \
-    Load(&size, reader);                                  \
-    for (uint64_t i = 0; i < size; ++i) {                 \
-      K key;                                              \
-      V value;                                            \
-      Load(&key, reader);                                 \
-      Load(&value, reader);                               \
-      obj->emplace(std::move(key), std::move(value));     \
-    }                                                     \
+#define MAKE_MAP_LOAD(map_type)                                       \
+  template <typename K, typename V, typename Cmp, typename Alloc>     \
+  inline void Load(map_type<K, V, Cmp, Alloc> *obj, Reader *reader) { \
+    uint64_t size = 0;                                                \
+    Load(&size, reader);                                              \
+    for (uint64_t i = 0; i < size; ++i) {                             \
+      K key;                                                          \
+      V value;                                                        \
+      Load(&key, reader);                                             \
+      Load(&value, reader);                                           \
+      obj->emplace(std::move(key), std::move(value));                 \
+    }                                                                 \
   }
 
 MAKE_MAP_LOAD(std::map)
 MAKE_MAP_LOAD(std::unordered_map)
+
+template <typename K, typename V, typename Cmp, typename Alloc>
+inline void Load(boost::container::flat_map<K, V, Cmp, Alloc> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->reserve(size);  // optimisation for flat_map
+  for (uint64_t i = 0; i < size; ++i) {
+    K key;
+    V value;
+    Load(&key, reader);
+    Load(&value, reader);
+    obj->emplace(std::move(key), std::move(value));
+  }
+}
 
 #undef MAKE_MAP_LOAD
 

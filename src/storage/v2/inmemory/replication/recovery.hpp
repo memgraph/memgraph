@@ -11,8 +11,8 @@
 #pragma once
 
 #include "storage/v2/durability/durability.hpp"
-#include "storage/v2/replication/recovery.hpp"
-#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/storage_replication/recovery.hpp"
+#include "storage/v2/storage_replication/replication_client.hpp"
 
 namespace memgraph::storage {
 class InMemoryStorage;

@@ -798,7 +798,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
-  if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
+  if (transaction_.delta_store.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -967,7 +967,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                                                             std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+  auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1020,7 +1020,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   linked_undo_buffers.clear();
 
   // STEP 2) this transactions deltas also mininal unlinking + remove + clear
-  unlink_remove_clear(transaction_.deltas);
+  unlink_remove_clear(transaction_.delta_store);
 }
 
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
@@ -1066,7 +1066,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
-  if (!transaction_.deltas.empty()) {
+  if (!transaction_.delta_store.empty()) {
     // CONSTRAINTS
     if (transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
@@ -1089,7 +1089,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
 
-    for (const auto &delta : transaction_.deltas) {
+    for (const auto &delta : transaction_.delta_store) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::VERTEX: {
@@ -1267,7 +1267,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
+        garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.delta_store),
                                           std::move(transaction_.commit_timestamp));
       });
 
@@ -1332,11 +1332,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
-    if (!transaction_.deltas.empty()) {
+    if (!transaction_.delta_store.empty()) {
       // Only hand over delta to be GC'ed if there was any deltas
       mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
         // using mark of 0 as GC will assign a mark_timestamp after unlinking
-        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+        committed_transactions.emplace_back(0, std::move(transaction_.delta_store),
                                             std::move(transaction_.commit_timestamp));
       });
     }
@@ -2095,7 +2095,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
 
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.delta_store) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2118,7 +2118,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       });
     }
     // 2. Process all Vertex deltas and store all operations that create edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.delta_store) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2140,7 +2140,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       });
     }
     // 3. Process all Edge deltas and store all operations that modify edge data.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.delta_store) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
@@ -2162,7 +2162,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       });
     }
     // 4. Process all Vertex deltas and store all operations that delete edges.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.delta_store) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2184,7 +2184,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       });
     }
     // 5. Process all Vertex deltas and store all operations that delete vertices.
-    for (const auto &delta : transaction.deltas) {
+    for (const auto &delta : transaction.delta_store) {
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2208,7 +2208,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   };
 
   // Handle MVCC deltas
-  if (!transaction.deltas.empty()) {
+  if (!transaction.delta_store.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
       wal_file_->AppendDelta(delta, parent, timestamp);
       repl_storage_state_.AppendDelta(delta, parent, timestamp);

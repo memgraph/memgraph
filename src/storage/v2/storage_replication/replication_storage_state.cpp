@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/storage_replication/replication_storage_state.hpp"
 
 #include "replication/replication_server.hpp"
-#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/storage_replication/replication_client.hpp"
 
 namespace memgraph::storage {
 
