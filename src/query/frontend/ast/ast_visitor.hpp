@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #pragma once
-
+// NOLINTNEXTLINE(misc-header-include-cycle)
 #include "query/frontend/ast/ast.hpp"
 #include "utils/visitor.hpp"
 
