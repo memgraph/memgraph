@@ -1365,7 +1365,7 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
-  it->labels = memgraph::storage::label_set(label_ids.begin(), label_ids.end());
+  it->labels = memgraph::storage::label_set(label_ids);
   it->properties = std::move(properties);
   delta->prev.Set(&*it);
   return {&*it, this, transaction};
