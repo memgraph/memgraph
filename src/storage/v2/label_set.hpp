@@ -18,10 +18,11 @@
 
 namespace memgraph::storage {
 
-// custom datastructure to hold LabelIds
+// custom datastructure for a small vector
 // design goals:
-// - 16B, so we are smaller than std::vector<LabelId> (24B)
-// - small representation to avoid allocation
+// - 16B, so we are smaller than std::vector<T> (24B)
+// - small buffer representation to avoid allocation
+// - limitation only 2^32-1 capacity
 // layout:
 //  Heap allocation
 //  ┌─────────┬─────────┐
@@ -29,14 +30,17 @@ namespace memgraph::storage {
 //  ├─────────┴─────────┤    ┌────┬────┬────┬─
 //  │PTR                ├───►│    │    │    │...
 //  └───────────────────┘    └────┴────┴────┴─
-//  Small representation
+//  Small buffer representation
+//   capacity is fixed size, while size <= that, we can use the small buffer
 //  ┌─────────┬─────────┐
 //  │<=2      │2        │
 //  ├─────────┼─────────┤
-//  │Label1   │Label2   │
+//  │Val1     │Val2     │
 //  └─────────┴─────────┘
-struct label_set {
-  using value_type = LabelId;
+
+template <typename T>
+struct small_vector {
+  using value_type = T;
   using reference = value_type &;
   using const_reference = value_type const &;
   using size_type = uint32_t;
@@ -47,14 +51,14 @@ struct label_set {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  label_set() = default;
-  label_set(label_set const &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
+  small_vector() = default;
+  small_vector(small_vector const &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
     if (capacity_ != kSmallCapacity) [[unlikely]] {
       buffer_ = new value_type[capacity_];
     }
     std::ranges::copy(other, begin());
   }
-  label_set(label_set &&other) noexcept
+  small_vector(small_vector &&other) noexcept
       : size_{std::exchange(other.size_, 0)}, capacity_{std::exchange(other.capacity_, kSmallCapacity)} {
     if (capacity_ == kSmallCapacity) {
       small_buffer_ = other.small_buffer_;
@@ -62,7 +66,7 @@ struct label_set {
       buffer_ = std::exchange(other.buffer_, nullptr);
     }
   }
-  label_set &operator=(label_set const &other) {
+  small_vector &operator=(small_vector const &other) {
     if (this == std::addressof(other)) return *this;
     if (other.size_ <= capacity_) {
       std::ranges::copy(other, begin());
@@ -78,7 +82,7 @@ struct label_set {
     size_ = other.size_;
     return *this;
   }
-  label_set &operator=(label_set &&other) noexcept {
+  small_vector &operator=(small_vector &&other) noexcept {
     if (this == std::addressof(other)) return *this;
     if (capacity_ != kSmallCapacity) [[unlikely]] {
       delete[] buffer_;
@@ -92,13 +96,14 @@ struct label_set {
     }
     return *this;
   }
-  ~label_set() {
+  ~small_vector() {
     if (capacity_ != kSmallCapacity) [[unlikely]] {
       delete[] buffer_;
     }
   }
 
-  explicit label_set(std::span<value_type const> other)
+  // construct from a span
+  explicit small_vector(std::span<value_type const> other)
       : size_(other.size()), capacity_{std::max<size_type>(other.size(), kSmallCapacity)} {
     if (capacity_ != kSmallCapacity) [[unlikely]] {
       buffer_ = new value_type[capacity_];
@@ -155,6 +160,7 @@ struct label_set {
   auto operator[](size_t idx) const -> const_reference { return *(begin() + idx); }
 
  private:
+  static_assert(std::is_trivial_v<value_type>, "ATM code is implemented assuming trivial types");
   static_assert(sizeof(value_type) <= sizeof(value_type *),
                 "Small buffer must be large enough for at least one element");
   static constexpr size_type kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
@@ -166,6 +172,9 @@ struct label_set {
     value_type *buffer_;
   };
 };
+
+using label_set = small_vector<LabelId>;
+// TODO: extern template instatiation
 
 static_assert(sizeof(label_set) == 16);
 static_assert(sizeof(label_set) < sizeof(std::vector<LabelId>));
