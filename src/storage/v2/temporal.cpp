@@ -11,6 +11,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <string>
 
 #include "storage/v2/temporal.hpp"
 

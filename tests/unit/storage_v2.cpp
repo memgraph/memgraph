@@ -49,7 +49,7 @@ class StorageV2Test : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(StorageV2Test, StorageTypes);
+TYPED_TEST_SUITE(StorageV2Test, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, Commit) {

@@ -467,7 +467,7 @@ struct ZonedDateTime {
     return Duration(lhs.SysMicrosecondsSinceEpoch().count()) - Duration(rhs.SysMicrosecondsSinceEpoch().count());
   }
 
-  int64_t LocalYear() const { return int(LocalYMD().year()); }
+  int64_t LocalYear() const { return static_cast<int>(LocalYMD().year()); }
   uint64_t LocalMonth() const { return static_cast<unsigned>(LocalYMD().month()); }
   uint64_t LocalDay() const { return static_cast<unsigned>(LocalYMD().day()); }
   int64_t LocalHour() const { return LocalHMS().hours().count(); }

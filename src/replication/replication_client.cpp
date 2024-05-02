@@ -35,7 +35,7 @@ ReplicationClient::~ReplicationClient() {
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
-  thread_pool_.Shutdown();
+  thread_pool_.ShutDown();
 }
 
 }  // namespace memgraph::replication

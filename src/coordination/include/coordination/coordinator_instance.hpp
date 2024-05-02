@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_server.hpp"
@@ -48,8 +49,7 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance const &) = delete;
   CoordinatorInstance(CoordinatorInstance &&) noexcept = delete;
   CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
-
-  ~CoordinatorInstance() = default;
+  ~CoordinatorInstance();
 
   [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
@@ -73,6 +73,14 @@ class CoordinatorInstance {
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+
+  auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+
+  auto TryForceResetClusterState() -> ForceResetClusterStateStatus;
+
+  auto ForceResetClusterState() -> ForceResetClusterStateStatus;
+
+  void ShuttingDown();
 
  private:
   template <ranges::forward_range R>
@@ -130,24 +138,27 @@ class CoordinatorInstance {
 
   void DemoteFailCallback(std::string_view repl_instance_name);
 
-  void ForceResetCluster();
+  auto ForceResetCluster_() -> ForceResetClusterStateStatus;
 
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  // Raft updates leadership before callback is executed. IsLeader() can return true, but
+  // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
+  // accept queries.
   std::atomic<bool> is_leader_ready_{false};
+  std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
   // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
-  // Thread pool needs to be constructed before raft state as raft state can call thread pool
-  utils::ThreadPool thread_pool_{1};
-
-  // This needs to be constructed last because raft state may call
-  // setting up leader instance
   std::unique_ptr<RaftState> raft_state_;
+
+  // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
+  // while coordinator is destructed
+  utils::ThreadPool thread_pool_{1};
 };
 
 }  // namespace memgraph::coordination

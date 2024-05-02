@@ -40,7 +40,7 @@ class CypherType : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(CypherType, StorageTypes);
+TYPED_TEST_SUITE(CypherType, StorageTypes);
 
 TYPED_TEST(CypherType, PresentableNameSimpleTypes) {
   EXPECT_EQ(EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)->impl->GetPresentableName(), "ANY");

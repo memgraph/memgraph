@@ -12,16 +12,16 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_state.hpp"
+
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <algorithm>
 #include <optional>
+#include <string_view>
 #include <variant>
 
 namespace memgraph::coordination {
@@ -66,6 +66,33 @@ auto CoordinatorState::UnregisterReplicationInstance(std::string_view instance_n
                                   [&instance_name](CoordinatorInstance &coordinator_instance) {
                                     return coordinator_instance.UnregisterReplicationInstance(instance_name);
                                   }},
+      data_);
+}
+
+auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot demote instance to replica since variant holds wrong alternative");
+
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return DemoteInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.DemoteInstanceToReplica(instance_name);
+                                  }},
+      data_);
+}
+
+auto CoordinatorState::ForceResetClusterState() -> ForceResetClusterStateStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot force reset cluster state since variant holds wrong alternative.");
+
+  return std::visit(
+      memgraph::utils::Overloaded{
+          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+            return ForceResetClusterStateStatus::NOT_COORDINATOR;
+          },
+          [](CoordinatorInstance &coordinator_instance) { return coordinator_instance.TryForceResetClusterState(); }},
       data_);
 }
 
@@ -119,6 +146,12 @@ auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alterna
 
 auto CoordinatorState::IsDataInstance() const -> bool {
   return std::holds_alternative<CoordinatorMainReplicaData>(data_);
+}
+
+void CoordinatorState::ShutDownCoordinator() {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
+  std::get<CoordinatorInstance>(data_).ShuttingDown();
 }
 
 }  // namespace memgraph::coordination
