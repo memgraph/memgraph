@@ -49,7 +49,7 @@ class ExpressionPrettyPrinterTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ExpressionPrettyPrinterTest, StorageTypes);
+TYPED_TEST_SUITE(ExpressionPrettyPrinterTest, StorageTypes);
 
 TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   // 1

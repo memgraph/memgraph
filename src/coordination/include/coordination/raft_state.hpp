@@ -89,6 +89,9 @@ class RaftState {
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
+  // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
+  auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
+
  private:
   io::network::Endpoint raft_endpoint_;
   uint32_t coordinator_id_;

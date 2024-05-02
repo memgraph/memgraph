@@ -12,7 +12,7 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, ignore_elapsed_time_from_results
 from mg_utils import mg_sleep_and_assert
 
 
@@ -41,13 +41,13 @@ def test_coordinator_show_instances():
     cursor = connect(host="localhost", port=7690).cursor()
 
     def retrieve_data():
-        return sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;")))
+        return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
     expected_data = [
-        ("coordinator_1", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("instance_1", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "coordinator"),
+        ("instance_1", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_data, retrieve_data)
 

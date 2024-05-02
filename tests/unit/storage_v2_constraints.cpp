@@ -78,7 +78,7 @@ class ConstraintsTest : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ConstraintsTest, StorageTypes);
+TYPED_TEST_SUITE(ConstraintsTest, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, ExistenceConstraintsCreateAndDrop) {

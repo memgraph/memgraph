@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <optional>
+#include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
@@ -42,11 +43,16 @@ class CoordinatorState {
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
+  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+
+  [[nodiscard]] auto ForceResetClusterState() -> ForceResetClusterStateStatus;
+
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+      -> AddCoordinatorInstanceStatus;
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
@@ -54,6 +60,11 @@ class CoordinatorState {
   auto GetCoordinatorServer() const -> CoordinatorServer &;
 
   auto GetRoutingTable() -> RoutingTable;
+
+  auto IsCoordinator() const -> bool;
+  auto IsDataInstance() const -> bool;
+
+  void ShutDownCoordinator();
 
  private:
   struct CoordinatorMainReplicaData {

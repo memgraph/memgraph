@@ -2,6 +2,11 @@ name: "Jepsen build and test"
 
 on:
   workflow_call:
+    inputs:
+      run_core:
+        type: string
+        description: "Should the core jepsen build tests be run? Default is true."
+        default: 'true'
 
 env:
   ARCH: 'amd'
@@ -13,6 +18,7 @@ env:
 
 jobs:
   core:
+    if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
@@ -57,6 +63,11 @@ jobs:
         run: |
           cd tests/jepsen
           ./run.sh cluster-refresh --nodes-no 6
+
+      - name: Run unit tests for Jepsen code
+        run: |
+          cd tests/jepsen
+          ./run.sh unit-tests --binary ../../build/memgraph
 
       - name: Run Jepsen tests
         run: |

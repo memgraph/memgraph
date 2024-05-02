@@ -38,7 +38,7 @@ class PyModule : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(PyModule, StorageTypes);
+TYPED_TEST_SUITE(PyModule, StorageTypes);
 
 TYPED_TEST(PyModule, MgpValueToPyObject) {
   mgp_memory memory{memgraph::utils::NewDeleteResource()};

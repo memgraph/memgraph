@@ -64,8 +64,8 @@ TEST_P(StorageModeTest, Mode) {
   ASSERT_FALSE(creator->Commit().HasError());
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
-                        StorageModeTest::PrintStringParamToName());
+INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
+                         StorageModeTest::PrintStringParamToName());
 
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:

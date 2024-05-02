@@ -121,7 +121,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
       !storage_->indices_.label_index_->IndexExists(label)) {
     storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
       if (auto it = label_indices.find(label); it != label_indices.end()) {
-        ++(it->second);
+        const bool this_txn_already_encountered_label = transaction_->introduced_new_label_index_.contains(label);
+        if (!this_txn_already_encountered_label) {
+          ++(it->second);
+        }
         return;
       }
       label_indices.insert({label, 1});

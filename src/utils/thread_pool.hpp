@@ -41,7 +41,7 @@ class ThreadPool {
 
   void AddTask(std::function<void()> new_task);
 
-  void Shutdown();
+  void ShutDown();
 
   ~ThreadPool();
 

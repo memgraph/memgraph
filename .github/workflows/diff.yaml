@@ -14,10 +14,10 @@ on:
       - "licenses/*"
   workflow_dispatch:
     inputs:
-      community:
+      community_core:
         type: boolean
         default: true
-      coverage:
+      coverage_core:
         type: boolean
         default: true
       debug_core:
@@ -26,7 +26,7 @@ on:
       debug_integration:
         type: boolean
         default: true
-      jepsen:
+      jepsen_core:
         type: boolean
         default: true
       release_core:
@@ -43,47 +43,79 @@ on:
         default: true
 
 jobs:
+  DiffSetup:
+    runs-on: ubuntu-latest
+    outputs:
+      run_community_core: ${{ steps.setup.outputs.run_community_core }}
+      run_coverage_core: ${{ steps.setup.outputs.run_coverage_core }}
+      run_debug_core: ${{ steps.setup.outputs.run_debug_core }}
+      run_debug_integration: ${{ steps.setup.outputs.run_debug_integration }}
+      run_jepsen_core: ${{ steps.setup.outputs.run_jepsen_core }}
+      run_release_core: ${{ steps.setup.outputs.run_release_core }}
+      run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
+      run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
+      run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
+    env:
+      GH_CONTEXT: ${{ toJson(github) }}
+      GH_CONTEXT_FILE_NAME: github_context.json
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Dump GitHub context
+        run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
+      - name: Set up diff execution
+        id: setup
+        run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+
   Community:
-    if: ${{ github.event.inputs.community == 'true' || github.event_name != 'workflow_dispatch' }}
+    needs: DiffSetup
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
+      run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
     secrets: inherit
 
   Coverage:
-    if: ${{ github.event.inputs.coverage == 'true' || github.event_name != 'workflow_dispatch' }}
+    needs: DiffSetup
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
+      run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
     secrets: inherit
 
   Debug:
+    needs: DiffSetup
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event.inputs.debug_core || 'true' }}
-      run_integration: ${{ github.event.inputs.debug_integration || 'true' }}
+      run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
+      run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
     secrets: inherit
 
   Jepsen:
-    if: ${{ github.event.inputs.jepsen == 'true' || github.event_name != 'workflow_dispatch' }}
+    needs: DiffSetup
     uses: ./.github/workflows/diff_jepsen.yaml
+    with:
+      run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
     secrets: inherit
 
   Release:
+    needs: DiffSetup
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
       os: 'debian-11'
       toolchain: 'v5'
-      run_core: ${{ github.event.inputs.release_core || 'true' }}
-      run_benchmark: ${{ github.event.inputs.release_benchmark || 'true' }}
-      run_e2e: ${{ github.event.inputs.release_e2e || 'true' }}
-      run_stress: ${{ github.event.inputs.release_stress || 'true' }}
+      run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
+      run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
+      run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
+      run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
     secrets: inherit

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -31,7 +32,6 @@ namespace memgraph::coordination {
 using nuraft::asio_service;
 using nuraft::cb_func;
 using nuraft::CbReturnCode;
-using nuraft::cmd_result;
 using nuraft::cs_new;
 using nuraft::ptr;
 using nuraft::raft_params;
@@ -162,6 +162,18 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
     throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
                                  max_tries * waiting_period);
   }
+}
+
+auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
+  using std::chrono::duration_cast;
+  using std::chrono::microseconds;
+  using std::chrono::milliseconds;
+
+  auto const peer_info = raft_server_->get_peer_info(static_cast<int>(srv_id));
+  auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
+  spdlog::trace("Elapsed time in miliseconds since last successful response from coordinator_{}: {}",
+                static_cast<int>(srv_id), elapsed_time_ms.count());
+  return elapsed_time_ms;
 }
 
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig> {
