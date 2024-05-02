@@ -211,7 +211,7 @@ auto RaftState::AppendOpenLock() -> bool {
     spdlog::error("Failed to accept request to open lock");
     return false;
   }
-  spdlog::trace("Request for opening lock accepted");
+  spdlog::trace("Request for opening lock in thread {} accepted", std::this_thread::get_id());
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
@@ -230,7 +230,7 @@ auto RaftState::AppendCloseLock() -> bool {
     return false;
   }
 
-  spdlog::trace("Request for closing lock accepted");
+  spdlog::trace("Request for closing lock in thread {} accepted", std::this_thread::get_id());
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to close lock with error code {}", int(res->get_result_code()));
@@ -334,7 +334,7 @@ auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
         "the leader.");
     return false;
   }
-  spdlog::trace("Request for updating UUID accepted");
+  spdlog::trace("Request for updating UUID to {} accepted", std::string{uuid});
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update UUID with error code {}", int(res->get_result_code()));
@@ -371,7 +371,7 @@ auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, c
     spdlog::error("Failed to accept request for updating UUID of instance.");
     return false;
   }
-  spdlog::trace("Request for updating UUID of instance accepted");
+  spdlog::trace("Request for updating UUID of instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update UUID of instance with error code {}", int(res->get_result_code()));
