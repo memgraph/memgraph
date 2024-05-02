@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <optional>
+#include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -32,9 +33,18 @@ auto CoordinatorHandler::UnregisterReplicationInstance(std::string_view instance
   return coordinator_state_.UnregisterReplicationInstance(instance_name);
 }
 
+auto CoordinatorHandler::DemoteInstanceToReplica(std::string_view instance_name)
+    -> coordination::DemoteInstanceCoordinatorStatus {
+  return coordinator_state_.DemoteInstanceToReplica(instance_name);
+}
+
 auto CoordinatorHandler::SetReplicationInstanceToMain(std::string_view instance_name)
     -> coordination::SetInstanceToMainCoordinatorStatus {
   return coordinator_state_.SetReplicationInstanceToMain(instance_name);
+}
+
+auto CoordinatorHandler::ForceResetClusterState() -> coordination::ForceResetClusterStateStatus {
+  return coordinator_state_.ForceResetClusterState();
 }
 
 auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
