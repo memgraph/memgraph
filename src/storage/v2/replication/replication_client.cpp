@@ -9,19 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
+#include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
-#include "replication/replication_client.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include "io/network/fmt.hpp"
+#include <spdlog/spdlog.h>
+#include <algorithm>
 
 namespace {
 template <typename>
@@ -304,18 +305,19 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
         rpc::Client &rpcClient = client_.rpc_client_;
         std::visit(
             utils::Overloaded{
-                [&replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
-                  spdlog::debug("Sending the latest snapshot file: {}", snapshot);
+                [this, &replica_commit, mem_storage, &rpcClient,
+                 main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
+                  spdlog::debug("Sending the latest snapshot file: {} to {}", snapshot, client_.name_);
                   auto response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
                   replica_commit = response.current_commit_timestamp;
                 },
-                [&replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoveryWals const &wals) {
-                  spdlog::debug("Sending the latest wal files");
+                [this, &replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoveryWals const &wals) {
+                  spdlog::debug("Sending the latest wal files to {}", client_.name_);
                   auto response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
                   replica_commit = response.current_commit_timestamp;
                   spdlog::debug("Wal files successfully transferred.");
                 },
-                [&replica_commit, mem_storage, &rpcClient,
+                [this, &replica_commit, mem_storage, &rpcClient,
                  main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
                   std::unique_lock transaction_guard(mem_storage->engine_lock_);
                   if (mem_storage->wal_file_ &&
@@ -323,7 +325,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
                     mem_storage->wal_file_->DisableFlushing();
                     transaction_guard.unlock();
-                    spdlog::debug("Sending current wal file");
+                    spdlog::debug("Sending current wal file to {}", client_.name_);
                     replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
                   } else {
                     spdlog::debug("Cannot recover using current wal file");
