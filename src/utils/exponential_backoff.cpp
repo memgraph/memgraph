@@ -23,7 +23,7 @@ ExponentialBackoffInternals::ExponentialBackoffInternals(std::chrono::millisecon
 std::chrono::milliseconds ExponentialBackoffInternals::calculate_delay() {
   if (cached_delay_ < max_delay_) {
     ++retry_count_;
-    auto base_delay = std::chrono::milliseconds{initial_delay_.count() * (1 << (retry_count_ - 1))};
+    auto const base_delay = std::chrono::milliseconds{initial_delay_.count() * (1U << (retry_count_ - 1))};
     cached_delay_ = base_delay < max_delay_ ? base_delay : max_delay_;
   }
   return cached_delay_;
@@ -33,7 +33,7 @@ ExponentialBackoff::ExponentialBackoff(std::chrono::milliseconds initial_delay, 
     : exponential_backoff_internals_(initial_delay, max_delay) {}
 
 void ExponentialBackoff::wait() {
-  std::chrono::milliseconds delay = exponential_backoff_internals_.calculate_delay();
+  auto const delay = exponential_backoff_internals_.calculate_delay();
   std::this_thread::sleep_for(delay);
 }
 

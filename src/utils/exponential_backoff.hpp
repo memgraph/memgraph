@@ -23,7 +23,7 @@ class ExponentialBackoffInternals {
   std::chrono::milliseconds initial_delay_;
   std::chrono::milliseconds max_delay_;
   std::chrono::milliseconds cached_delay_;
-  int64_t retry_count_{0};
+  uint64_t retry_count_{0};
 };
 
 class ExponentialBackoff {
