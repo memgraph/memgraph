@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
