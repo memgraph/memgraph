@@ -35,6 +35,7 @@
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -438,7 +439,8 @@ auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateS
 }
 
 auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
-  // TODO(antoniofilipovic): Implement exponential backoff
+  ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(5)};
+
   while (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
     spdlog::trace("Doing force reset as lock is still opened on leader.");
     auto const result = ForceResetCluster_();
@@ -467,6 +469,7 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
       case ForceResetClusterStateStatus::NOT_COORDINATOR:  // shouldn't happen
         break;
     }
+    backoff.wait();
   }
 
   return ForceResetClusterStateStatus::SUCCESS;  // Shouldn't execute

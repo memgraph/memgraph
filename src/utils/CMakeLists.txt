@@ -15,7 +15,9 @@ set(utils_src_files
     system_info.cpp
     uuid.cpp
     build_info.cpp
-    query_memory_tracker.cpp)
+    query_memory_tracker.cpp
+    exponential_backoff.hpp
+)
 
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
