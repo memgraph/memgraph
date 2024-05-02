@@ -9,10 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cstdint>
+#include <optional>
+
+#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/cast.hpp"
 #include "utils/endian.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -126,6 +134,18 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(temporal_data.type));
       WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
+      break;
+    }
+    case PropertyValue::Type::ZonedTemporalData: {
+      const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
+      WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
+      WriteUint(utils::MemcpyCast<uint64_t>(zoned_temporal_data.IntMicroseconds()));
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        WriteString(zoned_temporal_data.timezone.TimezoneName());
+      } else {
+        WriteUint(zoned_temporal_data.timezone.DefiningOffset());
+      }
       break;
     }
   }
@@ -254,6 +274,39 @@ std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
 
   return TemporalData{static_cast<TemporalType>(*type), utils::MemcpyCast<int64_t>(*microseconds)};
 }
+
+std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
+  const auto inner_marker = decoder.ReadMarker();
+  if (!inner_marker || *inner_marker != Marker::TYPE_ZONED_TEMPORAL_DATA) return std::nullopt;
+
+  const auto type = decoder.ReadUint();
+  if (!type) return std::nullopt;
+
+  const auto microseconds = decoder.ReadUint();
+  if (!microseconds) return std::nullopt;
+
+  auto marker = decoder.PeekMarker();
+  if (!marker) return std::nullopt;
+  switch (*marker) {
+    case Marker::TYPE_STRING: {
+      auto timezone_name = decoder.ReadString();
+      if (!timezone_name) return std::nullopt;
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
+                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::Timezone(*timezone_name)};
+    }
+    case Marker::TYPE_INT: {
+      auto offset_minutes = decoder.ReadUint();
+      if (!offset_minutes) return std::nullopt;
+      return ZonedTemporalData{static_cast<ZonedTemporalType>(*type),
+                               utils::AsSysTime(utils::MemcpyCast<int64_t>(*microseconds)),
+                               utils::Timezone(std::chrono::minutes{*offset_minutes})};
+    }
+    default:
+      break;
+  }
+  return std::nullopt;
+}
 }  // namespace
 
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {
@@ -321,6 +374,11 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       const auto maybe_temporal_data = ReadTemporalData(*this);
       if (!maybe_temporal_data) return std::nullopt;
       return PropertyValue(*maybe_temporal_data);
+    }
+    case Marker::TYPE_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data = ReadZonedTemporalData(*this);
+      if (!maybe_zoned_temporal_data) return std::nullopt;
+      return PropertyValue(*maybe_zoned_temporal_data);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:
@@ -429,6 +487,9 @@ bool Decoder::SkipPropertyValue() {
     }
     case Marker::TYPE_TEMPORAL_DATA: {
       return !!ReadTemporalData(*this);
+    }
+    case Marker::TYPE_ZONED_TEMPORAL_DATA: {
+      return !!ReadZonedTemporalData(*this);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:

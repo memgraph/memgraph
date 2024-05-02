@@ -13,12 +13,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <random>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <utility>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -26,6 +30,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
@@ -104,6 +109,7 @@ struct Date {};
 struct LocalTime {};
 struct LocalDateTime {};
 struct Duration {};
+struct ZonedDateTime {};
 struct Graph {};
 
 template <class ArgType>
@@ -144,6 +150,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsLocalDateTime();
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return arg.IsDuration();
+  } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
+    return arg.IsZonedDateTime();
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, void>) {
@@ -196,6 +204,8 @@ constexpr const char *ArgTypeName() {
     return "LocalDateTime";
   } else if constexpr (std::is_same_v<ArgType, Duration>) {
     return "Duration";
+  } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
+    return "ZonedDateTime";
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return "graph";
   } else {
@@ -588,8 +598,8 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime, Duration,
-           Graph>>("type", args, nargs);
+  FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
+           ZonedDateTime, Duration, Graph>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -621,6 +631,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("LOCAL_DATE_TIME", ctx.memory);
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
+    case TypedValue::Type::ZonedDateTime:
+      return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
       return TypedValue("GRAPH", ctx.memory);
     case TypedValue::Type::Function:
@@ -979,7 +991,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, Bool>>("toString", args, nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool>>("toString", args,
+                                                                                                 nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
@@ -1007,12 +1020,15 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
   }
+  if (arg.IsZonedDateTime()) {
+    return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+  }
 
   return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<Date, LocalTime, LocalDateTime, Duration>>>("timestamp", args, nargs);
+  FType<Optional<Or<Date, LocalTime, LocalDateTime, ZonedDateTime, Duration>>>("timestamp", args, nargs);
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
@@ -1025,6 +1041,9 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
   }
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
+  }
+  if (arg.IsZonedDateTime()) {
+    return TypedValue(arg.ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(), ctx.memory);
   }
   return TypedValue(ctx.timestamp, ctx.memory);
 }
@@ -1300,6 +1319,58 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::Duration(duration_parameters), ctx.memory);
 }
 
+utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_parameters, const FunctionContext &ctx) {
+  const utils::pmr::string timezone("timezone", ctx.memory);
+  if (!input_parameters.contains(timezone)) {
+    return utils::DefaultTimezone();
+  }
+  const auto &value = input_parameters.at(timezone);
+  if (value.IsString()) {
+    return utils::Timezone(value.ValueString());
+  }
+  if (value.IsInt()) {
+    return utils::Timezone(std::chrono::minutes{value.ValueInt()});
+  }
+  throw QueryRuntimeException("Invalid value for key 'timezone'. Expected an integer or a string");
+}
+
+// Refers to ZonedDateTime; called DateTime for compatibility with Cypher
+TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Optional<Or<String, Map>>>("datetime", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsString()) {
+    const auto &zoned_date_time_parameters = ParseZonedDateTimeParameters(args[0].ValueString());
+    return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
+  }
+
+  utils::DateParameters date_parameters{};
+  utils::LocalTimeParameters time_parameters{};
+  using namespace std::literals;
+  std::unordered_map date_parameter_mappings{
+      std::pair{"year"sv, &date_parameters.year},
+      std::pair{"month"sv, &date_parameters.month},
+      std::pair{"day"sv, &date_parameters.day},
+      std::pair{"hour"sv, &time_parameters.hour},
+      std::pair{"minute"sv, &time_parameters.minute},
+      std::pair{"second"sv, &time_parameters.second},
+      std::pair{"millisecond"sv, &time_parameters.millisecond},
+      std::pair{"microsecond"sv, &time_parameters.microsecond},
+  };
+
+  auto fields = args[0].ValueMap();
+  const auto timezone = GetTimezone(fields, ctx);
+  const utils::pmr::string timezone_key("timezone", ctx.memory);
+  fields.erase(timezone_key);
+
+  MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  auto zoned_date_time_parameters = utils::ZonedDateTimeParameters{date_parameters, time_parameters, timezone};
+  return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
+}
+
 std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
     const mgp_func &func, const std::string &fully_qualified_name) {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
@@ -1432,6 +1503,7 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "DATE") return Date;
   if (function_name == "LOCALTIME") return LocalTime;
   if (function_name == "LOCALDATETIME") return LocalDateTime;
+  if (function_name == "DATETIME") return DateTime;
   if (function_name == "DURATION") return Duration;
 
   const auto &maybe_found =

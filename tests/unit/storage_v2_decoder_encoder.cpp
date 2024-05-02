@@ -17,6 +17,7 @@
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/temporal.hpp"
 
 static const std::string kTestMagic{"MGtest"};
 static const uint64_t kTestVersion{1};
@@ -134,7 +135,13 @@ GENERATE_READ_TEST(
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
     memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)));
+    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+    memgraph::storage::PropertyValue(
+        memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                             memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+        memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+        memgraph::utils::Timezone(std::chrono::minutes{-60}))));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                        \
@@ -181,7 +188,13 @@ GENERATE_SKIP_TEST(
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
     memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
-    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)));
+    memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+    memgraph::storage::PropertyValue(
+        memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                             memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+    memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+        memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+        memgraph::utils::Timezone(std::chrono::minutes{-60}))));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                          \
@@ -248,7 +261,13 @@ GENERATE_PARTIAL_READ_TEST(
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
             std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))}));
+        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+        memgraph::storage::PropertyValue(
+            memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                 memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+            memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+            memgraph::utils::Timezone(std::chrono::minutes{-60})))}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                          \
@@ -301,7 +320,13 @@ GENERATE_PARTIAL_SKIP_TEST(
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
             std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
-        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))}));
+        memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+        memgraph::storage::PropertyValue(
+            memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                 memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
+        memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
+            memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
+            memgraph::utils::Timezone(std::chrono::minutes{-60})))}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
@@ -325,6 +350,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_LIST:
         case memgraph::storage::durability::Marker::TYPE_MAP:
         case memgraph::storage::durability::Marker::TYPE_TEMPORAL_DATA:
+        case memgraph::storage::durability::Marker::TYPE_ZONED_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_PROPERTY_VALUE:
           valid_marker = true;
           break;
