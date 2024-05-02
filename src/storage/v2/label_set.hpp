@@ -13,6 +13,7 @@
 
 #include "storage/v2/id_types.hpp"
 
+#include <cassert>
 #include <cstdint>
 #include <span>
 
@@ -136,13 +137,38 @@ struct small_vector {
     }
     begin()[size_] = id;
     ++size_;
-  };
-  void emplace_back(value_type id) { push_back(id); };
-  auto back() -> reference { return *rbegin(); };
+  }
+  void emplace_back(value_type id) { push_back(id); }
+  auto back() -> reference { return *rbegin(); }
   auto back() const -> const_reference { return *crbegin(); }
   void pop_back() {
+    // C++26 change for contract
+    assert(!empty());
     if (size_) --size_;
   }
+
+  iterator erase(const_iterator pos) {
+    // C++26 change for contract
+    assert(!empty());
+    auto it = begin() + std::distance(cbegin(), pos);
+    std::move(std::next(it), end(), it);
+    pop_back();  // destroy last + reduce size
+    return it;
+  }
+  iterator erase(const_iterator first, const_iterator last) {
+    assert(!empty());
+    auto it_first = begin() + std::distance(cbegin(), first);
+    auto it_last = begin() + std::distance(cbegin(), last);
+    auto e = end();
+    auto n = std::distance(it_first, it_last);
+    if (it_first != it_last) {
+      std::move(it_last, e, it_first);
+      std::destroy(e - n, e);
+      size_ -= n;
+    }
+    return it_first;
+  }
+
   void reserve(size_type new_cap) {
     if (capacity_ < new_cap) {
       auto new_buffer = new value_type[new_cap];
@@ -153,8 +179,9 @@ struct small_vector {
     }
   }
 
-  auto size() const noexcept -> std::size_t { return size_; };
-  auto capacity() const noexcept -> std::size_t { return capacity_; };
+  auto size() const noexcept -> std::size_t { return size_; }
+  auto empty() const noexcept -> bool { return size_ == 0; }
+  auto capacity() const noexcept -> std::size_t { return capacity_; }
 
   auto operator[](size_t idx) -> reference { return *(begin() + idx); }
   auto operator[](size_t idx) const -> const_reference { return *(begin() + idx); }
