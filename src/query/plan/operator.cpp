@@ -1290,6 +1290,9 @@ class ExpandVariableCursor : public Cursor {
     // In those cases we skip that input pull and continue with the next.
     while (true) {
       AbortCheck(context);
+
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -1370,6 +1373,9 @@ class ExpandVariableCursor : public Cursor {
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
       AbortCheck(context);
+
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -1581,9 +1587,11 @@ class STShortestPathCursor : public query::plan::Cursor {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
+        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
@@ -1652,12 +1660,14 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       // Bottom-up step (expansion from the sink).
       ++current_length;
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
       if (current_length > upper_bound) return false;
 
       // When expanding from the sink we have to be careful which edge
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
+        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
@@ -1837,6 +1847,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // input
       if (to_visit_current_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
+        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
 
         to_visit_current_.clear();
         to_visit_next_.clear();
@@ -1861,7 +1872,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           // Add initial vertex of path to the accumulated path
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
         }
-
         expand_from_vertex(vertex);
 
         // go back to loop start and see if we expanded anything
@@ -1893,7 +1903,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
         }
-        expand_from_vertex(curr_vertex);
+        if (!context.hops_limit.has_value() || context.hops_limit.value() > 0) {
+          expand_from_vertex(curr_vertex);
+        }
       }
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
