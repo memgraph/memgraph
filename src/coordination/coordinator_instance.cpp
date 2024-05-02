@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -439,7 +440,7 @@ auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateS
 }
 
 auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
-  ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(5)};
+  utils::ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(5)};
 
   while (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
     spdlog::trace("Doing force reset as lock is still opened on leader.");

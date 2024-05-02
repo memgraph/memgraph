@@ -17,6 +17,7 @@ set(utils_src_files
     build_info.cpp
     query_memory_tracker.cpp
     exponential_backoff.hpp
+    exponential_backoff.cpp
 )
 
 find_package(Boost REQUIRED)

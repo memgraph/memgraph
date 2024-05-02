@@ -23,7 +23,8 @@ class ExponentialBackoffTest : public ::testing::Test {
 };
 
 TEST_F(ExponentialBackoffTest, TestTimings) {
-  ExponentialBackoffInternals backoff_internals{std::chrono::milliseconds(1000), std::chrono::seconds(5)};
+  memgraph::utils::ExponentialBackoffInternals backoff_internals{std::chrono::milliseconds(1000),
+                                                                 std::chrono::seconds(5)};
 
   ASSERT_EQ(std::chrono::milliseconds{1000}, backoff_internals.calculate_delay());
   ASSERT_EQ(std::chrono::milliseconds{2000}, backoff_internals.calculate_delay());
