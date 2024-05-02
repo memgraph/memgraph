@@ -11,19 +11,23 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <limits>
 #include <optional>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 
@@ -119,6 +123,8 @@ enum class Type : uint8_t {
   LIST = 0x60,
   MAP = 0x70,
   TEMPORAL_DATA = 0x80,
+  ZONED_TEMPORAL_DATA = 0x90,
+  OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -170,7 +176,7 @@ const uint8_t kShiftIdSize = 2;
 //       + encoded key data
 //       + encoded value size
 //       + encoded value data
-//   * TEMPORAL_DATE
+//   * TEMPORAL_DATA
 //     - type; payload size isn't used
 //     - encoded property ID
 //     - value saved as Metadata
@@ -180,6 +186,34 @@ const uint8_t kShiftIdSize = 2;
 //         or `uint64_t`
 //       + encoded temporal data type value
 //       + encoded microseconds value
+//   * ZONED_TEMPORAL_DATA
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + string size (always uint_8; see TZ_NAME_LENGTH_SIZE)
+//         + string data
+//   * OFFSET_ZONED_TEMPORAL_DATA
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + encoded value (always uint_16; see tz_offset_int)
+
+const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
+// As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
+// to those in the IANA time zone database.
+// The timezone names in the IANA database follow https://data.iana.org/time-zones/theory.html#naming rules:
+// * Maximal form: AREA/LOCATION/QUALIFIER
+// * Length of subcomponents (AREA, LOCATION, and QUALIFIER): <= 14
+// * All legacy names are shorter than this
+// Therefore, the longest valid timezone name has the length of 44 (14 + 1 + 14 + 1 + 14), a 8-bit integer.
+
+using tz_offset_int = int16_t;
+// When a zoned temporal value is specified with a UTC offset (as opposed to a timezone name), the following applies:
+// * Offsets are defined in minutes
+// * Valid offsets are in the UTC + [-18h, +18h] range
+// Therefore, every possible value is in the [-1080, +1080] range and it's thus stored with a 16-bit integer.
 
 struct Metadata {
   Type type{Type::EMPTY};
@@ -249,6 +283,8 @@ class Writer {
   }
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
+
+  bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
 
   bool WriteBytes(const uint8_t *data, uint64_t size) {
     if (data_ && pos_ + size > size_) return false;
@@ -364,6 +400,24 @@ class Reader {
     auto value = ReadUint(size);
     if (!value) return std::nullopt;
     return utils::MemcpyCast<double>(*value);
+  }
+
+  std::optional<utils::Timezone> ReadTimezone(auto type) {
+    if (type == Type::ZONED_TEMPORAL_DATA) {
+      auto tz_str_length = ReadUint(TZ_NAME_LENGTH_SIZE);
+      if (!tz_str_length) return std::nullopt;
+      std::string tz_str_v(*tz_str_length, '\0');
+      if (!ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
+      return utils::Timezone(tz_str_v);
+    }
+
+    if (type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
+      auto offset_value = InternalReadInt<tz_offset_int>();
+      if (!offset_value) return std::nullopt;
+      return utils::Timezone(std::chrono::minutes{static_cast<int64_t>(*offset_value)});
+    }
+
+    return std::nullopt;
   }
 
   bool ReadBytes(uint8_t *data, uint64_t size) {
@@ -482,6 +536,35 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       // We don't need payload size so we set it to a random value
       return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
+    case PropertyValue::Type::ZonedTemporalData: {
+      auto metadata = writer->WriteMetadata();
+      if (!metadata) return std::nullopt;
+
+      const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
+      if (!type_size) return std::nullopt;
+
+      auto microseconds_size = writer->WriteInt(zoned_temporal_data.IntMicroseconds());
+      if (!microseconds_size) return std::nullopt;
+
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        metadata->Set({Type::ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
+
+        const auto &tz_str = zoned_temporal_data.timezone.TimezoneName();
+        if (!writer->WriteUint(tz_str.size())) return std::nullopt;
+        if (!writer->WriteBytes(tz_str.data(), tz_str.size())) return std::nullopt;
+
+        // We don't need payload size so we set it to a random value
+        return {{Type::ZONED_TEMPORAL_DATA, Size::INT8}};
+      }
+      // Valid timezone offsets may be -18 to +18 hours, with minute precision. This means that the range of possible
+      // offset values is [-1080, +1080], which is represented with 16-bit integers.
+
+      if (!writer->WriteTimezoneOffset(zoned_temporal_data.timezone.DefiningOffset())) return std::nullopt;
+      metadata->Set({Type::OFFSET_ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
+      // We don't need payload size so we set it to a random value
+      return {{Type::OFFSET_ZONED_TEMPORAL_DATA, Size::INT8}};
+    }
   }
 }
 
@@ -518,6 +601,59 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
   temporal_data_size += SizeToByteSize(metadata->payload_size);
 
   return temporal_data_size;
+}
+
+std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
+  auto metadata = reader.ReadMetadata();
+
+  if (!metadata ||
+      (metadata->type != Type::ZONED_TEMPORAL_DATA && metadata->type != Type::OFFSET_ZONED_TEMPORAL_DATA)) {
+    return std::nullopt;
+  }
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  auto timezone = reader.ReadTimezone(metadata->type);
+  if (!timezone) return std::nullopt;
+
+  return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
+                           *timezone};
+}
+
+std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
+  uint64_t zoned_temporal_data_size = 0;
+
+  auto metadata = reader.ReadMetadata();
+  if (!metadata ||
+      (metadata->type != Type::ZONED_TEMPORAL_DATA && metadata->type != Type::OFFSET_ZONED_TEMPORAL_DATA)) {
+    return std::nullopt;
+  }
+
+  zoned_temporal_data_size += 1;
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  zoned_temporal_data_size += SizeToByteSize(metadata->id_size);
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  zoned_temporal_data_size += SizeToByteSize(metadata->payload_size);
+
+  if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
+    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
+    if (!tz_str_length) return std::nullopt;
+    zoned_temporal_data_size += (1 + *tz_str_length);
+  } else if (metadata->type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
+    zoned_temporal_data_size += 2;  // tz_offset_int is 16-bit
+  }
+
+  return zoned_temporal_data_size;
 }
 
 }  // namespace
@@ -595,12 +731,17 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       value = PropertyValue(std::move(map));
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data = DecodeTemporalData(*reader);
       if (!maybe_temporal_data) return false;
       value = PropertyValue(*maybe_temporal_data);
-
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data = DecodeZonedTemporalData(*reader);
+      if (!maybe_zoned_temporal_data) return false;
+      value = PropertyValue(*maybe_zoned_temporal_data);
       return true;
     }
   }
@@ -681,12 +822,19 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       property_size += map_property_size;
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data_size = DecodeTemporalDataSize(*reader);
       if (!maybe_temporal_data_size) return false;
 
       property_size += *maybe_temporal_data_size;
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data_size = DecodeZonedTemporalDataSize(*reader);
+      if (!maybe_zoned_temporal_data_size) return false;
+
+      property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
   }
@@ -741,9 +889,12 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       return DecodeTemporalData(*reader).has_value();
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      return DecodeZonedTemporalData(*reader).has_value();
     }
   }
 }
@@ -844,6 +995,17 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
 
       return *maybe_temporal_data == value.ValueTemporalData();
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      if (!value.IsZonedTemporalData()) return false;
+
+      const auto maybe_zoned_temporal_data = DecodeZonedTemporalData(*reader);
+      if (!maybe_zoned_temporal_data) {
+        return false;
+      }
+
+      return *maybe_zoned_temporal_data == value.ValueZonedTemporalData();
     }
   }
 }

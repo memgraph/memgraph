@@ -1391,6 +1391,52 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   EXPECT_EQ(mic.ValueInt(), 40);
 }
 
+TYPED_TEST(ExpressionEvaluatorPropertyLookup, ZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  this->frame[this->symbol] = TypedValue(zdt);
+
+  const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
+  const auto y = this->Value(year);
+  EXPECT_TRUE(y.IsInt());
+  EXPECT_EQ(y.ValueInt(), 2024);
+
+  const std::pair month = std::make_pair("month", this->dba.NameToProperty("month"));
+  const auto m = this->Value(month);
+  EXPECT_TRUE(m.IsInt());
+  EXPECT_EQ(m.ValueInt(), 3);
+
+  const std::pair day = std::make_pair("day", this->dba.NameToProperty("day"));
+  const auto d = this->Value(day);
+  EXPECT_TRUE(d.IsInt());
+  EXPECT_EQ(d.ValueInt(), 25);
+
+  const std::pair hour = std::make_pair("hour", this->dba.NameToProperty("hour"));
+  const auto h = this->Value(hour);
+  EXPECT_TRUE(h.IsInt());
+  EXPECT_EQ(h.ValueInt(), 14);
+
+  const std::pair minute = std::make_pair("minute", this->dba.NameToProperty("minute"));
+  const auto min = this->Value(minute);
+  EXPECT_TRUE(min.IsInt());
+  EXPECT_EQ(min.ValueInt(), 18);
+
+  const std::pair second = std::make_pair("second", this->dba.NameToProperty("second"));
+  const auto sec = this->Value(second);
+  EXPECT_TRUE(sec.IsInt());
+  EXPECT_EQ(sec.ValueInt(), 13);
+
+  const std::pair millis = std::make_pair("millisecond", this->dba.NameToProperty("millisecond"));
+  const auto mil = this->Value(millis);
+  EXPECT_TRUE(mil.IsInt());
+  EXPECT_EQ(mil.ValueInt(), 206);
+
+  const std::pair micros = std::make_pair("microsecond", this->dba.NameToProperty("microsecond"));
+  const auto mic = this->Value(micros);
+  EXPECT_TRUE(mic.IsInt());
+  EXPECT_EQ(mic.ValueInt(), 22);
+}
+
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   auto v1 = this->dba.InsertVertex();
   auto v2 = this->dba.InsertVertex();
@@ -1481,6 +1527,13 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
   this->frame[this->symbol] = TypedValue(ldt);
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
+}
+
+TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, ZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  this->frame[this->symbol] = TypedValue(zdt);
+  ASSERT_THROW(this->Value(), QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Null) {
@@ -2106,6 +2159,12 @@ TYPED_TEST(FunctionTest, ToStringDuration) {
   EXPECT_EQ(this->EvaluateFunction("TOSTRING", duration).ValueString(), "P0DT0H2M2.000033S");
 }
 
+TYPED_TEST(FunctionTest, ToStringZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  EXPECT_EQ(this->EvaluateFunction("TOSTRING", zdt).ValueString(), "2024-03-25T14:18:13.206022+01:00[Europe/Zagreb]");
+}
+
 TYPED_TEST(FunctionTest, ToStringExceptions) {
   EXPECT_THROW(this->EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException);
 }
@@ -2137,6 +2196,15 @@ TYPED_TEST(FunctionTest, TimestampDuration) {
   this->ctx.timestamp = 42;
   const memgraph::utils::Duration time(20000);
   EXPECT_EQ(this->EvaluateFunction("TIMESTAMP", time).ValueInt(), 20000);
+}
+
+TYPED_TEST(FunctionTest, TimestampZonedDateTime) {
+  this->ctx.timestamp = 42;
+
+  const int64_t microseconds = 20000;
+  const auto zdt = memgraph::utils::ZonedDateTime(memgraph::utils::AsSysTime(microseconds),
+                                                  memgraph::utils::Timezone("America/Los_Angeles"));
+  EXPECT_EQ(this->EvaluateFunction("TIMESTAMP", zdt).ValueInt(), microseconds);
 }
 
 TYPED_TEST(FunctionTest, TimestampExceptions) {
@@ -2385,5 +2453,60 @@ TYPED_TEST(FunctionTest, Duration) {
             memgraph::utils::Duration({3, 4, 5, 6, 0, 100000}));
   EXPECT_EQ(this->EvaluateFunction("DURATION", "P3DT4H5M6.100110S").ValueDuration(),
             memgraph::utils::Duration({3, 4, 5, 6, 100, 110}));
+}
+
+TYPED_TEST(FunctionTest, ZonedDateTime) {
+  const auto date_parameters = memgraph::utils::DateParameters{2024, 6, 22};
+  const auto local_time_parameters = memgraph::utils::LocalTimeParameters{12, 6, 3, 0, 0};
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {date_parameters, local_time_parameters, memgraph::utils::Timezone("America/Los_Angeles")});
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", "2024-06-22T12:06:03[America/Los_Angeles]").ValueZonedDateTime(), zdt);
+
+  const auto map_param = TypedValue(std::map<std::string, TypedValue>{{"year", TypedValue(2024)},
+                                                                      {"month", TypedValue(6)},
+                                                                      {"day", TypedValue(22)},
+                                                                      {"hour", TypedValue(12)},
+                                                                      {"minute", TypedValue(6)},
+                                                                      {"second", TypedValue(3)},
+                                                                      {"millisecond", TypedValue(0)},
+                                                                      {"microsecond", TypedValue(0)},
+                                                                      {"timezone", TypedValue("America/Los_Angeles")}});
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", map_param).ValueZonedDateTime(), zdt);
+
+  const auto one_sec_in_microseconds = 1000000;
+  const auto today = memgraph::utils::CurrentZonedDateTime();
+  EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
+              today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{})).ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::DefaultTimezone()}));
+
+  // No parameters
+  EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
+
+  // Nonexistent fields
+  EXPECT_THROW(
+      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"hours", TypedValue(1970)}})),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
+      QueryRuntimeException);
+
+  // Only some fields
+  auto date_params = memgraph::utils::DateParameters{};
+  date_params.month = 7;
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"month", TypedValue(7)}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({date_params, {}, memgraph::utils::DefaultTimezone()}));
+
+  auto lt_params = memgraph::utils::LocalTimeParameters{};
+  lt_params.hour = 17;
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{{"hour", TypedValue(17)}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({{}, lt_params, memgraph::utils::DefaultTimezone()}));
+
+  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
+                                                   {"timezone", TypedValue("America/Los_Angeles")}}))
+                .ValueZonedDateTime(),
+            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
 }
 }  // namespace

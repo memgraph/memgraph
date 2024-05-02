@@ -83,6 +83,7 @@ class TypedValue {
     Date,
     LocalTime,
     LocalDateTime,
+    ZonedDateTime,
     Duration,
     Graph,
     Function
@@ -167,6 +168,11 @@ class TypedValue {
   explicit TypedValue(const utils::LocalDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::LocalDateTime) {
     local_date_time_v = value;
+  }
+
+  explicit TypedValue(const utils::ZonedDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::ZonedDateTime) {
+    zoned_date_time_v = value;
   }
 
   explicit TypedValue(const utils::Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -454,6 +460,7 @@ class TypedValue {
   TypedValue &operator=(const utils::Date &);
   TypedValue &operator=(const utils::LocalTime &);
   TypedValue &operator=(const utils::LocalDateTime &);
+  TypedValue &operator=(const utils::ZonedDateTime &);
   TypedValue &operator=(const utils::Duration &);
   TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
@@ -509,6 +516,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
@@ -556,6 +564,7 @@ class TypedValue {
     utils::Date date_v;
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
+    utils::ZonedDateTime zoned_date_time_v;
     utils::Duration duration_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;

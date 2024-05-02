@@ -9,12 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/inmemory/label_property_index.hpp"
+#include <chrono>
+#include <cstdint>
+#include <limits>
+
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
+#include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 
@@ -234,6 +242,9 @@ const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
 const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
+const PropertyValue kSmallestZonedTemporalData = PropertyValue(
+    ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
+                      utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
@@ -307,6 +318,9 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
         break;
       case PropertyValue::Type::TemporalData:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
         // This is the last type in the order so we leave the upper bound empty.
         break;
     }
@@ -339,6 +353,9 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         break;
       case PropertyValue::Type::TemporalData:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
         break;
     }
   }
