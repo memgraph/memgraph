@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <ranges>
 
@@ -159,8 +160,9 @@ class VertexAccessor final {
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
-                                                    const std::vector<storage::EdgeTypeId> &edge_types) const {
-    auto maybe_result = impl_.InEdges(view, edge_types);
+                                                    const std::vector<storage::EdgeTypeId> &edge_types,
+                                                    std::optional<int64_t> hops_limit = std::nullopt) const {
+    auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -175,8 +177,9 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    const VertexAccessor &dest) const {
-    auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_);
+                                                    const VertexAccessor &dest,
+                                                    std::optional<uint64_t> hops_limit = std::nullopt) const {
+    auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -188,8 +191,9 @@ class VertexAccessor final {
   }
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
-                                                     const std::vector<storage::EdgeTypeId> &edge_types) const {
-    auto maybe_result = impl_.OutEdges(view, edge_types);
+                                                     const std::vector<storage::EdgeTypeId> &edge_types,
+                                                     std::optional<uint64_t> hops_limit = std::nullopt) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -204,8 +208,9 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     const VertexAccessor &dest) const {
-    auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_);
+                                                     const VertexAccessor &dest,
+                                                     std::optional<uint64_t> hops_limit = std::nullopt) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;

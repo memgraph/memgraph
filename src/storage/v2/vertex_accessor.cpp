@@ -11,6 +11,8 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <utility>
@@ -582,7 +584,8 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 };
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination) const {
+                                                          const VertexAccessor *destination,
+                                                          std::optional<int64_t> hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -612,16 +615,33 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
-    // TODO: a better filter copy
-    if (edge_types.empty() && !destination) {
-      in_edges = vertex_->in_edges;
+    if (hops_limit) {
+      if (edge_types.empty() && !destination) {
+        expanded_count = (std::min(*hops_limit, static_cast<int64_t>(vertex_->out_edges.size())));
+        std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(in_edges));
+      } else {
+        for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
+          --(*hops_limit);
+          expanded_count++;
+          if (*hops_limit == 0) break;
+          if (destination && to_vertex != destination_vertex) continue;
+          if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+            continue;
+          in_edges.emplace_back(edge_type, to_vertex, edge);
+        }
+      }
     } else {
-      for (const auto &[edge_type, from_vertex, edge] : vertex_->in_edges) {
-        if (destination && from_vertex != destination_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        in_edges.emplace_back(edge_type, from_vertex, edge);
+      expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
+      // TODO: a better filter copy
+      if (edge_types.empty() && !destination) {
+        in_edges = vertex_->in_edges;
+      } else {
+        for (const auto &[edge_type, from_vertex, edge] : vertex_->in_edges) {
+          if (destination && from_vertex != destination_vertex) continue;
+          if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+            continue;
+          in_edges.emplace_back(edge_type, from_vertex, edge);
+        }
       }
     }
     delta = vertex_->delta;
@@ -672,7 +692,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 }
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination) const {
+                                                           const VertexAccessor *destination,
+                                                           std::optional<int64_t> hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -702,15 +723,32 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
-    if (edge_types.empty() && !destination) {
-      out_edges = vertex_->out_edges;
+    if (hops_limit) {
+      if (edge_types.empty() && !destination) {
+        expanded_count = std::min(*hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
+        std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
+      } else {
+        for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
+          --(*hops_limit);
+          expanded_count++;
+          if (*hops_limit == 0) break;
+          if (destination && to_vertex != dst_vertex) continue;
+          if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+            continue;
+          out_edges.emplace_back(edge_type, to_vertex, edge);
+        }
+      }
     } else {
-      for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-        if (destination && to_vertex != dst_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        out_edges.emplace_back(edge_type, to_vertex, edge);
+      expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
+      if (edge_types.empty() && !destination) {
+        out_edges = vertex_->out_edges;
+      } else {
+        for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
+          if (destination && to_vertex != dst_vertex) continue;
+          if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
+            continue;
+          out_edges.emplace_back(edge_type, to_vertex, edge);
+        }
       }
     }
     delta = vertex_->delta;

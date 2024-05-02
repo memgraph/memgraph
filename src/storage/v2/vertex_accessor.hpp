@@ -97,13 +97,15 @@ class VertexAccessor final {
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                            const VertexAccessor *destination = nullptr) const;
+                                            const VertexAccessor *destination = nullptr,
+                                            std::optional<int64_t> hops_limit = std::nullopt) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                             const VertexAccessor *destination = nullptr) const;
+                                             const VertexAccessor *destination = nullptr,
+                                             std::optional<int64_t> hops_limit = std::nullopt) const;
 
   Result<size_t> InDegree(View view) const;
 
