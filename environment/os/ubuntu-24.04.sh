@@ -32,7 +32,7 @@ TOOLCHAIN_RUN_DEPS=(
     libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
     libcurl4 # for cmake
     libreadline8 # for cmake and llvm
-    libffi7 libxml2 # for llvm
+    libffi8 libxml2 # for llvm
     libssl-dev # for libevent
 )
 
@@ -45,14 +45,14 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    netcat # tests are using nc to wait for memgraph
+    netcat-traditional # tests are using nc to wait for memgraph
     python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven3.9.3 # for driver tests
-    dotnet-sdk-6.0 golang custom-golang1.18.9 nodejs npm # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-21-jdk-headless custom-maven3.9.3 # for driver tests
+    dotnet-sdk-8.0 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -118,21 +118,21 @@ install() {
             install_custom_golang "1.18.9"
             continue
         fi
-        if [ "$pkg" == dotnet-sdk-6.0 ]; then
-            if ! dpkg -s dotnet-sdk-6.0 2>/dev/null >/dev/null; then
+        if [ "$pkg" == dotnet-sdk-8.0 ]; then
+            if ! dpkg -s dotnet-sdk-8.0 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
                 apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-6.0
+                apt-get install -y apt-transport-https dotnet-sdk-8.0
             fi
             continue
         fi
-        if [ "$pkg" == openjdk-17-jdk-headless ]; then
+        if [ "$pkg" == openjdk-21-jdk-headless ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 apt install -y "$pkg"
                 # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
+                update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
+                update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
             fi
             continue
         fi
