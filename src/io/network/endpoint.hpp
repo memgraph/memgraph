@@ -25,9 +25,14 @@ struct Endpoint {
   static const struct needs_resolving_t {
   } needs_resolving;
 
+  static const struct real_manual_resolving_t {
+  } real_manual_resolving;
+
   Endpoint() = default;
   Endpoint(std::string ip_address, uint16_t port);
   Endpoint(needs_resolving_t, std::string hostname, uint16_t port);
+
+  Endpoint(real_manual_resolving_t, std::string const &hostname, uint16_t port);
 
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
@@ -42,7 +47,10 @@ struct Endpoint {
   static std::optional<Endpoint> ParseSocketOrAddress(std::string_view address,
                                                       std::optional<uint16_t> default_port = {});
 
-  std::string SocketAddress() const;
+  static std::optional<Endpoint> ParseSocketOrAddressManual(std::string_view address,
+                                                            std::optional<uint16_t> default_port = {});
+
+  [[nodiscard]] std::string SocketAddress() const;
 
   std::string address;
   uint16_t port{0};
@@ -55,6 +63,9 @@ struct Endpoint {
   static IpFamily GetIpFamily(std::string_view address);
 
   static bool IsResolvableAddress(std::string_view address, uint16_t port);
+
+  static std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> TryResolveAddress(
+      std::string_view address, uint16_t port);
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;
 };
