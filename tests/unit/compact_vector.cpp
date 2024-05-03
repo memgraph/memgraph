@@ -13,12 +13,12 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/v2/tco_vector.hpp"
+#include "storage/v2/compact_vector.hpp"
 
 TEST(CompactVector, BasicTest) {
   const int kMaxElements = 10;
 
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
 
   for (int i = 0; i < kMaxElements; ++i) {
     vec.push_back(i);
@@ -31,7 +31,7 @@ TEST(CompactVector, BasicTest) {
 
 TEST(CompactVector, Clear) {
   const int kMaxElements = 10;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
 
   for (int i = 0; i < kMaxElements + 1; ++i) {
     vec.push_back(i);
@@ -47,7 +47,7 @@ TEST(CompactVector, Clear) {
 TEST(CompactVector, Resize) {
   const int kSmallStorageSize = 5;
   const int kTwiceTheSmallStorage = 2 * kSmallStorageSize;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
 
   for (int i = 0; i < kTwiceTheSmallStorage; ++i) {
     vec.push_back(i);
@@ -63,7 +63,7 @@ TEST(CompactVector, Resize) {
 
 TEST(CompactVector, Reserve) {
   const int kMaxElements = 1000;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
   EXPECT_EQ(vec.capacity(), 0);
   vec.reserve(kMaxElements);
   EXPECT_EQ(vec.capacity(), kMaxElements);
@@ -72,7 +72,7 @@ TEST(CompactVector, Reserve) {
 }
 
 TEST(CompactVector, EraseFirst) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
   auto next = vec.erase(vec.begin());
   EXPECT_EQ(2, vec.size());
   EXPECT_EQ("b", vec[0]);
@@ -81,7 +81,7 @@ TEST(CompactVector, EraseFirst) {
 }
 
 TEST(CompactVector, EraseThird) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c", "d"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d"};
   auto next = vec.begin();
   ++next;  // "b"
   ++next;  // "c"
@@ -95,7 +95,7 @@ TEST(CompactVector, EraseThird) {
 }
 
 TEST(CompactVector, EraseLast) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
   auto next = vec.begin();
   ++next;  // "b"
   ++next;  // "c"
@@ -108,7 +108,7 @@ TEST(CompactVector, EraseLast) {
 }
 
 TEST(CompactVector, ErasePart) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
   auto beg = vec.begin();
   ++beg;  // "b"
   auto end = beg;
@@ -125,7 +125,7 @@ TEST(CompactVector, ErasePart) {
 }
 
 TEST(CompactVector, ErasePartTillEnd) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
   auto it = vec.begin();
   ++it;  // "b"
 
@@ -136,7 +136,7 @@ TEST(CompactVector, ErasePartTillEnd) {
 }
 
 TEST(CompactVector, EraseFull) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
 
   auto it = vec.erase(vec.begin(), vec.end());
   EXPECT_EQ(0, vec.size());
@@ -144,7 +144,7 @@ TEST(CompactVector, EraseFull) {
 }
 
 TEST(CompactVector, EraseOneEndIterator) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
 
   auto it = vec.erase(vec.end());
   EXPECT_EQ(3, vec.size());
@@ -152,7 +152,7 @@ TEST(CompactVector, EraseOneEndIterator) {
 }
 
 TEST(CompactVector, EraseRangeEndIterator) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
 
   auto it = vec.erase(vec.end(), vec.end());
   EXPECT_EQ(3, vec.size());
@@ -160,7 +160,7 @@ TEST(CompactVector, EraseRangeEndIterator) {
 }
 
 TEST(CompactVector, EraseOneEndIteratorOnEmptyVector) {
-  memgraph::storage::TcoVector<std::string> vec;
+  memgraph::storage::CompactVector<std::string> vec;
 
   auto it = vec.erase(vec.end());
   EXPECT_EQ(0, vec.size());
@@ -168,7 +168,7 @@ TEST(CompactVector, EraseOneEndIteratorOnEmptyVector) {
 }
 
 TEST(CompactVector, EraseRangeEndIteratorOnEmptyVector) {
-  memgraph::storage::TcoVector<std::string> vec;
+  memgraph::storage::CompactVector<std::string> vec;
 
   auto it = vec.erase(vec.end(), vec.end());
   EXPECT_EQ(0, vec.size());
@@ -176,14 +176,14 @@ TEST(CompactVector, EraseRangeEndIteratorOnEmptyVector) {
 }
 
 TEST(CompactVector, EmplaceBack) {
-  memgraph::storage::TcoVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
+  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
   vec.emplace_back("g");
   EXPECT_EQ("g", vec.back());
 }
 
 TEST(CompactVector, PushPopBack) {
   const int kElemNum = 10000;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
   EXPECT_EQ(0, vec.size());
   for (int i = 0; i < kElemNum; ++i) {
     vec.push_back(i);
@@ -197,7 +197,7 @@ TEST(CompactVector, PushPopBack) {
 
 TEST(CompactVector, Capacity) {
   const int kElemNum = 10000;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(0, vec.capacity());
 
@@ -210,7 +210,7 @@ TEST(CompactVector, Capacity) {
 
 TEST(CompactVector, Empty) {
   const int kElemNum = 10000;
-  memgraph::storage::TcoVector<int> vec;
+  memgraph::storage::CompactVector<int> vec;
   EXPECT_TRUE(vec.empty());
   for (int i = 0; i < kElemNum; ++i) {
     vec.push_back(i);

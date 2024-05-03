@@ -23,7 +23,7 @@ namespace memgraph::storage {
 #include <stdexcept>
 
 template <typename T>
-class TcoVector {
+class CompactVector {
  private:
   T *data_;
   uint32_t size_;      // max 4 billion
@@ -32,15 +32,15 @@ class TcoVector {
  public:
   using value_type = T;
 
-  TcoVector() : data_(nullptr), size_(0), capacity_(0) {}
+  CompactVector() : data_(nullptr), size_(0), capacity_(0) {}
 
-  TcoVector(const TcoVector &in) : TcoVector() {
+  CompactVector(const CompactVector &in) : CompactVector() {
     reserve(in.size_);
     std::copy(in.begin(), in.end(), data_);
     size_ = in.size_;
   }
 
-  TcoVector(TcoVector &&in) : data_{in.data_}, size_{in.size_}, capacity_{in.capacity_} {
+  CompactVector(CompactVector &&in) : data_{in.data_}, size_{in.size_}, capacity_{in.capacity_} {
     if (&in != this) {
       in.data_ = nullptr;
       in.size_ = 0;
@@ -48,7 +48,7 @@ class TcoVector {
     }
   }
 
-  TcoVector(std::initializer_list<T> in) : TcoVector() {
+  CompactVector(std::initializer_list<T> in) : CompactVector() {
     reserve(in.size());
     for (auto &v : in) {
       push_back(v);
@@ -56,14 +56,14 @@ class TcoVector {
     size_ = in.size();
   }
 
-  TcoVector<T> &operator=(const TcoVector<T> &in) {
+  CompactVector<T> &operator=(const CompactVector<T> &in) {
     reserve(in.size_);
     std::copy(in.begin(), in.end(), data_);
     size_ = in.size_;
     return *this;
   }
 
-  TcoVector<T> &operator=(TcoVector<T> &&in) {
+  CompactVector<T> &operator=(CompactVector<T> &&in) {
     if (&in != this) {
       data_ = std::exchange(in.data_, nullptr);
       size_ = std::exchange(in.size_, 0);
@@ -72,12 +72,12 @@ class TcoVector {
     return *this;
   }
 
-  ~TcoVector() {
+  ~CompactVector() {
     std::destroy(begin(), end());
     std::free(reinterpret_cast<void *>(data_));
   }
 
-  explicit TcoVector(const std::vector<T> &in) {
+  explicit CompactVector(const std::vector<T> &in) {
     reserve(in.size());
     std::copy(in.begin(), in.end(), data_);
     size_ = in.size();
@@ -169,7 +169,7 @@ class TcoVector {
   class Iterator {
    private:
     T *ptr;
-    friend class TcoVector<T>;
+    friend class CompactVector<T>;
 
    public:
     using iterator_category = std::contiguous_iterator_tag;
@@ -229,7 +229,7 @@ class TcoVector {
   class ReverseIterator {
    private:
     T *ptr;
-    friend class TcoVector<T>;
+    friend class CompactVector<T>;
 
    public:
     using iterator_category = std::contiguous_iterator_tag;
@@ -329,6 +329,6 @@ class TcoVector {
   }
 };
 
-static_assert(sizeof(TcoVector<int>) == 16);
+static_assert(sizeof(CompactVector<int>) == 16);
 
 }  // namespace memgraph::storage

@@ -15,11 +15,11 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "storage/v2/compact_vector.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/tco_vector.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -333,8 +333,8 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
-      TcoVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-      TcoVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+      CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+      CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
       {
         auto vertex_lock = std::shared_lock{vertex_ptr->lock};
