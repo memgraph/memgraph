@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import copy
+import logging
 import os
 import shutil
 import subprocess
@@ -24,6 +25,8 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
 MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 SIGNAL_SIGTERM = 15
+
+log = logging.getLogger("memgraph.tests.e2e")
 
 
 def wait_for_server(port, delay=0.01):
@@ -72,21 +75,32 @@ class MemgraphInstanceRunner:
     def execute_setup_queries(self, setup_queries):
         if setup_queries is None:
             return
-        conn = mgclient.connect(
-            host=self.host,
-            port=self.bolt_port,
-            sslmode=self.ssl,
-            username=(self.username or ""),
-            password=(self.password or ""),
-        )
+        conn = None
+        try:
+            conn = mgclient.connect(
+                host=self.host,
+                port=self.bolt_port,
+                sslmode=self.ssl,
+                username=(self.username or ""),
+                password=(self.password or ""),
+            )
+        except Exception as e:
+            log.info(
+                f"Exception occurred while connecting to instance on {str(self.host)}:{str(self.port)} with exception {str(e)}"
+            )
+            raise e
+
         conn.autocommit = True
         cursor = conn.cursor()
+        log.info(f"Executing setup queries on instance {self.host}:{self.bolt_port}: {setup_queries}")
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
                 cursor.execute(query_coll)
+                log.info(f"Query executed {query_coll} on instance {self.host}:{self.bolt_port}")
             elif isinstance(query_coll, list):
                 for query in query_coll:
                     cursor.execute(query)
+                    log.info(f"Query executed {query} on instance {self.host}:{self.bolt_port}")
         cursor.close()
         conn.close()
 
@@ -130,7 +144,9 @@ class MemgraphInstanceRunner:
         else:
             self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
+        log.info(f"Subprocess started with args {args_mg}")
         wait_for_server(self.bolt_port)
+        log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
         self.execute_setup_queries(setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 

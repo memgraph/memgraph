@@ -19,13 +19,15 @@ check_license() {
 
 source "$SCRIPT_DIR/../util.sh"
 setup_node
-
+echo "$#"
 if [ "$#" -eq 0 ]; then
   check_license
   # NOTE: If you want to run all tests under specific folder/section just
   # replace the dot (root directory below) with the folder name, e.g.
   # `--workloads-root-directory replication`.
-  python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e"
+  echo "$#"
+  echo "$SCRIPT_DIR/../../build/tests/e2e"
+  python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e/high_availability"
 elif [ "$#" -eq 1 ]; then
   if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     print_help
