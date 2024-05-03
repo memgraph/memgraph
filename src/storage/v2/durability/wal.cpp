@@ -13,6 +13,7 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
+#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -205,6 +206,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_LIST:
     case Marker::TYPE_MAP:
     case Marker::TYPE_TEMPORAL_DATA:
+    case Marker::TYPE_ZONED_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:

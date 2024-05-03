@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -21,6 +22,7 @@
 #include <shared_mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -35,6 +37,7 @@
 #include "dbms/constants.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -50,16 +53,23 @@ using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config) {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
+                  repl_instance_name);
     auto lock = std::unique_lock{self->coord_instance_lock_};
-
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
+    spdlog::trace("Executing success callback in thread {} for instance {}", std::this_thread::get_id(),
+                  repl_instance_name);
     std::invoke(repl_instance.GetSuccessCallback(), self, repl_instance_name);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
+    spdlog::trace("Acquiring lock in thread {} for client failure callback for instance {}", std::this_thread::get_id(),
+                  repl_instance_name);
     auto lock = std::unique_lock{self->coord_instance_lock_};
 
     auto &repl_instance = self->FindReplicationInstance(repl_instance_name);
+    spdlog::trace("Executing failure callback in thread {} for instance {}", std::this_thread::get_id(),
+                  repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 
@@ -87,6 +97,7 @@ CoordinatorInstance::~CoordinatorInstance() {
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
+    spdlog::trace("Executing become leader callback in thread {}", std::this_thread::get_id());
     if (is_shutting_down_.load(std::memory_order_acquire)) {
       return;
     }
@@ -142,7 +153,8 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
 auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   return [this]() {
     thread_pool_.AddTask([this]() {
-      spdlog::info("Leader changed, trying to stop all replication instances frequent checks!");
+      spdlog::info("Leader changed, trying to stop all replication instances frequent checks in thread {}!",
+                   std::this_thread::get_id());
       is_leader_ready_ = false;
       // We need to stop checks before taking a lock because deadlock can happen if instances waits
       // to take a lock in frequent check, and this thread already has a lock and waits for instance to
@@ -152,6 +164,7 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
         repl_instance.StopFrequentCheck();
         spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
       });
+      spdlog::info("Acquiring lock in become follower callback in thread {}!", std::this_thread::get_id());
       auto lock = std::unique_lock{coord_instance_lock_};
       repl_instances_.clear();
       spdlog::info("Stopped all replication instance frequent checks.");
@@ -262,7 +275,7 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
   // 5. For instances which were down set correct callback as before
   // 6. After instance gets back up, do steps needed to recover
 
-  spdlog::trace("Force resetting cluster!");
+  spdlog::trace("Force resetting cluster in thread {}!", std::this_thread::get_id());
 
   if (is_shutting_down_.load(std::memory_order_acquire)) {
     return ForceResetClusterStateStatus::SHUTTING_DOWN;
@@ -276,8 +289,9 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
     repl_instance.StopFrequentCheck();
     spdlog::trace("Stopped frequent check for instance {}", repl_instance.InstanceName());
   });
-  spdlog::trace("Stopped all replication instance frequent checks.");
+  spdlog::trace("Stopped all frequent checks and acquiring lock in the thread {}", std::this_thread::get_id());
   auto lock = std::unique_lock{coord_instance_lock_};
+  spdlog::trace("Acquired lock in the force reset thread {}", std::this_thread::get_id());
   repl_instances_.clear();
 
   if (!raft_state_->IsLeader()) {
@@ -341,9 +355,11 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
   auto const new_uuid = utils::UUID{};
 
   auto update_uuid_failed = [&new_uuid, this](auto &repl_instance) {
+    spdlog::trace("Executing swap and update uuid {}", repl_instance.InstanceName());
     if (!repl_instance.SendSwapAndUpdateUUID(new_uuid)) {
       return true;
     }
+    spdlog::trace("Executing append update uuid for instance {}", repl_instance.InstanceName());
     return !raft_state_->AppendUpdateUUIDForInstanceLog(repl_instance.InstanceName(), new_uuid);
   };
   if (std::ranges::any_of(alive_instances, update_uuid_failed)) {
@@ -355,16 +371,15 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
     spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
     return ForceResetClusterStateStatus::RAFT_LOG_ERROR;
   }
-
+  spdlog::trace("Updated uuid for new main {}", std::string{new_uuid});
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_instances);
-  spdlog::trace(" Maybe most up to date instance {}", maybe_most_up_to_date_instance.value_or("a"));
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
     return ForceResetClusterStateStatus::NO_NEW_MAIN;
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
-  spdlog::trace("Found new main");
+  spdlog::trace("Found the new main with instance name {}", new_main.InstanceName());
   auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
     return repl_instance.InstanceName() != new_main.InstanceName();
   };
@@ -377,6 +392,7 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
     spdlog::warn("Force reset failed since promoting replica to main failed.");
     return ForceResetClusterStateStatus::RPC_FAILED;
   }
+  spdlog::trace("Promoted instance {} to main", new_main.InstanceName());
 
   // This will set cluster in healthy state again
   if (!raft_state_->AppendSetInstanceAsMainLog(*maybe_most_up_to_date_instance, new_uuid)) {
@@ -395,9 +411,11 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
     if (instances_mapped_to_resp[repl_instance.InstanceName()]) {
       return false;
     }
+    spdlog::trace("Instance {} needs demote", repl_instance.InstanceName());
     if (!raft_state_->AppendInstanceNeedsDemote(repl_instance.InstanceName())) {
       return true;
     }
+    spdlog::trace("Setting callbacks to demote instance {}", repl_instance.InstanceName());
     repl_instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
     return false;
   };
@@ -411,10 +429,11 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
     if (raft_state_->HasReplicaState(repl_instance.InstanceName())) {
       MG_ASSERT(repl_instance.GetSuccessCallback() == &CoordinatorInstance::ReplicaSuccessCallback &&
                     repl_instance.GetFailCallback() == &CoordinatorInstance::ReplicaFailCallback,
-                "Callbacks are wrong");
+                "Instance {} should have replica callbacks", repl_instance.InstanceName());
     } else {
       MG_ASSERT(repl_instance.GetSuccessCallback() == &CoordinatorInstance::MainSuccessCallback &&
-                repl_instance.GetFailCallback() == &CoordinatorInstance::MainFailCallback);
+                    repl_instance.GetFailCallback() == &CoordinatorInstance::MainFailCallback,
+                "Instance {} should have main callbacks", repl_instance.InstanceName());
     }
   };
   std::ranges::for_each(alive_instances, check_correct_callbacks_set);
@@ -438,9 +457,10 @@ auto CoordinatorInstance::TryForceResetClusterState() -> ForceResetClusterStateS
 }
 
 auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStatus {
-  // TODO(antoniofilipovic): Implement exponential backoff
+  utils::ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(5)};
+
   while (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-    spdlog::trace("Doing force reset as lock is still opened on leader.");
+    spdlog::trace("Doing force in thread {} as lock is still opened on leader.", std::this_thread::get_id());
     auto const result = ForceResetCluster_();
     switch (result) {
       case (ForceResetClusterStateStatus::SUCCESS):
@@ -467,6 +487,7 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
       case ForceResetClusterStateStatus::NOT_COORDINATOR:  // shouldn't happen
         break;
     }
+    backoff.wait();
   }
 
   return ForceResetClusterStateStatus::SUCCESS;  // Shouldn't execute
@@ -481,7 +502,7 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto alive_replicas = repl_instances_ | ranges::views::filter(is_replica) |
                         ranges::views::filter(&ReplicationInstanceConnector::IsAlive);
-
+  spdlog::trace("Trying failover in thread {}", std::this_thread::get_id());
   if (ranges::empty(alive_replicas)) {
     spdlog::warn("Failover failed since all replicas are down!");
     return;
@@ -495,7 +516,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
-
+  spdlog::trace("Found new main {} to do failover", new_main.InstanceName());
   if (!raft_state_->AppendOpenLock()) {
     spdlog::error("Aborting failover as instance is not anymore leader.");
     return;
@@ -521,6 +542,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   auto const new_main_uuid = utils::UUID{};
 
   auto const failed_to_swap = [this, &new_main_uuid](ReplicationInstanceConnector &instance) {
+    spdlog::trace("Sending swap uuid to instance {} and updating raft log", instance.InstanceName());
     return !instance.SendSwapAndUpdateUUID(new_main_uuid) ||
            !raft_state_->AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
   };
@@ -568,7 +590,9 @@ auto CoordinatorInstance::TryFailover() -> void {
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
     -> SetInstanceToMainCoordinatorStatus {
+  spdlog::trace("Acquiring lock to set replication instance to main in thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
+  spdlog::trace("Acquired lock to set replication instance to main");
 
   if (!is_leader_ready_) {
     return SetInstanceToMainCoordinatorStatus::NOT_LEADER;
@@ -658,8 +682,9 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
+  spdlog::trace("Acquiring lock to register replication instance in thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
-
+  spdlog::trace("Acquired lock to register replication instance", std::this_thread::get_id());
   if (!is_leader_ready_) {
     spdlog::trace(" Is leader ready is in state {}", is_leader_ready_);
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
@@ -742,7 +767,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 }
 
 auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  spdlog::trace("Acquiring lock to demote instance to replica in thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
+  spdlog::trace("Acquired lock to demote instance to replica");
 
   if (!is_leader_ready_) {
     spdlog::trace("Is leader ready is in state {}", is_leader_ready_);
@@ -798,7 +825,9 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
+  spdlog::trace("Acquiring lock to unregister instance thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
+  spdlog::trace("Acquired lock to demote instance to replica");
 
   if (!is_leader_ready_) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
@@ -896,7 +925,8 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
 }
 
 void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing main fail callback", repl_instance_name);
+  spdlog::trace("Instance {} performing main fail callback in thread {}", repl_instance_name,
+                std::this_thread::get_id());
   if (raft_state_->IsLockOpened()) {
     spdlog::error("Returning from main fail callback as the last action didn't successfully finish");
   }
@@ -912,7 +942,8 @@ void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) 
 }
 
 void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing main successful callback", repl_instance_name);
+  spdlog::trace("Instance {} performing main successful callback in thread", repl_instance_name,
+                std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
     spdlog::error("Stopping main successful callback as the last action didn't successfully finish");
@@ -968,7 +999,8 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
 }
 
 void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing replica successful callback", repl_instance_name);
+  spdlog::trace("Instance {} performing replica successful callback in thread", repl_instance_name,
+                std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
     spdlog::error("Stopping main successful callback as the last action didn't successfully finish");
@@ -990,7 +1022,8 @@ void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_
 }
 
 void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing replica failure callback", repl_instance_name);
+  spdlog::trace("Instance {} performing replica failure callback in thread {}", repl_instance_name,
+                std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
     spdlog::error("Stopping main successful callback as the last action didn't successfully finish.");
@@ -1003,7 +1036,8 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
 }
 
 void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing demote to replica successful callback", repl_instance_name);
+  spdlog::trace("Instance {} performing demote to replica successful callback in thread", repl_instance_name,
+                std::this_thread::get_id());
 
   auto &repl_instance = FindReplicationInstance(repl_instance_name);
 
@@ -1056,7 +1090,8 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
 }
 
 void CoordinatorInstance::DemoteFailCallback(std::string_view repl_instance_name) {
-  spdlog::trace("Instance {} performing demote to replica failure callback", repl_instance_name);
+  spdlog::trace("Instance {} performing demote to replica failure callback in thread", repl_instance_name,
+                std::this_thread::get_id());
   auto &repl_instance = FindReplicationInstance(repl_instance_name);
   repl_instance.OnFailPing();
 }

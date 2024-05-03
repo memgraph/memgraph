@@ -51,6 +51,8 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         return a.UnsafeValueLocalTime() <=> b.UnsafeValueLocalTime();
       case TypedValue::Type::LocalDateTime:
         return a.UnsafeValueLocalDateTime() <=> b.UnsafeValueLocalDateTime();
+      case TypedValue::Type::ZonedDateTime:
+        return a.UnsafeValueZonedDateTime() <=> b.UnsafeValueZonedDateTime();
       case TypedValue::Type::Duration:
         return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
       case TypedValue::Type::Null:
@@ -94,6 +96,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
       case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::ZonedDateTime:
       case TypedValue::Type::Duration:
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:

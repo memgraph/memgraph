@@ -395,6 +395,16 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::LocalDateTime(1)),
                TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) +
+                   TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
+               TypedValueException);
 }
 
 TYPED_TEST(TypedValueArithmeticTest, Difference) {
@@ -407,6 +417,7 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // implicit casting
   EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
+
   // Temporal Types
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
@@ -423,6 +434,16 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) -
+                  TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
                TypedValueException);
 }
 
