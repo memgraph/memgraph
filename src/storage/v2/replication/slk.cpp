@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,16 @@
 
 #include "storage/v2/replication/slk.hpp"
 
+#include <chrono>
+#include <cstdint>
+#include <string>
 #include <type_traits>
 
+#include "slk/serialization.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::slk {
 
@@ -41,6 +46,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::List):
     case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
     case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
       valid = true;
       break;
     default:
@@ -97,6 +103,20 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      slk::Save(storage::PropertyValue::Type::ZonedTemporalData, builder);
+      const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      slk::Save(zoned_temporal_data.type, builder);
+      slk::Save(zoned_temporal_data.IntMicroseconds(), builder);
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        slk::Save(storage::PropertyValue::Type::String, builder);
+        slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
+      } else {
+        slk::Save(storage::PropertyValue::Type::Int, builder);
+        slk::Save(zoned_temporal_data.timezone.DefiningOffset(), builder);
+      }
       return;
     }
   }
@@ -161,6 +181,33 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
       *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      storage::ZonedTemporalType temporal_type{};
+      slk::Load(&temporal_type, reader);
+      int64_t microseconds{0};
+      slk::Load(&microseconds, reader);
+      storage::PropertyValue::Type timezone_representation_type{};
+      slk::Load(&timezone_representation_type, reader);
+      switch (timezone_representation_type) {
+        case storage::PropertyValue::Type::String: {
+          std::string timezone_name;
+          slk::Load(&timezone_name, reader);
+          *value = storage::PropertyValue(storage::ZonedTemporalData{temporal_type, utils::AsSysTime(microseconds),
+                                                                     utils::Timezone(timezone_name)});
+          return;
+        }
+        case storage::PropertyValue::Type::Int: {
+          int64_t offset_minutes{0};
+          slk::Load(&offset_minutes, reader);
+          *value = storage::PropertyValue(storage::ZonedTemporalData{
+              temporal_type, utils::AsSysTime(microseconds), utils::Timezone(std::chrono::minutes{offset_minutes})});
+          return;
+        }
+        default:
+          throw slk::SlkDecodeException("Trying to load ZonedTemporalData with invalid timezone representation!");
+      }
       return;
     }
   }

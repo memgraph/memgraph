@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -54,6 +55,7 @@ DEF_GETTER_BY_REF(Date, utils::Date, date_v)
 DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
 DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
 DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
+DEF_GETTER_BY_REF(ZonedDateTime, utils::ZonedDateTime, zoned_date_time_v)
 
 #undef DEF_GETTER_BY_REF
 
@@ -102,6 +104,9 @@ Value::Value(const Value &other) : type_(other.type_) {
       return;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      return;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
       return;
   }
 }
@@ -157,6 +162,9 @@ Value &Value::operator=(const Value &other) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        return *this;
     }
   }
   return *this;
@@ -207,6 +215,9 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       break;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      break;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
       break;
   }
 
@@ -266,6 +277,9 @@ Value &Value::operator=(Value &&other) noexcept {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        break;
     }
 
     // reset the type of other
@@ -323,6 +337,9 @@ Value::~Value() {
       return;
     case Type::Duration:
       duration_v.~Duration();
+      return;
+    case Type::ZonedDateTime:
+      zoned_date_time_v.~ZonedDateTime();
       return;
   }
 }
@@ -427,6 +444,8 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << value.ValueLocalDateTime();
     case Value::Type::Duration:
       return os << value.ValueDuration();
+    case Value::Type::ZonedDateTime:
+      return os << value.ValueZonedDateTime();
   }
 }
 
@@ -462,6 +481,8 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "local_date_time";
     case Value::Type::Duration:
       return os << "duration";
+    case Value::Type::ZonedDateTime:
+      return os << "zoned_date_time";
   }
 }
 }  // namespace memgraph::communication::bolt
