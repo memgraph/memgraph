@@ -10,10 +10,10 @@ RUN apt update && apt install -y \
 # Do NOT be smart here and clean the cache because the container is used in the
 # stateful context.
 
-# RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
-#     -O toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
-#     && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz -C /opt \
-#     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz
+RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOLCHAIN_VERSION}/toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
+    -O toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz \
+    && tar xzvf toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz -C /opt \
+    && rm toolchain-${TOOLCHAIN_VERSION}-binaries-ubuntu-24.04-amd64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
 ARG GIT_REF=master
