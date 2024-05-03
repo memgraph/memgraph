@@ -323,7 +323,7 @@ class Writer {
 // Helper class used to read data from the binary stream.
 class Reader {
  public:
-  Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size), pos_(0) {}
+  Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
   std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
@@ -1477,8 +1477,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   bool in_local_buffer = false;
-  uint32_t size;
-  uint8_t *data;
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
