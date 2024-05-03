@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdlib>
 #include <iterator>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -27,9 +30,11 @@ class TcoVector {
   uint32_t capacity_;  // max 4 billion
 
  public:
+  using value_type = T;
+
   TcoVector() : data_(nullptr), size_(0), capacity_(0) {}
 
-  TcoVector(const TcoVector &in) {
+  TcoVector(const TcoVector &in) : TcoVector() {
     reserve(in.size_);
     std::copy(in.begin(), in.end(), data_);
     size_ = in.size_;
@@ -41,6 +46,14 @@ class TcoVector {
       in.size_ = 0;
       in.capacity_ = 0;
     }
+  }
+
+  TcoVector(std::initializer_list<T> in) : TcoVector() {
+    reserve(in.size());
+    for (auto &v : in) {
+      push_back(v);
+    }
+    size_ = in.size();
   }
 
   TcoVector<T> &operator=(const TcoVector<T> &in) {
@@ -59,7 +72,10 @@ class TcoVector {
     return *this;
   }
 
-  ~TcoVector() { delete[] data_; }
+  ~TcoVector() {
+    std::destroy(begin(), end());
+    std::free(reinterpret_cast<void *>(data_));
+  }
 
   explicit TcoVector(const std::vector<T> &in) {
     reserve(in.size());
@@ -71,7 +87,8 @@ class TcoVector {
     if (size_ >= capacity_) {
       reserve(capacity_ == 0 ? 1 : 2 * capacity_);
     }
-    data_[size_++] = value;
+    std::construct_at(data_ + size_, value);
+    size_++;
   }
 
   template <typename... Args>
@@ -84,7 +101,8 @@ class TcoVector {
 
   void pop_back() {
     if (size_) {
-      auto back = std::move(data_[--size_]);
+      // Explicitly ignore return value to avoid warning
+      (void)std::move(data_[--size_]);
     }
   }
 
@@ -116,12 +134,11 @@ class TcoVector {
       return;
     }
 
-    // T *new_data = new T[new_capacity];
-    const auto size = ((sizeof(T) + 7) / 8) * 8;
-    T *new_data = reinterpret_cast<T *>(new uint8_t[new_capacity * size]);
-    memcpy(new_data, data_, size_ * sizeof(T));
+    T *new_data = reinterpret_cast<T *>(std::aligned_alloc(alignof(T), new_capacity * sizeof(T)));
+    std::uninitialized_move(begin(), end(), new_data);
 
-    delete[] data_;
+    std::destroy(begin(), end());
+    std::free(reinterpret_cast<void *>(data_));
     data_ = new_data;
     capacity_ = new_capacity;
   }
@@ -143,6 +160,11 @@ class TcoVector {
   const T &back() const { return data_[size_ - 1]; }
 
   bool empty() const { return size_ == 0; }
+
+  void clear() {
+    std::destroy(begin(), end());
+    size_ = 0;
+  }
 
   class Iterator {
    private:
@@ -182,6 +204,13 @@ class TcoVector {
       return temp;
     }
 
+    Iterator operator+=(difference_type n) {
+      ptr += n;
+      return *this;
+    }
+
+    Iterator operator+(const difference_type n) const { return Iterator(ptr + n); }
+
     T &operator*() const { return *ptr; }
 
     T *operator->() const { return ptr; }
@@ -194,6 +223,7 @@ class TcoVector {
     bool operator!=(const Iterator &other) const { return ptr != other.ptr; }
 
     std::ptrdiff_t operator-(const Iterator &rv) const { return ptr - rv.ptr; }
+    Iterator operator-(const difference_type n) const { return Iterator(ptr - n); }
   };
 
   class ReverseIterator {
@@ -266,28 +296,36 @@ class TcoVector {
 
   const ReverseIterator rend() const { return ReverseIterator(data_ - 1); }
 
-  void erase(Iterator pos) {
-    if (pos >= begin() && pos < end()) {
-      Iterator next = pos;
-      ++next;
-      while (next != end()) {
-        *pos.ptr = std::move(*next);
-        ++pos;
-        ++next;
-      }
-      --size_;
-    } else {
+  Iterator erase(const Iterator pos) {
+    if (pos < begin() || pos > end()) {
       throw std::out_of_range("Iterator out of range");
     }
+    if (pos == end()) {
+      return pos;
+    }
+
+    auto it = begin() + std::distance(cbegin(), pos);
+
+    std::move(std::next(it), end(), it);
+    pop_back();
+    return it;
   }
 
-  void erase(Iterator pos, Iterator end_itr) {
-    if (pos < begin() || pos >= end() || end_itr < pos || end_itr > end()) {
+  Iterator erase(const Iterator beg_itr, const Iterator end_itr) {
+    if (beg_itr < begin() || beg_itr > end() || end_itr < beg_itr || end_itr > end()) {
       throw std::out_of_range("Iterator out of range");
     }
-    for (auto itr = pos; itr < end_itr; ++itr, --end_itr) {
-      erase(itr);
+    auto it_first = begin() + std::distance(cbegin(), beg_itr);
+    auto it_last = begin() + std::distance(cbegin(), end_itr);
+    auto e = end();
+    auto n = std::distance(it_first, it_last);
+
+    if (it_first != it_last) {
+      std::move(it_last, e, it_first);
+      std::destroy(e - n, e);
+      size_ -= n;
     }
+    return it_first;
   }
 };
 
