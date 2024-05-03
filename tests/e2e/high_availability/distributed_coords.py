@@ -2773,4 +2773,4 @@ def test_coordinator_user_action_force_reset_works():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
