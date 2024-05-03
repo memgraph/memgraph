@@ -86,7 +86,7 @@ class MemgraphInstanceRunner:
             )
         except Exception as e:
             log.info(
-                f"Exception occurred while connecting to instance on {str(self.host)}:{str(self.port)} with exception {str(e)}"
+                f"Exception occurred while connecting to instance on {str(self.host)}:{str(self.bolt_port)} with exception {str(e)}"
             )
             raise e
 
