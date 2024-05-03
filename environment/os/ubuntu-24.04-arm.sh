@@ -3,7 +3,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "ubuntu-22.04"
+check_operating_system "ubuntu-24.04"
 check_architecture "arm64" "aarch64"
 
 TOOLCHAIN_BUILD_DEPS=(
