@@ -9,26 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <thread>
-#include "absl/container/flat_hash_set.h"
+#include <shared_mutex>
+#include <tuple>
+
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
+#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/tco_vector.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/file.hpp"
 #include "utils/logging.hpp"
-#include "utils/stat.hpp"
-#include "utils/timer.hpp"
-#include "utils/typeinfo.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::storage {
 

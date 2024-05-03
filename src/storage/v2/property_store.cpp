@@ -16,13 +16,14 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
@@ -459,8 +460,8 @@ class Reader {
   }
 
   const uint8_t *data_;
-  uint32_t size_;
-  uint32_t pos_;
+  uint32_t size_ = 0;
+  uint32_t pos_ = 0;
 };
 
 // Function used to encode a PropertyValue into a byte stream.
@@ -1235,7 +1236,7 @@ struct SpecificPropertyAndBufferInfoMinimal {
 SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, PropertyId property) {
   uint32_t property_begin = reader->GetPosition();
   uint32_t property_end = reader->GetPosition();
-  uint32_t all_begin = reader->GetPosition();
+  const uint32_t all_begin = reader->GetPosition();
   uint32_t all_end = reader->GetPosition();
   while (true) {
     auto ret = HasExpectedProperty(reader, property);
@@ -1276,7 +1277,7 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
 
 // All data buffers will be allocated to a power of 8 size.
 uint32_t ToPowerOf8(uint32_t size) {
-  uint32_t mod = size % 8;
+  const uint32_t mod = size % 8;
   if (mod == 0) return size;
   return size - mod + 8;
 }
@@ -1315,17 +1316,17 @@ const uint8_t kUseLocalBuffer = 0x01;
 // `buffer_`.
 
 std::pair<uint32_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
-  uint32_t size;
-  uint8_t *data;
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
   memcpy(&size, buffer, sizeof(uint32_t));
   memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
   return {size, data};
 }
 
 struct BufferInfo {
-  uint32_t size;
+  uint32_t size = 0;
   uint8_t *data{nullptr};
-  bool in_local_buffer;
+  bool in_local_buffer = false;
 };
 
 template <size_t N>
@@ -1362,7 +1363,7 @@ PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
-  uint32_t size;
+  uint32_t size = 0;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
@@ -1377,7 +1378,7 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
 }
 
 PropertyStore::~PropertyStore() {
-  uint32_t size;
+  uint32_t size = 0;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
