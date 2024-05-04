@@ -45,7 +45,7 @@ MEMGRAPH_BUILD_DEPS=(
     libpython3-dev python3-dev # for query modules
     libssl-dev
     libseccomp-dev
-    netcat # tests are using nc to wait for memgraph
+    netcat-traditional # tests are using nc to wait for memgraph
     python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
