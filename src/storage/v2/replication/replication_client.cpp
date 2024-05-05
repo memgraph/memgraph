@@ -429,9 +429,9 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
 }
 
 void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                    uint64_t timestamp) {
+                                    const std::set<PropertyId> &properties, uint64_t timestamp) {
   replication::Encoder encoder(stream_.GetBuilder());
-  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, timestamp);
+  EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, properties, timestamp);
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }

@@ -77,8 +77,8 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
 
     if (op.input()->GetTypeInfo() == Once::kType) {
-      const bool is_node_anon = op.output_symbol_.IsSymbolAnonym();
-      once_under_scanall_ = is_node_anon;
+      source_node_anon_ = op.output_symbol_.IsSymbolAnonym();
+      once_under_scanall_ = source_node_anon_ && dest_node_anon_;
     }
 
     return true;
@@ -96,6 +96,8 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Expand &op) override {
     prev_ops_.push_back(&op);
+
+    dest_node_anon_ = op.common_.node_symbol.IsSymbolAnonym();
 
     if (op.input()->GetTypeInfo() == ScanAll::kType) {
       const bool only_one_edge_type = (op.common_.edge_types.size() == 1U);
@@ -144,10 +146,19 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         maybe_property = GetProperty(property);
         if (db_->EdgeTypePropertyIndexExists(edge_type_, maybe_property)) {
           property_ = maybe_property;
+          property_filter_ = filter;
 
-          maybe_id_lookup_value_ = filter.property_filter->value_;
-          filter_exprs_for_removal_.insert(filter.expression);
-          filters_.EraseFilter(filter);
+          // // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
+          // // We only remove the filter if we are looking for edges with a specific edge-type. If we
+          // // have some other type of property filtering e.g. range or value lookup, we do not want to
+          // // remove the filters to keep the semantics of the original query in tackt. We can optimize
+          // // this by adding additional operators for the specific kinds of edge-type+property filtering.
+          // // On top of this we only want to remove the filter if when?????
+          // const auto prop_filter_type = filter.property_filter->type_;
+          // if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
+          //   filter_exprs_for_removal_.insert(filter.expression);
+          //   filters_.EraseFilter(filter);
+          // }
 
           break;
         }
@@ -564,6 +575,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::unordered_set<Symbol> cartesian_symbols_;
   storage::EdgeTypeId edge_type_;
   std::optional<storage::PropertyId> property_;
+  std::optional<FilterInfo> property_filter_;
 
   Symbol edge_symbol_;
   memgraph::query::Expression *maybe_id_lookup_value_ = nullptr;
@@ -615,6 +627,9 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool scanall_under_expand_ = false;
   bool once_under_scanall_ = false;
   bool edge_type_index_exist_ = false;
+
+  bool source_node_anon_ = false;
+  bool dest_node_anon_ = false;
   // bool property_filter_on_edge_ = false;
 
   bool DefaultPreVisit() override {
@@ -634,6 +649,18 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     // std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
 
     if (EdgeTypePropertyIndexingPossible()) {
+      // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
+      // We only remove the filter if we are looking for edges with a specific edge-type. If we
+      // have some other type of property filtering e.g. range or value lookup, we do not want to
+      // remove the filters to keep the semantics of the original query in tackt. We can optimize
+      // this by adding additional operators for the specific kinds of edge-type+property filtering.
+      // On top of this we only want to remove the filter if when?????
+      const auto prop_filter_type = property_filter_->property_filter->type_;
+      if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
+        filter_exprs_for_removal_.insert(property_filter_->expression);
+        filters_.EraseFilter(*property_filter_);
+      }
+
       return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
     }
 

@@ -54,7 +54,8 @@ struct ReplicationStorageState {
                        const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp,
                        std::span<std::optional<ReplicaStream>> replica_streams);
   void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                       uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> replica_streams);
+                       const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
+                       std::span<std::optional<ReplicaStream>> replica_streams);
   bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                            std::vector<std::optional<ReplicaStream>> replica_stream);
 

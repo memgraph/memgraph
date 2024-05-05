@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <set>
 
+#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -37,6 +38,8 @@ struct MetadataDelta {
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
+    EDGE_PROPERTY_INDEX_CREATE,
+    EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -65,6 +68,10 @@ struct MetadataDelta {
   } edge_index_create;
   static constexpr struct EdgeIndexDrop {
   } edge_index_drop;
+  static constexpr struct EdgePropertyIndexCreate {
+  } edge_property_index_create;
+  static constexpr struct EdgePropertyIndexDrop {
+  } edge_property_index_drop;
   static constexpr struct TextIndexCreate {
   } text_index_create;
   static constexpr struct TextIndexDrop {
@@ -104,6 +111,12 @@ struct MetadataDelta {
 
   MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
 
+  MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
+      : action(Action::EDGE_PROPERTY_INDEX_CREATE), edge_type_property{edge_type, property} {}
+
+  MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
+      : action(Action::EDGE_PROPERTY_INDEX_DROP), edge_type_property{edge_type, property} {}
+
   MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
       : action(Action::TEXT_INDEX_CREATE), text_index{index_name, label} {}
 
@@ -139,6 +152,8 @@ struct MetadataDelta {
       case Action::LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case Action::EDGE_INDEX_CREATE:
       case Action::EDGE_INDEX_DROP:
+      case Action::EDGE_PROPERTY_INDEX_CREATE:
+      case Action::EDGE_PROPERTY_INDEX_DROP:
       case Action::TEXT_INDEX_CREATE:
       case Action::TEXT_INDEX_DROP:
       case Action::EXISTENCE_CONSTRAINT_CREATE:
@@ -178,6 +193,11 @@ struct MetadataDelta {
       PropertyId property;
       LabelPropertyIndexStats stats;
     } label_property_stats;
+
+    struct {
+      EdgeTypeId edge_type;
+      PropertyId property;
+    } edge_type_property;
 
     struct {
       std::string index_name;

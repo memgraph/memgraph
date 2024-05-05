@@ -69,6 +69,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
     EDGE_INDEX_CREATE,
     EDGE_INDEX_DROP,
+    EDGE_PROPERTY_INDEX_CREATE,
+    EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -118,6 +120,11 @@ struct WalDeltaData {
   struct {
     std::string edge_type;
   } operation_edge_type;
+
+  struct {
+    std::string edge_type;
+    std::string property;
+  } operation_edge_type_property;
 
   struct {
     std::string label;
@@ -170,6 +177,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
     case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
@@ -227,7 +236,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
                      const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     EdgeTypeId edge_type, uint64_t timestamp);
+                     EdgeTypeId edge_type, const std::set<PropertyId> &properties, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
@@ -262,7 +271,8 @@ class WalFile {
                        LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
-  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
+  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, const std::set<PropertyId> &properties,
+                       uint64_t timestamp);
 
   void Sync();
 

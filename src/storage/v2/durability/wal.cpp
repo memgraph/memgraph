@@ -100,6 +100,10 @@ Marker OperationToMarker(StorageMetadataOperation operation) {
       return Marker::DELTA_EDGE_TYPE_INDEX_CREATE;
     case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
       return Marker::DELTA_EDGE_TYPE_INDEX_DROP;
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+      return Marker::DELTA_EDGE_TYPE_PROPERTY_INDEX_CREATE;
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP:
+      return Marker::DELTA_EDGE_TYPE_PROPERTY_INDEX_DROP;
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
       return Marker::DELTA_TEXT_INDEX_CREATE;
     case StorageMetadataOperation::TEXT_INDEX_DROP:
@@ -189,6 +193,10 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::EDGE_INDEX_CREATE;
     case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
       return WalDeltaData::Type::EDGE_INDEX_DROP;
+    case Marker::DELTA_EDGE_TYPE_PROPERTY_INDEX_CREATE:
+      return WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE;
+    case Marker::DELTA_EDGE_TYPE_PROPERTY_INDEX_DROP:
+      return WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP;
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
       return WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -368,6 +376,20 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString())
           throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto edge_type = decoder->ReadString();
+        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_edge_type.edge_type = std::move(*edge_type);
+        auto property = decoder->ReadString();
+        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property.property = std::move(*property);
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
       }
       break;
     }
@@ -577,6 +599,10 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP:
       return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP:
+      return a.operation_edge_type_property.edge_type == b.operation_edge_type_property.edge_type &&
+             a.operation_edge_type_property.property == b.operation_edge_type_property.property;
   }
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b); }
@@ -760,7 +786,9 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       break;
     }
     case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP: {
       MG_ASSERT(false, "Invalid function  call!");
     }
     case StorageMetadataOperation::TEXT_INDEX_CREATE:
@@ -775,7 +803,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 }
 
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     EdgeTypeId edge_type, uint64_t timestamp) {
+                     EdgeTypeId edge_type, const std::set<PropertyId> &properties, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
   switch (operation) {
@@ -783,6 +811,13 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
     case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
       encoder->WriteMarker(OperationToMarker(operation));
       encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
+      break;
+    }
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
+      encoder->WriteString(name_id_mapper->IdToName((*properties.begin()).AsUint()));
       break;
     }
     case StorageMetadataOperation::LABEL_INDEX_CREATE:
@@ -994,6 +1029,24 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
                                          "The edge-type index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE: {
+          auto edge_type_id =
+              EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type_property.edge_type));
+          auto property_id =
+              PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type_property.property));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {edge_type_id, property_id},
+                                      "The edge-type + property index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP: {
+          auto edge_type_id =
+              EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type_property.edge_type));
+          auto property_id =
+              PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type_property.property));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge_property, {edge_type_id, property_id},
+                                         "The edge-type + property index doesn't exist!");
           break;
         }
         case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
@@ -1212,8 +1265,9 @@ void WalFile::AppendOperation(StorageMetadataOperation operation, const std::opt
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp) {
-  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, timestamp);
+void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type,
+                              const std::set<PropertyId> &properties, uint64_t timestamp) {
+  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, properties, timestamp);
   UpdateStats(timestamp);
 }
 

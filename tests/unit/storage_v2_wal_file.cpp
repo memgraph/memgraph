@@ -41,6 +41,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_DROP;
+    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP:
+      return memgraph::storage::durability::WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
       return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
     case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
@@ -293,6 +297,8 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP:
           MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);
@@ -300,9 +306,13 @@ class DeltaGenerator final {
   }
 
   void AppendEdgeTypeOperation(memgraph::storage::durability::StorageMetadataOperation operation,
-                               const std::string &edge_type) {
+                               const std::string &edge_type, const std::set<std::string, std::less<>> properties = {}) {
     auto edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
-    wal_file_.AppendOperation(operation, edge_type_id, timestamp_);
+    std::set<memgraph::storage::PropertyId> property_ids;
+    for (const auto &property : properties) {
+      property_ids.insert(memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property)));
+    }
+    wal_file_.AppendOperation(operation, edge_type_id, property_ids, timestamp_);
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -311,6 +321,11 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
           data.operation_edge_type.edge_type = edge_type;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP:
+          data.operation_edge_type_property.edge_type = edge_type;
+          data.operation_edge_type_property.property = *properties.begin();
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
@@ -583,6 +598,12 @@ GENERATE_SIMPLE_TEST(TransactionsWithOperation10_, {
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation11_, {
+  TRANSACTION(true, { tx.CreateVertex(); });
+  TRANSACTION(true, { tx.CreateVertex(); });
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
+});
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(TransactionsWithOperation12_, {
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
   OPERATION_TX(LABEL_INDEX_CREATE, "hello");

@@ -2291,6 +2291,16 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
                                   durability_commit_timestamp, streams);
       } break;
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
+        const auto &info = md_delta.edge_type_property;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE,
+                                  md_delta.edge_type, {info.property}, final_commit_timestamp, streams);
+      } break;
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
+        const auto &info = md_delta.edge_type_property;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE,
+                                  md_delta.edge_type, {info.property}, final_commit_timestamp, streams);
+      } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
@@ -2303,6 +2313,16 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::EDGE_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
                                   durability_commit_timestamp, streams);
+      } break;
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+        const auto &info = md_delta.edge_type_property;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP,
+                                  md_delta.edge_type, {info.property}, durability_commit_timestamp, streams);
+      } break;
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+        const auto &info = md_delta.edge_type_property;
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP,
+                                  md_delta.edge_type, {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
         const auto &info = md_delta.label_property;
@@ -2384,10 +2404,17 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  wal_file_->AppendOperation(operation, edge_type, properties, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, edge_type, properties, final_commit_timestamp, replica_streams);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
                                                 uint64_t final_commit_timestamp,
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp, replica_streams);
+  wal_file_->AppendOperation(operation, edge_type, {}, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, edge_type, {}, final_commit_timestamp, replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,

@@ -67,12 +67,13 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
 }
 
 void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                              uint64_t final_commit_timestamp,
+                                              const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
                                               std::span<std::optional<ReplicaStream>> replica_streams) {
   replication_clients_.WithLock([&](auto &clients) {
     for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
       clients[i]->IfStreamingTransaction(
-          [&](auto &stream) { stream.AppendOperation(operation, edge_type, final_commit_timestamp); }, replica_stream);
+          [&](auto &stream) { stream.AppendOperation(operation, edge_type, properties, final_commit_timestamp); },
+          replica_stream);
     }
   });
 }
