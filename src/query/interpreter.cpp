@@ -2045,7 +2045,6 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
-  spdlog::trace("Number of hops in the frame: {}", ctx_.number_of_hops);
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
