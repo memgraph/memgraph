@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ TEST(Network, SessionLeak) {
   const auto &ep = server.endpoint();
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
-    clients.push_back(std::thread(client_run, i, interface, ep.port, data, testlen, testlen));
+    clients.push_back(std::thread(client_run, i, interface, ep.GetPort(), data, testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }
 
