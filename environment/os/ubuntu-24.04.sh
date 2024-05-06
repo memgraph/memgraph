@@ -51,7 +51,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-21-jdk-headless custom-maven3.9.3 # for driver tests
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven3.9.3 # for driver tests
     dotnet-sdk-8.0 golang custom-golang1.18.9 nodejs npm # for driver tests
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -127,7 +127,7 @@ install() {
             fi
             continue
         fi
-        if [ "$pkg" == openjdk-21-jdk-headless ]; then
+        if [ "$pkg" == openjdk-17-jdk-headless ]; then
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 apt install -y "$pkg"
                 # The default Java version should be Java 11
