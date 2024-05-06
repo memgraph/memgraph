@@ -113,7 +113,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
     return false;
   }
 
-  endpoint_ = Endpoint(endpoint.address, ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.GetAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }
