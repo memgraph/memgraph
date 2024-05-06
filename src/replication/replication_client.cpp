@@ -23,8 +23,7 @@ static auto CreateClientContext(const memgraph::replication::ReplicationClientCo
 ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
-                  &rpc_context_},
+      rpc_client_{io::network::Endpoint(config.ip_address, config.port), &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}
 

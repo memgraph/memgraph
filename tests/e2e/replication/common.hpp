@@ -37,7 +37,7 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
   const auto db_endpoints_strs = memgraph::utils::SplitView(database_endpoints_str, ",");
   std::vector<memgraph::io::network::Endpoint> database_endpoints;
   for (const auto &db_endpoint_str : db_endpoints_strs) {
-    auto maybe_endpoint = memgraph::io::network::Endpoint::ParseSocketOrAddress(db_endpoint_str, 7687);
+    auto maybe_endpoint = memgraph::io::network::Endpoint::ParseAndCreateSocketOrAddress(db_endpoint_str, 7687);
     MG_ASSERT(maybe_endpoint);
     database_endpoints.emplace_back(std::move(*maybe_endpoint));
   }
@@ -46,8 +46,8 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
 
 auto Connect(const memgraph::io::network::Endpoint &database_endpoint) {
   mg::Client::Params params;
-  params.host = database_endpoint.address;
-  params.port = database_endpoint.port;
+  params.host = database_endpoint.GetAddress();
+  params.port = database_endpoint.GetPort();
   params.use_ssl = FLAGS_use_ssl;
   auto client = mg::Client::Connect(params);
   if (!client) {
