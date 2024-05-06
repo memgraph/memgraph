@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -80,7 +80,7 @@ class Stack {
   }
 
   void Push(TObj obj) {
-    std::lock_guard<SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     if (head_ == nullptr) {
       // Allocate a new block.
       head_ = new Block();
@@ -102,7 +102,7 @@ class Stack {
   }
 
   std::optional<TObj> Pop() {
-    std::lock_guard<SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     while (true) {
       if (head_ == nullptr) return std::nullopt;
       MG_ASSERT(head_->used <= TSize,

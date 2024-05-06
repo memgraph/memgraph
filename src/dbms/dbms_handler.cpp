@@ -23,6 +23,8 @@
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
+#include <mutex>
+
 namespace memgraph::dbms {
 
 namespace {
@@ -272,7 +274,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 };
 
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
-  std::lock_guard<LockT> wr(lock_);
+  auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return DeleteError::DEFAULT_DB;

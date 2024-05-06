@@ -75,7 +75,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
       while (true) {
         uint64_t pos;
         {
-          std::lock_guard<memgraph::utils::SpinLock> lock(spinlock);
+          auto lock = std::lock_guard{spinlock};
           if (last == queries.size()) {
             break;
           }

@@ -59,7 +59,7 @@ class Scheduler {
         // the program start we let him log first and we make sure by first
         // waiting that function f will not log before it.
         // Check for pause also.
-        std::unique_lock<std::mutex> lk(mutex_);
+        auto lk = std::unique_lock{mutex_};
         auto now = std::chrono::system_clock::now();
         start_time += pause;
         if (start_time > now) {
