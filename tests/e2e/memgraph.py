@@ -29,18 +29,6 @@ SIGNAL_SIGTERM = 15
 log = logging.getLogger("memgraph.tests.e2e")
 
 
-def wait_for_server(port, delay=0.01):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    count = 0
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-        if count > 10 / 0.01:
-            print("Could not wait for server on port", port, "to startup!")
-            sys.exit(1)
-        count += 1
-    time.sleep(delay)
-
-
 def extract_bolt_port(args):
     for arg_index, arg in enumerate(args):
         if arg.startswith("--bolt-port="):
@@ -72,24 +60,29 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def execute_setup_queries(self, setup_queries):
+    def wait_for_succesful_connection(self, delay=0.01):
+        count = 0
+        while count < 1000:
+            try:
+                conn = mgclient.connect(
+                    host=self.host,
+                    port=self.bolt_port,
+                    sslmode=self.ssl,
+                    username=(self.username or ""),
+                    password=(self.password or ""),
+                )
+                return conn
+            except Exception:
+                count += 1
+                time.sleep(delay)
+                continue
+
+        print(f"Could not wait for host {self.host} on port {self.bolt_port} to startup!")
+        sys.exit(1)
+
+    def execute_setup_queries(self, conn, setup_queries):
         if setup_queries is None:
             return
-        conn = None
-        try:
-            conn = mgclient.connect(
-                host=self.host,
-                port=self.bolt_port,
-                sslmode=self.ssl,
-                username=(self.username or ""),
-                password=(self.password or ""),
-            )
-        except Exception as e:
-            log.info(
-                f"Exception occurred while connecting to instance on {str(self.host)}:{str(self.bolt_port)} with exception {str(e)}"
-            )
-            raise e
-
         conn.autocommit = True
         cursor = conn.cursor()
         log.info(f"Executing setup queries on instance {self.host}:{self.bolt_port}: {setup_queries}")
@@ -103,27 +96,6 @@ class MemgraphInstanceRunner:
                     log.info(f"Query executed {query} on instance {self.host}:{self.bolt_port}")
         cursor.close()
         conn.close()
-
-    # NOTE: Both query and get_connection may esablish new connection -> auth
-    # details required -> username/password should be optional arguments.
-    def query(self, query, conn=None, username="", password=""):
-        new_conn = conn is None
-        if new_conn:
-            conn = self.get_connection(username, password)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        data = cursor.fetchall()
-        cursor.close()
-        if new_conn:
-            conn.close()
-        return data
-
-    def get_connection(self, username="", password=""):
-        conn = mgclient.connect(
-            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
-        )
-        conn.autocommit = True
-        return conn
 
     def start(self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None):
         if not restart and self.is_running():
@@ -145,9 +117,9 @@ class MemgraphInstanceRunner:
             self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         log.info(f"Subprocess started with args {args_mg}")
-        wait_for_server(self.bolt_port)
+        conn = self.wait_for_succesful_connection()
         log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        self.execute_setup_queries(setup_queries)
+        self.execute_setup_queries(conn, setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):
