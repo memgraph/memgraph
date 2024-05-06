@@ -26,18 +26,6 @@ MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
 SIGNAL_SIGTERM = 15
 
 
-def wait_for_server(port, delay=0.01):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
-    count = 0
-    while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
-        if count > 10 / 0.01:
-            print("Could not wait for server on port", port, "to startup!")
-            sys.exit(1)
-        count += 1
-    time.sleep(delay)
-
-
 def extract_bolt_port(args):
     for arg_index, arg in enumerate(args):
         if arg.startswith("--bolt-port="):
@@ -69,10 +57,11 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def wait_for_succesful_connection(self, delay=0.01):
+    def wait_for_succesful_connection(self, delay=1):
         count = 0
-        while count < 1000:
+        while count < 15:
             try:
+                print(f"Current time: {time.time()}")
                 conn = mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
@@ -102,27 +91,6 @@ class MemgraphInstanceRunner:
                     cursor.execute(query)
         cursor.close()
         conn.close()
-
-    # NOTE: Both query and get_connection may esablish new connection -> auth
-    # details required -> username/password should be optional arguments.
-    def query(self, query, conn=None, username="", password=""):
-        new_conn = conn is None
-        if new_conn:
-            conn = self.get_connection(username, password)
-        cursor = conn.cursor()
-        cursor.execute(query)
-        data = cursor.fetchall()
-        cursor.close()
-        if new_conn:
-            conn.close()
-        return data
-
-    def get_connection(self, username="", password=""):
-        conn = mgclient.connect(
-            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
-        )
-        conn.autocommit = True
-        return conn
 
     def start(self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None):
         if not restart and self.is_running():
