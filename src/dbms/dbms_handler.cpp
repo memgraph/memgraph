@@ -26,7 +26,9 @@
 namespace memgraph::dbms {
 
 namespace {
+#ifdef MG_ENTERPRISE
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
+#endif
 
 std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
   switch (error) {
