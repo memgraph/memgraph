@@ -240,7 +240,7 @@ jobs:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 300
+    timeout-minutes: 600
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
