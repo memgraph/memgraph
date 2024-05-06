@@ -184,15 +184,21 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-    -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-stack-address \
-    -Wno-c99-designator -Wmissing-field-initializers \
-    -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
-
-add_compile_options($<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>)
+add_compile_options(
+        -Wall
+        -Werror=switch
+        -Werror=switch-bool
+        -Werror=return-type
+        -Werror=return-stack-address
+        -Wno-c99-designator
+        -Wmissing-field-initializers
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+)
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
