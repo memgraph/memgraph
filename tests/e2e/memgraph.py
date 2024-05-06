@@ -69,16 +69,29 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def execute_setup_queries(self, setup_queries):
+    def wait_for_succesful_connection(self, delay=0.01):
+        count = 0
+        while count < 1000:
+            try:
+                conn = mgclient.connect(
+                    host=self.host,
+                    port=self.bolt_port,
+                    sslmode=self.ssl,
+                    username=(self.username or ""),
+                    password=(self.password or ""),
+                )
+                return conn
+            except Exception:
+                count += 1
+                time.sleep(delay)
+                continue
+
+        print(f"Could not wait for host {self.host} on port {self.bolt_port} to startup!")
+        sys.exit(1)
+
+    def execute_setup_queries(self, conn, setup_queries):
         if setup_queries is None:
             return
-        conn = mgclient.connect(
-            host=self.host,
-            port=self.bolt_port,
-            sslmode=self.ssl,
-            username=(self.username or ""),
-            password=(self.password or ""),
-        )
         conn.autocommit = True
         cursor = conn.cursor()
         for query_coll in setup_queries:
@@ -130,8 +143,8 @@ class MemgraphInstanceRunner:
         else:
             self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
-        wait_for_server(self.bolt_port)
-        self.execute_setup_queries(setup_queries)
+        conn = self.wait_for_succesful_connection()
+        self.execute_setup_queries(conn, setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):
