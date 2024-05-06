@@ -585,7 +585,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
-                                                          std::optional<int64_t> hops_limit) const {
+                                                          std::optional<int64_t> *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -617,11 +617,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     deleted = vertex_->deleted;
     if (hops_limit) {
       if (edge_types.empty() && !destination) {
-        expanded_count = (std::min(*hops_limit, static_cast<int64_t>(vertex_->out_edges.size())));
+        expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size())));
+        **hops_limit -= expanded_count;
         std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(in_edges));
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-          --(*hops_limit);
+          --(**hops_limit);
           expanded_count++;
           if (*hops_limit == 0) break;
           if (destination && to_vertex != destination_vertex) continue;
@@ -693,7 +694,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination,
-                                                           std::optional<int64_t> hops_limit) const {
+                                                           std::optional<int64_t> *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -725,11 +726,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     deleted = vertex_->deleted;
     if (hops_limit) {
       if (edge_types.empty() && !destination) {
-        expanded_count = std::min(*hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
+        expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
+        **hops_limit -= expanded_count;
         std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-          --(*hops_limit);
+          --(**hops_limit);
           expanded_count++;
           if (*hops_limit == 0) break;
           if (destination && to_vertex != dst_vertex) continue;

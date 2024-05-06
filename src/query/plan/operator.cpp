@@ -930,6 +930,8 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   };
 
+  if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+
   while (true) {
     AbortCheck(context);
     // attempt to get a value from the incoming edges
@@ -1059,21 +1061,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, context.hops_limit));
+              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
           context.number_of_hops += edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= edges_result.expanded_count;
-          }
           in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, context.hops_limit));
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += edges_result.expanded_count;
-        if (context.hops_limit.has_value()) {
-          context.hops_limit.value() -= edges_result.expanded_count;
-        }
         in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
@@ -1088,21 +1084,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, context.hops_limit));
+              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
           context.number_of_hops += edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= edges_result.expanded_count;
-          }
           out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, context.hops_limit));
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += edges_result.expanded_count;
-        if (context.hops_limit.has_value()) {
-          context.hops_limit.value() -= edges_result.expanded_count;
-        }
         out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
@@ -1188,22 +1178,16 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
       memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
-    auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types, context->hops_limit));
+    auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
-    if (context->hops_limit.has_value()) {
-      context->hops_limit.value() -= edges_result.expanded_count;
-    }
     if (!edges_result.edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges_result.edges)));
     }
   }
 
   if (direction != EdgeAtom::Direction::IN) {
-    auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types, context->hops_limit));
+    auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types, &context->hops_limit));
     context->number_of_hops += edges_result.expanded_count;
-    if (context->hops_limit.has_value()) {
-      context->hops_limit.value() -= edges_result.expanded_count;
-    }
     if (!edges_result.edges.empty()) {
       chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges_result.edges)));
     }
@@ -1224,8 +1208,11 @@ class ExpandVariableCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
+    if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
+
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -1290,8 +1277,6 @@ class ExpandVariableCursor : public Cursor {
     // In those cases we skip that input pull and continue with the next.
     while (true) {
       AbortCheck(context);
-
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
 
       if (!input_cursor_->Pull(frame, context)) return false;
       TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -1373,8 +1358,6 @@ class ExpandVariableCursor : public Cursor {
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
       AbortCheck(context);
-
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
 
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
@@ -1479,6 +1462,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
     while (input_cursor_->Pull(frame, context)) {
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
+
       const auto &source_tv = frame[self_.input_symbol_];
       const auto &sink_tv = frame[self_.common_.node_symbol];
 
@@ -1594,11 +1579,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= out_edges_result.expanded_count;
-          }
           for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1624,11 +1606,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= in_edges_result.expanded_count;
-          }
           for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1670,11 +1649,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= out_edges_result.expanded_count;
-          }
           for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1700,11 +1676,8 @@ class STShortestPathCursor : public query::plan::Cursor {
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
-          if (context.hops_limit.has_value()) {
-            context.hops_limit.value() -= in_edges_result.expanded_count;
-          }
           for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1813,11 +1786,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
         auto out_edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += out_edges_result.expanded_count;
-        if (context.hops_limit.has_value()) {
-          context.hops_limit.value() -= out_edges_result.expanded_count;
-        }
         for (const auto &edge : out_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.To());
           restore_frame_state_after_expansion(was_expanded);
@@ -1825,11 +1795,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
         auto in_edges_result =
-            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, context.hops_limit));
+            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
         context.number_of_hops += in_edges_result.expanded_count;
-        if (context.hops_limit.has_value()) {
-          context.hops_limit.value() -= in_edges_result.expanded_count;
-        }
         for (const auto &edge : in_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.From());
           restore_frame_state_after_expansion(was_expanded);
@@ -1908,7 +1875,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         }
       }
 
-      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_)
+        continue;  // consider adding check here for the number of hops and breaking if statement isn't satisfied
 
       frame[self_.common_.node_symbol] = curr_vertex;
 
