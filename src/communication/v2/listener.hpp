@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   using tcp = boost::asio::ip::tcp;
   using SessionHandler = Session<TSession, TSessionContext>;
   using std::enable_shared_from_this<Listener<TSession, TSessionContext>>::shared_from_this;
+  struct assert_create {};
 
  public:
   Listener(const Listener &) = delete;
@@ -52,6 +53,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
   template <typename... Args>
   static std::shared_ptr<Listener> Create(Args &&...args) {
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
+  }
+
+  template <typename... Args>
+  static std::shared_ptr<Listener> AssertCreate(Args &&...args) {
+    return std::shared_ptr<Listener>{new Listener(assert_create{}, std::forward<Args>(args)...)};
   }
 
   void Start() { DoAccept(); }
@@ -68,11 +74,31 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
         endpoint_{endpoint},
         service_name_{service_name},
         inactivity_timeout_{inactivity_timeout_sec} {
+    TryCreate();
+  }
+
+  Listener(assert_create assert_create_t, boost::asio::io_context &io_context, TSessionContext *session_context,
+           ServerContext *server_context, tcp::endpoint &endpoint, const std::string_view service_name,
+           const uint64_t inactivity_timeout_sec)
+      : io_context_(io_context),
+        session_context_(session_context),
+        server_context_(server_context),
+        acceptor_(io_context_),
+        endpoint_{endpoint},
+        service_name_{service_name},
+        inactivity_timeout_{inactivity_timeout_sec} {
+    TryCreate(assert_create_t);
+  }
+
+  void TryCreate(std::optional<assert_create> maybe_assert = std::nullopt) {
     boost::system::error_code ec;
     // Open the acceptor
-    acceptor_.open(endpoint.protocol(), ec);
+    acceptor_.open(endpoint_.protocol(), ec);
     if (ec) {
       OnError(ec, "open");
+      if (maybe_assert.has_value()) {
+        MG_ASSERT(false, "Failed to open to socket.");
+      }
       return;
     }
 
@@ -80,21 +106,30 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
       OnError(ec, "set_option");
+      if (maybe_assert.has_value()) {
+        MG_ASSERT(false, "Failed to set_option.");
+      }
       return;
     }
 
     // Bind to the server address
-    acceptor_.bind(endpoint, ec);
+    acceptor_.bind(endpoint_, ec);
     if (ec) {
       spdlog::error(
-          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint, "https://memgr.ph/socket"));
+          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       OnError(ec, "bind");
+      if (maybe_assert.has_value()) {
+        MG_ASSERT(false, "Failed to bind.");
+      }
       return;
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
       OnError(ec, "listen");
+      if (maybe_assert.has_value()) {
+        MG_ASSERT(false, "Failed to listen.");
+      }
       return;
     }
   }
