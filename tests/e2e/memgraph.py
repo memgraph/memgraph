@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import copy
+import datetime
 import logging
 import os
 import shutil
@@ -64,7 +65,7 @@ class MemgraphInstanceRunner:
         count = 0
         while count < 15:
             try:
-                print(f"Current time: {time.time()}")
+                print(f"Current time: {datetime.datetime.now().time()}")
                 conn = mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
@@ -97,6 +98,13 @@ class MemgraphInstanceRunner:
                     log.info(f"Query executed {query} on instance {self.host}:{self.bolt_port}")
         cursor.close()
         conn.close()
+
+    def get_connection(self, username="", password=""):
+        conn = mgclient.connect(
+            host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
+        )
+        conn.autocommit = True
+        return conn
 
     def start(self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None):
         if not restart and self.is_running():
