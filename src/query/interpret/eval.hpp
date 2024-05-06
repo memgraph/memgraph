@@ -33,6 +33,7 @@
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
@@ -539,6 +540,36 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
+    auto maybe_zoned_date_time = [this](const auto &zdt, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "year") {
+        return TypedValue(zdt.LocalYear(), ctx_->memory);
+      }
+      if (prop_name == "month") {
+        return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalMonth()), ctx_->memory);
+      }
+      if (prop_name == "day") {
+        return TypedValue(utils::MemcpyCast<int64_t>(zdt.LocalDay()), ctx_->memory);
+      }
+      if (prop_name == "hour") {
+        return TypedValue(zdt.LocalHour(), ctx_->memory);
+      }
+      if (prop_name == "minute") {
+        return TypedValue(zdt.LocalMinute(), ctx_->memory);
+      }
+      if (prop_name == "second") {
+        return TypedValue(zdt.LocalSecond(), ctx_->memory);
+      }
+      if (prop_name == "millisecond") {
+        return TypedValue(zdt.LocalMillisecond(), ctx_->memory);
+      }
+      if (prop_name == "microsecond") {
+        return TypedValue(zdt.LocalMicrosecond(), ctx_->memory);
+      }
+      if (prop_name == "timezone") {
+        return TypedValue(zdt.GetTimezone().ToString(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
     auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "nodes") {
         utils::pmr::vector<TypedValue> vertices(ctx_->memory);
@@ -632,6 +663,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
       }
+      case TypedValue::Type::ZonedDateTime: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &zdt = expression_result_ptr->ValueZonedDateTime();
+        if (auto zdt_field = maybe_zoned_date_time(zdt, prop_name); zdt_field) {
+          return TypedValue(*zdt_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
+      }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &graph = expression_result_ptr->ValueGraph();
@@ -713,6 +752,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
         result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
         return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::ZonedDateTime: {
+        throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
       }
       case TypedValue::Type::Graph: {
         const auto &graph = expression_result.ValueGraph();

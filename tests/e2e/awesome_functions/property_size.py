@@ -253,6 +253,46 @@ def test_property_size_on_duration_prop(memgraph):
     assert duration_bytes == 12
 
 
+def test_property_size_on_date_time_prop(memgraph):
+    memgraph.execute(
+        """
+        CREATE (n:Node)
+        SET n.datetime_prop = datetime('2024-06-22T12:06:03[America/Los_Angeles]');
+        """
+    )
+
+    datetime_bytes = get_bytes(memgraph, "datetime_prop")
+
+    # 1 byte metadata (to see that it's temporal data with a named timezone)
+    # 1 byte prop id
+    # 1 byte metadata
+    #   - type is again the same
+    #   - id field contains the length of the specific temporal type (1, 2, 4 or 8 bytes) -> probably always 1
+    #   - payload field contains the length of the microseconds (1, 2, 4, or 8 bytes) -> probably always 8
+    # 1 byte timezone name length
+    # Y bytes for the string content -> 19 bytes for "America/Los_Angeles"
+    assert datetime_bytes == 32
+
+
+def test_property_size_on_date_time_prop_with_unnamed_tz(memgraph):
+    memgraph.execute(
+        """
+        CREATE (n:Node)
+        SET n.datetime_prop = datetime('2024-06-22T12:06:03+02:00');
+        """
+    )
+
+    datetime_bytes = get_bytes(memgraph, "datetime_prop")
+    # 1 byte metadata (to see that it's temporal data with a named timezone)
+    # 1 byte prop id
+    # 1 byte metadata
+    #   - type is again the same
+    #   - id field contains the length of the specific temporal type (1, 2, 4 or 8 bytes) -> probably always 1
+    #   - payload field contains the length of the microseconds (1, 2, 4, or 8 bytes) -> probably always 8
+    # 2 byte timezone offset length
+    assert datetime_bytes == 14
+
+
 def test_property_size_on_nonexistent_prop(memgraph):
     memgraph.execute(
         """

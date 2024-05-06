@@ -37,6 +37,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -320,6 +321,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_LOCAL_TIME;
     case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
+    case memgraph::query::TypedValue::Type::ZonedDateTime:
+      throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Function:
@@ -696,6 +699,10 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
           break;
         }
       }
+    }
+    case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
+      throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      break;
     }
   }
 }
@@ -3910,6 +3917,8 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueLocalTime();
     case TypedValue::Type::LocalDateTime:
       return (*stream) << value.ValueLocalDateTime();
+    case TypedValue::Type::ZonedDateTime:
+      return (*stream) << value.ValueZonedDateTime();
     case TypedValue::Type::Duration:
       return (*stream) << value.ValueDuration();
     case TypedValue::Type::Vertex:

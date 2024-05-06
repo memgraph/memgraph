@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <ctime>
@@ -22,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
@@ -93,6 +95,14 @@ LocalDateTime CurrentLocalDateTime() {
   namespace chrono = std::chrono;
   auto ts = chrono::time_point_cast<chrono::microseconds>(chrono::system_clock::now());
   return LocalDateTime(ts.time_since_epoch().count());
+}
+
+Timezone DefaultTimezone() { return Timezone("Etc/UTC"); }
+
+ZonedDateTime CurrentZonedDateTime() {
+  namespace chrono = std::chrono;
+  auto ts = chrono::time_point_cast<chrono::microseconds>(chrono::system_clock::now());
+  return ZonedDateTime(chrono::zoned_time{utils::DefaultTimezone(), ts});
 }
 
 namespace {
@@ -520,6 +530,13 @@ size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const
   return result;
 }
 
+Timezone::Timezone(const std::chrono::minutes offset) {
+  if (std::abs(offset.count()) > MAX_OFFSET_MINUTES) {
+    throw utils::BasicException("Zone offset not in valid range: -18:00 to +18:00");
+  }
+  offset_ = offset;
+}
+
 namespace {
 inline constexpr auto *kSupportedZonedDateTimeFormatsHelpMessage = R"help(
 A string representing ZonedDateTime should have the following structure:
@@ -609,6 +626,9 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
     throw temporal::InvalidArgumentException("Invalid hour value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
   }
+  if (maybe_hours.value() > 18) {
+    throw temporal::InvalidArgumentException("Zone offset not in valid range: -18:00 to +18:00");
+  }
   timezone_offset_string.remove_prefix(2);
 
   if (timezone_offset_string.empty()) {
@@ -633,6 +653,10 @@ std::pair<Timezone, uint64_t> ParseTimezoneFromOffset(std::string_view timezone_
   if (!maybe_minutes) {
     throw temporal::InvalidArgumentException("Invalid minute value in the timezone offset. {}",
                                              kSupportedZonedDateTimeFormatsHelpMessage);
+  }
+  if (maybe_minutes.value() > 59) {
+    throw temporal::InvalidArgumentException(
+        "Zone offset minutes not in valid range: value is not in the range -59 to 59");
   }
   timezone_offset_string.remove_prefix(2);
 
@@ -712,8 +736,7 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
 
   auto unzoned_date_time = std::chrono::sys_time<std::chrono::microseconds>{
       std::chrono::microseconds{LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch()}};
-  if (timezone_from_name.OffsetInMinutes(unzoned_date_time) !=
-      timezone_from_offset.OffsetInMinutes(unzoned_date_time)) {
+  if (timezone_from_name.OffsetDuration(unzoned_date_time) != timezone_from_offset.OffsetDuration(unzoned_date_time)) {
     throw temporal::InvalidArgumentException("The number offset doesn’t match the timezone offset.");
   }
 
@@ -724,6 +747,14 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   };
 }
 
+std::chrono::sys_time<std::chrono::microseconds> AsSysTime(int64_t microseconds) {
+  return std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
+}
+
+std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseconds) {
+  return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
+}
+
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
   const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
@@ -731,20 +762,34 @@ ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_para
   zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
 }
 
+ZonedDateTime::ZonedDateTime(const std::chrono::sys_time<std::chrono::microseconds> duration, const Timezone timezone) {
+  zoned_time = std::chrono::zoned_time(timezone, duration);
+}
+
+ZonedDateTime::ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration,
+                             const Timezone timezone) {
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+}
+
 ZonedDateTime::ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time)
     : zoned_time(zoned_time) {}
 
-int64_t ZonedDateTime::MicrosecondsSinceEpoch() const { return zoned_time.get_sys_time().time_since_epoch().count(); }
-
-int64_t ZonedDateTime::SecondsSinceEpoch() const {
-  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch()).count();
+std::chrono::sys_time<std::chrono::microseconds> ZonedDateTime::SysTimeSinceEpoch() const {
+  return zoned_time.get_sys_time();
 }
 
-int64_t ZonedDateTime::SubSecondsAsNanoseconds() const {
+std::chrono::microseconds ZonedDateTime::SysMicrosecondsSinceEpoch() const {
+  return zoned_time.get_sys_time().time_since_epoch();
+}
+
+std::chrono::seconds ZonedDateTime::SysSecondsSinceEpoch() const {
+  return std::chrono::duration_cast<std::chrono::seconds>(zoned_time.get_sys_time().time_since_epoch());
+}
+
+std::chrono::nanoseconds ZonedDateTime::SysSubSecondsAsNanoseconds() const {
   const auto time_since_epoch = zoned_time.get_sys_time().time_since_epoch();
   const auto full_seconds = std::chrono::duration_cast<std::chrono::seconds>(time_since_epoch);
-
-  return (time_since_epoch - full_seconds).count();
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(time_since_epoch - full_seconds);
 }
 
 std::string ZonedDateTime::ToString() const {
@@ -756,23 +801,35 @@ std::string ZonedDateTime::ToString() const {
 }
 
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
-  return MicrosecondsSinceEpoch() == other.MicrosecondsSinceEpoch() && OffsetInMinutes() == other.OffsetInMinutes() &&
-         TimezoneName() == other.TimezoneName();
+  return SysMicrosecondsSinceEpoch().count() == other.SysMicrosecondsSinceEpoch().count() &&
+         OffsetDuration() == other.OffsetDuration() && TimezoneName() == other.TimezoneName();
 }
 
 std::strong_ordering ZonedDateTime::operator<=>(const ZonedDateTime &other) const {
-  const auto duration_ordering = MicrosecondsSinceEpoch() <=> other.MicrosecondsSinceEpoch();
+  const auto duration_ordering = SysMicrosecondsSinceEpoch() <=> other.SysMicrosecondsSinceEpoch();
   if (duration_ordering != std::strong_ordering::equal) {
     return duration_ordering;
   }
 
-  const auto offset_ordering = OffsetInMinutes() <=> other.OffsetInMinutes();
+  const auto offset_ordering = OffsetDuration() <=> other.OffsetDuration();
   if (offset_ordering != std::strong_ordering::equal) {
     return offset_ordering;
   }
 
   const auto timezone_name_ordering = TimezoneName() <=> other.TimezoneName();
   return timezone_name_ordering;
+}
+
+size_t ZonedDateTimeHash::operator()(const ZonedDateTime &zoned_date_time) const {
+  const utils::HashCombine<size_t, int64_t> hasher;
+  size_t result = hasher(0, zoned_date_time.SysMicrosecondsSinceEpoch().count());
+  const auto offset = zoned_date_time.GetTimezone().GetOffset();
+  if (std::holds_alternative<const std::chrono::time_zone *>(offset)) {
+    result = hasher(result, reinterpret_cast<intptr_t>(std::get<const std::chrono::time_zone *>(offset)));
+    return result;
+  }
+  result = hasher(result, std::get<std::chrono::minutes>(offset).count());
+  return result;
 }
 
 namespace {

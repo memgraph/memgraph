@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include "communication/bolt/v1/codes.hpp"
+#include "utils/temporal.hpp"
 
 // clang-format off
 const int64_t int_decoded[] = {
@@ -53,3 +56,43 @@ const uint8_t type_tiny_magic[] = {0x80, 0x90, 0xA0};
 const uint8_t type_8_magic[] = {0xD0, 0xD4, 0xD8};
 const uint8_t type_16_magic[] = {0xD1, 0xD5, 0xD9};
 const uint8_t type_32_magic[] = {0xD2, 0xD6, 0xDA};
+
+namespace zdt_testdata {
+using Sig = memgraph::communication::bolt::Signature;
+
+namespace {
+// Test cases from the examples at https://neo4j.com/docs/bolt/current/bolt/structure-semantics/
+// * DateTime
+// * DateTimeZoneId
+// * Legacy DateTime
+// * Legacy DateTimeZoneId
+
+struct ExpectedZonedDateTimeValues {
+  const memgraph::communication::bolt::Signature type;
+  const std::vector<uint8_t> seconds;
+  const std::vector<uint8_t> nanoseconds;
+  const std::vector<uint8_t> tz;
+};
+
+// Encoded field values from the examples
+const std::vector<uint8_t> v4500s = {0xC9, 0x11, 0x94};
+const std::vector<uint8_t> v8100s = {0xC9, 0x1F, 0xA4};
+const std::vector<uint8_t> v3600s = {0xC9, 0x0E, 0x10};
+const std::vector<uint8_t> v100300000ns = {0xCA, 0x05, 0xFA, 0x74, 0xE0};
+const std::vector<uint8_t> veurope_vienna = {0x8D, 'E', 'u', 'r', 'o', 'p', 'e', '/', 'V', 'i', 'e', 'n', 'n', 'a'};
+}  // namespace
+
+const auto zdt = memgraph::utils::ZonedDateTime(
+    memgraph::utils::ParseZonedDateTimeParameters("1970-01-01T02:15:00.100300[Europe/Vienna]"));
+const auto zdt_offset =
+    memgraph::utils::ZonedDateTime(memgraph::utils::ParseZonedDateTimeParameters("1970-01-01T02:15:00.100300+01:00"));
+
+const auto expected_zdt = ExpectedZonedDateTimeValues{
+    .type = Sig::DateTimeZoneId, .seconds = v4500s, .nanoseconds = v100300000ns, .tz = veurope_vienna};
+const auto expected_zdt_offset =
+    ExpectedZonedDateTimeValues{.type = Sig::DateTime, .seconds = v4500s, .nanoseconds = v100300000ns, .tz = v3600s};
+const auto expected_legacy_zdt = ExpectedZonedDateTimeValues{
+    .type = Sig::LegacyDateTimeZoneId, .seconds = v8100s, .nanoseconds = v100300000ns, .tz = veurope_vienna};
+const auto expected_legacy_zdt_offset = ExpectedZonedDateTimeValues{
+    .type = Sig::LegacyDateTime, .seconds = v8100s, .nanoseconds = v100300000ns, .tz = v3600s};
+}  // namespace zdt_testdata

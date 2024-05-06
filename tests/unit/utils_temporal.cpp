@@ -198,7 +198,7 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
     for (const auto &timezone_offset : cases) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_offset)});
 
-      EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
+      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
                 local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
@@ -217,7 +217,7 @@ TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
     for (const auto &[timezone_name, timezone_offset] : cases) {
       const auto zdt = ZonedDateTime({date_parameters, local_time_parameters, Timezone(timezone_name)});
 
-      EXPECT_EQ(zdt.MicrosecondsSinceEpoch(),
+      EXPECT_EQ(zdt.SysMicrosecondsSinceEpoch().count(),
                 local_date_time.MicrosecondsSinceEpoch() -
                     std::chrono::duration_cast<std::chrono::microseconds>(timezone_offset).count());
     }
@@ -411,6 +411,10 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
       "+[America/Los_Angeles]"sv,
       "[]"sv,
       "+01:00[]"sv,
+      "-19:00"sv,
+      "+19:00"sv,
+      "+00:60"sv,
+      "-00:60"sv,
   };
 
   const auto join_strings = [](const auto &date_time, const auto &timezone) {
@@ -918,4 +922,26 @@ TEST(TemporalTest, DurationConvertsToString) {
   ASSERT_EQ(duration6_expected_str, duration6.ToString());
   ASSERT_EQ(duration7_expected_str, duration7.ToString());
   ASSERT_EQ(duration8_expected_str, duration8.ToString());
+}
+
+TEST(TemporalTest, ZonedDateTimeComponents) {
+  using namespace memgraph::utils;
+
+  const auto zdt = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone("Europe/Zagreb")});
+
+  EXPECT_EQ(zdt.LocalYear(), 2024);
+  EXPECT_EQ(zdt.LocalMonth(), 3);
+  EXPECT_EQ(zdt.LocalDay(), 25);
+  EXPECT_EQ(zdt.LocalHour(), 14);
+  EXPECT_EQ(zdt.LocalMinute(), 18);
+  EXPECT_EQ(zdt.LocalSecond(), 13);
+  EXPECT_EQ(zdt.LocalMillisecond(), 206);
+  EXPECT_EQ(zdt.LocalMicrosecond(), 22);
+  EXPECT_EQ(zdt.GetTimezone().ToString(), "Europe/Zagreb");
+
+  const auto alt_tz_1 = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone(std::chrono::minutes{90})});
+  EXPECT_EQ(alt_tz_1.GetTimezone().ToString(), "90");
+
+  const auto alt_tz_2 = ZonedDateTime({{2024, 3, 25}, {14, 18, 13, 206, 22}, Timezone(std::chrono::minutes{-90})});
+  EXPECT_EQ(alt_tz_2.GetTimezone().ToString(), "-90");
 }
