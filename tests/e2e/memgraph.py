@@ -60,10 +60,11 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def wait_for_succesful_connection(self, delay=0.01):
+    def wait_for_succesful_connection(self, delay=1):
         count = 0
-        while count < 1000:
+        while count < 15:
             try:
+                print(f"Current time: {time.time()}")
                 conn = mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
@@ -145,7 +146,7 @@ class MemgraphInstanceRunner:
             for folder in self.delete_on_stop or {}:
                 try:
                     shutil.rmtree(folder)
-                except Exception as e:
+                except Exception:
                     pass  # couldn't delete folder, skip
 
     def kill(self, keep_directories=False):
