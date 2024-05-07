@@ -9,61 +9,122 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <string>
-
 #include "gtest/gtest.h"
 
 #include "storage/v2/compact_vector.hpp"
 
-TEST(CompactVector, BasicTest) {
+#include <ranges>
+
+using namespace memgraph::storage;
+namespace rv = std::ranges::views;
+
+///// TEST HELPERS
+
+struct AlwaysAlloc {
+  AlwaysAlloc() : AlwaysAlloc(-1) {}
+  explicit AlwaysAlloc(int i) : ptr{std::make_unique<int>(i)} {}
+  AlwaysAlloc(AlwaysAlloc &&) = default;
+  AlwaysAlloc &operator=(AlwaysAlloc &&) = default;
+
+  friend bool operator==(AlwaysAlloc const &lhs, AlwaysAlloc const &rhs) { return *lhs.ptr == *rhs.ptr; }
+
+  explicit(false) operator int() const { return *ptr; }
+
+ private:
+  std::unique_ptr<int> ptr;
+};
+
+template <typename T>
+struct CompactVectorCommon;
+
+template <>
+struct CompactVectorCommon<int> : public testing::Test {
+  int default_value() const { return int{}; }
+  int make_value(int i) const { return i; }
+};
+
+template <>
+struct CompactVectorCommon<AlwaysAlloc> : public testing::Test {
+  auto default_value() const -> AlwaysAlloc const & {
+    static auto instance = AlwaysAlloc{};
+    return instance;
+  }
+  AlwaysAlloc make_value(int i) const { return AlwaysAlloc{i}; }
+};
+
+auto maker(auto &src) {
+  return [&src](int i) { return src.make_value(i); };
+}
+
+using MyTypes = ::testing::Types<int, AlwaysAlloc>;
+TYPED_TEST_SUITE(CompactVectorCommon, MyTypes);
+
+///// TESTS START HERE
+
+TYPED_TEST(CompactVectorCommon, NeverInsertedTest) {
+  CompactVector<TypeParam> vec;
+  EXPECT_EQ(vec.size(), 0);
+  EXPECT_TRUE(vec.empty());
+  EXPECT_EQ(vec.capacity(), 0);
+  EXPECT_EQ(vec.begin(), vec.end());
+}
+
+TYPED_TEST(CompactVectorCommon, BasicTest) {
   const int kMaxElements = 10;
 
-  memgraph::storage::CompactVector<int> vec;
+  CompactVector<TypeParam> vec;
 
-  for (int i = 0; i < kMaxElements; ++i) {
-    vec.push_back(i);
+  for (auto i : rv::iota(0, kMaxElements)) {
+    vec.push_back(this->make_value(i));
   }
 
-  for (int i = 0; i < kMaxElements; ++i) {
+  for (auto i : rv::iota(0, kMaxElements)) {
+    EXPECT_EQ(std::as_const(vec)[i], i);
+  }
+}
+
+TYPED_TEST(CompactVectorCommon, Clear) {
+  constexpr auto kMaxElements = 10;
+  CompactVector<TypeParam> vec;
+
+  for (auto i : rv::iota(0, kMaxElements)) {
+    vec.push_back(this->make_value(i));
+  }
+
+  auto const capacity = vec.capacity();
+  EXPECT_NE(capacity, 0);
+  EXPECT_EQ(std::as_const(vec).size(), kMaxElements);
+  vec.clear();
+  EXPECT_EQ(std::as_const(vec).capacity(), capacity);
+  EXPECT_EQ(std::as_const(vec).size(), 0);
+}
+
+TYPED_TEST(CompactVectorCommon, Resize) {
+  constexpr auto kSmallStorageSize = 5;
+  constexpr auto kTwiceTheSmallStorage = 2 * kSmallStorageSize;
+  CompactVector<TypeParam> vec;
+
+  for (auto i : rv::iota(0, kTwiceTheSmallStorage)) {
+    vec.push_back(this->make_value(i));
+  }
+
+  EXPECT_EQ(std::as_const(vec).size(), kTwiceTheSmallStorage);
+  vec.resize(kSmallStorageSize);
+  EXPECT_EQ(std::as_const(vec).size(), kSmallStorageSize);
+  for (auto i : rv::iota(0, kSmallStorageSize)) {
     EXPECT_EQ(vec[i], i);
   }
-}
-
-TEST(CompactVector, Clear) {
-  const int kMaxElements = 10;
-  memgraph::storage::CompactVector<int> vec;
-
-  for (int i = 0; i < kMaxElements + 1; ++i) {
-    vec.push_back(i);
-  }
-
-  auto capacity = vec.capacity();
-  EXPECT_EQ(vec.size(), kMaxElements + 1);
-  vec.clear();
-  EXPECT_EQ(vec.size(), 0);
-  EXPECT_EQ(capacity, vec.capacity());
-}
-
-TEST(CompactVector, Resize) {
-  const int kSmallStorageSize = 5;
-  const int kTwiceTheSmallStorage = 2 * kSmallStorageSize;
-  memgraph::storage::CompactVector<int> vec;
-
-  for (int i = 0; i < kTwiceTheSmallStorage; ++i) {
-    vec.push_back(i);
-  }
-
-  EXPECT_EQ(vec.size(), kTwiceTheSmallStorage);
-  vec.resize(kSmallStorageSize);
-  EXPECT_EQ(vec.size(), kSmallStorageSize);
 
   vec.resize(kTwiceTheSmallStorage);
-  for (int i = kSmallStorageSize; i < kTwiceTheSmallStorage; ++i) EXPECT_NE(vec[i], i);
+  EXPECT_EQ(std::as_const(vec).size(), kTwiceTheSmallStorage);
+  for (int i = kSmallStorageSize; i < kTwiceTheSmallStorage; ++i) {
+    EXPECT_EQ(vec[i], this->default_value());
+  }
 }
 
-TEST(CompactVector, Reserve) {
+TYPED_TEST(CompactVectorCommon, Reserve) {
   const int kMaxElements = 1000;
-  memgraph::storage::CompactVector<int> vec;
+  CompactVector<TypeParam> vec;
   EXPECT_EQ(vec.capacity(), 0);
   vec.reserve(kMaxElements);
   EXPECT_EQ(vec.capacity(), kMaxElements);
@@ -71,153 +132,196 @@ TEST(CompactVector, Reserve) {
   EXPECT_EQ(vec.capacity(), kMaxElements);
 }
 
-TEST(CompactVector, EraseFirst) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
-  auto next = vec.erase(vec.begin());
-  EXPECT_EQ(2, vec.size());
-  EXPECT_EQ("b", vec[0]);
-  EXPECT_EQ("c", vec[1]);
-  EXPECT_EQ("b", *next);
-}
+TYPED_TEST(CompactVectorCommon, EraseFirst) {
+  auto rng = rv::iota(0, 3) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
-TEST(CompactVector, EraseThird) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d"};
-  auto next = vec.begin();
-  ++next;  // "b"
-  ++next;  // "c"
-  next = vec.erase(next);
-
-  EXPECT_EQ(3, vec.size());
-  EXPECT_EQ("a", vec[0]);
-  EXPECT_EQ("b", vec[1]);
-  EXPECT_EQ("d", vec[2]);
-  EXPECT_EQ("d", *next);
-}
-
-TEST(CompactVector, EraseLast) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
-  auto next = vec.begin();
-  ++next;  // "b"
-  ++next;  // "c"
-  next = vec.erase(next);
+  auto after_erase = vec.erase(vec.begin());
+  EXPECT_EQ(vec.begin(), after_erase);
 
   EXPECT_EQ(2, vec.size());
-  EXPECT_EQ("a", vec[0]);
-  EXPECT_EQ("b", vec[1]);
-  EXPECT_EQ(vec.end(), next);
+  EXPECT_EQ(3, vec.capacity());
+  EXPECT_EQ(this->make_value(1), vec[0]);
+  EXPECT_EQ(this->make_value(2), vec[1]);
 }
 
-TEST(CompactVector, ErasePart) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
-  auto beg = vec.begin();
-  ++beg;  // "b"
-  auto end = beg;
-  ++end;
-  ++end;  // "d"
+TYPED_TEST(CompactVectorCommon, EraseMiddle) {
+  auto rng = rv::iota(0, 5) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
-  end = vec.erase(beg, end);
+  auto middle = std::next(vec.begin(), 2);
+  auto after_erase = vec.erase(middle);
+  EXPECT_EQ(std::next(vec.begin(), 2), after_erase);
+
   EXPECT_EQ(4, vec.size());
-  EXPECT_EQ("a", vec[0]);
-  EXPECT_EQ("d", vec[1]);
-  EXPECT_EQ("e", vec[2]);
-  EXPECT_EQ("f", vec[3]);
-  EXPECT_EQ(*end, "d");
+  EXPECT_EQ(5, vec.capacity());
+  // first 2 are the same
+  EXPECT_EQ(this->make_value(0), vec[0]);
+  EXPECT_EQ(this->make_value(1), vec[1]);
+  // next 2 are shifted down from original position
+  EXPECT_EQ(this->make_value(3), vec[2]);
+  EXPECT_EQ(this->make_value(4), vec[3]);
 }
 
-TEST(CompactVector, ErasePartTillEnd) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
-  auto it = vec.begin();
-  ++it;  // "b"
+TYPED_TEST(CompactVectorCommon, EraseBack) {
+  auto rng = rv::iota(0, 3) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
-  it = vec.erase(it, vec.end());
-  EXPECT_EQ(1, vec.size());
-  EXPECT_EQ("a", vec[0]);
-  EXPECT_EQ(it, vec.end());
+  auto back = std::next(vec.begin(), 2);
+  auto after_erase = vec.erase(back);
+  EXPECT_EQ(vec.end(), after_erase);
+
+  EXPECT_EQ(2, vec.size());
+  EXPECT_EQ(3, vec.capacity());
+  EXPECT_EQ(this->make_value(0), vec[0]);
+  EXPECT_EQ(this->make_value(1), vec[1]);
 }
 
-TEST(CompactVector, EraseFull) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
+TYPED_TEST(CompactVectorCommon, EraseRangeMiddle) {
+  auto rng = rv::iota(0, 6) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
+
+  auto const first = std::next(vec.begin(), 2);
+  auto const last = std::next(vec.begin(), 4);
+  auto after_erase = vec.erase(first, last);
+  EXPECT_EQ(std::next(vec.begin(), 2), after_erase);
+
+  EXPECT_EQ(4, vec.size());
+  EXPECT_EQ(6, vec.capacity());
+  EXPECT_EQ(this->make_value(0), vec[0]);
+  EXPECT_EQ(this->make_value(1), vec[1]);
+
+  EXPECT_EQ(this->make_value(4), vec[2]);
+  EXPECT_EQ(this->make_value(5), vec[3]);
+}
+
+TYPED_TEST(CompactVectorCommon, EraseRangeTillEnd) {
+  auto rng = rv::iota(0, 6) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
+
+  auto const first = std::next(vec.begin(), 2);
+  auto const last = vec.end();
+  auto after_erase = vec.erase(first, last);
+  EXPECT_EQ(vec.end(), after_erase);
+
+  EXPECT_EQ(2, vec.size());
+  EXPECT_EQ(6, vec.capacity());
+  EXPECT_EQ(this->make_value(0), vec[0]);
+  EXPECT_EQ(this->make_value(1), vec[1]);
+}
+
+TYPED_TEST(CompactVectorCommon, EraseRangeFull) {
+  auto rng = rv::iota(0, 6) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
   auto it = vec.erase(vec.begin(), vec.end());
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TEST(CompactVector, EraseOneEndIterator) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
+TYPED_TEST(CompactVectorCommon, EraseEndIterator) {
+  auto rng = rv::iota(0, 3) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
   auto it = vec.erase(vec.end());
   EXPECT_EQ(3, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TEST(CompactVector, EraseRangeEndIterator) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c"};
+TYPED_TEST(CompactVectorCommon, EraseRangeEndIterator) {
+  auto rng = rv::iota(0, 3) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
   auto it = vec.erase(vec.end(), vec.end());
   EXPECT_EQ(3, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TEST(CompactVector, EraseOneEndIteratorOnEmptyVector) {
-  memgraph::storage::CompactVector<std::string> vec;
+TYPED_TEST(CompactVectorCommon, EraseEndIteratorOnEmptyVector) {
+  CompactVector<TypeParam> vec;
 
   auto it = vec.erase(vec.end());
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TEST(CompactVector, EraseRangeEndIteratorOnEmptyVector) {
-  memgraph::storage::CompactVector<std::string> vec;
+TYPED_TEST(CompactVectorCommon, EraseRangeEndIteratorOnEmptyVector) {
+  CompactVector<TypeParam> vec;
 
   auto it = vec.erase(vec.end(), vec.end());
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TEST(CompactVector, EmplaceBack) {
-  memgraph::storage::CompactVector<std::string> vec = {"a", "b", "c", "d", "e", "f"};
-  vec.emplace_back("g");
-  EXPECT_EQ("g", vec.back());
+TYPED_TEST(CompactVectorCommon, EmplaceBack) {
+  auto rng = rv::iota(0, 3) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
+  vec.emplace_back(this->make_value(42));
+  EXPECT_EQ(42, std::as_const(vec).back());
+  EXPECT_EQ(4, vec.size());
 }
 
-TEST(CompactVector, PushPopBack) {
-  const int kElemNum = 10000;
-  memgraph::storage::CompactVector<int> vec;
-  EXPECT_EQ(0, vec.size());
-  for (int i = 0; i < kElemNum; ++i) {
-    vec.push_back(i);
-  }
+TYPED_TEST(CompactVectorCommon, PushPopBack) {
+  constexpr auto kElemNum = 10'000;
+  auto rng = rv::iota(0, kElemNum) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
   EXPECT_EQ(kElemNum, vec.size());
-  for (int i = 0; i < kElemNum; ++i) {
+  for ([[maybe_unused]] auto _ : rv::iota(0, kElemNum)) {
     vec.pop_back();
   }
   EXPECT_EQ(0, vec.size());
+  EXPECT_TRUE(vec.empty());
 }
 
-TEST(CompactVector, Capacity) {
-  const int kElemNum = 10000;
-  memgraph::storage::CompactVector<int> vec;
-  EXPECT_EQ(0, vec.size());
-  EXPECT_EQ(0, vec.capacity());
+TYPED_TEST(CompactVectorCommon, Capacity) {
+  constexpr auto kElemNum = 10'000;
+  auto rng = rv::iota(0, kElemNum) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
 
-  for (int i = 0; i < kElemNum; ++i) {
-    vec.push_back(i);
-  }
   EXPECT_EQ(kElemNum, vec.size());
   EXPECT_LE(kElemNum, vec.capacity());
 }
 
-TEST(CompactVector, Empty) {
-  const int kElemNum = 10000;
-  memgraph::storage::CompactVector<int> vec;
+TYPED_TEST(CompactVectorCommon, Empty) {
+  constexpr auto kElemNum = 10'000;
+  CompactVector<TypeParam> vec;
   EXPECT_TRUE(vec.empty());
-  for (int i = 0; i < kElemNum; ++i) {
-    vec.push_back(i);
+  for (auto i : rv::iota(0, kElemNum)) {
+    vec.push_back(this->make_value(i));
   }
   EXPECT_FALSE(vec.empty());
-  for (int i = 0; i < kElemNum; ++i) {
+  for ([[maybe_unused]] auto _ : rv::iota(0, kElemNum)) {
     vec.pop_back();
   }
   EXPECT_TRUE(vec.empty());
 }
+
+TYPED_TEST(CompactVectorCommon, ReverseIteration) {
+  auto rng = rv::iota(0, 10) | rv::transform(maker(*this));
+  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
+
+  auto rbegin = vec.rbegin();
+  auto rend = vec.rend();
+  EXPECT_EQ(std::distance(rbegin, rend), 10);
+
+  // 9 down to 0
+  auto expected = 9;
+  for (auto it = rbegin; it != rend; ++it) {
+    EXPECT_EQ(*it, expected);
+    --expected;
+  }
+}
+
+template <typename It, typename ConstIt>
+concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator<ConstIt> &&
+    requires(It it, ConstIt cit) {
+  { it == cit } -> std::same_as<bool>;
+  { it != cit } -> std::same_as<bool>;
+  { cit == it } -> std::same_as<bool>;
+  { cit != it } -> std::same_as<bool>;
+};
+
+using sut_t = CompactVector<int>;
+static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
+static_assert(std::contiguous_iterator<sut_t::iterator>);
+static_assert(std::contiguous_iterator<sut_t::const_iterator>);

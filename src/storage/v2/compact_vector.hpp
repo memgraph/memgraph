@@ -11,60 +11,50 @@
 
 #pragma once
 
-#include <cstddef>
-#include <cstdlib>
-#include <iterator>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <utility>
 #include <vector>
 
 namespace memgraph::storage {
 
-#include <stdexcept>
-
 template <typename T>
-class CompactVector {
- private:
-  T *data_;
-  uint32_t size_;      // max 4 billion
-  uint32_t capacity_;  // max 4 billion
-
- public:
+struct CompactVector {
   using value_type = T;
+  using reference = value_type &;
+  using const_reference = value_type const &;
+  using pointer = value_type *;
+  using const_pointer = value_type const *;
 
-  CompactVector() : data_(nullptr), size_(0), capacity_(0) {}
+  CompactVector() = default;
 
-  CompactVector(const CompactVector &in) : CompactVector() {
+  CompactVector(const CompactVector &in) {
     reserve(in.size_);
-    std::copy(in.begin(), in.end(), data_);
+    std::uninitialized_copy(in.begin(), in.end(), data_);
     size_ = in.size_;
   }
 
-  CompactVector(CompactVector &&in) : data_{in.data_}, size_{in.size_}, capacity_{in.capacity_} {
-    if (&in != this) {
-      in.data_ = nullptr;
-      in.size_ = 0;
-      in.capacity_ = 0;
+  CompactVector(CompactVector &&in) noexcept {
+    if (std::addressof(in) != this) {
+      data_ = std::exchange(in.data_, nullptr);
+      size_ = std::exchange(in.size_, 0);
+      capacity_ = std::exchange(in.capacity_, 0);
     }
   }
 
-  CompactVector(std::initializer_list<T> in) : CompactVector() {
-    reserve(in.size());
-    for (auto &v : in) {
-      push_back(v);
-    }
-    size_ = in.size();
-  }
+  explicit CompactVector(std::initializer_list<T> in) : CompactVector(in.begin(), in.end()) {}
 
-  CompactVector<T> &operator=(const CompactVector<T> &in) {
-    reserve(in.size_);
-    std::copy(in.begin(), in.end(), data_);
+  auto operator=(const CompactVector &in) -> CompactVector & {
+    reserve(in.size_);  // TODO: this can cause an unessisary move from old to new buffer
+    std::copy(in.cbegin(), in.cbegin() + size_, data_);
+    std::uninitialized_copy(in.cbegin() + size_, in.cend(), data_ + size_);
     size_ = in.size_;
     return *this;
   }
 
-  CompactVector<T> &operator=(CompactVector<T> &&in) {
-    if (&in != this) {
+  auto operator=(CompactVector &&in) noexcept -> CompactVector & {
+    if (std::addressof(in) != this) {
       data_ = std::exchange(in.data_, nullptr);
       size_ = std::exchange(in.size_, 0);
       capacity_ = std::exchange(in.capacity_, 0);
@@ -73,260 +63,309 @@ class CompactVector {
   }
 
   ~CompactVector() {
-    std::destroy(begin(), end());
-    std::free(reinterpret_cast<void *>(data_));
+    if (data_) {
+      std::destroy(begin(), end());
+      std::free(reinterpret_cast<void *>(data_));
+    }
   }
 
-  explicit CompactVector(const std::vector<T> &in) {
-    reserve(in.size());
-    std::copy(in.begin(), in.end(), data_);
-    size_ = in.size();
+  // TODO: change to range + add test
+  explicit CompactVector(std::span<T const> in) : CompactVector(in.cbegin(), in.cend()) {}
+  // TODO: generalise to not just vector
+  explicit CompactVector(std::vector<T> &&in)
+      : CompactVector(std::move_iterator{in.begin()}, std::move_iterator{in.end()}) {}
+
+  template <typename It>
+  explicit CompactVector(It first, It last) {
+    auto const size = std::distance(first, last);
+    reserve(size);
+    std::uninitialized_copy(first, last, data_);
+    size_ = size;
   }
 
-  void push_back(const T &value) {
-    if (size_ >= capacity_) {
+  void push_back(const_reference value) {
+    if (capacity_ <= size_) {
       reserve(capacity_ == 0 ? 1 : 2 * capacity_);
     }
     std::construct_at(data_ + size_, value);
     size_++;
   }
 
-  template <typename... Args>
-  void emplace_back(Args &&...args) {
-    if (size_ >= capacity_) {
+  void push_back(value_type &&value) {
+    if (capacity_ <= size_) {
       reserve(capacity_ == 0 ? 1 : 2 * capacity_);
     }
-    new (&data_[size_++]) T{std::forward<Args>(args)...};
+    std::construct_at(data_ + size_, std::move(value));
+    size_++;
+  }
+
+  template <typename... Args>
+  void emplace_back(Args &&...args) {
+    if (capacity_ <= size_) {
+      reserve(capacity_ == 0 ? 1 : 2 * capacity_);
+    }
+    std::construct_at(data_ + size_, std::forward<Args>(args)...);
+    ++size_;
   }
 
   void pop_back() {
-    if (size_) {
-      // Explicitly ignore return value to avoid warning
-      (void)std::move(data_[--size_]);
+    if (!empty()) {
+      std::destroy_at(std::addressof(back()));
+      --size_;
     }
   }
 
-  T &operator[](unsigned int index) { return data_[index]; }
+  auto operator[](uint32_t index) -> reference { return data_[index]; }
 
-  const T &operator[](unsigned int index) const { return data_[index]; }
+  auto operator[](uint32_t index) const -> const_reference { return data_[index]; }
 
-  T &at(unsigned int index) {
+  auto at(uint32_t index) -> reference {
     if (index >= size_) {
       throw std::out_of_range("Index out of range");
     }
     return data_[index];
   }
 
-  const T &at(unsigned int index) const {
+  [[nodiscard]] auto at(uint32_t index) const -> const_reference {
     if (index >= size_) {
       throw std::out_of_range("Index out of range");
     }
     return data_[index];
   }
 
-  unsigned int size() const { return size_; }
+  [[nodiscard]] auto size() const -> uint32_t { return size_; }
 
-  unsigned int capacity() const { return capacity_; }
+  [[nodiscard]] auto capacity() const -> uint32_t { return capacity_; }
 
-  void reserve(unsigned int new_capacity) {
-    // TODO Test if >= max uin32_t
+  void reserve(uint32_t new_capacity) {
     if (new_capacity <= capacity_) {
       return;
     }
 
-    T *new_data = reinterpret_cast<T *>(std::aligned_alloc(alignof(T), new_capacity * sizeof(T)));
-    std::uninitialized_move(begin(), end(), new_data);
-
-    std::destroy(begin(), end());
-    std::free(reinterpret_cast<void *>(data_));
+    auto *new_data = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), new_capacity * sizeof(T)));
+    if (data_) {
+      std::uninitialized_move(begin(), end(), new_data);
+      std::destroy(begin(), end());
+      std::free(reinterpret_cast<void *>(data_));
+    }
     data_ = new_data;
     capacity_ = new_capacity;
   }
 
-  void resize(unsigned int new_size) {
-    if (new_size > capacity_) {
-      reserve(new_size);
+  void resize(uint32_t new_size) {
+    if (new_size == size_) [[unlikely]] {
+      return;
     }
-    if (new_size > size_) {
-      for (unsigned int i = size_; i < new_size; ++i) {
-        data_[i] = T();
+    if (size_ < new_size) {
+      reserve(new_size);
+      for (auto i = size_; i != new_size; ++i) {
+        std::construct_at(data_ + i);
       }
+    } else {
+      std::destroy(data_ + new_size, data_ + size_);
     }
     size_ = new_size;
   }
 
-  T &back() { return data_[size_ - 1]; }
+  auto back() -> reference { return data_[size_ - 1]; }
 
-  const T &back() const { return data_[size_ - 1]; }
+  [[nodiscard]] auto back() const -> const_reference { return data_[size_ - 1]; }
 
-  bool empty() const { return size_ == 0; }
+  [[nodiscard]] auto empty() const -> bool { return size_ == 0; }
 
   void clear() {
     std::destroy(begin(), end());
     size_ = 0;
   }
 
-  class Iterator {
-   private:
-    T *ptr;
-    friend class CompactVector<T>;
+  struct const_iterator;
 
-   public:
-    using iterator_category = std::contiguous_iterator_tag;
+  struct iterator {
+    friend struct const_iterator;
     using value_type = T;
+    using iterator_category = std::contiguous_iterator_tag;
     using difference_type = std::ptrdiff_t;
-    using pointer = T *;
-    using reference = T &;
+    using pointer = value_type *;
+    using reference = value_type &;
 
-    Iterator() : ptr(nullptr) {}
+    iterator() = default;
 
-    Iterator(T *p) : ptr(p) {}
+    explicit iterator(pointer p) : ptr{p} {}
 
-    Iterator &operator++() {
+    auto operator++() -> iterator & {
       ++ptr;
       return *this;
     }
 
-    Iterator operator++(int) {
-      Iterator temp = *this;
+    auto operator++(int) -> iterator {
+      auto cpy = *this;
       ++(*this);
-      return temp;
+      return cpy;
     }
 
-    Iterator &operator--() {
+    auto operator--() -> iterator & {
       --ptr;
       return *this;
     }
 
-    Iterator operator--(int) {
-      Iterator temp = *this;
+    auto operator--(int) -> iterator {
+      auto cpy = *this;
       --(*this);
-      return temp;
+      return cpy;
     }
 
-    Iterator operator+=(difference_type n) {
+    auto operator+=(difference_type n) -> iterator & {
       ptr += n;
       return *this;
     }
 
-    Iterator operator+(const difference_type n) const { return Iterator(ptr + n); }
+    auto operator-=(difference_type n) -> iterator & { return this->operator+=(-n); }
 
-    T &operator*() const { return *ptr; }
+    auto operator+(const difference_type n) const -> iterator { return iterator(ptr + n); }
+    friend auto operator+(const difference_type n, iterator other) -> iterator { return iterator(other.ptr + n); }
 
-    T *operator->() const { return ptr; }
+    auto operator*() const -> reference { return *ptr; }
 
-    bool operator<(const Iterator &other) const { return ptr < other.ptr; }
-    bool operator>(const Iterator &other) const { return ptr > other.ptr; }
-    bool operator==(const Iterator &other) const { return ptr == other.ptr; }
-    bool operator<=(const Iterator &other) const { return ptr <= other.ptr; }
-    bool operator>=(const Iterator &other) const { return ptr >= other.ptr; }
-    bool operator!=(const Iterator &other) const { return ptr != other.ptr; }
+    auto operator->() const -> pointer { return ptr; }
 
-    std::ptrdiff_t operator-(const Iterator &rv) const { return ptr - rv.ptr; }
-    Iterator operator-(const difference_type n) const { return Iterator(ptr - n); }
+    auto operator[](difference_type n) const -> reference { return ptr[n]; }
+
+    friend auto operator==(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+    friend auto operator<(iterator const &lhs, iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+    friend auto operator>(iterator const &lhs, iterator const &rhs) -> bool { return rhs < lhs; }
+    friend auto operator>=(iterator const &lhs, iterator const &rhs) -> bool { return !(lhs < rhs); }
+    friend auto operator<=(iterator const &lhs, iterator const &rhs) -> bool { return !(rhs < lhs); }
+
+    auto operator-(const iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+    auto operator-(const difference_type n) const -> iterator { return iterator(ptr - n); }
+
+   private:
+    value_type *ptr{};
   };
 
-  class ReverseIterator {
-   private:
-    T *ptr;
-    friend class CompactVector<T>;
-
-   public:
+  struct const_iterator {
+    using value_type = T const;
     using iterator_category = std::contiguous_iterator_tag;
-    using value_type = T;
     using difference_type = std::ptrdiff_t;
-    using pointer = T *;
-    using reference = T &;
+    using pointer = value_type *;
+    using reference = value_type &;
 
-    ReverseIterator(T *p) : ptr(p) {}
+    const_iterator() = default;
 
-    ReverseIterator &operator++() {
-      --ptr;
-      return *this;
-    }
+    explicit(false) const_iterator(iterator p) : ptr{p.ptr} {}
+    explicit const_iterator(pointer p) : ptr{p} {}
 
-    ReverseIterator operator++(int) {
-      ReverseIterator temp = *this;
-      ++(*this);
-      return temp;
-    }
-
-    ReverseIterator &operator--() {
+    auto operator++() -> const_iterator & {
       ++ptr;
       return *this;
     }
 
-    ReverseIterator operator--(int) {
-      ReverseIterator temp = *this;
+    auto operator++(int) -> const_iterator {
+      const_iterator temp = *this;
+      ++(*this);
+      return temp;
+    }
+
+    auto operator--() -> const_iterator & {
+      --ptr;
+      return *this;
+    }
+
+    auto operator--(int) -> const_iterator {
+      const_iterator temp = *this;
       --(*this);
       return temp;
     }
 
-    T &operator*() const { return *ptr; }
+    auto operator+=(difference_type n) -> const_iterator & {
+      ptr += n;
+      return *this;
+    }
 
-    T *operator->() const { return ptr; }
+    auto operator-=(difference_type n) -> const_iterator & { return this->operator+=(-n); }
 
-    bool operator<(const ReverseIterator &other) const { return ptr < other.ptr; }
-    bool operator>(const ReverseIterator &other) const { return ptr > other.ptr; }
-    bool operator==(const ReverseIterator &other) const { return ptr == other.ptr; }
-    bool operator<=(const ReverseIterator &other) const { return ptr <= other.ptr; }
-    bool operator>=(const ReverseIterator &other) const { return ptr >= other.ptr; }
-    bool operator!=(const ReverseIterator &other) const { return ptr != other.ptr; }
+    auto operator+(const difference_type n) const -> const_iterator { return const_iterator(ptr + n); }
+    friend auto operator+(const difference_type n, const_iterator other) -> const_iterator {
+      return const_iterator(other.ptr + n);
+    }
 
-    std::ptrdiff_t operator-(const ReverseIterator &rv) const { return rv.ptr - ptr; }
+    auto operator*() const -> reference { return *ptr; }
+
+    auto operator->() const -> pointer { return ptr; }
+
+    auto operator[](difference_type n) const -> reference { return ptr[n]; }
+
+    friend auto operator==(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr == rhs.ptr; }
+    friend auto operator<(const_iterator const &lhs, const_iterator const &rhs) -> bool { return lhs.ptr < rhs.ptr; }
+    friend auto operator>(const_iterator const &lhs, const_iterator const &rhs) -> bool { return rhs < lhs; }
+    friend auto operator>=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(lhs < rhs); }
+    friend auto operator<=(const_iterator const &lhs, const_iterator const &rhs) -> bool { return !(rhs < lhs); }
+
+    friend auto operator==(iterator const &lhs, const_iterator const &rhs) -> bool {
+      return const_iterator{lhs} == rhs;
+    }
+
+    auto operator-(const const_iterator &rv) const -> std::ptrdiff_t { return ptr - rv.ptr; }
+    auto operator-(const difference_type n) const -> const_iterator { return const_iterator(ptr - n); }
+
+   private:
+    value_type *ptr{};
   };
 
-  Iterator begin() { return Iterator(data_); }
+  using reverse_iterator = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  Iterator end() { return Iterator(data_ + size_); }
+  auto begin() -> iterator { return iterator(data_); }
 
-  const Iterator begin() const { return Iterator(data_); }
+  auto end() -> iterator { return iterator(data_ + size_); }
 
-  const Iterator end() const { return Iterator(data_ + size_); }
+  [[nodiscard]] auto begin() const -> const_iterator { return const_iterator(data_); }
 
-  const Iterator cbegin() const { return Iterator(data_); }
+  [[nodiscard]] auto end() const -> const_iterator { return const_iterator(data_ + size_); }
 
-  const Iterator cend() const { return Iterator(data_ + size_); }
+  [[nodiscard]] auto cbegin() const -> const_iterator { return begin(); }
 
-  ReverseIterator rbegin() { return ReverseIterator(data_ + size_ - 1); }
+  [[nodiscard]] auto cend() const -> const_iterator { return end(); }
 
-  ReverseIterator rend() { return ReverseIterator(data_ - 1); }
+  auto rbegin() -> reverse_iterator { return reverse_iterator{end()}; }
 
-  const ReverseIterator rbegin() const { return ReverseIterator(data_ + size_ - 1); }
+  auto rend() -> reverse_iterator { return reverse_iterator{begin()}; }
 
-  const ReverseIterator rend() const { return ReverseIterator(data_ - 1); }
+  [[nodiscard]] auto rbegin() const -> const_reverse_iterator { return const_reverse_iterator{cend()}; }
 
-  Iterator erase(const Iterator pos) {
-    if (pos < begin() || pos > end()) {
-      throw std::out_of_range("Iterator out of range");
-    }
-    if (pos == end()) {
-      return pos;
-    }
+  [[nodiscard]] auto rend() const -> const_reverse_iterator { return const_reverse_iterator{cbegin()}; }
 
+  [[nodiscard]] auto crbegin() const -> const_reverse_iterator { return rbegin(); }
+
+  [[nodiscard]] auto crend() const -> const_reverse_iterator { return rend(); }
+
+  auto erase(const_iterator pos) -> iterator {
     auto it = begin() + std::distance(cbegin(), pos);
-
-    std::move(std::next(it), end(), it);
-    pop_back();
+    if (it != end()) {
+      std::move(std::next(it), end(), it);
+      pop_back();
+    }
     return it;
   }
 
-  Iterator erase(const Iterator beg_itr, const Iterator end_itr) {
-    if (beg_itr < begin() || beg_itr > end() || end_itr < beg_itr || end_itr > end()) {
-      throw std::out_of_range("Iterator out of range");
-    }
+  auto erase(const_iterator beg_itr, const_iterator end_itr) -> iterator {
     auto it_first = begin() + std::distance(cbegin(), beg_itr);
     auto it_last = begin() + std::distance(cbegin(), end_itr);
-    auto e = end();
-    auto n = std::distance(it_first, it_last);
 
     if (it_first != it_last) {
+      auto e = end();
+      auto n = std::distance(it_first, it_last);
       std::move(it_last, e, it_first);
       std::destroy(e - n, e);
       size_ -= n;
     }
     return it_first;
   }
+
+ private:
+  T *data_{};
+  uint32_t size_{};      // max 4 billion
+  uint32_t capacity_{};  // max 4 billion
 };
 
 static_assert(sizeof(CompactVector<int>) == 16);
