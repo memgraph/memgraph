@@ -12,9 +12,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <optional>
+#include <stdexcept>
+#include <string>
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 #include "coordination/coordinator_handlers.hpp"
@@ -23,8 +27,11 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
+#include "flags/log_level.hpp"
 #include "glue/MonitoringServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
@@ -42,14 +49,17 @@
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
 #include "query/procedure/py_module.hpp"
+#include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -57,11 +67,17 @@
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
+#include <boost/asio/ip/address.hpp>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
+
+constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
+constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
+constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
+
 constexpr uint64_t kMgVmMaxMapCount = 262144;
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
@@ -84,11 +100,14 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   while (std::getline(file, line)) {
     if (!line.empty()) {
       try {
+        // TODO remove security issue
+        spdlog::trace("Executing line: {}", line);
         auto results = interpreter.Prepare(line, {}, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
-      } catch (const memgraph::query::UserAlreadyExistsException &e) {
-        spdlog::warn("{} The rest of the init-file will be run.", e.what());
+      } catch (std::exception const &e) {
+        spdlog::warn("Exception occurred while executing one line. The rest of the init-file will be run. {}",
+                     e.what());
       }
       if (audit_log) {
         audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
@@ -150,7 +169,13 @@ int main(int argc, char **argv) {
   }
 
   memgraph::flags::InitializeLogger();
-  memgraph::flags::InitializeExperimental();
+  auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
+  memgraph::flags::SetExperimental(flags_experimental);
+  auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
+  if (maybe_experimental) {
+    auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
+    memgraph::flags::AppendExperimental(env_experimental);
+  }
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -347,15 +372,13 @@ int main(int argc, char **argv) {
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
-                            FLAGS_storage_properties_on_edges ? FLAGS_storage_automatic_edge_type_index_creation_enabled
-                                                              : false,
+                            FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
       .salient.storage_mode = memgraph::flags::ParseStorageMode()};
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
-    spdlog::warn(
-        "Automatic index creation on edge-types has been set but properties on edges are disabled. This will "
-        "implicitly disallow automatic edge-type index creation. If you wish to use automatic edge-type index "
-        "creation, enable properties on edges as well.");
+    LOG_FATAL(
+        "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
+        "automatic edge-type index creation, enable properties on edges as well.");
   }
   if (!FLAGS_storage_properties_on_edges && FLAGS_storage_enable_edges_metadata) {
     spdlog::warn(
@@ -437,8 +460,19 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+#endif
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
+
+  int const extracted_bolt_port = [&]() {
+    if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
+      return std::stoi(maybe_env_bolt_port);
+    }
+    return FLAGS_bolt_port;
+  }();  // iile
 
   // singleton coordinator state
 #ifdef MG_ENTERPRISE
@@ -446,25 +480,42 @@ int main(int argc, char **argv) {
   using memgraph::coordination::CoordinatorState;
   using memgraph::coordination::ReplicationInstanceInitConfig;
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
-  if (FLAGS_management_port && (FLAGS_coordinator_id || FLAGS_coordinator_port)) {
-    throw std::runtime_error(
-        "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id and "
-        "port for coordinator instance and management port for replication instance.");
-  }
 
-  if (FLAGS_coordinator_id && FLAGS_coordinator_port) {
-    try {
+  auto try_init_coord_state = [&coordinator_state,
+                               &extracted_bolt_port](memgraph::flags::CoordinationSetup const &coordination_setup) {
+    if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
+          coordination_setup.coordinator_id)) {
+      spdlog::trace("Aborting coordinator initialization.");
+      return;
+    }
+
+    spdlog::trace("Creating coordinator state.");
+    if (coordination_setup.management_port &&
+        (coordination_setup.coordinator_port || coordination_setup.coordinator_id)) {
+      throw std::runtime_error(
+          "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id "
+          "and "
+          "port for coordinator instance and management port for replication instance.");
+    }
+
+    if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{FLAGS_coordinator_id, FLAGS_coordinator_port,
-                                                              FLAGS_bolt_port, high_availability_data_dir});
-    } catch (std::exception const &e) {
-      spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
-      exit(1);
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{coordination_setup.coordinator_id,
+                                                              coordination_setup.coordinator_port, extracted_bolt_port,
+                                                              high_availability_data_dir});
+    } else {
+      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
-  } else {
-    coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = FLAGS_management_port});
+  };
+
+  try {
+    try_init_coord_state(coordination_setup);
+  } catch (std::exception const &e) {
+    spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+    exit(1);
   }
+
 #endif
 
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
@@ -486,7 +537,8 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
-  if (FLAGS_management_port) {
+  if (coordination_setup.management_port != 0) {
+    spdlog::trace("Starting coordinator server.");
     memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
     MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
   }
@@ -524,6 +576,13 @@ int main(int argc, char **argv) {
 #endif
   }
 
+  // Tied to coord initialization, must happen after coordinator is initialized
+  auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
+  if (maybe_ha_init_file) {
+    spdlog::trace("Initializing coordinator from cypher file.");
+    InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
+  }
+
 #ifdef MG_ENTERPRISE
   dbms_handler.RestoreTriggers(&interpreter_context_);
   dbms_handler.RestoreStreams(&interpreter_context_);
@@ -552,7 +611,7 @@ int main(int argc, char **argv) {
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
-      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
+      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
   Context session_context{&interpreter_context_, &auth_, &audit_log};
 #else
@@ -599,7 +658,7 @@ int main(int argc, char **argv) {
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server,
+                      &metrics_server, &coordinator_state,
 #endif
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -612,6 +671,9 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
+    if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
+      coordinator_state->ShutDownCoordinator();
+    }
 #endif
   };
 

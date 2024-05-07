@@ -27,6 +27,7 @@ namespace memgraph::coordination {
 
 using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view);
 
+// Class used for managing the connection from coordinator to the data instance.
 class ReplicationInstanceConnector {
  public:
   explicit ReplicationInstanceConnector(std::unique_ptr<ReplicationInstanceClient> client,
@@ -47,7 +48,9 @@ class ReplicationInstanceConnector {
 
   // TODO: (andi) Fetch from ClusterState
   auto InstanceName() const -> std::string;
-  auto CoordinatorSocketAddress() const -> std::string;
+
+  auto BoltSocketAddress() const -> std::string;
+  auto ManagementSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
   auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
@@ -83,6 +86,9 @@ class ReplicationInstanceConnector {
   auto GetFailCallback() -> HealthCheckInstanceCallback;
 
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
+
+  // Time passed from the last successful response in milliseconds.
+  auto LastSuccRespMs() const -> std::chrono::milliseconds;
 
  protected:
   auto UpdateReplicaLastResponseUUID() -> void;

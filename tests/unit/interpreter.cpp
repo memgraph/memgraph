@@ -130,7 +130,7 @@ class InterpreterTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(InterpreterTest, StorageTypes);
+TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {

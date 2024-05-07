@@ -14,6 +14,11 @@ import typing
 import mgclient
 
 
+# Elapse time is the last element in results hence such slicing works.
+def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List[tuple]:
+    return [result[:-1] for result in results]
+
+
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()

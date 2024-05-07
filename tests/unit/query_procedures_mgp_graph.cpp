@@ -181,7 +181,7 @@ class MgpGraphTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(MgpGraphTest, StorageTypes);
+TYPED_TEST_SUITE(MgpGraphTest, StorageTypes);
 
 TYPED_TEST(MgpGraphTest, IsMutable) {
   mgp_graph immutable_graph = this->CreateGraph(memgraph::storage::View::OLD);

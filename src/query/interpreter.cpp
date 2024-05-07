@@ -25,14 +25,18 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "coordination/coordinator_state.hpp"
+#include "coordination/register_main_replica_coordinator_status.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/database.hpp"
@@ -64,6 +68,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
@@ -178,13 +183,15 @@ void Sort(std::vector<TypedValue, K> &vec) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
-  return lv == std::string(TypedValue(rv).ValueString());
+[[maybe_unused]] bool Same(const TypedValue &lv, const std::string &rv) {
+  return std::string_view(TypedValue(lv).ValueString()) == rv;
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
+[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
+  return lv == std::string_view(TypedValue(rv).ValueString());
+}
+// NOLINTNEXTLINE (misc-unused-parameters)
+[[maybe_unused]] bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
@@ -429,6 +436,93 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void DemoteInstanceToReplica(std::string_view instance_name) override {
+    auto status = coordinator_handler_.DemoteInstanceToReplica(instance_name);
+    switch (status) {
+      using enum memgraph::coordination::DemoteInstanceCoordinatorStatus;
+      case NO_INSTANCE_WITH_NAME:
+        throw QueryRuntimeException("No instance with such name!");
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("DEMOTE INSTANCE query can only be run on a coordinator!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't demote instance to replica since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException(
+            "Couldn't demote instance to replica since raft server couldn't append the log. "
+            "Coordinator may not be leader anymore!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
+      case LOCK_OPENED:
+        throw QueryRuntimeException(
+            "Couldn't successfully finish action demote instance to replica because the last action didn't finish "
+            "successfully!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't demote instance to replica as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't demote  instance to replica as cluster didn't accept successful finish of action!");
+      case SUCCESS:
+        break;
+    }
+  }
+
+  void ForceResetClusterState() override {
+    auto status = coordinator_handler_.ForceResetClusterState();
+    switch (status) {
+      using enum memgraph::coordination::ForceResetClusterStateStatus;
+      case NOT_COORDINATOR:
+        throw QueryRuntimeException("Force reset cluster state query can only be run on a coordinator!");
+      case SHUTTING_DOWN:
+        throw QueryRuntimeException("Force reset cluster aborted as coordinator is shutting down!");
+      case ACTION_FAILED:
+        throw QueryRuntimeException("Check logs for more details, one action didn't complete successfully!");
+      case NO_NEW_MAIN:
+        throw QueryRuntimeException(
+            "Coordinator couldn't find new instance to be promoted to main, force reset failed!");
+      case NOT_LEADER: {
+        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
+        auto const *common_message = "Couldn't do force reset since coordinator is not a leader!";
+        if (maybe_leader_coordinator) {
+          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
+                                      common_message, maybe_leader_coordinator->coordinator_id,
+                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+        }
+        throw QueryRuntimeException(
+            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
+            "are down.",
+            common_message);
+      }
+      case RAFT_LOG_ERROR:
+        throw QueryRuntimeException(
+            "Couldn't force reset cluster state since raft server couldn't append the log. "
+            "Coordinator may not be leader anymore!");
+      case RPC_FAILED:
+        throw QueryRuntimeException(
+            "Couldn't force reset cluster state since RPC to one of the instances failed. Check logs for more "
+            "details!");
+      case FAILED_TO_OPEN_LOCK:
+        throw QueryRuntimeException("Couldn't force reset cluster state as cluster didn't accept start of action!");
+      case FAILED_TO_CLOSE_LOCK:
+        throw QueryRuntimeException(
+            "Couldn't finish force reset as cluster didn't accept successful finish of action. Some coordinators may "
+            "be down!");
+      case SUCCESS:
+        break;
+    }
+  }
+
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server,
                                    std::chrono::seconds const &instance_check_frequency,
@@ -470,9 +564,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
-      case COORD_ENDPOINT_EXISTS:
+      case MGMT_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
-            "Couldn't register replica instance since instance with such coordinator endpoint already exists!");
+            "Couldn't register replica instance since instance with such management server already exists!");
       case REPL_ENDPOINT_EXISTS:
         throw QueryRuntimeException(
             "Couldn't register replica instance since instance with such replication endpoint already exists!");
@@ -526,7 +620,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server};
 
-    coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
+    switch (status) {
+      using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
+      case ID_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
+      case BOLT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such coordinator server already exists!");
+      case SUCCESS:
+        break;
+    }
     spdlog::info("Added instance on coordinator server {}", maybe_coordinator_server->SocketAddress());
   }
 
@@ -984,23 +1090,31 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 }  // namespace
 
 Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &parameters,
-                                ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db,
-                                const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
+                                ReplicationQueryHandler &replication_query_handler,
+                                const query::InterpreterConfig &config, std::vector<Notification> *notifications
+#ifdef MG_ENTERPRISE
+                                ,
+                                std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+) {
   // TODO: MemoryResource for EvaluationContext, it should probably be passed as
   // the argument to Callback.
   EvaluationContext evaluation_context;
   evaluation_context.timestamp = QueryTimestamp();
   evaluation_context.parameters = parameters;
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-
+  auto const is_managed_by_coordinator = [&]() {
+#ifdef MG_ENTERPRISE
+    return coordinator_state.has_value() && coordinator_state->get().IsDataInstance();
+#else
+    return false;
+#endif
+  }();  // iile
   Callback callback;
   switch (repl_query->action_) {
     case ReplicationQuery::Action::SET_REPLICATION_ROLE: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator can't set roles!");
-      }
-      if (FLAGS_management_port) {
+      if (is_managed_by_coordinator) {
         throw QueryRuntimeException("Can't set role manually on instance with coordinator server port.");
       }
 #endif
@@ -1026,12 +1140,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-#ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator doesn't have a replication role!");
-      }
-#endif
-
       callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
         auto mode = handler.ShowReplicationRole();
@@ -1048,7 +1156,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
     }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port) {
+      if (is_managed_by_coordinator) {
         throw QueryRuntimeException("Can't register replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1069,7 +1177,7 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
 
     case ReplicationQuery::Action::DROP_REPLICA: {
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port) {
+      if (is_managed_by_coordinator) {
         throw QueryRuntimeException("Can't drop replica manually on instance with coordinator server port.");
       }
 #endif
@@ -1083,12 +1191,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
       return callback;
     }
     case ReplicationQuery::Action::SHOW_REPLICAS: {
-#ifdef MG_ENTERPRISE
-      if (FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Coordinator cannot call SHOW REPLICAS! Use SHOW INSTANCES instead.");
-      }
-#endif
-
       bool full_info = false;
 #ifdef MG_ENTERPRISE
       full_info = license::global_license_checker.IsEnterpriseValidFast();
@@ -1231,7 +1333,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
       }
 
@@ -1275,7 +1377,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::REGISTER_INSTANCE: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1328,8 +1430,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
-      if (!FLAGS_coordinator_id) {
-        throw QueryRuntimeException("Only coordinator can register coordinator server!");
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can unregister instance!");
       }
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      instance_name = coordinator_query->instance_name_]() mutable {
@@ -1342,8 +1444,36 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       return callback;
 
+    case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can demote instance!");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     instance_name = coordinator_query->instance_name_]() mutable {
+        handler.DemoteInstanceToReplica(instance_name);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(
+          SeverityLevel::INFO, NotificationCode::DEMOTE_INSTANCE_TO_REPLICA,
+          fmt::format("Coordinator has demoted instance to replica {}.", coordinator_query->instance_name_));
+
+      return callback;
+
+    case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can force reset cluster!");
+      }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        handler.ForceResetClusterState();
+        return std::vector<std::vector<TypedValue>>();
+      };
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::FORCE_RESET_CLUSTER_STATE,
+                                  fmt::format("Coordinator has force reset cluster state."));
+
+      return callback;
+
     case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can register coordinator server!");
       }
       // TODO: MemoryResource for EvaluationContext, it should probably be passed as
@@ -1360,17 +1490,23 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       return callback;
     }
     case CoordinatorQuery::Action::SHOW_INSTANCES: {
-      if (!FLAGS_coordinator_id) {
+      if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can run SHOW INSTANCES.");
       }
 
-      callback.header = {"name", "raft_socket_address", "coordinator_socket_address", "health", "role"};
+      callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
+                         "health", "role",        "last_succ_resp_ms"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
-          return {TypedValue{status.instance_name}, TypedValue{status.raft_socket_address},
-                  TypedValue{status.coord_socket_address}, TypedValue{status.health}, TypedValue{status.cluster_role}};
+          return {TypedValue{status.instance_name},
+                  TypedValue{status.bolt_server},
+                  TypedValue{status.coordinator_server},
+                  TypedValue{status.management_server},
+                  TypedValue{status.health},
+                  TypedValue{status.cluster_role},
+                  TypedValue{status.last_succ_resp_ms}};
         };
 
         return utils::fmap(instances, converter);
@@ -2889,17 +3025,26 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
       RWType::NONE};
 }
 
-PreparedQuery PrepareReplicationQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                      std::vector<Notification> *notifications,
-                                      ReplicationQueryHandler &replication_query_handler, CurrentDB &current_db,
-                                      const InterpreterConfig &config) {
+PreparedQuery PrepareReplicationQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::vector<Notification> *notifications,
+    ReplicationQueryHandler &replication_query_handler, CurrentDB & /*current_db*/, const InterpreterConfig &config
+#ifdef MG_ENTERPRISE
+    ,
+    std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state
+#endif
+) {
   if (in_explicit_transaction) {
     throw ReplicationModificationInMulticommandTxException();
   }
 
   auto *replication_query = utils::Downcast<ReplicationQuery>(parsed_query.query);
-  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler,
-                                         current_db, config, notifications);
+  auto callback = HandleReplicationQuery(replication_query, parsed_query.parameters, replication_query_handler, config,
+                                         notifications
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         coordinator_state
+#endif
+  );
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
@@ -4398,7 +4543,8 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
-  if (FLAGS_management_port) {
+  if (interpreter_context_->coordinator_state_.has_value() &&
+      interpreter_context_->coordinator_state_->get().IsDataInstance()) {
     auto const &address = routing.find("address");
     if (address == routing.end()) {
       throw QueryException("Routing table must contain address field.");
@@ -4535,8 +4681,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
 #ifdef MG_ENTERPRISE
-    if (FLAGS_coordinator_id && !utils::Downcast<CoordinatorQuery>(parsed_query.query) &&
-        !utils::Downcast<SettingQuery>(parsed_query.query)) {
+    // TODO(antoniofilipovic) extend to cover Lab queries
+    if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
+        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 #endif
@@ -4584,12 +4731,21 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<ReplicationQuery>(parsed_query.query)) {
       /// TODO: make replication DB agnostic
-      prepared_query = PrepareReplicationQuery(
-          std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-          *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config);
+      prepared_query =
+          PrepareReplicationQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
+                                  *interpreter_context_->replication_handler_, current_db_, interpreter_context_->config
+#ifdef MG_ENTERPRISE
+                                  ,
+                                  interpreter_context_->coordinator_state_
+#endif
+          );
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
+      if (!interpreter_context_->coordinator_state_.has_value()) {
+        throw QueryRuntimeException(
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+      }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->coordinator_state_, interpreter_context_->config);
@@ -4671,7 +4827,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw QueryException("Write query forbidden on the replica!");
       }
 #ifdef MG_ENTERPRISE
-      if (FLAGS_management_port && !interpreter_context_->repl_state->IsMainWriteable()) {
+      if (interpreter_context_->coordinator_state_.has_value() &&
+          interpreter_context_->coordinator_state_->get().IsDataInstance() &&
+          !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
         throw QueryException(
             "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");

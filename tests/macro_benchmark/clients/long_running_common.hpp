@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -59,7 +59,7 @@ class TestClient {
   virtual ~TestClient() {}
 
   auto ConsumeStats() {
-    std::unique_lock<memgraph::utils::SpinLock> guard(lock_);
+    auto guard = std::unique_lock{lock_};
     auto stats = stats_;
     stats_.clear();
     return stats;
@@ -98,7 +98,7 @@ class TestClient {
     auto metadata = result.metadata;
     metadata["wall_time"] = wall_time.count();
     {
-      std::unique_lock<memgraph::utils::SpinLock> guard(lock_);
+      auto guard = std::unique_lock{lock_};
       if (query_name != "") {
         stats_[query_name].push_back(std::move(metadata));
       } else {

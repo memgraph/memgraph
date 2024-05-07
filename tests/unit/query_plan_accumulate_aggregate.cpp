@@ -84,7 +84,7 @@ class QueryPlanTest : public testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 
-TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Accumulate) {
   // simulate the following two query execution on an empty db
@@ -212,7 +212,7 @@ class QueryPlanAggregateOps : public QueryPlanTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(QueryPlanAggregateOps, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanAggregateOps, StorageTypes);
 
 TYPED_TEST(QueryPlanAggregateOps, WithData) {
   this->AddData();

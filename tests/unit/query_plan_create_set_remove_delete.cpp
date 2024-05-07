@@ -56,7 +56,7 @@ class QueryPlanTest : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlanTest, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, CreateNodeWithAttributes) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
@@ -361,7 +361,7 @@ class CreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(CreateExpandWithAuthFixture, StorageTypes);
+TYPED_TEST_SUITE(CreateExpandWithAuthFixture, StorageTypes);
 
 TYPED_TEST(CreateExpandWithAuthFixture, CreateExpandWithNoGrantsOnCreateDelete) {
   // All labels denied, All edge types denied
@@ -519,7 +519,7 @@ class MatchCreateNodeWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(MatchCreateNodeWithAuthFixture, StorageTypes);
+TYPED_TEST_SUITE(MatchCreateNodeWithAuthFixture, StorageTypes);
 
 TYPED_TEST(MatchCreateNodeWithAuthFixture, MatchCreateWithAllLabelsDeniedThrows) {
   // All labels denied
@@ -656,7 +656,7 @@ class MatchCreateExpandWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(MatchCreateExpandWithAuthFixture, StorageTypes);
+TYPED_TEST_SUITE(MatchCreateExpandWithAuthFixture, StorageTypes);
 
 TYPED_TEST(MatchCreateExpandWithAuthFixture, MatchCreateExpandThrowsWhenDeniedEverything) {
   // All labels denied, All edge types denied
@@ -896,7 +896,7 @@ class DeleteOperatorWithAuthFixture : public QueryPlanTest<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(DeleteOperatorWithAuthFixture, StorageTypes);
+TYPED_TEST_SUITE(DeleteOperatorWithAuthFixture, StorageTypes);
 
 TYPED_TEST(DeleteOperatorWithAuthFixture, DeleteNodeThrowsExceptionWhenAllLabelsDenied) {
   // All labels denied
@@ -2112,7 +2112,7 @@ class UpdatePropertiesWithAuthFixture : public QueryPlanTest<StorageType> {
   };
 };
 
-TYPED_TEST_CASE(UpdatePropertiesWithAuthFixture, StorageTypes);
+TYPED_TEST_SUITE(UpdatePropertiesWithAuthFixture, StorageTypes);
 
 TYPED_TEST(UpdatePropertiesWithAuthFixture, SetPropertyWithAuthChecker) {
   // Add a single vertex
@@ -2639,7 +2639,7 @@ class DynamicExpandFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(DynamicExpandFixture, StorageTypes);
+TYPED_TEST_SUITE(DynamicExpandFixture, StorageTypes);
 
 TYPED_TEST(DynamicExpandFixture, Expand) {
   using ExpandCursor = memgraph::query::plan::Expand::ExpandCursor;

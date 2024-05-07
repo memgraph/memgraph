@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <iostream>
+#include <iosfwd>
 #include <map>
 #include <string>
 #include <vector>
@@ -46,7 +46,8 @@ class PropertyValue {
     String = 4,
     List = 5,
     Map = 6,
-    TemporalData = 7
+    TemporalData = 7,
+    ZonedTemporalData = 8,
   };
 
   static bool AreComparableTypes(Type a, Type b) {
@@ -62,6 +63,7 @@ class PropertyValue {
   explicit PropertyValue(const int64_t value) : int_v{.val_ = value} {}
   explicit PropertyValue(const double value) : double_v{.val_ = value} {}
   explicit PropertyValue(const TemporalData value) : temporal_data_v{.val_ = value} {}
+  explicit PropertyValue(const ZonedTemporalData value) : zoned_temporal_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -100,8 +102,9 @@ class PropertyValue {
       case Type::Int:
       case Type::Double:
       case Type::TemporalData:
+      case Type::ZonedTemporalData:
+        // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
         return;
-
       // destructor for non primitive types since we used placement new
       case Type::String:
         std::destroy_at(&string_v.val_);
@@ -126,6 +129,7 @@ class PropertyValue {
   bool IsList() const { return type_ == Type::List; }
   bool IsMap() const { return type_ == Type::Map; }
   bool IsTemporalData() const { return type_ == Type::TemporalData; }
+  bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
 
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
@@ -157,6 +161,14 @@ class PropertyValue {
     }
 
     return temporal_data_v.val_;
+  }
+
+  ZonedTemporalData ValueZonedTemporalData() const {
+    if (type_ != Type::ZonedTemporalData) [[unlikely]] {
+      throw PropertyValueException("The value isn't a zoned temporal datum!");
+    }
+
+    return zoned_temporal_data_v.val_;
   }
 
   // const value getters for non-primitive types
@@ -242,6 +254,10 @@ class PropertyValue {
       Type type_ = Type::TemporalData;
       TemporalData val_;
     } temporal_data_v;
+    struct {
+      Type type_ = Type::ZonedTemporalData;
+      ZonedTemporalData val_;
+    } zoned_temporal_data_v;
   };
 };
 
@@ -265,6 +281,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type
       return os << "map";
     case PropertyValue::Type::TemporalData:
       return os << "temporal data";
+    case PropertyValue::Type::ZonedTemporalData:
+      return os << "zoned temporal data";
   }
 }
 /// @throw anything std::ostream::operator<< may throw.
@@ -290,8 +308,12 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
                            [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
       return os << "}";
     case PropertyValue::Type::TemporalData:
-      return os << fmt::format("type: {}, microseconds: {}", TemporalTypeTostring(value.ValueTemporalData().type),
+      return os << fmt::format("type: {}, microseconds: {}", TemporalTypeToString(value.ValueTemporalData().type),
                                value.ValueTemporalData().microseconds);
+    case PropertyValue::Type::ZonedTemporalData:
+      auto temp_value = value.ValueZonedTemporalData();
+      return os << fmt::format("type: {}, microseconds: {}, timezone: {}", ZonedTemporalTypeToString(temp_value.type),
+                               temp_value.IntMicroseconds(), temp_value.TimezoneToString());
   }
 }
 
@@ -325,6 +347,8 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
       return first.ValueMap() == second.ValueMap();
     case PropertyValue::Type::TemporalData:
       return first.ValueTemporalData() == second.ValueTemporalData();
+    case PropertyValue::Type::ZonedTemporalData:
+      return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
   }
 }
 
@@ -356,6 +380,8 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       return first.ValueMap() < second.ValueMap();
     case PropertyValue::Type::TemporalData:
       return first.ValueTemporalData() < second.ValueTemporalData();
+    case PropertyValue::Type::ZonedTemporalData:
+      return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
   }
 }
 
@@ -387,6 +413,9 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
     case Type::TemporalData:
       this->temporal_data_v.val_ = other.temporal_data_v.val_;
       return;
+    case Type::ZonedTemporalData:
+      this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+      return;
   }
 }
 
@@ -414,6 +443,9 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(othe
       break;
     case Type::TemporalData:
       temporal_data_v.val_ = other.temporal_data_v.val_;
+      break;
+    case Type::ZonedTemporalData:
+      zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
       break;
   }
 }
@@ -445,6 +477,9 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
       case Type::TemporalData:
         temporal_data_v.val_ = other.temporal_data_v.val_;
         break;
+      case Type::ZonedTemporalData:
+        zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+        break;
     }
     return *this;
   } else {
@@ -468,6 +503,8 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         std::destroy_at(&map_v.val_);
         break;
       case Type::TemporalData:
+        break;
+      case Type::ZonedTemporalData:
         break;
     }
     // construct
@@ -495,6 +532,9 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         break;
       case Type::TemporalData:
         new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+        break;
+      case Type::ZonedTemporalData:
+        new_this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
         break;
     }
 
@@ -532,6 +572,9 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
       case Type::TemporalData:
         temporal_data_v.val_ = other.temporal_data_v.val_;
         break;
+      case Type::ZonedTemporalData:
+        zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+        break;
     }
     return *this;
   } else {
@@ -555,6 +598,8 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
         std::destroy_at(&map_v.val_);
         break;
       case Type::TemporalData:
+        break;
+      case Type::ZonedTemporalData:
         break;
     }
     // construct (no need to destroy moved from type)
@@ -582,6 +627,9 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
         break;
       case Type::TemporalData:
         new_this->temporal_data_v.val_ = other.temporal_data_v.val_;
+        break;
+      case Type::ZonedTemporalData:
+        new_this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
         break;
     }
 

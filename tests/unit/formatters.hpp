@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -83,6 +83,8 @@ inline std::string ToString(const memgraph::utils::LocalDateTime) { return ""; }
 
 inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
+inline std::string ToString(const memgraph::utils::ZonedDateTime &zdt) { return zdt.ToString(); }
+
 template <class TAccessor>
 inline std::string ToString(const memgraph::query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
@@ -135,6 +137,9 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       break;
     case memgraph::query::TypedValue::Type::Duration:
       os << ToString(value.ValueDuration());
+      break;
+    case memgraph::query::TypedValue::Type::ZonedDateTime:
+      os << ToString(value.ValueZonedDateTime());
       break;
     case memgraph::query::TypedValue::Type::Graph:
       throw std::logic_error{"Not implemented"};

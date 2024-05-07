@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <type_traits>
 
 #include "query/frontend/ast/ast.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 
@@ -167,8 +168,13 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::Map:
       PrintObject(out, value.ValueMap());
       break;
+
     case storage::PropertyValue::Type::TemporalData:
       PrintObject(out, value.ValueTemporalData());
+      break;
+
+    case storage::PropertyValue::Type::ZonedTemporalData:
+      PrintObject(out, value.ValueZonedTemporalData());
       break;
   }
 }

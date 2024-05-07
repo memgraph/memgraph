@@ -11,8 +11,10 @@
 
 #include <boost/functional/hash.hpp>
 #include <mgp.hpp>
+
 #include "utils/string.hpp"
 
+#include <iostream>
 #include <unordered_set>
 
 namespace Schema {

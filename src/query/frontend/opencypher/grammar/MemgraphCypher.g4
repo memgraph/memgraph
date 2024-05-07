@@ -37,6 +37,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CALL
                       | CHECK
                       | CLEAR
+                      | CLUSTER
                       | COMMIT
                       | COMMITTED
                       | CONFIG
@@ -51,6 +52,7 @@ memgraphCypherKeyword : cypherKeyword
                       | DELIMITER
                       | DATABASE
                       | DATABASES
+                      | DEMOTE
                       | DENY
                       | DIRECTORY
                       | DROP
@@ -61,6 +63,7 @@ memgraphCypherKeyword : cypherKeyword
                       | EXECUTE
                       | FAILOVER
                       | FOR
+                      | FORCE
                       | FOREACH
                       | FREE
                       | FREE_MEMORY
@@ -106,6 +109,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | RESET
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -117,6 +121,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTINGS
                       | SNAPSHOT
                       | START
+                      | STATE
                       | STATISTICS
                       | STATS
                       | STATUS
@@ -220,6 +225,8 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | setInstanceToMain
                  | showInstances
                  | addCoordinatorInstance
+                 | forceResetClusterStateOnCoordinator
+                 | demoteInstanceOnCoordinator
                  ;
 
 triggerQuery : createTrigger
@@ -428,6 +435,10 @@ configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
+
+forceResetClusterStateOnCoordinator : FORCE RESET CLUSTER STATE ;
+
+demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 

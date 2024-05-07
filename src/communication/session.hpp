@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -250,7 +250,7 @@ class Session final {
    * different threads in the network stack.
    */
   bool TimedOut() {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    auto guard = std::unique_lock{lock_};
     if (execution_active_) return false;
     return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) < std::chrono::steady_clock::now();
   }
@@ -262,7 +262,7 @@ class Session final {
 
  private:
   void RefreshLastEventTime(bool active) {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    auto guard = std::unique_lock{lock_};
     execution_active_ = active;
     last_event_time_ = std::chrono::steady_clock::now();
   }

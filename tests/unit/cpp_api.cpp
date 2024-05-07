@@ -62,7 +62,7 @@ struct CppApiTestFixture : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(CppApiTestFixture, StorageTypes);
+TYPED_TEST_SUITE(CppApiTestFixture, StorageTypes);
 
 TYPED_TEST(CppApiTestFixture, TestGraph) {
   mgp_graph raw_graph = this->CreateGraph();

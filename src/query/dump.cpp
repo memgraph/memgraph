@@ -30,6 +30,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -113,6 +114,21 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
     }
   }
 }
+
+void DumpZonedDateTime(std::ostream &os, const storage::ZonedTemporalData &value) {
+  const utils::ZonedDateTime zdt(value.microseconds, value.timezone);
+  os << "DATETIME(\"" << zdt << "\")";
+}
+
+void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &value) {
+  switch (value.type) {
+    case storage::ZonedTemporalType::ZonedDateTime: {
+      DumpZonedDateTime(os, value);
+      return;
+    }
+  }
+}
+
 }  // namespace
 
 void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
@@ -151,6 +167,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     }
     case storage::PropertyValue::Type::TemporalData: {
       DumpTemporalData(*os, value.ValueTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      DumpZonedTemporalData(*os, value.ValueZonedTemporalData());
       return;
     }
   }

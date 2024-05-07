@@ -37,6 +37,7 @@
 #include "query/procedure/fmt.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/stream/common.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -53,6 +54,8 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+
+#include <mutex>
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of memgraph::query::procedure. So use that namespace for simplicity.
@@ -320,6 +323,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_LOCAL_TIME;
     case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
+    case memgraph::query::TypedValue::Type::ZonedDateTime:
+      throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Function:
@@ -696,6 +701,10 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
           break;
         }
       }
+    }
+    case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
+      throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      break;
     }
   }
 }
@@ -3632,7 +3641,7 @@ mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
         // Maps `type` to corresponding instance of ListType.
         static memgraph::utils::pmr::map<mgp_type *, mgp_type> gListTypes(memgraph::utils::NewDeleteResource());
         static memgraph::utils::SpinLock lock;
-        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
+        auto guard = std::lock_guard{lock};
         auto found_it = gListTypes.find(type);
         if (found_it != gListTypes.end()) {
           return &found_it->second;
@@ -3654,7 +3663,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
         // Maps `type` to corresponding instance of NullableType.
         static memgraph::utils::pmr::map<mgp_type *, mgp_type> gNullableTypes(memgraph::utils::NewDeleteResource());
         static memgraph::utils::SpinLock lock;
-        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
+        auto guard = std::lock_guard{lock};
         auto found_it = gNullableTypes.find(type);
         if (found_it != gNullableTypes.end()) return &found_it->second;
 
@@ -3910,6 +3919,8 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueLocalTime();
     case TypedValue::Type::LocalDateTime:
       return (*stream) << value.ValueLocalDateTime();
+    case TypedValue::Type::ZonedDateTime:
+      return (*stream) << value.ValueZonedDateTime();
     case TypedValue::Type::Duration:
       return (*stream) << value.ValueDuration();
     case TypedValue::Type::Vertex:

@@ -29,6 +29,8 @@
 #include "utils/uuid.hpp"
 #include "version.hpp"
 
+#include <mutex>
+
 namespace memgraph::telemetry {
 
 constexpr auto kMaxBatchSize{100};
@@ -57,7 +59,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
 }
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   collectors_.emplace_back(name, func);
 }
 
@@ -108,7 +110,7 @@ void Telemetry::SendData() {
 void Telemetry::CollectData(const std::string &event) {
   nlohmann::json data = nlohmann::json::object();
   {
-    std::lock_guard<std::mutex> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     for (auto &collector : collectors_) {
       try {
         data[collector.first] = collector.second();
