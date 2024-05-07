@@ -8,7 +8,7 @@
 
 #include "auth/auth.hpp"
 
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <utility>
 

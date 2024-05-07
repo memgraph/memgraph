@@ -12,7 +12,7 @@
 #pragma once
 
 #include <atomic>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <thread>

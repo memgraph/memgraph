@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,7 +82,7 @@ class BoltMetrics {
   };
 
   Metrics Add(std::string name) {
-    std::unique_lock<std::mutex> l(mtx);
+    auto l = std::unique_lock{mtx};
     auto key = name;
     auto [it, _] = info.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(key)),
                                 std::forward_as_tuple(std::move(name)));
@@ -90,7 +90,7 @@ class BoltMetrics {
   }
 
   Metrics Add(std::string name, std::string bolt_v, std::vector<std::string> supported_bolt_v) {
-    std::unique_lock<std::mutex> l(mtx);
+    auto l = std::unique_lock{mtx};
     auto key = name;
     auto [it, _] = info.emplace(std::piecewise_construct, std::forward_as_tuple(std::move(key)),
                                 std::forward_as_tuple(std::move(name), std::move(bolt_v), std::move(supported_bolt_v)));
@@ -98,7 +98,7 @@ class BoltMetrics {
   }
 
   nlohmann::json ToJson() {
-    std::unique_lock<std::mutex> l(mtx);
+    auto l = std::unique_lock{mtx};
     auto res = nlohmann::json::array();
     for (const auto &[_, client_info] : info) {
       res.push_back(client_info.ToJson());
