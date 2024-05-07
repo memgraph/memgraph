@@ -132,7 +132,7 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT New(const std::string &name, system::Transaction *txn = nullptr) {
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     const auto uuid = utils::UUID{};
     return New_(name, uuid, txn);
   }
@@ -145,7 +145,7 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT Update(const storage::SalientConfig &config) {
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
     if (new_db.HasValue() || new_db.GetError() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
@@ -197,7 +197,7 @@ class DbmsHandler {
    * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get(std::string_view name = kDefaultDB) {
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return Get_(name);
   }
 
@@ -209,7 +209,7 @@ class DbmsHandler {
    * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get(const utils::UUID &uuid) {
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return Get_(uuid);
   }
 
@@ -259,7 +259,7 @@ class DbmsHandler {
    */
   std::vector<std::string> All() const {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return db_handler_.All();
 #else
     return {db_gatekeeper_.access()->get()->name()};
@@ -279,7 +279,7 @@ class DbmsHandler {
    */
   auto Count() const -> std::size_t {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return db_handler_.size();
 #else
     return 1;
@@ -295,7 +295,7 @@ class DbmsHandler {
     Statistics stats{};
     // TODO: Handle overflow?
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -330,7 +330,7 @@ class DbmsHandler {
   std::vector<DatabaseInfo> Info(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
     std::vector<DatabaseInfo> res;
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
     for (auto &[_, db_gk] : db_handler_) {
 #else
@@ -354,7 +354,7 @@ class DbmsHandler {
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
 #ifdef MG_ENTERPRISE
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -379,7 +379,7 @@ class DbmsHandler {
    */
   void RestoreStreams(query::InterpreterContext *ic) {
 #ifdef MG_ENTERPRISE
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -401,7 +401,7 @@ class DbmsHandler {
    */
   void ForEach(std::invocable<DatabaseAccess> auto f) {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {

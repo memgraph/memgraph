@@ -55,6 +55,8 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include <mutex>
+
 // This file contains implementation of top level C API functions, but this is
 // all actually part of memgraph::query::procedure. So use that namespace for simplicity.
 // NOLINTNEXTLINE(google-build-using-namespace)
@@ -3639,7 +3641,7 @@ mgp_error mgp_type_list(mgp_type *type, mgp_type **result) {
         // Maps `type` to corresponding instance of ListType.
         static memgraph::utils::pmr::map<mgp_type *, mgp_type> gListTypes(memgraph::utils::NewDeleteResource());
         static memgraph::utils::SpinLock lock;
-        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
+        auto guard = std::lock_guard{lock};
         auto found_it = gListTypes.find(type);
         if (found_it != gListTypes.end()) {
           return &found_it->second;
@@ -3661,7 +3663,7 @@ mgp_error mgp_type_nullable(mgp_type *type, mgp_type **result) {
         // Maps `type` to corresponding instance of NullableType.
         static memgraph::utils::pmr::map<mgp_type *, mgp_type> gNullableTypes(memgraph::utils::NewDeleteResource());
         static memgraph::utils::SpinLock lock;
-        std::lock_guard<memgraph::utils::SpinLock> guard(lock);
+        auto guard = std::lock_guard{lock};
         auto found_it = gNullableTypes.find(type);
         if (found_it != gNullableTypes.end()) return &found_it->second;
 

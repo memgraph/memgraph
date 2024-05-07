@@ -215,7 +215,7 @@ class SkipListGc final {
   };
 
   Block *AllocateBlock(Block *head) {
-    std::lock_guard<SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
     if (curr_head == head) {
       // Construct through allocator so it propagates if needed.
@@ -1040,7 +1040,7 @@ class SkipList final : detail::SkipListNode_base {
           TNode *pred = preds[layer];
           TNode *succ = succs[layer];
           if (pred != prev_pred) {
-            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
+            guards[layer] = std::unique_lock{pred->lock};
             prev_pred = pred;
           }
           // Existence test is missing in the paper.
@@ -1316,7 +1316,7 @@ class SkipList final : detail::SkipListNode_base {
         if (!is_marked) {
           node_to_delete = succs[layer_found];
           top_layer = node_to_delete->height;
-          node_guard = std::unique_lock<SpinLock>(node_to_delete->lock);
+          node_guard = std::unique_lock{node_to_delete->lock};
           if (node_to_delete->marked.load(std::memory_order_acquire)) {
             return false;
           }
@@ -1333,7 +1333,7 @@ class SkipList final : detail::SkipListNode_base {
           pred = preds[layer];
           succ = succs[layer];
           if (pred != prev_pred) {
-            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
+            guards[layer] = std::unique_lock{pred->lock};
             prev_pred = pred;
           }
           valid = !pred->marked.load(std::memory_order_acquire) &&

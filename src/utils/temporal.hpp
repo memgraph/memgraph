@@ -13,7 +13,7 @@
 
 #include <chrono>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <limits>
 
 #include "fmt/format.h"
