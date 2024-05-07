@@ -192,7 +192,7 @@ class Client {
     auto req_type = TRequestResponse::Request::kType;
     SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
 
-    std::unique_lock<std::mutex> guard(mutex_);
+    auto guard = std::unique_lock{mutex_};
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).

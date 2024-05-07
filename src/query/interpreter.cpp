@@ -183,13 +183,15 @@ void Sort(std::vector<TypedValue, K> &vec) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
-  return lv == std::string(TypedValue(rv).ValueString());
+[[maybe_unused]] bool Same(const TypedValue &lv, const std::string &rv) {
+  return std::string_view(TypedValue(lv).ValueString()) == rv;
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
+[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
+  return lv == std::string_view(TypedValue(rv).ValueString());
+}
+// NOLINTNEXTLINE (misc-unused-parameters)
+[[maybe_unused]] bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,7 +40,7 @@ TEST(RingBuffer, MultithreadedUsage) {
       consumers.emplace_back([elem_total_count, consumer_sleep_ms, &buffer, &consumed, &consumed_lock]() {
         while (true) {
           std::this_thread::sleep_for(std::chrono::milliseconds(consumer_sleep_ms));
-          std::lock_guard<memgraph::utils::SpinLock> guard(consumed_lock);
+          auto guard = std::lock_guard{consumed_lock};
           if (consumed.size() == elem_total_count) break;
           auto value = buffer.pop();
           if (value) consumed.emplace(*value);

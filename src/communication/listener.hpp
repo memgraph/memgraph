@@ -83,7 +83,7 @@ class Listener final {
    * @param connection socket which should be added to the event pool
    */
   void AddConnection(io::network::Socket &&connection) {
-    std::lock_guard<utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
 
     // Remember fd before moving connection into Session.
     int fd = connection.fd();
@@ -125,7 +125,7 @@ class Listener final {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
           {
-            std::lock_guard<utils::SpinLock> guard(lock_);
+            auto guard = std::lock_guard{lock_};
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
                 spdlog::warn("{} session associated with {} timed out", service_name, session->socket().endpoint());
@@ -160,7 +160,7 @@ class Listener final {
     }
     // Here we free all active connections to close them and notify the other
     // end that we won't process them because we stopped all worker threads.
-    std::lock_guard<utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     sessions_.clear();
   }
 
@@ -247,7 +247,7 @@ class Listener final {
     // https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/
     epoll_.Delete(session.socket().fd());
 
-    std::lock_guard<utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     auto it = std::find_if(sessions_.begin(), sessions_.end(), [&](const auto &l) { return l.get() == &session; });
 
     MG_ASSERT(it != sessions_.end(), "Trying to remove session that is not found in sessions!");

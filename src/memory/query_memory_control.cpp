@@ -12,7 +12,6 @@
 #include <atomic>
 #include <cassert>
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include <shared_mutex>
 #include <thread>

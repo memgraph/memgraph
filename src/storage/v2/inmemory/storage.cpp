@@ -34,6 +34,8 @@
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
+#include <mutex>
+
 namespace memgraph::storage {
 
 namespace {
@@ -520,9 +522,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     if (edge_ptr->deleted) return Error::DELETED_OBJECT;
   }
 
-  std::unique_lock<utils::RWSpinLock> guard_old_from(old_from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::RWSpinLock> guard_new_from(new_from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::RWSpinLock> guard_to(to_vertex->lock, std::defer_lock);
+  auto guard_old_from = std::unique_lock{old_from_vertex->lock, std::defer_lock};
+  auto guard_new_from = std::unique_lock{new_from_vertex->lock, std::defer_lock};
+  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
 
   // lock in increasing gid order, if two vertices have the same gid need to only lock once
   std::vector<memgraph::storage::Vertex *> vertices{old_from_vertex, new_from_vertex, to_vertex};
@@ -631,9 +633,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     if (edge_ptr->deleted) return Error::DELETED_OBJECT;
   }
 
-  std::unique_lock<utils::RWSpinLock> guard_from(from_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::RWSpinLock> guard_old_to(old_to_vertex->lock, std::defer_lock);
-  std::unique_lock<utils::RWSpinLock> guard_new_to(new_to_vertex->lock, std::defer_lock);
+  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
+  auto guard_old_to = std::unique_lock{old_to_vertex->lock, std::defer_lock};
+  auto guard_new_to = std::unique_lock{new_to_vertex->lock, std::defer_lock};
 
   // lock in increasing gid order, if two vertices have the same gid need to only lock once
   std::vector<memgraph::storage::Vertex *> vertices{from_vertex, old_to_vertex, new_to_vertex};
@@ -831,7 +833,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     uint64_t start_timestamp = transaction_.start_timestamp;
 
     {
-      std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+      auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
@@ -1590,7 +1592,7 @@ Transaction InMemoryStorage::CreateTransaction(
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   {
-    std::lock_guard<utils::SpinLock> guard(engine_lock_);
+    auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     // Replica should have only read queries and the write queries
     // can come from main instance with any past timestamp.
@@ -1662,7 +1664,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }};
 
   // Only one gc run at a time
-  std::unique_lock<std::mutex> gc_guard(gc_lock_, std::try_to_lock);
+  auto gc_guard = std::unique_lock{gc_lock_, std::try_to_lock};
   if (!gc_guard.owns_lock()) {
     return;
   }
@@ -1683,7 +1685,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
   {
-    std::unique_lock<utils::SpinLock> guard(engine_lock_);
+    auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
     // Deltas from previous GC runs or from aborts can be cleaned up here
@@ -1896,7 +1898,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   {
-    std::unique_lock<utils::SpinLock> guard(engine_lock_);
+    auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
     if (aggressive or mark_timestamp == oldest_active_start_timestamp) {

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,9 @@ extern "C" {
 #include "utils/message.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
+
+#include <mutex>
+#include <shared_mutex>
 
 namespace memgraph::query::procedure {
 
@@ -1222,7 +1225,7 @@ bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir,
 bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   if (modules_dirs_.empty()) return false;
   if (name.empty()) return false;
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   auto found_it = modules_.find(name);
   if (found_it != modules_.end()) {
     if (!found_it->second->Close()) {
@@ -1259,7 +1262,7 @@ void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modul
 }
 
 void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   DoUnloadAllModules();
   for (const auto &module_dir : modules_dirs_) {
     LoadModulesFromDirectory(module_dir);
@@ -1267,21 +1270,21 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
 }
 
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
-  std::shared_lock<utils::RWLock> guard(lock_);
+  auto guard = std::shared_lock{lock_};
   auto found_it = modules_.find(name);
   if (found_it == modules_.end()) return ModulePtr{nullptr};
   return ModulePtr(found_it->second.get(), std::move(guard));
 }
 
 void ModuleRegistry::UnloadAllModules() {
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   DoUnloadAllModules();
 }
 
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
 bool ModuleRegistry::RegisterMgProcedure(const std::string_view name, mgp_proc proc) {
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   if (auto module = modules_.find("mg"); module != modules_.end()) {
     auto *builtin_module = dynamic_cast<BuiltinModule *>(module->second.get());
     builtin_module->AddProcedure(name, std::move(proc));
