@@ -1216,6 +1216,8 @@ class ExpandVariableCursor : public Cursor {
     while (true) {
       if (Expand(frame, context)) return true;
 
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
         if (lower_bound_ == 0) {
@@ -1429,12 +1431,10 @@ class ExpandVariableCursor : public Cursor {
       }
       if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
-      // after we saved everything from the last pull on the frame we can return false
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) exhausted_ = true;
-
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
-      if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !exhausted_) {
+      if (upper_bound_ > static_cast<int64_t>(edges_.size()) &&
+          (!context.hops_limit.has_value() || context.hops_limit.value() > 0)) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
             ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
@@ -1578,7 +1578,6 @@ class STShortestPathCursor : public query::plan::Cursor {
       AbortCheck(context);
       // Top-down step (expansion from the source).
       ++current_length;
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
@@ -1645,7 +1644,6 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       // Bottom-up step (expansion from the sink).
       ++current_length;
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
       if (current_length > upper_bound) return false;
 
       // When expanding from the sink we have to be careful which edge
