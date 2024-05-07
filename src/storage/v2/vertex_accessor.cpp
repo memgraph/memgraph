@@ -617,11 +617,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     deleted = vertex_->deleted;
     if (hops_limit) {
       if (edge_types.empty() && !destination) {
-        expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size())));
+        expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
         **hops_limit -= expanded_count;
-        std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(in_edges));
+        std::copy_n(vertex_->in_edges.begin(), expanded_count, std::back_inserter(in_edges));
       } else {
-        for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
+        for (const auto &[edge_type, to_vertex, edge] : vertex_->in_edges) {
           --(**hops_limit);
           expanded_count++;
           if (*hops_limit == 0) break;
