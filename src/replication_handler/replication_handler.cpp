@@ -16,6 +16,8 @@
 #include "replication_handler/system_replication.hpp"
 #include "utils/functional.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace memgraph::replication {
 
 namespace {

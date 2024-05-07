@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "replication/replication_client.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/fmt.hpp"
 
 namespace memgraph::replication {

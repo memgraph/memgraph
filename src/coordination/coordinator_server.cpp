@@ -14,6 +14,8 @@
 #include "coordination/coordinator_server.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace memgraph::coordination {
 
 namespace {

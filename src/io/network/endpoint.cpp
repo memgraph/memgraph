@@ -16,17 +16,21 @@
 #include <limits>
 #include <optional>
 #include <ostream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 
 #include "io/network/network_error.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
 
 #include <arpa/inet.h>
 #include <fmt/core.h>
 #include <netdb.h>
+#include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
 #include <json/json.hpp>

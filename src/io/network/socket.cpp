@@ -11,14 +11,18 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+
+#include <arpa/inet.h>
 
 namespace memgraph::io::network {
 
