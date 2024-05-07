@@ -645,12 +645,16 @@ int main(int argc, char **argv) {
   memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+
+  spdlog::trace("Websocket server created!");
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
+  spdlog::trace("Logger sink added!");
 
 #ifdef MG_ENTERPRISE
   // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+  spdlog::trace("Metrics server created!");
 #endif
 
   // Handler for regular termination signals
