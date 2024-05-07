@@ -23,6 +23,8 @@
 
 namespace memgraph::rpc {
 
+constexpr auto kBufferRetainLimit = 4 * 1024 * 1024;  // 4MiB
+
 Session::Session(Server *server, io::network::Endpoint endpoint, communication::InputStream *input_stream,
                  communication::OutputStream *output_stream)
     : server_(server), endpoint_(std::move(endpoint)), input_stream_(input_stream), output_stream_(output_stream) {}
@@ -37,7 +39,10 @@ void Session::Execute() {
   }
 
   // Remove the data from the stream on scope exit.
-  utils::OnScopeExit shift_data([&, ret] { input_stream_->Shift(ret.stream_size); });
+  auto const shift_data = utils::OnScopeExit{[&, ret] {
+    input_stream_->Shift(ret.stream_size);
+    input_stream_->ShrinkBuffer(kBufferRetainLimit);
+  }};
 
   // Prepare SLK reader and builder.
   slk::Reader req_reader(input_stream_->data(), input_stream_->size());
