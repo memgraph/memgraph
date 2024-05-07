@@ -1208,10 +1208,10 @@ class ExpandVariableCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
-
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
+
+    if (exhausted_) return false;
 
     while (true) {
       if (Expand(frame, context)) return true;
@@ -1254,6 +1254,9 @@ class ExpandVariableCursor : public Cursor {
   // after a successful pull from the input
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
+
+  // a boolean flag that indicates that we returned all paths and now we can finish execution due to hops limit
+  bool exhausted_{false};
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
@@ -1426,9 +1429,12 @@ class ExpandVariableCursor : public Cursor {
       }
       if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
+      // after we saved everything from the last pull on the frame we can return false
+      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) exhausted_ = true;
+
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
-      if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
+      if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !exhausted_) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
             ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
