@@ -42,8 +42,8 @@ class Server final {
   void Start();
   void Shutdown();
   void AwaitShutdown();
-  bool IsRunning() const;
-  tcp::endpoint GetEndpoint() const;
+  [[nodiscard]] bool IsRunning() const;
+  [[nodiscard]] tcp::endpoint GetEndpoint() const;
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
