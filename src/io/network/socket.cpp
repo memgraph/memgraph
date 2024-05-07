@@ -22,8 +22,6 @@
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
-#include <arpa/inet.h>
-
 namespace memgraph::io::network {
 
 Socket::Socket(Socket &&other) noexcept : socket_(other.socket_), endpoint_(std::move(other.endpoint_)) {

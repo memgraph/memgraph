@@ -44,7 +44,7 @@ namespace memgraph::io::network {
 Endpoint::Endpoint(std::string const &ip_address, uint16_t port) {
   auto result = TryResolveAddress(ip_address, port);
   if (!result.has_value()) {
-    throw NetworkError("Couldn't resolve neither DNS, nor IP address");
+    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
   address_ = std::get<0>(*result);
   port_ = std::get<1>(*result);
@@ -73,7 +73,7 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
       .ai_socktype = SOCK_STREAM  // TCP socket
   };
   addrinfo *info = nullptr;
-  utils::OnScopeExit free_info{[&info]() {
+  utils::OnScopeExit const free_info{[&info]() {
     if (info) {
       freeaddrinfo(info);
     }
