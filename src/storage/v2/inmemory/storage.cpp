@@ -35,6 +35,7 @@
 #include "utils/stat.hpp"
 
 #include <mutex>
+#include <ranges>
 
 namespace memgraph::storage {
 
@@ -2396,10 +2397,18 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
+  // Normal logic, when txn is on MAIN
   if (!desired_commit_timestamp) {
     return timestamp_++;
   }
-  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
+  // Special case logic, when txn is on REPLICA
+  auto normal_next_timestamp = timestamp_;
+  // any timestamps which are to be skipped need to be marked as finished
+  // otherwise GC would stop working correctly
+  for (auto const used_timestamp : std::ranges::views::iota(normal_next_timestamp, *desired_commit_timestamp)) {
+    commit_log_->MarkFinished(used_timestamp);
+  }
+  timestamp_ = std::max(normal_next_timestamp, *desired_commit_timestamp + 1);
   return *desired_commit_timestamp;
 }
 
