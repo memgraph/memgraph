@@ -46,6 +46,8 @@ void Server::AwaitShutdown() {
 
 bool Server::IsRunning() const { return !listener_->HasErrorHappened() && background_thread_ && !ioc_.stopped(); }
 
+bool Server::HasErrorHappened() const { return listener_->HasErrorHappened(); }
+
 boost::asio::ip::tcp::endpoint Server::GetEndpoint() const { return listener_->GetEndpoint(); };
 
 namespace {

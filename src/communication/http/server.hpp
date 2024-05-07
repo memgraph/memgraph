@@ -42,7 +42,7 @@ class Server final {
 
   void Shutdown() {
     if (ioc_.stopped()) {
-      spdlog::trace("Htps is already stopped!");
+      spdlog::trace("HTTP server is already stopped!");
       return;
     }
     ioc_.stop();
@@ -72,7 +72,7 @@ Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint,
 template <class TRequestHandler, typename TSessionContext>
 void Server<TRequestHandler, TSessionContext>::Start() {
   MG_ASSERT(!background_thread_, "The server was already started!");
-  if (!listener_->HasErrorHappened()) {
+  if (listener_->HasErrorHappened()) {
     spdlog::error("We have error on http listener already! Aborting server start.");
     return;
   }

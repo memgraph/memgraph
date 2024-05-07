@@ -34,6 +34,10 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   using SessionHandler = Session<TRequestHandler, TSessionContext>;
   using std::enable_shared_from_this<Listener<TRequestHandler, TSessionContext>>::shared_from_this;
 
+  void LogErrorListener(boost::beast::error_code ec, const std::string_view what) {
+    spdlog::warn("HTTP listener failed on {}: {}", what, ec.message());
+  }
+
  public:
   Listener(const Listener &) = delete;
   Listener(Listener &&) = delete;
@@ -60,7 +64,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
     // Open the acceptor
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-      LogError(ec, "open");
+      LogErrorListener(ec, "open");
       error_happened_ = true;
       return;
     }
@@ -68,7 +72,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
     // Allow address reuse
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
-      LogError(ec, "set_option");
+      LogErrorListener(ec, "set_option");
       error_happened_ = true;
       return;
     }
@@ -76,14 +80,14 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
     // Bind to the server address
     acceptor_.bind(endpoint, ec);
     if (ec) {
-      LogError(ec, "bind");
+      LogErrorListener(ec, "bind");
       error_happened_ = true;
       return;
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
-      LogError(ec, "listen");
+      LogErrorListener(ec, "listen");
       error_happened_ = true;
       return;
     }
@@ -100,7 +104,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   void OnAccept(boost::beast::error_code ec, tcp::socket socket) {
     if (ec) {
       error_happened_ = true;
-      LogError(ec, "accept");
+      LogErrorListener(ec, "accept");
       return;
     }
 

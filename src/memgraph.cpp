@@ -656,14 +656,13 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
 
   spdlog::trace("Websocket server created!");
-  if (websocket_server.IsRunning()) {
+  if (!websocket_server.HasErrorHappened()) {
     spdlog::trace("Initializing logger sync");
     memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
     spdlog::trace("Logger sink added!");
-  }else{
-    spdlog::trace("skipping adding logger sync");
+  } else {
+    spdlog::error("Skipping adding logger sync for websocket");
   }
-
 
 #ifdef MG_ENTERPRISE
   // TODO: Make multi-tenant

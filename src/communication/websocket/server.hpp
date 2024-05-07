@@ -45,6 +45,8 @@ class Server final {
   [[nodiscard]] bool IsRunning() const;
   [[nodiscard]] tcp::endpoint GetEndpoint() const;
 
+  bool HasErrorHappened() const;
+
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:
     explicit LoggingSink(std::weak_ptr<Listener> listener) : listener_(std::move(listener)) {}
