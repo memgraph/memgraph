@@ -69,6 +69,11 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
       .ai_socktype = SOCK_STREAM  // TCP socket
   };
   addrinfo *info = nullptr;
+  utils::OnScopeExit free_info{[&info]() {
+    if (info) {
+      freeaddrinfo(info);
+    }
+  }};
   auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
   if (status != 0) {
     throw NetworkError("Couldn't resolve address: {}", address);
@@ -94,7 +99,6 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
         throw std::runtime_error("Can't parse");
     }
   }
-  if (info) freeaddrinfo(info);
   return std::nullopt;
 }
 
