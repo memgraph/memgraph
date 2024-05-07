@@ -35,6 +35,8 @@ on:
           - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-22.04-arm
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged."
@@ -355,6 +357,34 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-22.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      build_type: ${{ github.event.inputs.build_type }}
+      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.event.inputs.s3_bucket }}
+      s3_region: ${{ github.event.inputs.s3_region }}
+      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
+    secrets: inherit
+
+  Ubuntu24_04:
+    if: ${{ github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      build_type: ${{ github.event.inputs.build_type }}
+      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.event.inputs.s3_bucket }}
+      s3_region: ${{ github.event.inputs.s3_region }}
+      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
+    secrets: inherit
+
+  Ubuntu24_04-arm:
+    if: ${{ github.event.inputs.os == 'ubuntu-24.04-arm' || github.event.inputs.os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
