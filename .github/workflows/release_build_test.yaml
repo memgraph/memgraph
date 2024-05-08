@@ -84,6 +84,7 @@ jobs:
       toolchain: ${{ env.TOOLCHAIN }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
+      push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: ${{ env.S3_BUCKET }}
       s3_region: ${{ env.S3_REGION }}
@@ -105,6 +106,7 @@ jobs:
       toolchain: ${{ env.TOOLCHAIN }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
+      push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: ${{ env.S3_BUCKET }}
       s3_region: ${{ env.S3_REGION }}
@@ -127,6 +129,7 @@ jobs:
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
       additional_build_args: --for-docker
+      push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: ${{ env.S3_BUCKET }}
       s3_region: ${{ env.S3_REGION }}
