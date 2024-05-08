@@ -23,6 +23,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
+#include "query/plan/rewrite/cartesian_branch_switch.hpp"
 #include "query/plan/rewrite/edge_type_index_lookup.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
@@ -53,13 +54,17 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    auto index_lookup_plan =
+    auto &vertex_counts = *context->db;
+    auto rewritten_plan =
         RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
-    auto join_plan =
-        RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
-    auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
-                                                            context->ast_storage, context->db);
-    return edge_index_plan;
+    rewritten_plan =
+        RewriteWithCartesianBranchSwitchRewriter(std::move(rewritten_plan), context->symbol_table, context->ast_storage,
+                                                 &vertex_counts, parameters_, index_hints_);
+    rewritten_plan =
+        RewriteWithJoinRewriter(std::move(rewritten_plan), context->symbol_table, context->ast_storage, context->db);
+    rewritten_plan = RewriteWithEdgeTypeIndexRewriter(std::move(rewritten_plan), context->symbol_table,
+                                                      context->ast_storage, context->db);
+    return rewritten_plan;
   }
 
   template <class TVertexCounts>

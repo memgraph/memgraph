@@ -49,6 +49,7 @@ struct CostEstimation {
 
 struct PlanCost {
   double cost;
+  double cardinality;
   bool use_index_hints;
 };
 
@@ -480,7 +481,8 @@ PlanCost EstimatePlanCost(TDbAccessor *db, const SymbolTable &table, const Param
                           LogicalOperator &plan, const IndexHints &index_hints) {
   CostEstimator<TDbAccessor> estimator(db, table, parameters, index_hints);
   plan.Accept(estimator);
-  return PlanCost{.cost = estimator.cost(), .use_index_hints = estimator.use_index_hints()};
+  return PlanCost{
+      .cost = estimator.cost(), .cardinality = estimator.cardinality(), .use_index_hints = estimator.use_index_hints()};
 }
 
 }  // namespace memgraph::query::plan
