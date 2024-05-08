@@ -11,6 +11,35 @@
             [jepsen.memgraph.client :as mgclient]
             [jepsen.memgraph.utils :as utils]))
 
+(def account-num
+  "Number of accounts to be created"
+  5)
+
+(def starting-balance
+  "Starting balance of each account"
+  400)
+
+(def max-transfer-amount
+  20)
+
+; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
+(dbclient/defquery create-account
+  "CREATE (n:Account {id: $id, balance: $balance});")
+
+; Implicit 1st parameter you need to send is txn.
+(dbclient/defquery get-all-accounts
+  "MATCH (n:Account) RETURN n;")
+
+; Implicit 1st parameter you need to send is txn. 2nd is id.
+(dbclient/defquery get-account
+  "MATCH (n:Account {id: $id}) RETURN n;")
+
+; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
+(dbclient/defquery update-balance
+  "MATCH (n:Account {id: $id})
+   SET n.balance = n.balance + $amount
+   RETURN n")
+
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
@@ -37,20 +66,10 @@
       ((haclient/set-db-setting "enterprise.license" license) session)
       ((haclient/set-db-setting "organization.name" organization) session)))
 
-    ; This shouldn't be done in the setup phase but rather later, after registration.
-    ; (when (= (:node this) "n4")
-    ;   (utils/with-session (:bolt+routing-conn this) session
-    ;     (do
-    ;       (mgclient/detach-delete-all session)
-    ;       (dotimes [i bank-utils/account-num]
-    ;         (info "Creating account:" i)
-    ;         (bank-utils/create-account session {:id i :balance bank-utils/starting-balance})))))
-
   (invoke! [this _test op]
     (let [node-config (:node-config this)]
       (case (:f op)
-        ; TODO: New operation for reading data path?
-        :read (if (contains? node-config :coordinator-id)
+        :show-instances-read (if (contains? node-config :coordinator-id)
                 (try
                   (utils/with-session (:bolt-conn this) session ; Use bolt connection for running show instances.
                     (let [instances (->> (get-all-instances session) (reduce conj []))]
@@ -83,7 +102,16 @@
                       (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
                         (try
                           (utils/with-session (:bolt-conn this) session ; Use bolt connection for setting instance to main.
-                            ((haclient/set-instance-to-main rand-main) session))
+                            ((haclient/set-instance-to-main rand-main) session)
+                            ; Detach-delete and initialize accounts only when setting instance to main passed.
+                            (when (= (:node this) "n4")
+                              (utils/with-session (:bolt+routing-conn this) session
+                                (do
+                                  (mgclient/detach-delete-all session)
+                                  (dotimes [i account-num]
+                                    (create-account session {:id i :balance starting-balance})
+                                    (info "Created account:" i))))))
+
                           (catch Exception e
                             (assoc op :type :fail :value e))))
 
@@ -96,10 +124,10 @@
     (when (or (= (:node this) "n4") (= (:node this) "n5") (= (:node this) "n6"))
       (dbclient/disconnect (:bolt+routing-conn this)))))
 
-(defn reads
+(defn show-instances-reads
   "Create read action."
   [_ _]
-  {:type :invoke, :f :read, :value nil})
+  {:type :invoke, :f :show-instances-read, :value nil})
 
 (defn single-read-to-roles
   "Convert single read to roles. Single read is a list of instances."
@@ -152,7 +180,7 @@
     (check [_ _ history _]
       (let [reads  (->> history
                         (filter #(= :ok (:type %)))
-                        (filter #(= :read (:f %)))
+                        (filter #(= :show-instances-read (:f %)))
                         (map :value))
             ; Full reads all reads which returned 6 instances
             full-reads (->> reads
@@ -212,5 +240,5 @@
    :checker   (checker/compose
                {:habank     (habank-checker)
                 :timeline (timeline/html)})
-   :generator (haclient/ha-gen (gen/mix [reads]))
-   :final-generator {:clients (gen/once reads) :recovery-time 20}})
+   :generator (haclient/ha-gen (gen/mix [show-instances-reads]))
+   :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}})

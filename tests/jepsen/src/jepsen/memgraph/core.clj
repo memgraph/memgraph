@@ -5,12 +5,12 @@
    [jepsen [cli :as cli]
     [checker :as checker]
     [generator :as gen]
-    [tests :as tests]]
+    [tests :as tests]
+    ]
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
     [haempty :as haempty]
-    [habank :as habank]
     [support :as support]
     [hanemesis :as hanemesis]
     [nemesis :as nemesis]
@@ -21,8 +21,7 @@
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         haempty/workload
-   :ha_bank                  habank/workload})
+   :high_availability         haempty/workload})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -159,13 +158,12 @@
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
-                       (if (or (= workload :high_availability) (= workload :ha_bank))
+                       (if (= workload :high_availability)
                          (resolve-all-node-hostnames (:nodes-config opts))
                          (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))) ; validate only if not HA
                        (throw (Exception. "Nodes config flag undefined!")))
-        ; Bank tests (Both replication and HA) rely on 100% durable Memgraph, fsyncing after every txn.
-        sync-after-n-txn (if (or (= workload :bank)
-                                 (= workload :ha_bank))
+        ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
+        sync-after-n-txn (if (= workload :bank)
                            1
                            100000)
         licence (when (:license opts)
@@ -178,8 +176,7 @@
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
                           :organization organization})]
-    (if (or (= workload :high_availability)
-            (= workload :ha_bank))
+    (if (= workload :high_availability)
       (memgraph-ha-test test-opts)
       (memgraph-test test-opts))))
 
