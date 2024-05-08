@@ -18,36 +18,10 @@
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
             [jepsen.memgraph.client :as mgclient]
-            [jepsen.memgraph.utils :as utils]))
+            [jepsen.memgraph.utils :as utils]
+            [jepsen.memgraph.bank-utils :as bank-utils]
+            ))
 
-(def account-num
-  "Number of accounts to be created"
-  5)
-
-(def starting-balance
-  "Starting balance of each account"
-  400)
-
-(def max-transfer-amount
-  20)
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
-(dbclient/defquery create-account
-  "CREATE (n:Account {id: $id, balance: $balance});")
-
-; Implicit 1st parameter you need to send is txn.
-(dbclient/defquery get-all-accounts
-  "MATCH (n:Account) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id.
-(dbclient/defquery get-account
-  "MATCH (n:Account {id: $id}) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
-(dbclient/defquery update-balance
-  "MATCH (n:Account {id: $id})
-   SET n.balance = n.balance + $amount
-   RETURN n")
 
 (defn transfer-money
   "Transfer money from one account to another by some amount
@@ -55,9 +29,9 @@
   money."
   [conn from to amount]
   (dbclient/with-transaction conn tx
-    (when (-> (get-account tx {:id from}) first :n :balance (>= amount))
-      (update-balance tx {:id from :amount (- amount)})
-      (update-balance tx {:id to :amount amount}))))
+    (when (-> (bank-utils/get-account tx {:id from}) first :n :balance (>= amount))
+      (bank-utils/update-balance tx {:id from :amount (- amount)})
+      (bank-utils/update-balance tx {:id to :amount amount}))))
 
 (defrecord Client [nodes-config]
   client/Client
@@ -71,23 +45,23 @@
       (utils/with-session (:conn this) session
         (do
           (mgclient/detach-delete-all session)
-          (dotimes [i account-num]
+          (dotimes [i bank-utils/account-num]
             (info "Creating account:" i)
-            (create-account session {:id i :balance starting-balance}))))))
+            (bank-utils/create-account session {:id i :balance bank-utils/starting-balance}))))))
   (invoke! [this _test op]
     (case (:f op)
       ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
       ; Read always succeeds and returns all accounts.
       ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
       :read (utils/with-session (:conn this) session
-              (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+              (let [accounts (->> (bank-utils/get-all-accounts session) (map :n) (reduce conj []))
                     total (reduce + (map :balance accounts))]
                 (assoc op
                        :type :ok
                        :value {:accounts accounts
                                :node (:node this)
                                :total total
-                               :correct (= total (* account-num starting-balance))})))
+                               :correct (= total (* bank-utils/account-num bank-utils/starting-balance))})))
       :register (if (= (:replication-role this) :main)
                   (do
                     (doseq [n (filter #(= (:replication-role (val %))
@@ -134,19 +108,15 @@
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
 
-(defn read-balances
-  "Read the current state of all accounts"
-  [_ _]
-  {:type :invoke, :f :read, :value nil})
 
 (defn transfer
   "Transfer money from one account to another by some amount"
   [_ _]
   {:type :invoke
    :f :transfer
-   :value {:from   (rand-int account-num)
-           :to     (rand-int account-num)
-           :amount (+ 1 (rand-int max-transfer-amount))}})
+   :value {:from   (rand-int bank-utils/account-num)
+           :to     (rand-int bank-utils/account-num)
+           :amount (+ 1 (rand-int bank-utils/max-transfer-amount))}})
 
 (def valid-transfer
   "Filter only valid transfers (where :from and :to are different)"
@@ -170,7 +140,7 @@
                            (filter #(= (count (:accounts %)) 5))
                            (map (fn [value]
                                   (let [balances  (map :balance (:accounts value))
-                                        expected-total (* account-num starting-balance)]
+                                        expected-total (* bank-utils/account-num bank-utils/starting-balance)]
                                     (cond (and
                                            (not-empty balances)
                                            (not=
@@ -270,5 +240,5 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgclient/replication-gen (gen/mix [read-balances valid-transfer]))
-   :final-generator {:clients (gen/once read-balances) :recovery-time 20}})
+   :generator (mgclient/replication-gen (gen/mix [bank-utils/read-balances valid-transfer]))
+   :final-generator {:clients (gen/once bank-utils/read-balances) :recovery-time 20}})
