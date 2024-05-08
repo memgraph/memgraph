@@ -23,9 +23,13 @@ on:
         type: string
         description: "Additional build flags (--for-platform, --for-docker ...). Default value is empty."
         default: ''
+      push_to_github:
+        type: string
+        description: "Should the final package be pushed to GitHub. Default value is false."
+        default: false
       push_to_s3:
         type: string
-        description: "Should the final package be pushed to an S3 bucket. Default value is false"
+        description: "Should the final package be pushed to an S3 bucket. Default value is false."
         default: false
       s3_bucket:
         type: string
@@ -65,9 +69,11 @@ jobs:
       - name: "Set artifact name and dir"
         run: |
           artifact_name=${{ inputs.os }}
+          artifact_dir='build/output'
           if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
             artifact_name='docker'
             echo "FOR_DOCKER=true" >> $GITHUB_ENV
+            echo "DOCKER_ARTIFACT_DIR=${artifact_dir}/docker" >> $GITHUB_ENV
           fi
           if [[ "${{ inputs.additional_build_args }}" == *"--for-platform" ]]; then
             artifact_name="${artifact_name}-platform"
@@ -79,7 +85,7 @@ jobs:
             artifact_name="${artifact_name}-relwithdebinfo"
           fi
           echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
-          echo "ARTIFACT_DIR=build/output/$artifact_name" >> $GITHUB_ENV
+          echo "PACKAGE_ARTIFACT_DIR=${artifact_dir}/package" >> $GITHUB_ENV
 
       - name: "Spin up mgbuild container"
         run: |
@@ -116,32 +122,7 @@ jobs:
           --arch ${{ inputs.arch }} \
           copy \
           --package \
-          --dest-dir "${{ env.ARTIFACT_DIR }}"
-
-      - name: "Create docker package"
-        if: ${{ env.FOR_DOCKER == 'true' }}
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
-          --os ${{ inputs.os }} \
-          --arch ${{ inputs.arch }} \
-          package-docker \
-          --src-dir "${{ env.ARTIFACT_DIR }}" \
-          --dest-dir "${{ env.ARTIFACT_DIR }}"
-
-      - name: "Upload regular package"
-        if: ${{ env.FOR_DOCKER != 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: "${{ env.ARTIFACT_DIR }}/memgraph*"
-
-      - name: "Upload docker package"
-        if: ${{ env.FOR_DOCKER == 'true' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: "${{ env.ARTIFACT_DIR }}/memgraph*.tar.gz"
+          --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
 
       - name: "Stop mgbuild container"
         if: always()
@@ -152,13 +133,26 @@ jobs:
           --arch ${{ inputs.arch }} \
           stop --remove
 
-  upload-to-s3:
-    if: ${{ inputs.push_to_s3 == 'true' }}
-    needs: [package]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Validate dest_dir
-        if: ${{ inputs.s3_bucket == 'download.memgraph.com' }}
+      - name: "Create docker image"
+        if: ${{ env.FOR_DOCKER == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          package-docker \
+          --src-dir ${{ env.PACKAGE_ARTIFACT_DIR }} \
+          --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
+
+      - name: "Upload to Github"
+        if: ${{  inputs.push_to_github == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}/memgraph*"
+
+      - name: Validate S3 dest dir
+        if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
         run: |
           if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
             echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
@@ -170,39 +164,13 @@ jobs:
           fi
           echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
 
-      - name: "Set artifact name"
-        run: |
-          artifact_name=${{ inputs.os }}
-          artifact_dir="build/output/release"
-          if [[ "${{ inputs.additional_build_args }}" == *"--for-docker" ]]; then
-            artifact_name='docker'
-            echo "FOR_DOCKER=true" >> $GITHUB_ENV
-          fi
-          if [[ "${{ inputs.additional_build_args }}" == *"--for-platform" ]]; then
-            artifact_name="${artifact_name}-platform"
-          fi
-          if [[ "${{ inputs.arch }}" == 'arm' ]]; then
-            artifact_name="${artifact_name}-aarch64"
-          fi
-          if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
-            artifact_name="${artifact_name}-relwithdebinfo"
-            artifact_dir="build/output/relwithdebinfo"
-          fi
-          echo "ARTIFACT_NAME=$artifact_name" >> $GITHUB_ENV
-          echo "ARTIFACT_DIR=$artifact_dir" >> $GITHUB_ENV
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ env.ARTIFACT_DIR }}
-
       - name: Upload to S3
         uses: jakejarvis/s3-sync-action@v0.5.1
+        if: ${{ inputs.push_to_s3 == 'true' }}
         env:
           AWS_S3_BUCKET: ${{ inputs.s3_bucket }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
-          SOURCE_DIR: ${{ env.ARTIFACT_DIR }}
+          SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
