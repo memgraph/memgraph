@@ -106,8 +106,8 @@ int main(int argc, char **argv) {
         client->Execute("ANALYZE GRAPH DELETE STATISTICS;");
         const auto data = client->FetchAll();
         if (data->size() != 4) {
-          LOG_FATAL("Not all statistics were replicated! Failed endpoint {}:{}", database_endpoint.address,
-                    database_endpoint.port);
+          LOG_FATAL("Not all statistics were replicated! Failed endpoint {}:{}", database_endpoint.GetAddress(),
+                    database_endpoint.GetPort());
         }
         check_delete_stats(data, 0, "Node");
         check_delete_stats(data, 1, "Node2");
@@ -135,8 +135,8 @@ int main(int argc, char **argv) {
       if (const auto data = client->FetchAll()) {
         // Hacky way to determine if the statistics were replicated
         if (data->size() != 0) {
-          LOG_FATAL("Not all statistics were replicated! Failed endpoint {}:{}", database_endpoint.address,
-                    database_endpoint.port);
+          LOG_FATAL("Not all statistics were replicated! Failed endpoint {}:{}", database_endpoint.GetAddress(),
+                    database_endpoint.GetPort());
         }
       } else {
         LOG_FATAL("Unable to delete statistics from {}", database_endpoints[i]);
