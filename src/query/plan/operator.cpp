@@ -165,8 +165,11 @@ struct TypedValueVectorEqual {
 
 // Returns boolean result of evaluating filter expression. Null is treated as
 // false. Other non boolean values raise a QueryRuntimeException.
-bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
+bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter, ExecutionStats &execution_stats) {
   TypedValue result = filter->Accept(evaluator);
+  execution_stats[ExecutionStats::Key::FILTERED_ROWS] += 1;
+  execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
+
   // Null is treated like false.
   if (result.IsNull()) return false;
   if (result.type() != TypedValue::Type::Bool)
@@ -185,7 +188,8 @@ inline void AbortCheck(ExecutionContext const &context) {
 }
 
 std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType> &labels,
-                                             ExpressionEvaluator &evaluator, DbAccessor *dba) {
+                                             ExpressionEvaluator &evaluator, DbAccessor *dba,
+                                             ExecutionStats &execution_stats) {
   std::vector<storage::LabelId> result;
   result.reserve(labels.size());
   for (const auto &label : labels) {
@@ -193,6 +197,7 @@ std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType>
       result.emplace_back(*label_atom);
     } else {
       result.emplace_back(dba->NameToLabel(std::get<Expression *>(label)->Accept(evaluator).ValueString()));
+      execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     }
   }
   return result;
@@ -260,6 +265,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       properties.emplace(key, value_expression->Accept(evaluator));
+      context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
@@ -311,7 +317,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
   if (input_cursor_->Pull(frame, context)) {
     // we have to resolve the labels before we can check for permissions
-    auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+    auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor, context.execution_stats);
 
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -414,7 +420,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   if (!input_cursor_->Pull(frame, context)) return false;
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
-  auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+  auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor, context.execution_stats);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -703,9 +709,12 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
       -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, property_, std::nullopt, std::nullopt))> {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
-    auto convert = [&evaluator](const auto &bound) -> std::optional<utils::Bound<storage::PropertyValue>> {
+    auto &execution_stats = context.execution_stats;
+    auto convert = [&evaluator,
+                    &execution_stats](const auto &bound) -> std::optional<utils::Bound<storage::PropertyValue>> {
       if (!bound) return std::nullopt;
       const auto &value = bound->value()->Accept(evaluator);
+      execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
       try {
         const auto &property_value = storage::PropertyValue(value);
         switch (property_value.type()) {
@@ -765,6 +774,7 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     if (value.IsNull()) return std::nullopt;
     if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
@@ -811,6 +821,7 @@ UniqueCursorPtr ScanAllById::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     if (!value.IsNumeric()) return std::nullopt;
     int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
     if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
@@ -837,6 +848,7 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
     auto value = expression_->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     if (!value.IsNumeric()) return std::nullopt;
     int64_t id = value.IsInt() ? value.ValueInt() : value.ValueDouble();
     if (value.IsDouble() && id != value.ValueDouble()) return std::nullopt;
@@ -1408,7 +1420,9 @@ class ExpandVariableCursor : public Cursor {
         accumulated_path.Expand(current_edge.first);
         accumulated_path.Expand(current_vertex);
       }
-      if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
+      if (self_.filter_lambda_.expression &&
+          !EvaluateFilter(evaluator, self_.filter_lambda_.expression, context.execution_stats))
+        continue;
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
@@ -1731,6 +1745,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (self_.filter_lambda_.expression) {
         TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+        context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
         switch (result.type()) {
           case TypedValue::Type::Null:
             return true;
@@ -1915,12 +1930,14 @@ void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
 }
 
 TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::ExpansionLambda> &weight_lambda,
-                               const TypedValue &total_weight, ExpressionEvaluator evaluator) {
+                               const TypedValue &total_weight, ExpressionEvaluator evaluator,
+                               ExecutionStats &execution_stats) {
   if (!weight_lambda) {
     return {};
   }
   auto *memory = evaluator.GetMemoryResource();
   TypedValue current_weight = weight_lambda->expression->Accept(evaluator);
+  execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
   CheckWeightType(current_weight, memory);
 
   if (total_weight.IsNull()) {
@@ -1958,11 +1975,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 const TypedValue &total_weight, int64_t depth) {
+    auto &execution_stats = context.execution_stats;
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &execution_stats](
+                           const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
+                           int64_t depth) {
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = vertex;
-      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator, execution_stats);
 
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
@@ -1981,7 +2000,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           }
         }
 
-        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression, execution_stats)) return;
       }
 
       auto next_state = create_state(vertex, depth);
@@ -2071,7 +2090,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
         frame[self_.weight_lambda_->inner_node_symbol] = vertex;
         TypedValue current_weight =
-            CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+            CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator, execution_stats);
 
         // Clear existing data structures.
         previous_.clear();
@@ -2243,14 +2262,16 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
-                                                    const TypedValue &total_weight, int64_t depth) {
+    auto &execution_stats = context.execution_stats;
+    auto expand_vertex = [this, &evaluator, &frame, &execution_stats](const EdgeAccessor &edge,
+                                                                      const EdgeAtom::Direction direction,
+                                                                      const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
       // Evaluate current weight
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
-      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
+      TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator, execution_stats);
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
@@ -2270,7 +2291,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           }
         }
 
-        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression, execution_stats)) return;
       }
 
       auto found_it = visited_cost_.find(next_vertex);
@@ -2482,8 +2503,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
         frame[self_.weight_lambda_->inner_node_symbol] = *start_vertex;
-        TypedValue current_weight =
-            CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
+        TypedValue current_weight = CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(),
+                                                        evaluator, context.execution_stats);
 
         expand_from_vertex(*start_vertex, current_weight, 0);
         visited_cost_.emplace(*start_vertex, 0);
@@ -2748,7 +2769,7 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
-    if (EvaluateFilter(evaluator, self_.expression_)) return true;
+    if (EvaluateFilter(evaluator, self_.expression_, context.execution_stats)) return true;
   }
   return false;
 }
@@ -2831,6 +2852,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
         context.frame_change_collector->ResetTrackingValue(named_expr->name_);
       }
       named_expr->Accept(evaluator);
+      context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     }
     return true;
   }
@@ -2872,6 +2894,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
   expression_results.reserve(self_.expressions_.size());
   for (Expression *expression : self_.expressions_) {
     expression_results.emplace_back(expression->Accept(evaluator));
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
   }
 
   auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
@@ -3028,6 +3051,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
+  context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 2;
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex: {
@@ -3253,6 +3277,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
+  context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
@@ -3315,7 +3340,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
-  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor, context.execution_stats);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -3398,6 +3423,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+  context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
 
   auto remove_prop = [property = self_.property_, &context](auto *record) {
     auto maybe_old_value = record->RemoveProperty(property);
@@ -3484,7 +3510,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
-  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
+  auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor, context.execution_stats);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -3529,7 +3555,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexUpdateVertex(vertex, EvaluateLabels(self_.labels_, evaluator, context.db_accessor));
+    context.db_accessor->TextIndexUpdateVertex(
+        vertex, EvaluateLabels(self_.labels_, evaluator, context.db_accessor, context.execution_stats));
   }
 
   return true;
@@ -4167,6 +4194,7 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
+      context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Number of elements to skip must be an integer.");
 
@@ -4223,6 +4251,8 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
+
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
 
@@ -4291,6 +4321,7 @@ class OrderByCursor : public Cursor {
         order_by_elem.reserve(self_.order_by_.size());
         for (auto const &expression_ptr : self_.order_by_) {
           order_by_elem.emplace_back(expression_ptr->Accept(evaluator));
+          context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
         }
         order_by.emplace_back(std::move(order_by_elem));
 
@@ -4556,6 +4587,7 @@ class UnwindCursor : public Cursor {
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::OLD);
         TypedValue input_value = self_.input_expression_->Accept(evaluator);
+        context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
         if (input_value.type() != TypedValue::Type::List)
           throw QueryRuntimeException("Argument of UNWIND must be a list, but '{}' was provided.", input_value.type());
         // Move the evaluted input_value_list to our vector.
@@ -5272,11 +5304,13 @@ class CallValidateProcedureCursor : public Cursor {
     MG_ASSERT(args.size() == 3U);
 
     const auto predicate = args[0]->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
     const bool predicate_val = predicate.ValueBool();
 
     if (predicate_val) [[unlikely]] {
       const auto &message = args[1]->Accept(evaluator);
       const auto &message_args = args[2]->Accept(evaluator);
+      context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 2;
 
       using TString = std::remove_cvref_t<decltype(message.ValueString())>;
       using TElement = std::remove_cvref_t<decltype(message_args.ValueList()[0])>;
@@ -5496,6 +5530,7 @@ class ForeachCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW);
     TypedValue expr_result = expression->Accept(evaluator);
+    context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
 
     if (expr_result.IsNull()) {
       return true;
@@ -5752,6 +5787,7 @@ class HashJoinCursor : public Cursor {
         ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                       storage::View::OLD);
         auto right_value = self_.hash_join_condition_->expression2_->Accept(evaluator);
+        context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
         if (hashtable_.contains(right_value)) {
           // If so, finish pulling for now and proceed to joining the pulled frame
           right_op_frame_.assign(frame.elems().begin(), frame.elems().end());
@@ -5800,6 +5836,7 @@ class HashJoinCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       auto left_value = self_.hash_join_condition_->expression1_->Accept(evaluator);
+      context.execution_stats[ExecutionStats::Key::EXPRESSIONS_EVALUATED] += 1;
       if (left_value.type() != TypedValue::Type::Null) {
         hashtable_[left_value].emplace_back(frame.elems().begin(), frame.elems().end());
       }
