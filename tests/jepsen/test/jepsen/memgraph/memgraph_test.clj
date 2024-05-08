@@ -2,19 +2,14 @@
   (:require [clojure.test :refer :all]
             [jepsen.memgraph.utils :as utils]
             [jepsen.memgraph.bank :as bank]
-            [jepsen.memgraph.bank-utils :as bank-utils]
             [jepsen.memgraph.haclient :as haclient]
             [jepsen.memgraph.haempty :as haempty]
             [jepsen.memgraph.client :as client]
             [jepsen.memgraph.large :as large]))
 
-(deftest bolt-utl
-  (testing "Get instance's Bolt URL."
+(deftest get-instance-url
+  (testing "Get instance URL."
     (is (= (utils/bolt-url "node" 7687) "bolt://node:7687"))))
-
-(deftest bolt-routing-url
-  (testing "Get instance's Bolt+routing URL."
-    (is (= (utils/bolt+routing-url "node" 7687) "neo4j://node:7687"))))
 
 (deftest random-non-empty-subset
   (testing "Random, non-empty subset func from utils."
@@ -55,13 +50,13 @@
 
 (deftest bank-test-setup
   (testing "Test that bank test is configured correctly with the number of accounts."
-    (is (= bank-utils/account-num 5)))
+    (is (= bank/account-num 5)))
   (testing "Test that bank test is configured correctly with the starting balance."
-    (is (= bank-utils/starting-balance 400)))
+    (is (= bank/starting-balance 400)))
   (testing "Test that bank test is configured correctly with the max transfer amount."
-    (is (= bank-utils/max-transfer-amount 20)))
+    (is (= bank/max-transfer-amount 20)))
   (testing "Test that bank test read balances operation is correctly configured."
-    (is (= (bank-utils/read-balances :1 :2) {:type :invoke, :f :read, :value nil})))
+    (is (= (bank/read-balances :1 :2) {:type :invoke, :f :read, :value nil})))
   (testing "Test bank test transfer method."
     (let [transfer-res (bank/transfer :1 :2)
           type (:type transfer-res)
@@ -72,9 +67,9 @@
           amount (:amount value)]
       (is (= :invoke type))
       (is (= :transfer f))
-      (is (< from bank-utils/account-num))
-      (is (< to bank-utils/account-num))
-      (is (<= amount bank-utils/max-transfer-amount)))))
+      (is (< from bank/account-num))
+      (is (< to bank/account-num))
+      (is (<= amount bank/max-transfer-amount)))))
 
 (deftest test-client
   (testing "Replication mode string"

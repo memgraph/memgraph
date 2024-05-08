@@ -9,8 +9,7 @@
             [jepsen.checker.timeline :as timeline]
             [jepsen.memgraph.haclient :as haclient]
             [jepsen.memgraph.client :as mgclient]
-            [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.bank-utils :as bank-utils]))
+            [jepsen.memgraph.utils :as utils]))
 
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
@@ -50,47 +49,46 @@
   (invoke! [this _test op]
     (let [node-config (:node-config this)]
       (case (:f op)
-        :read (assoc op :type :ok)
-        ; :read (if (contains? node-config :coordinator-id)
-        ;         (try
-        ;           (utils/with-session (:conn this) session
-        ;             (let [instances (->> (get-all-instances session) (reduce conj []))]
-        ;               (assoc op
-        ;                      :type :ok
-        ;                      :value {:instances instances :node (:node this)})))
-        ;           (catch Exception e
-        ;             (assoc op :type :fail :value e)))
-        ;         (assoc op :type :fail :value "Not coord"))
-        :register (assoc op :type :ok))))
-        ; :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
-        ;             (do
-        ;               (doseq [repl-config (filter #(contains? (val %) :replication-port)
-        ;                                           nodes-config)]
-        ;                 (try
-        ;                   (utils/with-session (:conn this) session
-        ;                     ((haclient/register-replication-instance
-        ;                       (first repl-config)
-        ;                       (second repl-config)) session))
-        ;                   (catch Exception e
-        ;                     (assoc op :type :fail :value e))))
-        ;               (doseq [coord-config (->> nodes-config
-        ;                                         (filter #(not= (key %) "n4")) ; Don't register itself
-        ;                                         (filter #(contains? (val %) :coordinator-id)))]
-        ;                 (try
-        ;                   (utils/with-session (:conn this) session
-        ;                     ((haclient/add-coordinator-instance
-        ;                       (second coord-config)) session))
-        ;                   (catch Exception e
-        ;                     (assoc op :type :fail :value e))))
-        ;               (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
-        ;                 (try
-        ;                   (utils/with-session (:conn this) session
-        ;                     ((haclient/set-instance-to-main rand-main) session))
-        ;                   (catch Exception e
-        ;                     (assoc op :type :fail :value e))))
+        ; TODO: New operation for reading data path?
+        :read (if (contains? node-config :coordinator-id)
+                (try
+                  (utils/with-session (:conn this) session
+                    (let [instances (->> (get-all-instances session) (reduce conj []))]
+                      (assoc op
+                             :type :ok
+                             :value {:instances instances :node (:node this)})))
+                  (catch Exception e
+                    (assoc op :type :fail :value e)))
+                (assoc op :type :fail :value "Not coord"))
+        :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
+                    (do
+                      (doseq [repl-config (filter #(contains? (val %) :replication-port)
+                                                  nodes-config)]
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/register-replication-instance
+                              (first repl-config)
+                              (second repl-config)) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
+                      (doseq [coord-config (->> nodes-config
+                                                (filter #(not= (key %) "n4")) ; Don't register itself
+                                                (filter #(contains? (val %) :coordinator-id)))]
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/add-coordinator-instance
+                              (second coord-config)) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
+                      (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
+                        (try
+                          (utils/with-session (:conn this) session
+                            ((haclient/set-instance-to-main rand-main) session))
+                          (catch Exception e
+                            (assoc op :type :fail :value e))))
 
-        ;               (assoc op :type :ok))
-        ;             (assoc op :type :fail :value "Trying to register on node != n4")))))
+                      (assoc op :type :ok))
+                    (assoc op :type :fail :value "Trying to register on node != n4")))))
 
   (teardown! [_this _test])
   (close! [this _test]
