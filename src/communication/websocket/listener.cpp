@@ -39,6 +39,7 @@ Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::en
   acceptor_.open(endpoint.protocol(), ec);
   if (ec) {
     LogError(ec, "open");
+    error_happened_ = true;
     return;
   }
 
@@ -46,6 +47,7 @@ Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::en
   acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
   if (ec) {
     LogError(ec, "set_option");
+    error_happened_ = true;
     return;
   }
 
@@ -53,12 +55,14 @@ Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::en
   acceptor_.bind(endpoint, ec);
   if (ec) {
     LogError(ec, "bind");
+    error_happened_ = true;
     return;
   }
 
   acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
   if (ec) {
     LogError(ec, "listen");
+    error_happened_ = true;
     return;
   }
 
@@ -72,7 +76,9 @@ void Listener::DoAccept() {
 
 void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
   if (ec) {
-    return LogError(ec, "accept");
+    error_happened_ = true;
+    LogError(ec, "accept");
+    return;
   }
 
   auto session = Session::Create(std::move(socket), *context_, auth_);
