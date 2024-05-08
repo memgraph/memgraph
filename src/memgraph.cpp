@@ -467,8 +467,10 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
+#ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+#endif
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
 

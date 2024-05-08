@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
+#include <iostream>
 #include "common.hpp"
 
 DEFINE_int32(num_workers, 1, "Number of workers");
@@ -74,7 +75,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
       while (true) {
         uint64_t pos;
         {
-          std::lock_guard<memgraph::utils::SpinLock> lock(spinlock);
+          auto lock = std::lock_guard{spinlock};
           if (last == queries.size()) {
             break;
           }

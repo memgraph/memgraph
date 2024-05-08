@@ -35,6 +35,8 @@
 
 #include "utils/logging.hpp"
 
+#include <mutex>
+
 namespace {
 
 /////////////////////////////////////////////////////////////////////////
@@ -377,7 +379,7 @@ bool Module::Startup() {
 }
 
 nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) {
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
 
   if (!params.is_object()) return {};
 

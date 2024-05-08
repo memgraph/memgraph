@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,7 +97,7 @@ class Histogram {
     sum_.fetch_add(value, std::memory_order_relaxed);
 
     {
-      std::lock_guard<std::mutex> lock(samples_mutex_);
+      auto lock = std::lock_guard{samples_mutex_};
       samples_[sample_index]++;
     }
   }
