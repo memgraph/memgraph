@@ -2056,9 +2056,14 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       std::any_of(ctx_.execution_stats.counters.begin(), ctx_.execution_stats.counters.end(),
                   [](const auto &counter) { return counter > 0; });
   if (is_any_counter_set) {
+    auto advanced_query_summary_turned_on = flags::run_time::GetQueryAdvancedSummaryEnabled();
     std::map<std::string, TypedValue> stats;
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
-      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+      auto execution_stat_key = ExecutionStats::Key(i);
+      if (ctx_.execution_stats.IsAdvancedExecutionStat(execution_stat_key) && !advanced_query_summary_turned_on) {
+        continue;
+      }
+      stats.emplace(ExecutionStatsKeyToString(execution_stat_key), ctx_.execution_stats.counters[i]);
     }
     summary->insert_or_assign("stats", std::move(stats));
   }

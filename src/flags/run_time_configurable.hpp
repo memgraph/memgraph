@@ -44,4 +44,6 @@ bool GetCartesianProductEnabled();
 
 bool GetTryCleaningAfterEveryTransactionEnabled();
 
+bool GetQueryAdvancedSummaryEnabled();
+
 }  // namespace memgraph::flags::run_time

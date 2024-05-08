@@ -82,12 +82,23 @@ struct ExecutionStats {
     CREATED_LABELS,
     DELETED_LABELS,
     UPDATED_PROPERTIES,
+    READ_DELTAS,
+    CREATED_DELTAS,
+    BOLT_MESSAGES,
+    FILTERED_ROWS,
+    EXPRESSIONS_EVALUATED
   };
 
   int64_t &operator[](Key key) { return counters[static_cast<size_t>(key)]; }
 
+  bool IsAdvancedExecutionStat(Key key) {
+    return std::find(advancedExecutionStats.begin(), advancedExecutionStats.end(), key) != advancedExecutionStats.end();
+  }
+
  private:
   static constexpr auto kExecutionStatsCountersSize = std::underlying_type_t<Key>(Key::UPDATED_PROPERTIES) + 1;
+  static constexpr std::array<Key, 5> advancedExecutionStats = {
+      Key::READ_DELTAS, Key::CREATED_DELTAS, Key::BOLT_MESSAGES, Key::FILTERED_ROWS, Key::EXPRESSIONS_EVALUATED};
 
  public:
   std::array<int64_t, kExecutionStatsCountersSize> counters{0};
