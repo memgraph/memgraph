@@ -52,7 +52,7 @@
         ; TODO: New operation for reading data path?
         :read (if (contains? node-config :coordinator-id)
                 (try
-                  (utils/with-session (:conn this) session
+                  (utils/with-session (:bolt-conn this) session ; Use bolt connection for running show instances.
                     (let [instances (->> (get-all-instances session) (reduce conj []))]
                       (assoc op
                              :type :ok
@@ -65,7 +65,7 @@
                       (doseq [repl-config (filter #(contains? (val %) :replication-port)
                                                   nodes-config)]
                         (try
-                          (utils/with-session (:conn this) session
+                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering replication instances.
                             ((haclient/register-replication-instance
                               (first repl-config)
                               (second repl-config)) session))
@@ -75,14 +75,14 @@
                                                 (filter #(not= (key %) "n4")) ; Don't register itself
                                                 (filter #(contains? (val %) :coordinator-id)))]
                         (try
-                          (utils/with-session (:conn this) session
+                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering coordinator instances.
                             ((haclient/add-coordinator-instance
                               (second coord-config)) session))
                           (catch Exception e
                             (assoc op :type :fail :value e))))
                       (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
                         (try
-                          (utils/with-session (:conn this) session
+                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for setting instance to main.
                             ((haclient/set-instance-to-main rand-main) session))
                           (catch Exception e
                             (assoc op :type :fail :value e))))
@@ -145,8 +145,8 @@
            (= 2 (count replicas)))
       true)))
 
-(defn haempty-checker
-  "HA empty checker"
+(defn habank-checker
+  "High availability bank checker"
   []
   (reify checker/Checker
     (check [_ _ history _]
@@ -210,7 +210,7 @@
   [opts]
   {:client    (Client. (:nodes-config opts) (:license opts) (:organization opts))
    :checker   (checker/compose
-               {:haempty     (haempty-checker)
+               {:habank     (habank-checker)
                 :timeline (timeline/html)})
    :generator (haclient/ha-gen (gen/mix [reads]))
    :final-generator {:clients (gen/once reads) :recovery-time 20}})
