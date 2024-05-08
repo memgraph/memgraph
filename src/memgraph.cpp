@@ -453,10 +453,17 @@ int main(int argc, char **argv) {
 
   memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
                                            FLAGS_auth_password_permit_null};
-  memgraph::auth::SynchedAuth auth_{data_directory / "auth", auth_config};
+
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
-  auth_glue(&auth_, auth_handler, auth_checker);
+  std::unique_ptr<memgraph::auth::SynchedAuth> auth_;
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config);
+  } catch (std::exception const &e) {
+    spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
+    exit(1);
+  }
+  auth_glue(auth_.get(), auth_handler, auth_checker);
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
@@ -521,7 +528,7 @@ int main(int argc, char **argv) {
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
-                                           auth_, FLAGS_data_recovery_on_startup
+                                           *auth_, FLAGS_data_recovery_on_startup
 #endif
   );
 
@@ -531,7 +538,7 @@ int main(int argc, char **argv) {
   auto replication_handler = memgraph::replication::ReplicationHandler{repl_state, dbms_handler
 #ifdef MG_ENTERPRISE
                                                                        ,
-                                                                       system, auth_
+                                                                       system, *auth_
 #endif
   };
 
@@ -613,12 +620,12 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  Context session_context{&interpreter_context_, &auth_, &audit_log};
+  Context session_context{&interpreter_context_, auth_.get(), &audit_log};
 #else
   Context session_context{&interpreter_context_, &auth_};
 #endif
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
-                                 service_name, FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(memgraph::communication::v2::handle_errors_t, server_endpoint, &session_context,
+                                 &context, FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -628,7 +635,7 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
                       service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-    telemetry->AddStorageCollector(dbms_handler, auth_, repl_state);
+    telemetry->AddStorageCollector(dbms_handler, *auth_, repl_state);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler, repl_state);
 #else
@@ -644,15 +651,19 @@ int main(int argc, char **argv) {
                                                            memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
+  memgraph::communication::websocket::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
+
+  spdlog::trace("Websocket server created!");
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
+  spdlog::trace("Logger sink added!");
 
 #ifdef MG_ENTERPRISE
   // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+  spdlog::trace("Metrics server created!");
 #endif
 
   // Handler for regular termination signals
