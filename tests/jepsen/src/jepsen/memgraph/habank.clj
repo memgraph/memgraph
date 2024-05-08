@@ -21,22 +21,22 @@
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
-          node-config (get nodes-config node)]
-      (assoc this
-             :bolt-conn bolt-conn
-             :node-config node-config
-             :node node))
+          node-config (get nodes-config node)
+          new-this (assoc this
+                          :bolt-conn bolt-conn
+                          :node-config node-config
+                          :node node)]
+      (if (#{"n4" "n5" "n6"} node)
+        (do
+          (info "Opening bolt+routing connection to coordinator node..." node)
+          (assoc new-this :bolt+routing-conn (utils/open-bolt+routing node)))
+        new-this)))
 
-    (when (or (= node "n4") (= node "n5") (= node "n6"))
-      (info "Opening bolt+routing connection to coordinator node..." node)
-      (let [bolt+routing-conn (utils/open-bolt+routing node)]
-        (assoc this
-               :bolt+routing-conn bolt+routing-conn))))
   ; Use Bolt connection to set enterprise.license and organization.name.
-  (setup! [this _]
+  (setup! [this _test]
     (utils/with-session (:bolt-conn this) session
       ((haclient/set-db-setting "enterprise.license" license) session)
-      ((haclient/set-db-setting "organization.name" organization) session))
+      ((haclient/set-db-setting "organization.name" organization) session)))
 
     ; This shouldn't be done in the setup phase but rather later, after registration.
     ; (when (= (:node this) "n4")
@@ -46,7 +46,6 @@
     ;       (dotimes [i bank-utils/account-num]
     ;         (info "Creating account:" i)
     ;         (bank-utils/create-account session {:id i :balance bank-utils/starting-balance})))))
-    )
 
   (invoke! [this _test op]
     (let [node-config (:node-config this)]
@@ -93,8 +92,8 @@
         ;               (assoc op :type :ok))
         ;             (assoc op :type :fail :value "Trying to register on node != n4")))))
 
-  (teardown! [_ _])
-  (close! [this _]
+  (teardown! [_this _test])
+  (close! [this _test]
     (dbclient/disconnect (:bolt-conn this))
     (when (or (= (:node this) "n4") (= (:node this) "n5") (= (:node this) "n6"))
       (dbclient/disconnect (:bolt+routing-conn this)))))
