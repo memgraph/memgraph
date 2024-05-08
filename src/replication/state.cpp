@@ -295,7 +295,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](auto const &replica) {
         const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.address == config.ip_address && ep.port == config.port;
+        return ep.GetAddress() == config.ip_address && ep.GetPort() == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
