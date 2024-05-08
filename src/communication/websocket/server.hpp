@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,8 @@ class Server final {
  public:
   explicit Server(io::network::Endpoint endpoint, ServerContext *context, AuthenticationInterface &auth)
       : listener_{Listener::Create(
-            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.address), endpoint.port}, auth)} {}
+            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.GetAddress()), endpoint.GetPort()},
+            auth)} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;

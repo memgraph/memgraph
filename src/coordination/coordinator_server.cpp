@@ -14,6 +14,8 @@
 #include "coordination/coordinator_server.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace memgraph::coordination {
 
 namespace {
@@ -44,7 +46,7 @@ CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
 CoordinatorServer::~CoordinatorServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
-    spdlog::trace("Closing coordinator server on {}:{}", endpoint.address, endpoint.port);
+    spdlog::trace("Closing coordinator server on {}:{}", endpoint.GetAddress(), endpoint.GetPort());
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();

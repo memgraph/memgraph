@@ -16,6 +16,8 @@
 #include "replication_handler/system_replication.hpp"
 #include "utils/functional.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace memgraph::replication {
 
 namespace {
@@ -132,7 +134,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
+  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());
   client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
                                 bool reconnect, replication::ReplicationClient &client) mutable {
     if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
