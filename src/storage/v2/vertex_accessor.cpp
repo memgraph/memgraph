@@ -27,9 +27,16 @@
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
+
+namespace memgraph::metrics {
+extern const Event NodePropertiesSet;
+extern const Event LabelsAdded;
+extern const Event LabelsRemoved;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -111,6 +118,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::LabelsAdded);
   });
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -158,6 +166,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     CreateAndLinkDelta(transaction, vertex, Delta::AddLabelTag(), label);
     *it = vertex->labels.back();
     vertex->labels.pop_back();
+    memgraph::metrics::IncrementCounter(memgraph::metrics::LabelsRemoved);
   });
 
   /// TODO: some by pointers, some by reference => not good, make it better
@@ -291,6 +300,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
     vertex->properties.SetProperty(property, value);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::NodePropertiesSet);
 
     return false;
   };
@@ -332,6 +342,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
     }
     for (const auto &[property, value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      memgraph::metrics::IncrementCounter(memgraph::metrics::NodePropertiesSet);
       storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
       transaction->manyDeltasCache.Invalidate(vertex, property);
       if (transaction->constraint_verification_info) {
@@ -374,6 +385,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
+      memgraph::metrics::IncrementCounter(memgraph::metrics::NodePropertiesSet);
       transaction->manyDeltasCache.Invalidate(vertex, id);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -407,6 +419,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     }
     for (const auto &[property, value] : *properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::NodePropertiesSet);
       storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
       transaction->manyDeltasCache.Invalidate(vertex, property);
     }

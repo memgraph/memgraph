@@ -54,6 +54,9 @@ DEFINE_double(query_execution_timeout_sec, 600,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_try_cleaning_after_every_transaction_enabled, true, "Clean memory after every transaction.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -73,10 +76,16 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kTryCleaningAfterEveryTransactionEnabledSettingKey =
+    "storage-try-cleaning-after-every-transaction-enabled";
+constexpr auto kTryCleaningAfterEveryTransactionEnabledGFlagsKey =
+    "storage-try-cleaning-after-every-transaction-enabled";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> cartesian_product_enabled_{true};
+std::atomic<bool> storage_try_cleaning_after_every_transaction_enabled_{true};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -186,6 +195,11 @@ void Initialize() {
   register_flag(
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+
+  register_flag(
+      kTryCleaningAfterEveryTransactionEnabledGFlagsKey, kTryCleaningAfterEveryTransactionEnabledSettingKey, !kRestore,
+      [](const std::string &val) { storage_try_cleaning_after_every_transaction_enabled_ = val == "true"; },
+      ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -198,5 +212,7 @@ std::string GetServerName() {
 double GetExecutionTimeout() { return execution_timeout_sec_; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+bool GetTryCleaningAfterEveryTransactionEnabled() { return storage_try_cleaning_after_every_transaction_enabled_; }
 
 }  // namespace memgraph::flags::run_time

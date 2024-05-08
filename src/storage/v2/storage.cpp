@@ -30,6 +30,14 @@
 #include "utils/typeinfo.hpp"
 #include "utils/uuid.hpp"
 
+namespace memgraph::metrics {
+extern const Event NodesCreated;
+extern const Event NodesDeleted;
+extern const Event EdgesCreated;
+extern const Event EdgesDeleted;
+extern const Event EdgesDetached;
+}  // namespace memgraph::metrics
+
 namespace memgraph::storage {
 
 class InMemoryStorage;
@@ -420,6 +428,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
       });
     }
 
@@ -480,6 +489,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         }
 
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
 
         auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
@@ -534,6 +544,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
     vertex_ptr->deleted = true;
 
     deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::NodesDeleted);
   }
 
   return deleted_vertices;
@@ -544,6 +555,7 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
     edge->deleted = true;
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDeleted);
   }
 }
 

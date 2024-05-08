@@ -31,11 +31,21 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
 #include <mutex>
 #include <ranges>
+
+namespace memgraph::metrics {
+extern const Event EdgesCreated;
+extern const Event EdgesAttached;
+extern const Event EdgesDetached;
+extern const Event NodesCreated;
+extern const Event SuccessfulFastDiscardOfDeltaObjects;
+extern const Event SkippedFastDiscardOfDeltaObjects;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -213,6 +223,9 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
+
+  memgraph::metrics::IncrementCounter(memgraph::metrics::NodesCreated);
+
   return {&*it, storage_, &transaction_};
 }
 
@@ -235,6 +248,9 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   if (delta) {
     delta->prev.Set(&*it);
   }
+
+  memgraph::metrics::IncrementCounter(memgraph::metrics::NodesCreated);
+
   return {&*it, storage_, &transaction_};
 }
 
@@ -368,9 +384,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   }
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -381,6 +399,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesCreated);
   });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
@@ -472,9 +491,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -482,6 +503,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesCreated);
   });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
@@ -583,11 +605,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   }
   utils::AtomicMemoryBlock([this, edge_ref, old_from_vertex, new_from_vertex, edge_type, to_vertex]() {
     CreateAndLinkDelta(&transaction_, old_from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
+
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, old_from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
 
     CreateAndLinkDelta(&transaction_, new_from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
+
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -695,11 +723,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
 
   utils::AtomicMemoryBlock([this, edge_ref, old_to_vertex, from_vertex, edge_type, new_to_vertex]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, old_to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
+
     CreateAndLinkDelta(&transaction_, old_to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
 
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, new_to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
+
     CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
     new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -776,11 +810,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   utils::AtomicMemoryBlock([this, to_vertex, new_edge_type, edge_ref, from_vertex, edge_type]() {
     // "deleting" old edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
+
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesDetached);
 
     // "adding" new edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), new_edge_type, to_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
+
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), new_edge_type, from_vertex, edge_ref);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::EdgesAttached);
 
     // edge type is not used while invalidating cache so we can only call it once
     transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
@@ -938,8 +978,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
           //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
           auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
-          if (gc_guard.try_lock()) {
+          auto try_cleaning = flags::run_time::GetTryCleaningAfterEveryTransactionEnabled();
+          if (try_cleaning && gc_guard.try_lock()) {
+            memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulFastDiscardOfDeltaObjects);
             FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
+          } else {
+            memgraph::metrics::IncrementCounter(memgraph::metrics::SkippedFastDiscardOfDeltaObjects);
           }
         }
       }

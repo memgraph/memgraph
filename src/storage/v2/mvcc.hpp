@@ -18,8 +18,14 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
+
+namespace memgraph::metrics {
+extern const Event TotalDeltaObjectsAllocated;
+extern const Event TotalDeltaObjectsRead;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -80,6 +86,7 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // This delta must be applied, call the callback.
     callback(*delta);
     ++n_processed;
+    memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsRead);
 
     // Move to the next delta.
     delta = delta->next.load(std::memory_order_acquire);
@@ -113,6 +120,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   transaction->EnsureCommitTimestampExists();
   return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
                                            transaction->command_id);
@@ -122,6 +130,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta>
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return nullptr;
   }
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   transaction->EnsureCommitTimestampExists();
   return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
 }
@@ -130,6 +139,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta>
 
 inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   transaction->EnsureCommitTimestampExists();
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
@@ -138,6 +148,7 @@ inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std:
 
 inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
                                                   std::string &&ts) {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
   return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
@@ -145,12 +156,14 @@ inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std:
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const uint64_t ts) {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
 }
 
 /// TODO: what if in-memory analytical
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
                                                        std::optional<std::string> old_disk_key, const std::string &ts) {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
@@ -164,6 +177,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return;
   }
+
   transaction->EnsureCommitTimestampExists();
   auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
                                                  transaction->command_id);
@@ -189,6 +203,8 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   // modification is being done, everybody else will wait until we are fully
   // done with our modification before they read the object's delta value.
   object->delta = delta;
+
+  memgraph::metrics::IncrementCounter(memgraph::metrics::TotalDeltaObjectsAllocated);
 }
 
 }  // namespace memgraph::storage

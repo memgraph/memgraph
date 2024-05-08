@@ -42,4 +42,6 @@ double GetExecutionTimeout();
  */
 bool GetCartesianProductEnabled();
 
+bool GetTryCleaningAfterEveryTransactionEnabled();
+
 }  // namespace memgraph::flags::run_time
