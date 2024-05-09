@@ -618,7 +618,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    if (hops_limit) {
+    if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
         expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
         **hops_limit -= expanded_count;
@@ -727,7 +727,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    if (hops_limit) {
+    if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
         expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
         **hops_limit -= expanded_count;

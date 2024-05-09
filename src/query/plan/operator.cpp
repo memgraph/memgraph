@@ -1212,8 +1212,6 @@ class ExpandVariableCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
 
-    if (exhausted_) return false;
-
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -1257,9 +1255,6 @@ class ExpandVariableCursor : public Cursor {
   // after a successful pull from the input
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
-
-  // a boolean flag that indicates that we returned all paths and now we can finish execution due to hops limit
-  bool exhausted_{false};
 
   // a stack of edge iterables corresponding to the level/depth of
   // the expansion currently being Pulled
@@ -1819,7 +1814,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // input
       if (to_visit_current_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
-        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;  // move it up
 
         to_visit_current_.clear();
         to_visit_next_.clear();
