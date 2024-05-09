@@ -460,8 +460,10 @@ int main(int argc, char **argv) {
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
 
+#ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+#endif
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
 
@@ -656,7 +658,7 @@ int main(int argc, char **argv) {
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server,
+                      &metrics_server, &coordinator_state,
 #endif
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -669,6 +671,9 @@ int main(int argc, char **argv) {
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
+    if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
+      coordinator_state->ShutDownCoordinator();
+    }
 #endif
   };
 

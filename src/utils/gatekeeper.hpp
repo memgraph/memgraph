@@ -15,7 +15,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <mutex>
 #include <optional>

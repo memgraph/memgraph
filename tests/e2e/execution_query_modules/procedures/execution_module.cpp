@@ -27,11 +27,11 @@ static mgp_int returned_ints{0};
 static mgp_int num_strings{0};
 static int returned_strings{0};
 
-constexpr char *kModuleExecuteFetchHeaders = "execute_fetch_headers";
-constexpr char *kModuleExecuteFetchResultCount = "execute_fetch_result_count";
-constexpr char *kModuleExecuteFetchResults = "execute_fetch_results";
-constexpr char *kInputArgumentQuery = "query";
-constexpr char *kReturnOutput = "output";
+constexpr char const *kModuleExecuteFetchHeaders = "execute_fetch_headers";
+constexpr char const *kModuleExecuteFetchResultCount = "execute_fetch_result_count";
+constexpr char const *kModuleExecuteFetchResults = "execute_fetch_results";
+constexpr char const *kInputArgumentQuery = "query";
+constexpr char const *kReturnOutput = "output";
 
 void ExecuteGetHeaders(struct mgp_list *args, mgp_graph *graph, mgp_result *result, struct mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);

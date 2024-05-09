@@ -72,6 +72,8 @@
 #include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 
+#include <mutex>
+
 namespace memgraph::storage {
 
 namespace {
@@ -1629,7 +1631,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
@@ -1723,7 +1725,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
                 return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT;
               }))) {
   } else {
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
     commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
@@ -2078,7 +2080,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
   {
-    std::lock_guard<utils::SpinLock> guard(engine_lock_);
+    auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;

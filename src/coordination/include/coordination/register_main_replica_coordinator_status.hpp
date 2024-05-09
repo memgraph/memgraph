@@ -66,5 +66,30 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
 
+enum class DemoteInstanceCoordinatorStatus : uint8_t {
+  NO_INSTANCE_WITH_NAME,
+  NOT_LEADER,
+  RPC_FAILED,
+  RAFT_LOG_ERROR,
+  SUCCESS,
+  LOCK_OPENED,
+  FAILED_TO_OPEN_LOCK,
+  FAILED_TO_CLOSE_LOCK,
+  NOT_COORDINATOR
+};
+
+enum class ForceResetClusterStateStatus : uint8_t {
+  NOT_LEADER,
+  RPC_FAILED,
+  ACTION_FAILED,
+  RAFT_LOG_ERROR,
+  NO_NEW_MAIN,
+  SUCCESS,
+  FAILED_TO_OPEN_LOCK,
+  FAILED_TO_CLOSE_LOCK,
+  NOT_COORDINATOR,
+  SHUTTING_DOWN
+};
+
 }  // namespace memgraph::coordination
 #endif

@@ -14,6 +14,7 @@
 
 #include <fmt/format.h>
 
+#include <iostream>
 #include <mgp.hpp>
 
 namespace TextSearch {

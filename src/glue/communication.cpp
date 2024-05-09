@@ -15,8 +15,12 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/value.hpp"
+#include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
@@ -60,6 +64,8 @@ query::TypedValue ToTypedValue(const Value &value) {
       return query::TypedValue(value.ValueLocalDateTime());
     case Value::Type::Duration:
       return query::TypedValue(value.ValueDuration());
+    case Value::Type::ZonedDateTime:
+      return query::TypedValue(value.ValueZonedDateTime());
   }
 }
 
@@ -99,6 +105,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return Value(value.ValueLocalDateTime());
     case query::TypedValue::Type::Duration:
       return Value(value.ValueDuration());
+    case query::TypedValue::Type::ZonedDateTime:
+      return Value(value.ValueZonedDateTime());
 
     // Database potentially not required
     case query::TypedValue::Type::Map: {
@@ -279,6 +287,11 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::Duration:
       return storage::PropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
+    case Value::Type::ZonedDateTime: {
+      const auto &temp_value = value.ValueZonedDateTime();
+      return storage::PropertyValue(storage::ZonedTemporalData(
+          storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
+    }
   }
 }
 
@@ -312,7 +325,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       }
       return Value(std::move(dv_map));
     }
-    case storage::PropertyValue::Type::TemporalData:
+    case storage::PropertyValue::Type::TemporalData: {
       const auto &type = value.ValueTemporalData();
       switch (type.type) {
         case storage::TemporalType::Date:
@@ -324,6 +337,14 @@ Value ToBoltValue(const storage::PropertyValue &value) {
         case storage::TemporalType::Duration:
           return Value(utils::Duration(type.microseconds));
       }
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto &type = value.ValueZonedTemporalData();
+      switch (type.type) {
+        case storage::ZonedTemporalType::ZonedDateTime:
+          return {utils::ZonedDateTime(type.microseconds, type.timezone)};
+      }
+    }
   }
 }
 

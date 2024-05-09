@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -15,9 +15,13 @@
 #include <json/json.hpp>
 #include <utility>
 
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
+
+#include <mutex>
 
 namespace memgraph::audit {
 
@@ -84,6 +88,21 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
       ret = to_string(temporal_data);
       break;
     }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto zoned_temporal_data = pv.ValueZonedTemporalData();
+      auto to_string = [](auto zoned_temporal_data) {
+        std::stringstream ss;
+        switch (zoned_temporal_data.type) {
+          case storage::ZonedTemporalType::ZonedDateTime: {
+            const auto zdt = utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+            ss << zdt;
+            return ss.str();
+          }
+        }
+      };
+      ret = to_string(zoned_temporal_data);
+      break;
+    }
   }
   return ret;
 }
@@ -127,13 +146,13 @@ void Log::Record(const std::string &address, const std::string &username, const 
 
 void Log::ReopenLog() {
   if (!started_.load(std::memory_order_relaxed)) return;
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
   log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
 }
 
 void Log::Flush() {
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   for (uint64_t i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;

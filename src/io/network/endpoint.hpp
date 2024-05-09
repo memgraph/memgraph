@@ -13,7 +13,7 @@
 
 #include <netinet/in.h>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <string>
 
@@ -21,13 +21,10 @@
 
 namespace memgraph::io::network {
 
-struct Endpoint {
-  static const struct needs_resolving_t {
-  } needs_resolving;
-
+class Endpoint {
+ public:
   Endpoint() = default;
-  Endpoint(std::string ip_address, uint16_t port);
-  Endpoint(needs_resolving_t, std::string hostname, uint16_t port);
+  Endpoint(std::string const &ip_address, uint16_t port);
 
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
@@ -39,24 +36,30 @@ struct Endpoint {
 
   enum class IpFamily : std::uint8_t { NONE, IP4, IP6 };
 
-  static std::optional<Endpoint> ParseSocketOrAddress(std::string_view address,
-                                                      std::optional<uint16_t> default_port = {});
+  static std::optional<Endpoint> ParseAndCreateSocketOrAddress(std::string_view address,
+                                                               std::optional<uint16_t> default_port = {});
 
-  std::string SocketAddress() const;
+  [[nodiscard]] auto GetAddress() const -> std::string const &;
+  [[nodiscard]] auto GetPort() const -> uint16_t const &;
+  [[nodiscard]] auto GetIpFamily() const -> IpFamily const &;
+  [[nodiscard]] auto GetAddress() -> std::string &;
+  [[nodiscard]] auto GetPort() -> uint16_t &;
+  [[nodiscard]] auto GetIpFamily() -> IpFamily &;
 
-  std::string address;
-  uint16_t port{0};
-  IpFamily family{IpFamily::NONE};
+  [[nodiscard]] std::string SocketAddress() const;
 
   bool operator==(const Endpoint &other) const = default;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
  private:
-  static IpFamily GetIpFamily(std::string_view address);
-
-  static bool IsResolvableAddress(std::string_view address, uint16_t port);
+  static std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> TryResolveAddress(
+      std::string_view address, uint16_t port);
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;
+
+  std::string address_;
+  uint16_t port_{0};
+  IpFamily ip_family_{IpFamily::NONE};
 };
 
 void to_json(nlohmann::json &j, Endpoint const &config);

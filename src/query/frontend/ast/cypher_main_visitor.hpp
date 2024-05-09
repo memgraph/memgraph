@@ -21,6 +21,8 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <support/Any.h>
+
 namespace memgraph::query::frontend {
 
 using antlropencypher::MemgraphCypher;
@@ -273,6 +275,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CoordinatorQuery*
    */
   antlrcpp::Any visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitForceResetClusterStateOnCoordinator(
+      MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitDemoteInstanceOnCoordinator(MemgraphCypher::DemoteInstanceOnCoordinatorContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*

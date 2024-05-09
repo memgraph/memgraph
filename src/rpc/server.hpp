@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,7 @@ class Server {
 
   template <class TRequestResponse>
   void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
-    std::lock_guard<std::mutex> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;
@@ -59,7 +59,7 @@ class Server {
 
   template <class TRequestResponse>
   void Register(std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback) {
-    std::lock_guard<std::mutex> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::kType;

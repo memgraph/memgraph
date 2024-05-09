@@ -12,7 +12,7 @@
 #pragma once
 
 #include <exception>
-#include <iostream>
+#include <iosfwd>
 #include <sstream>
 #include <string>
 
