@@ -302,9 +302,9 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &identity_provider_response) {
-  if (!module_.IsUsed()) {  // TODO: check if the flag refers to the right module
+  if (!module_.IsUsed()) {
     spdlog::warn(
-        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/auth"));
+        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
   }
 
   const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
