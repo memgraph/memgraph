@@ -123,6 +123,7 @@ class Session {
 
   /** Return `true` if the user was successfully authenticated. */
   virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
+  virtual bool Authenticate(const std::string &identity_provider_response) = 0;
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */

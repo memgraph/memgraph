@@ -28,7 +28,8 @@ namespace memgraph::communication::bolt {
 
 namespace details {
 
-void HandleAuthFailure() {
+template <typename TSession>
+void HandleAuthFailure(TSession &session) {
   if (!session.encoder_.MessageFailure(
           {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
     spdlog::trace("Couldn't send failure message to the client!");
@@ -52,22 +53,23 @@ std::optional<State> BasicAuthentication(TSession &session, std::map<std::string
   auto password = data["credentials"].ValueString();
 
   if (!session.Authenticate(username, password)) {
-    HandleAuthFailure();
+    HandleAuthFailure(session);
   }
 
   return std::nullopt;
 }
 
 template <typename TSession>
-std::optional<State> BearerAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> CustomAuthentication(TSession &session, std::map<std::string, Value> &data) {
   if (!data.contains("response")) {
     spdlog::warn("The client didn’t supply the SAML response!");
     return State::Close;
   }
 
+  auto scheme = data["scheme"].ValueString();
   auto identity_provider_response = data["credentials"].ValueString();
   if (!session.Authenticate(identity_provider_response)) {
-    HandleAuthFailure();
+    HandleAuthFailure(session);
   }
   return std::nullopt;
 }
@@ -86,8 +88,8 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 
   if (data["scheme"].ValueString() == "basic" || data["scheme"].ValueString() == "none") {
     return BasicAuthentication(session, data);
-  } else if (data["scheme"].ValueString() == "bearer") {
-    return BearerAuthentication(session, data);
+  } else if (data["scheme"].ValueString() == "custom") {
+    return CustomAuthentication(session, data);
   }
 
   spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
