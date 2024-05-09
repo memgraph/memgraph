@@ -629,9 +629,9 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
-#define AUTH_QUERY(action, user, role, user_or_role, password, database, privileges, labels, edgeTypes)      \
-  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), password, (database), \
-                                             (privileges), (labels), (edgeTypes))
+#define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels, edgeTypes) \
+  storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,      \
+                                             (database), (privileges), (labels), (edgeTypes))
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)

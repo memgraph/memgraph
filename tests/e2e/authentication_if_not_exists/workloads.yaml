@@ -1,0 +1,14 @@
+authentication_if_not_exists_cluster: &authentication_if_not_exists_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "authentication_if_not_exists.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Authentication if not exists"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["authentication_if_not_exists/authentication_if_not_exists.py"]
+    <<: *authentication_if_not_exists_cluster

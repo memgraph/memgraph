@@ -766,8 +766,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       forbid_on_replica();
-      callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError(),
-                     interpreter = &interpreter, if_not_exists] {
+      callback.fn = [auth, username, password, if_not_exists,
+                     valid_enterprise_license = !license_check_result.HasError(), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -834,13 +834,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, rolename, if_not_exists, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          if (!if_not_exists) {
+            throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          }
+          spdlog::warn("Role '{}' already exists.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
       };
