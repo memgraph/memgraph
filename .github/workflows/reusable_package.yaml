@@ -45,7 +45,7 @@ on:
         default: ''
 
 jobs:
-  package:
+  PackageAndUpload:
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
