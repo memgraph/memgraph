@@ -413,11 +413,11 @@ package_docker() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
-        package_dir="$PROJECT_ROOT/$2"
+        docker_host_folder="$PROJECT_ROOT/$2"
         shift 2
       ;;
       --src-dir)
-        docker_host_folder="$PROJECT_ROOT/$2"
+        package_dir="$PROJECT_ROOT/$2"
         shift 2
       ;;
       *)
