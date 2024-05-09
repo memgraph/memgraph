@@ -51,7 +51,7 @@ target_sources(mg-storage-v2
         TYPE HEADERS
         BASE_DIRS ../../
         FILES
-        compact_vector.hpp
+        small_vector.hpp
 )
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)

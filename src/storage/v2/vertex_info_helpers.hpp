@@ -18,7 +18,7 @@
 #include <algorithm>
 #include <tuple>
 #include <vector>
-#include "storage/v2/compact_vector.hpp"
+#include "storage/v2/small_vector.hpp"
 namespace memgraph::storage {
 
 template <Delta::Action>
@@ -92,7 +92,7 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format on
 }
 
-inline auto Labels_ActionMethod(CompactVector<LabelId> &labels) {
+inline auto Labels_ActionMethod(small_vector<LabelId> &labels) {
   using enum Delta::Action;
   // clang-format off
   return utils::Overloaded{
@@ -145,7 +145,7 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
 }
 
 template <EdgeDirection dir>
-inline auto Edges_ActionMethod(CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
+inline auto Edges_ActionMethod(small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
                                std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
     if (destination && delta.vertex_edge.vertex != destination) return false;

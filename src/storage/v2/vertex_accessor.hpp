@@ -15,9 +15,9 @@
 
 #include "storage/v2/vertex.hpp"
 
-#include "storage/v2/compact_vector.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/small_vector.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
@@ -28,7 +28,7 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
-using edge_store = CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+using edge_store = small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
 class VertexAccessor final {
  private:
@@ -60,7 +60,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<CompactVector<LabelId>> Labels(View view) const;
+  Result<small_vector<LabelId>> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc

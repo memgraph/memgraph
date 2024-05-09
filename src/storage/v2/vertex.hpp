@@ -17,11 +17,11 @@
 #include <tuple>
 #include <vector>
 
-#include "storage/v2/compact_vector.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
+#include "storage/v2/small_vector.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
@@ -35,10 +35,10 @@ struct Vertex {
 
   const Gid gid;
 
-  CompactVector<LabelId> labels;
+  small_vector<LabelId> labels;
 
-  CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+  small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
   PropertyStore properties;
   mutable utils::RWSpinLock lock;

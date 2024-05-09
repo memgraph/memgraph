@@ -11,7 +11,7 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/v2/compact_vector.hpp"
+#include "storage/v2/small_vector.hpp"
 
 #include <ranges>
 
@@ -57,20 +57,20 @@ struct LargeType {
 static_assert(8 < sizeof(LargeType), "must be larger than 8B so that we don't use SBO");
 
 template <typename T>
-struct CompactVectorCommon;
+struct SmallVectorCommon;
 
 template <>
-struct CompactVectorCommon<int> : public testing::Test {
+struct SmallVectorCommon<int> : public testing::Test {
   int make_value(int i) const { return int{i}; }
 };
 
 template <>
-struct CompactVectorCommon<AlwaysAlloc> : public testing::Test {
+struct SmallVectorCommon<AlwaysAlloc> : public testing::Test {
   AlwaysAlloc make_value(int i) const { return AlwaysAlloc{i}; }
 };
 
 template <>
-struct CompactVectorCommon<LargeType> : public testing::Test {
+struct SmallVectorCommon<LargeType> : public testing::Test {
   LargeType make_value(int i) const { return LargeType{i}; }
 };
 
@@ -81,25 +81,25 @@ auto maker(auto &src) {
 template <typename T>
 auto make_seq(auto *src, int ub) {
   auto rng = rv::iota(0, ub) | rv::transform(maker(*src));
-  return CompactVector<T>{rng.begin(), rng.end()};
+  return small_vector<T>{rng.begin(), rng.end()};
 }
 
 using MyTypes = ::testing::Types<int, AlwaysAlloc, LargeType>;
-TYPED_TEST_SUITE(CompactVectorCommon, MyTypes);
+TYPED_TEST_SUITE(SmallVectorCommon, MyTypes);
 
 ///// TESTS START HERE
 
-TYPED_TEST(CompactVectorCommon, NeverInsertedTest) {
-  CompactVector<TypeParam> vec;
+TYPED_TEST(SmallVectorCommon, NeverInsertedTest) {
+  small_vector<TypeParam> vec;
   EXPECT_EQ(vec.size(), 0);
   EXPECT_TRUE(vec.empty());
   EXPECT_EQ(vec.begin(), vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, BasicTest) {
+TYPED_TEST(SmallVectorCommon, BasicTest) {
   const int kMaxElements = 10;
 
-  CompactVector<TypeParam> vec;
+  small_vector<TypeParam> vec;
 
   for (auto i : rv::iota(0, kMaxElements)) {
     vec.push_back(this->make_value(i));
@@ -110,7 +110,7 @@ TYPED_TEST(CompactVectorCommon, BasicTest) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, Clear) {
+TYPED_TEST(SmallVectorCommon, Clear) {
   constexpr auto kMaxElements = 10;
   auto vec = make_seq<TypeParam>(this, kMaxElements);
 
@@ -122,7 +122,7 @@ TYPED_TEST(CompactVectorCommon, Clear) {
   EXPECT_EQ(std::as_const(vec).size(), 0);
 }
 
-TYPED_TEST(CompactVectorCommon, Resize) {
+TYPED_TEST(SmallVectorCommon, Resize) {
   constexpr auto kSmallStorageSize = 5;
   constexpr auto kTwiceTheSmallStorage = 2 * kSmallStorageSize;
   auto vec = make_seq<TypeParam>(this, kTwiceTheSmallStorage);
@@ -138,25 +138,25 @@ TYPED_TEST(CompactVectorCommon, Resize) {
   EXPECT_EQ(std::as_const(vec).size(), kTwiceTheSmallStorage);
 }
 
-TYPED_TEST(CompactVectorCommon, ResizeToSame) {
+TYPED_TEST(SmallVectorCommon, ResizeToSame) {
   auto vec = make_seq<TypeParam>(this, 10);
   vec.resize(10);
   EXPECT_EQ(std::as_const(vec).size(), 10);
 }
 
-TYPED_TEST(CompactVectorCommon, Reserve) {
+TYPED_TEST(SmallVectorCommon, Reserve) {
   const int kMaxElements = 1000;
-  CompactVector<TypeParam> vec;
+  small_vector<TypeParam> vec;
   vec.reserve(kMaxElements);
   EXPECT_EQ(vec.capacity(), kMaxElements);
   vec.reserve(1);
   EXPECT_EQ(vec.capacity(), kMaxElements);
 }
 
-TYPED_TEST(CompactVectorCommon, EmplaceAfterReserve) {
-  constexpr auto initialCapacity = CompactVector<TypeParam>::kSmallCapacity;
+TYPED_TEST(SmallVectorCommon, EmplaceAfterReserve) {
+  constexpr auto initialCapacity = small_vector<TypeParam>::kSmallCapacity;
 
-  CompactVector<TypeParam> vec;
+  small_vector<TypeParam> vec;
   EXPECT_EQ(vec.capacity(), initialCapacity);
   EXPECT_EQ(vec.size(), 0);
 
@@ -171,28 +171,28 @@ TYPED_TEST(CompactVectorCommon, EmplaceAfterReserve) {
   EXPECT_EQ(vec.capacity(), new_capacity);
 }
 
-TYPED_TEST(CompactVectorCommon, PushBackCanIncreaseCapacity) {
-  constexpr auto initialCapacity = CompactVector<TypeParam>::kSmallCapacity;
+TYPED_TEST(SmallVectorCommon, PushBackCanIncreaseCapacity) {
+  constexpr auto initialCapacity = small_vector<TypeParam>::kSmallCapacity;
   if constexpr (initialCapacity == 0) {
-    CompactVector<TypeParam> vec;
+    small_vector<TypeParam> vec;
     vec.push_back(this->make_value(1));
     EXPECT_EQ(vec.capacity(), 1);
   }
 }
 
-TYPED_TEST(CompactVectorCommon, EmplaceBackCanIncreaseCapacity) {
-  constexpr auto initialCapacity = CompactVector<TypeParam>::kSmallCapacity;
+TYPED_TEST(SmallVectorCommon, EmplaceBackCanIncreaseCapacity) {
+  constexpr auto initialCapacity = small_vector<TypeParam>::kSmallCapacity;
   if constexpr (initialCapacity == 0) {
-    CompactVector<TypeParam> vec;
+    small_vector<TypeParam> vec;
     vec.emplace_back(this->make_value(1));
     EXPECT_EQ(vec.capacity(), 1);
   }
 }
 
-TYPED_TEST(CompactVectorCommon, PushAfterReserve) {
-  constexpr auto initialCapacity = CompactVector<TypeParam>::kSmallCapacity;
+TYPED_TEST(SmallVectorCommon, PushAfterReserve) {
+  constexpr auto initialCapacity = small_vector<TypeParam>::kSmallCapacity;
 
-  CompactVector<TypeParam> vec;
+  small_vector<TypeParam> vec;
   EXPECT_EQ(vec.capacity(), initialCapacity);
 
   // reserve
@@ -206,7 +206,7 @@ TYPED_TEST(CompactVectorCommon, PushAfterReserve) {
   EXPECT_EQ(vec.capacity(), new_capacity);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseFirst) {
+TYPED_TEST(SmallVectorCommon, EraseFirst) {
   auto vec = make_seq<TypeParam>(this, 3);
 
   auto after_erase = vec.erase(vec.begin());
@@ -218,7 +218,7 @@ TYPED_TEST(CompactVectorCommon, EraseFirst) {
   EXPECT_EQ(this->make_value(2), vec[1]);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseMiddle) {
+TYPED_TEST(SmallVectorCommon, EraseMiddle) {
   auto vec = make_seq<TypeParam>(this, 5);
 
   auto middle = std::next(vec.begin(), 2);
@@ -235,7 +235,7 @@ TYPED_TEST(CompactVectorCommon, EraseMiddle) {
   EXPECT_EQ(this->make_value(4), vec[3]);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseBack) {
+TYPED_TEST(SmallVectorCommon, EraseBack) {
   auto vec = make_seq<TypeParam>(this, 3);
 
   auto back = std::next(vec.begin(), 2);
@@ -248,7 +248,7 @@ TYPED_TEST(CompactVectorCommon, EraseBack) {
   EXPECT_EQ(this->make_value(1), vec[1]);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseRangeMiddle) {
+TYPED_TEST(SmallVectorCommon, EraseRangeMiddle) {
   auto vec = make_seq<TypeParam>(this, 6);
 
   auto const first = std::next(vec.begin(), 2);
@@ -265,7 +265,7 @@ TYPED_TEST(CompactVectorCommon, EraseRangeMiddle) {
   EXPECT_EQ(this->make_value(5), vec[3]);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseRangeTillEnd) {
+TYPED_TEST(SmallVectorCommon, EraseRangeTillEnd) {
   auto vec = make_seq<TypeParam>(this, 6);
 
   auto const first = std::next(vec.begin(), 2);
@@ -279,7 +279,7 @@ TYPED_TEST(CompactVectorCommon, EraseRangeTillEnd) {
   EXPECT_EQ(this->make_value(1), vec[1]);
 }
 
-TYPED_TEST(CompactVectorCommon, EraseRangeFull) {
+TYPED_TEST(SmallVectorCommon, EraseRangeFull) {
   auto vec = make_seq<TypeParam>(this, 6);
 
   auto it = vec.erase(vec.begin(), vec.end());
@@ -287,7 +287,7 @@ TYPED_TEST(CompactVectorCommon, EraseRangeFull) {
   EXPECT_EQ(it, vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, EraseEndIterator) {
+TYPED_TEST(SmallVectorCommon, EraseEndIterator) {
   auto vec = make_seq<TypeParam>(this, 3);
 
   auto it = vec.erase(vec.end());
@@ -295,7 +295,7 @@ TYPED_TEST(CompactVectorCommon, EraseEndIterator) {
   EXPECT_EQ(it, vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, EraseRangeEndIterator) {
+TYPED_TEST(SmallVectorCommon, EraseRangeEndIterator) {
   auto vec = make_seq<TypeParam>(this, 3);
 
   auto it = vec.erase(vec.end(), vec.end());
@@ -303,30 +303,30 @@ TYPED_TEST(CompactVectorCommon, EraseRangeEndIterator) {
   EXPECT_EQ(it, vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, EraseEndIteratorOnEmptyVector) {
-  CompactVector<TypeParam> vec;
+TYPED_TEST(SmallVectorCommon, EraseEndIteratorOnEmptyVector) {
+  small_vector<TypeParam> vec;
 
   auto it = vec.erase(vec.end());
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, EraseRangeEndIteratorOnEmptyVector) {
-  CompactVector<TypeParam> vec;
+TYPED_TEST(SmallVectorCommon, EraseRangeEndIteratorOnEmptyVector) {
+  small_vector<TypeParam> vec;
 
   auto it = vec.erase(vec.end(), vec.end());
   EXPECT_EQ(0, vec.size());
   EXPECT_EQ(it, vec.end());
 }
 
-TYPED_TEST(CompactVectorCommon, EmplaceBack) {
+TYPED_TEST(SmallVectorCommon, EmplaceBack) {
   auto vec = make_seq<TypeParam>(this, 3);
   vec.emplace_back(this->make_value(42));
   EXPECT_EQ(42, std::as_const(vec).back());
   EXPECT_EQ(4, vec.size());
 }
 
-TYPED_TEST(CompactVectorCommon, PopBack) {
+TYPED_TEST(SmallVectorCommon, PopBack) {
   constexpr auto kElemNum = 10;
   auto vec = make_seq<TypeParam>(this, kElemNum);
   EXPECT_EQ(kElemNum, vec.size());
@@ -338,18 +338,18 @@ TYPED_TEST(CompactVectorCommon, PopBack) {
   EXPECT_TRUE(vec.empty());
 }
 
-TYPED_TEST(CompactVectorCommon, Capacity) {
+TYPED_TEST(SmallVectorCommon, Capacity) {
   constexpr auto kElemNum = 10;
   auto rng = rv::iota(0, kElemNum) | rv::transform(maker(*this));
-  auto vec = CompactVector<TypeParam>{rng.begin(), rng.end()};
+  auto vec = small_vector<TypeParam>{rng.begin(), rng.end()};
 
   EXPECT_EQ(kElemNum, vec.size());
   EXPECT_LE(kElemNum, vec.capacity());
 }
 
-TYPED_TEST(CompactVectorCommon, Empty) {
+TYPED_TEST(SmallVectorCommon, Empty) {
   constexpr auto kElemNum = 10;
-  CompactVector<TypeParam> vec;
+  small_vector<TypeParam> vec;
   EXPECT_TRUE(vec.empty());
   for (auto i : rv::iota(0, kElemNum)) {
     vec.push_back(this->make_value(i));
@@ -361,7 +361,7 @@ TYPED_TEST(CompactVectorCommon, Empty) {
   EXPECT_TRUE(vec.empty());
 }
 
-TYPED_TEST(CompactVectorCommon, ReverseIteration) {
+TYPED_TEST(SmallVectorCommon, ReverseIteration) {
   auto vec = make_seq<TypeParam>(this, 10);
 
   auto rbegin = vec.rbegin();
@@ -376,7 +376,7 @@ TYPED_TEST(CompactVectorCommon, ReverseIteration) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, CopyConstruct) {
+TYPED_TEST(SmallVectorCommon, CopyConstruct) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
     auto dst = src;  // copy construct
@@ -385,7 +385,7 @@ TYPED_TEST(CompactVectorCommon, CopyConstruct) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, CopyAssign) {
+TYPED_TEST(SmallVectorCommon, CopyAssign) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
     for (auto dst_size : rv::iota(0, 10)) {
@@ -397,7 +397,7 @@ TYPED_TEST(CompactVectorCommon, CopyAssign) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, CopySelfAssign) {
+TYPED_TEST(SmallVectorCommon, CopySelfAssign) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
     src = src;  // copy assign
@@ -405,7 +405,7 @@ TYPED_TEST(CompactVectorCommon, CopySelfAssign) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, MoveConstruct) {
+TYPED_TEST(SmallVectorCommon, MoveConstruct) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
     auto dst = std::move(src);  // move construct
@@ -413,7 +413,7 @@ TYPED_TEST(CompactVectorCommon, MoveConstruct) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, MoveAssign) {
+TYPED_TEST(SmallVectorCommon, MoveAssign) {
   for (auto src_size : rv::iota(0, 10)) {
     for (auto dst_size : rv::iota(0, 10)) {
       auto src = make_seq<TypeParam>(this, src_size);
@@ -424,7 +424,7 @@ TYPED_TEST(CompactVectorCommon, MoveAssign) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, MoveSelfAssign) {
+TYPED_TEST(SmallVectorCommon, MoveSelfAssign) {
   for (auto src_size : rv::iota(0, 10)) {
     auto src = make_seq<TypeParam>(this, src_size);
     src = std::move(src);  // move assign
@@ -432,7 +432,7 @@ TYPED_TEST(CompactVectorCommon, MoveSelfAssign) {
   }
 }
 
-TYPED_TEST(CompactVectorCommon, AtOutOfBounds) {
+TYPED_TEST(SmallVectorCommon, AtOutOfBounds) {
   // mutable at
   auto sut = make_seq<TypeParam>(this, 3);
   EXPECT_NO_THROW(sut.at(2));
@@ -444,7 +444,7 @@ TYPED_TEST(CompactVectorCommon, AtOutOfBounds) {
   EXPECT_THROW(auto x = const_sut.at(3), std::out_of_range);
 }
 
-TYPED_TEST(CompactVectorCommon, PopBackWhenEmpty) {
+TYPED_TEST(SmallVectorCommon, PopBackWhenEmpty) {
   auto sut = make_seq<TypeParam>(this, 3);
   sut.pop_back();
   sut.pop_back();
@@ -461,8 +461,8 @@ TYPED_TEST(CompactVectorCommon, PopBackWhenEmpty) {
   EXPECT_EQ(std::distance(sut.begin(), sut.end()), 0);
 }
 
-TYPED_TEST(CompactVectorCommon, GrowShrink) {
-  auto vec = CompactVector<TypeParam>{};
+TYPED_TEST(SmallVectorCommon, GrowShrink) {
+  auto vec = small_vector<TypeParam>{};
   for (auto i : rv::iota(0, 30)) {
     vec.push_back(this->make_value(i));
     EXPECT_EQ(vec.back(), i);
@@ -496,7 +496,7 @@ concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator
   { cit != it } -> std::same_as<bool>;
 };
 
-using sut_t = CompactVector<int>;
+using sut_t = small_vector<int>;
 static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
 static_assert(std::contiguous_iterator<sut_t::iterator>);
 static_assert(std::contiguous_iterator<sut_t::const_iterator>);

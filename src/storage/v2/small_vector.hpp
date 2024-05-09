@@ -50,7 +50,7 @@ struct uninitialised_storage {
 //  │Val1     │Val2     │
 //  └─────────┴─────────┘
 template <typename T>
-struct CompactVector {
+struct small_vector {
   using value_type = T;
   using reference = value_type &;
   using const_reference = value_type const &;
@@ -194,9 +194,9 @@ struct CompactVector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  CompactVector() = default;
+  small_vector() = default;
 
-  CompactVector(const CompactVector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
+  small_vector(const small_vector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
     // NOTE 1: smallest capacity is kSmallCapacity
     // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
     if (!usingSmallBuffer(capacity_)) {
@@ -205,7 +205,7 @@ struct CompactVector {
     std::ranges::uninitialized_copy(other, *this);
   }
 
-  CompactVector(CompactVector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
+  small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
     // NOTE 1: moved from vector, new capacity is kSmallCapacity
     // NOTE 2: either move the buffer or move into the small buffer
     if (usingSmallBuffer(other.capacity_)) {
@@ -218,7 +218,7 @@ struct CompactVector {
     other.capacity_ = kSmallCapacity;
   }
 
-  auto operator=(const CompactVector &other) -> CompactVector & {
+  auto operator=(const small_vector &other) -> small_vector & {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
@@ -260,7 +260,7 @@ struct CompactVector {
     return *this;
   }
 
-  auto operator=(CompactVector &&other) noexcept -> CompactVector & {
+  auto operator=(small_vector &&other) noexcept -> small_vector & {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
@@ -300,19 +300,19 @@ struct CompactVector {
     return *this;
   }
 
-  ~CompactVector() {
+  ~small_vector() {
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
       std::free(buffer_);
     }
   }
 
-  explicit CompactVector(std::initializer_list<T> other) : CompactVector(other.begin(), other.end()) {}
+  explicit small_vector(std::initializer_list<T> other) : small_vector(other.begin(), other.end()) {}
 
   // TODO: change to range + add test
-  explicit CompactVector(std::span<T const> other) : CompactVector(other.begin(), other.end()) {}
+  explicit small_vector(std::span<T const> other) : small_vector(other.begin(), other.end()) {}
   // TODO: generalise to not just vector
-  explicit CompactVector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
+  explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
       buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
     }
@@ -320,7 +320,7 @@ struct CompactVector {
   }
 
   template <typename It>
-  explicit CompactVector(It first, It last)
+  explicit small_vector(It first, It last)
       : size_(std::distance(first, last)), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
       buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
@@ -472,7 +472,7 @@ struct CompactVector {
     return it_first;
   }
 
-  friend bool operator==(CompactVector const &lhs, CompactVector const &rhs) { return std::ranges::equal(lhs, rhs); }
+  friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
 
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
@@ -487,6 +487,6 @@ struct CompactVector {
   };
 };
 
-static_assert(sizeof(CompactVector<int>) == 16);
+static_assert(sizeof(small_vector<int>) == 16);
 
 }  // namespace memgraph::storage
