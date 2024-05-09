@@ -709,6 +709,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
+  bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
@@ -766,7 +767,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::CREATE_USER:
       forbid_on_replica();
       callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError(),
-                     interpreter = &interpreter] {
+                     interpreter = &interpreter, if_not_exists] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -775,7 +776,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         if (!auth->CreateUser(
                 username, password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                 &*interpreter->system_transaction_)) {
-          throw UserAlreadyExistsException("User '{}' already exists.", username);
+          if (!if_not_exists) {
+            throw UserAlreadyExistsException("User '{}' already exists.", username);
+          }
+          spdlog::warn("User '{}' already exists.", username);
         }
 
         // If the license is not valid we create users with admin access

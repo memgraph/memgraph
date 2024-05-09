@@ -2957,6 +2957,7 @@ class AuthQuery : public memgraph::query::Query {
   std::string user_;
   std::string role_;
   std::string user_or_role_;
+  bool if_not_exists_;
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
@@ -2971,6 +2972,7 @@ class AuthQuery : public memgraph::query::Query {
     object->user_ = user_;
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
+    object->if_not_exists_ = if_not_exists_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
@@ -2980,14 +2982,15 @@ class AuthQuery : public memgraph::query::Query {
   }
 
  protected:
-  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, Expression *password,
-            std::string database, std::vector<Privilege> privileges,
+  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, bool if_not_exists,
+            Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
       : action_(action),
         user_(user),
         role_(role),
         user_or_role_(user_or_role),
+        if_not_exists_(if_not_exists),
         password_(password),
         database_(database),
         privileges_(privileges),

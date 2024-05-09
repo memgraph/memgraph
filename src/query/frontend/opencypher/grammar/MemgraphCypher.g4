@@ -317,8 +317,10 @@ dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
-createUser : CREATE USER user=userOrRoleName
+createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
+
+ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 

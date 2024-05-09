@@ -1524,6 +1524,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoles(MemgraphCypher::ShowRolesContext
 antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_USER;
+  auth->if_not_exists_ = !!ctx->ifNotExists();
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (ctx->password) {
     if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
