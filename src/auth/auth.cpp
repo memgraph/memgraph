@@ -17,6 +17,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/rpc.hpp"
+#include "flags/sso.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
@@ -300,10 +301,10 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   return user;
 }
 
-std::optional<UserOrRole> BearerAuthentication(const std::string &identity_provider_response) {
+std::optional<UserOrRole> Auth::Authenticate(const std::string &identity_provider_response) {
   if (!module_.IsUsed()) {  // TODO: check if the flag refers to the right module
-    spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate via bearer token without using the right external module. https://memgr.ph/auth"));
+    spdlog::warn(
+        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/auth"));
   }
 
   const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
@@ -313,8 +314,23 @@ std::optional<UserOrRole> BearerAuthentication(const std::string &identity_provi
   }
 
   nlohmann::json params = nlohmann::json::object();
+  nlohmann::json sso_config = nlohmann::json::object();
+  sso_config["protocol"] = FLAGS_sso_protocol;
+  sso_config["identity_provider"] = FLAGS_sso_identity_provider;
+  if (FLAGS_sso_protocol == "saml") {
+    sso_config["sso.saml.assertion_audience"] = FLAGS_sso_saml_assertion_audience;
+    sso_config["sso.saml.identity_provider_id"] = FLAGS_sso_saml_identity_provider_id;
+    sso_config["sso.saml.message_recipient"] = FLAGS_sso_saml_message_recipient;
+    sso_config["sso.saml.private_decryption_key"] = FLAGS_sso_saml_private_decryption_key;
+    sso_config["sso.saml.require_encryption"] = FLAGS_sso_saml_require_encryption;
+    sso_config["sso.saml.require_signature_validation"] = FLAGS_sso_saml_require_signature_validation;
+    sso_config["sso.saml.role_mapping"] = FLAGS_sso_saml_role_mapping;
+    sso_config["sso.saml.use_NameID"] = FLAGS_sso_saml_use_NameID;
+    sso_config["sso.saml.username_attribute"] = FLAGS_sso_saml_username_attribute;
+    sso_config["sso.saml.x509_certificate"] = FLAGS_sso_saml_x509_certificate;
+  }
   params["response"] = identity_provider_response;
-  // TODO: get SAML settings here from the flags and pass them as a parameter
+  params["sso_config"] = sso_config;
 
   auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
 
@@ -342,8 +358,12 @@ std::optional<UserOrRole> BearerAuthentication(const std::string &identity_provi
   }
 
   // Authenticate the user.
-  if (!is_authenticated) return std::nullopt;
-
+  if (!is_authenticated) {
+    const auto &ret_errors = ret.at("errors");
+    const auto &errors = ret_errors.get<std::string>();
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user:\n{}", errors, "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
   return RoleWUsername{username, std::move(*role)};
 }
 
