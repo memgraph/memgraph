@@ -267,9 +267,6 @@ target_link_libraries(${test_prefix}utils_timestamp mg-utils)
 add_unit_test(skip_list.cpp)
 target_link_libraries(${test_prefix}skip_list mg-utils)
 
-add_unit_test(small_vector.cpp)
-target_link_libraries(${test_prefix}small_vector mg-utils)
-
 add_unit_test(compact_vector.cpp)
 target_link_libraries(${test_prefix}compact_vector)
 
