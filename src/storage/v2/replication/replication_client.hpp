@@ -148,7 +148,10 @@ class ReplicationStorageClient {
     try {
       callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
     } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      replica_state_.WithLock([this](auto &state) {
+        replica_stream_.reset();
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      });
       LogRpcFailure();
       return;
     }

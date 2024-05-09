@@ -136,6 +136,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   info.current_number_of_timestamp_behind_main = 0;
 
   try {
+    // Exclusive access to client
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
@@ -145,10 +146,14 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
     info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
 
     if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
+      // Still under client lock, all good
       replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
     }
   } catch (const rpc::RpcFailedException &) {
+    // TODO: Something needs to happen here, replica_stream_.reset() isn't a fix
+    // You're not sure if somebody else has gained the stream, occurring throughout the code
+    // Lock the client and replica_state_ at the same time
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
                       // won't block
