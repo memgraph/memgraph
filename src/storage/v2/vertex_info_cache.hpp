@@ -20,6 +20,7 @@
 
 #include <gflags/gflags.h>
 #include <tuple>
+#include "storage/v2/compact_vector.hpp"
 
 DECLARE_uint64(delta_chain_cache_threshold);
 
@@ -66,9 +67,9 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex);
 
-  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<std::vector<LabelId> const>;
+  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<CompactVector<LabelId> const>;
 
-  void StoreLabels(View view, Vertex const *vertex, std::vector<LabelId> const &res);
+  void StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res);
 
   auto GetHasLabel(View view, Vertex const *vertex, LabelId label) const -> std::optional<bool>;
 
@@ -147,7 +148,7 @@ struct VertexInfoCache final {
     map<Vertex const *, bool> deletedCache_;
     map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
     map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
-    map<Vertex const *, std::vector<LabelId>> labelCache_;
+    map<Vertex const *, CompactVector<LabelId>> labelCache_;
     map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
     // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
     map<EdgeKey, EdgeStore> inEdgesCache_;

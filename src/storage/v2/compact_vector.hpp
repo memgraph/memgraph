@@ -310,7 +310,7 @@ struct CompactVector {
   explicit CompactVector(std::initializer_list<T> other) : CompactVector(other.begin(), other.end()) {}
 
   // TODO: change to range + add test
-  explicit CompactVector(std::span<T const> other) : CompactVector(other.cbegin(), other.cend()) {}
+  explicit CompactVector(std::span<T const> other) : CompactVector(other.begin(), other.end()) {}
   // TODO: generalise to not just vector
   explicit CompactVector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {

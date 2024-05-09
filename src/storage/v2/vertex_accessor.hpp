@@ -15,6 +15,7 @@
 
 #include "storage/v2/vertex.hpp"
 
+#include "storage/v2/compact_vector.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/transaction.hpp"
@@ -59,7 +60,7 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<LabelId>> Labels(View view) const;
+  Result<CompactVector<LabelId>> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc

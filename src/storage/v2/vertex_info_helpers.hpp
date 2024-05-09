@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <tuple>
 #include <vector>
+#include "storage/v2/compact_vector.hpp"
 namespace memgraph::storage {
 
 template <Delta::Action>
@@ -91,7 +92,7 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format on
 }
 
-inline auto Labels_ActionMethod(std::vector<LabelId> &labels) {
+inline auto Labels_ActionMethod(CompactVector<LabelId> &labels) {
   using enum Delta::Action;
   // clang-format off
   return utils::Overloaded{

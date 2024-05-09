@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,10 +10,15 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_info_cache.hpp"
-
+#include "storage/v2/compact_vector.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-
+#include "storage/v2/view.hpp"
 #include "utils/flag_validation.hpp"
+
+#include <functional>
+#include <optional>
+#include <span>
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(delta_chain_cache_threshold, 128,
@@ -83,10 +88,10 @@ void VertexInfoCache::Invalidate(Vertex const *vertex) {
 }
 
 auto VertexInfoCache::GetLabels(View view, Vertex const *vertex) const
-    -> std::optional<std::reference_wrapper<std::vector<LabelId> const>> {
-  return FetchHelper<std::vector<LabelId>>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
+    -> std::optional<std::reference_wrapper<CompactVector<LabelId> const>> {
+  return FetchHelper<CompactVector<LabelId>>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
 }
-void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, const std::vector<LabelId> &res) {
+void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res) {
   Store(res, *this, std::mem_fn(&Caches::labelCache_), view, vertex);
 }
 auto VertexInfoCache::GetHasLabel(View view, Vertex const *vertex, LabelId label) const -> std::optional<bool> {

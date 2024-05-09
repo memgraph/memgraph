@@ -35,7 +35,7 @@ struct Vertex {
 
   const Gid gid;
 
-  std::vector<LabelId> labels;
+  CompactVector<LabelId> labels;
 
   CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
   CompactVector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
@@ -50,7 +50,7 @@ struct Vertex {
 };
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
-static_assert(sizeof(Vertex) == 8 + 24 + 16 + 16 + 12 + 4 + 8 + 8);
+static_assert(sizeof(Vertex) == 8 + 16 + 16 + 16 + 12 + 4 + 8 + 8);
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
 inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }
