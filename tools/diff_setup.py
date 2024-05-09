@@ -40,7 +40,7 @@ class DiffSetup:
     def get_test_suite(self) -> dict:
         return self._test_suite
 
-    def _get_default_test_suite(self, value: bool = False) -> None:
+    def _get_default_test_suite(self, value: bool) -> None:
         self._test_suite = {
             "community": {"core": value},
             "coverage": {"core": value},
@@ -79,25 +79,21 @@ class DiffSetup:
             for test in tests.keys():
                 self._test_suite[build][test] = self._check_workflow_input(build, test, workflow_dispatch_inputs)
 
-    def _setup_test_suite(self) -> None:
+    def setup_diff_workflow(self) -> None:
         event_name = self._get_event_name()
         print(f"Event name: {event_name}")
         if event_name == "merge_group":
             self._get_default_test_suite(self._check_diff_workflow())
         elif event_name == "pull_request":
-            self._setup_pull_request()
+            if self._check_diff_workflow():
+                self._setup_pull_request()
+            else:
+                self._get_default_test_suite(False)
         elif event_name == "workflow_dispatch":
             self._setup_worfklow_dispatch()
         else:
             print("Invalid event name")
             sys.exit(1)
-
-    def setup_diff_workflow(self) -> None:
-        run_diff = self._check_diff_workflow()
-        if run_diff:
-            self._setup_test_suite()
-        else:
-            self._get_default_test_suite(False)
 
 
 def print_test_suite(tests: dict, set_env_vars: bool = False) -> None:

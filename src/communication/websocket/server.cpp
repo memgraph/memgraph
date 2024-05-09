@@ -12,6 +12,7 @@
 #include "communication/websocket/server.hpp"
 
 #include <spdlog/pattern_formatter.h>
+#include <spdlog/spdlog.h>
 
 namespace memgraph::communication::websocket {
 

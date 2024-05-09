@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -622,7 +623,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   Context session_context{&interpreter_context_, auth_.get(), &audit_log};
 #else
-  Context session_context{&interpreter_context_, &auth_};
+  Context session_context{&interpreter_context_, auth_.get()};
 #endif
   memgraph::glue::ServerT server(memgraph::communication::v2::handle_errors_t, server_endpoint, &session_context,
                                  &context, FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
