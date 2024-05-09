@@ -82,6 +82,20 @@ class MemgraphInstanceRunner:
         print(f"Could not wait for host {self.host} on port {self.bolt_port} to startup!")
         sys.exit(1)
 
+    # NOTE: Both query and get_connection may esablish new connection -> auth
+    # details required -> username/password should be optional arguments.
+    def query(self, query, conn=None, username="", password=""):
+        new_conn = conn is None
+        if new_conn:
+            conn = self.get_connection(username, password)
+        cursor = conn.cursor()
+        cursor.execute(query)
+        data = cursor.fetchall()
+        cursor.close()
+        if new_conn:
+            conn.close()
+        return data
+
     def execute_setup_queries(self, conn, setup_queries):
         if setup_queries is None:
             return
