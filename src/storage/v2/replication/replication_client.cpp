@@ -192,6 +192,7 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *storage, Databa
 void ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
                                                            DatabaseAccessProtector db_acc) {
   auto locked_state = replica_state_.Lock();
+  spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_, StateToString());
   switch (*locked_state) {
     using enum replication::ReplicaState;
     case RECOVERY:
@@ -221,7 +222,7 @@ void ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
                                            client_.name_, "https://memgr.ph/replication"));
       return;
     case READY:
-      MG_ASSERT(!replica_stream_);
+      MG_ASSERT(!replica_stream_, "Replica stream still exists for {}", client_.name_);
       try {
         replica_stream_.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
@@ -238,7 +239,12 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
+  spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString());
   if (State() != replication::ReplicaState::REPLICATING) {
+    // TODO(antoniofilipovic) This was missing as we could have been in RECOVERY STATE
+    // because we missed a transaction, and we need to finalize current transaction
+    spdlog::trace("Skipping finalizing transaction on replica {} because it's not replicating", client_.name_);
+    replica_stream_.reset();
     return false;
   }
 
@@ -252,7 +258,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   }
 
   auto task = [storage, db_acc = std::move(db_acc), this]() mutable {
-    MG_ASSERT(replica_stream_, "Missing stream for transaction deltas");
+    MG_ASSERT(replica_stream_, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_->Finalize();
       // NOLINTNEXTLINE
@@ -296,7 +302,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
-  spdlog::debug("Starting replica recovery");
+  spdlog::debug("Starting replica {} recovery ", client_.name_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
   while (true) {

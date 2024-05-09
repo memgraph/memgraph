@@ -104,6 +104,25 @@ class ReplicationStorageClient {
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
+
+  auto StateToString() const -> std::string {
+    auto state = replica_state_.WithLock(std::identity());
+
+    switch (state) {
+      case replication::ReplicaState::MAYBE_BEHIND:
+        return "MAYBE_BEHIND";
+      case replication::ReplicaState::READY:
+        return "READY";
+      case replication::ReplicaState::REPLICATING:
+        return "REPLICATING";
+      case replication::ReplicaState::RECOVERY:
+        return "RECOVERY";
+      case replication::ReplicaState::DIVERGED_FROM_MAIN:
+        return "DIVERGED_FROM_MAIN";
+      default:
+        return "Unknown ReplicaState";
+    }
+  }
   auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
   /**
