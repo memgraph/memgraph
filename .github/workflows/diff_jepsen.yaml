@@ -72,12 +72,11 @@ jobs:
       - name: Run Jepsen tests
         run: |
           cd tests/jepsen
-          ./run.sh test-all-individually \
+          ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--time-limit 120 --concurrency 6" \
+          --run-args "--time-limit 120 --test-count 10 --workload bank --nodes-config resources/replication-config.edn" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
-          --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
