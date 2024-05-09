@@ -93,7 +93,6 @@ bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) c
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
 
-// Verifiy this
 bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId property,
                                                 utils::SkipList<Vertex>::Accessor vertices) {
   auto [it, emplaced] = index_.try_emplace({edge_type, property});
@@ -166,8 +165,6 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
         continue;
       }
 
-      // It is possible that entries are identical except for the timestamp and maybe value.
-      // We have to acount for that here. -> TODO
       const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
       const bool has_next = next_it != edges_acc.end();
 
@@ -177,7 +174,6 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
       // should be removed here.
       bool redundant_duplicate = has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
                                  it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
-      // TODO inspect if this is actually correct
       if (redundant_duplicate || vertices_deleted ||
           !AnyVersionHasLabelProperty(*it->edge, specific_index.first.second, it->value,
                                       oldest_active_start_timestamp) ||
@@ -204,7 +200,6 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnSetProperty(Vertex *from_vertex, Ver
   if (it == index_.end()) return;
 
   auto acc = it->second.access();
-
   acc.insert({value, from_vertex, to_vertex, edge, timestamp});
 }
 
@@ -212,14 +207,12 @@ uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_typ
   if (auto it = index_.find({edge_type, property}); it != index_.end()) {
     return it->second.size();
   }
-  return 0;
+  return 0U;
 }
 
-// TODO Check if this should work without property and value
 void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
                                                              Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                             PropertyId property, PropertyValue value,
-                                                             const Transaction &tx) {
+                                                             PropertyId property, const Transaction &tx) {
   auto it = index_.find({edge_type, property});
   if (it == index_.end()) {
     return;
@@ -229,7 +222,7 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
   auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
     return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
   });
-
+  const auto value = entry_to_update->value;
   acc.remove(Entry{value, entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
                    entry_to_update->timestamp});
   acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
@@ -336,7 +329,6 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
 InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(EdgeTypeId edge_type, PropertyId property,
                                                                              View view, Storage *storage,
                                                                              Transaction *transaction) {
-  // TODO implement this correctly
   const auto it = index_.find({edge_type, property});
   MG_ASSERT(it != index_.end(), "Index for edge-type {} and property {} doesn't exist", edge_type.AsUint(),
             property.AsUint());

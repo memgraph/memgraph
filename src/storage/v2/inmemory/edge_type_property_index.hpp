@@ -29,7 +29,6 @@ namespace memgraph::storage {
 class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  private:
   struct Entry {
-    // do we need this?
     PropertyValue value;
     Vertex *from_vertex;
     Vertex *to_vertex;
@@ -65,8 +64,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                            PropertyId property, PropertyValue value, uint64_t timestamp) override;
 
   void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, PropertyId property, PropertyValue value,
-                                const Transaction &tx) override;
+                                EdgeTypeId edge_type, PropertyId property, const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
 

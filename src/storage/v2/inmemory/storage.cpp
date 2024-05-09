@@ -612,10 +612,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
                                                   edge_type, transaction_);
 
-    // auto *mem_edge_type_property_index =
-    //     static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    // mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
-    //                                                        edge_ref, edge_type, transaction_);
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+      mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
+                                                             edge_ref, edge_type, prop, transaction_);
+    }
 
     if (config_.enable_edges_metadata) {
       in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
@@ -728,10 +730,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
                                                   edge_type, transaction_);
-    // auto *mem_edge_type_property_index =
-    //     static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    // mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
-    //                                                        edge_ref, edge_type, transaction_);
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+      mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
+                                                             edge_ref, edge_type, prop, transaction_);
+    }
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
@@ -1435,7 +1439,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_property_create, edge_type, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
 }
 
@@ -1488,7 +1492,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_type_property_index->DropIndex(edge_type, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_property_drop, edge_type, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
@@ -2293,13 +2297,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       } break;
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE,
-                                  md_delta.edge_type, {info.property}, final_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
-        const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE,
-                                  md_delta.edge_type, {info.property}, final_commit_timestamp, streams);
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE, info.edge_type,
+                                  {info.property}, final_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;
@@ -2316,13 +2315,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       } break;
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
         const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP,
-                                  md_delta.edge_type, {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
-        const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP,
-                                  md_delta.edge_type, {info.property}, durability_commit_timestamp, streams);
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP, info.edge_type,
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
         const auto &info = md_delta.label_property;

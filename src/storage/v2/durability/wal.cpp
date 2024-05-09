@@ -384,10 +384,10 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
         if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_edge_type.edge_type = std::move(*edge_type);
+        delta.operation_edge_type_property.edge_type = std::move(*edge_type);
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property.property = std::move(*property);
+        delta.operation_edge_type_property.property = std::move(*property);
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
       }

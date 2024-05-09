@@ -41,7 +41,7 @@ class EdgeTypePropertyIndex {
 
   virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
                                         EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
-                                        PropertyValue value, const Transaction &tx) = 0;
+                                        const Transaction &tx) = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

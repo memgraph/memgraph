@@ -190,7 +190,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
 }
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 17U) {
+  if (version < 18U) {
     return IsWalDeltaDataTypeTransactionEndVersion15(type);
   }
   // All deltas are now handled in a transactional scope

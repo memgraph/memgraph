@@ -148,18 +148,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           property_ = maybe_property;
           property_filter_ = filter;
 
-          // // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
-          // // We only remove the filter if we are looking for edges with a specific edge-type. If we
-          // // have some other type of property filtering e.g. range or value lookup, we do not want to
-          // // remove the filters to keep the semantics of the original query in tackt. We can optimize
-          // // this by adding additional operators for the specific kinds of edge-type+property filtering.
-          // // On top of this we only want to remove the filter if when?????
-          // const auto prop_filter_type = filter.property_filter->type_;
-          // if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
-          //   filter_exprs_for_removal_.insert(filter.expression);
-          //   filters_.EraseFilter(filter);
-          // }
-
           break;
         }
       }
@@ -584,39 +572,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
-  // std::optional<storage::PropertyId> EdgeTypePropertyIndexingPossible(const std::unordered_set<Symbol>
-  // &bound_symbols) {
-  //   // Determine if the current query is filtering on a property of a given edge.
-  //   auto are_bound = [&bound_symbols](const auto &used_symbols) {
-  //     for (const auto &used_symbol : used_symbols) {
-  //       if (!utils::Contains(bound_symbols, used_symbol)) {
-  //         return false;
-  //       }
-  //     }
-  //     return true;
-  //   };
-
-  //   storage::PropertyId ret;
-  //   const bool edge_type_property_indexing_possible =
-  //       once_under_scanall_ && edge_type_index_exist_ && property_filter_on_edge_;
-
-  //   for (const auto &filter : filters_.PropertyFilters(edge_symbol_)) {
-  //     if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) continue;
-
-  //     const auto &property = filter.property_filter->property_;
-  //     ret = GetProperty(property);
-  //     if (edge_type_property_indexing_possible && db_->EdgeTypePropertyIndexExists(edge_type_, ret)) {
-  //       return ret;
-  //     }
-
-  //     maybe_id_lookup_value_ = filter.property_filter->value_;
-  //     filter_exprs_for_removal_.insert(filter.expression);
-  //     filters_.EraseFilter(filter);
-  //   }
-
-  //   return {};
-  // }
-
   bool EdgeTypeIndexingPossible() const {
     return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist_;
   }
@@ -630,7 +585,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool source_node_anon_ = false;
   bool dest_node_anon_ = false;
-  // bool property_filter_on_edge_ = false;
 
   bool DefaultPreVisit() override {
     throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
@@ -644,9 +598,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (maybe_id_lookup_value_) {
       return std::make_unique<ScanAllByEdgeId>(input, output_symbol, maybe_id_lookup_value_, view);
     }
-
-    // const auto &modified_symbols = expand.ModifiedSymbols(*symbol_table_);
-    // std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
 
     if (EdgeTypePropertyIndexingPossible()) {
       // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
@@ -668,7 +619,6 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       return std::make_unique<ScanAllByEdgeType>(input, output_symbol, edge_type_, view);
     }
 
-    // LOG_FATAL("Fatal error while rewriting query plan.");
     return nullptr;
   }
 
