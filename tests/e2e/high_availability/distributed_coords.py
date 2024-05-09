@@ -286,6 +286,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
+
     follower_data_inst2_main = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
@@ -314,7 +315,33 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     ]
     mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
 
-    new_main_cursor = connect(host="localhost", port=7687).cursor()
+    def find_main_instance():
+        cursor = connect(host="localhost", port=7690).cursor()
+
+        results = execute_and_fetch_all(cursor, "SHOW INSTANCES;")
+
+        for result in results:
+            if result[5] == "main":
+                return result[0]
+        return None
+
+    def connect_to_main_instance():
+        main_instance_name = find_main_instance()
+        assert main_instance_name is not None
+
+        port_mapping = {"instance_1": 7687, "instance_2": 7688}
+
+        assert main_instance_name in port_mapping, f"Main is not in mappings, but main is {main_instance_name}"
+
+        main_instance_port = port_mapping.get(main_instance_name)
+
+        if main_instance_port is not None:
+            return connect(host="localhost", port=main_instance_port).cursor()
+
+        return None
+
+    new_main_cursor = connect_to_main_instance()
+    assert new_main_cursor is not None, "Main cursor is not found!"
 
     def show_replicas():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
@@ -519,7 +546,33 @@ def test_distributed_automatic_failover_with_leadership_change():
         [follower_data_inst1_main, follower_data_inst2_main], [show_instances_coord1, show_instances_coord2]
     )
 
-    new_main_cursor = connect(host="localhost", port=7687).cursor()
+    def find_main_instance():
+        cursor = connect(host="localhost", port=7690).cursor()
+
+        results = execute_and_fetch_all(cursor, "SHOW INSTANCES;")
+
+        for result in results:
+            if result[5] == "main":
+                return result[0]
+        return None
+
+    def connect_to_main_instance():
+        main_instance_name = find_main_instance()
+        assert main_instance_name is not None
+
+        port_mapping = {"instance_1": 7687, "instance_2": 7688}
+
+        assert main_instance_name in port_mapping, f"Main is not in mappings, but main is {main_instance_name}"
+
+        main_instance_port = port_mapping.get(main_instance_name)
+
+        if main_instance_port is not None:
+            return connect(host="localhost", port=main_instance_port).cursor()
+
+        return None
+
+    new_main_cursor = connect_to_main_instance()
+    assert new_main_cursor is not None, "Main cursor is not found!"
 
     def retrieve_data_show_replicas():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
