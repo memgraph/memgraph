@@ -167,13 +167,13 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   return res;
 }
 
-bool SessionHL::BearerAuthentication(const std::string &identity_provider_response) {
+bool SessionHL::Authenticate(const std::string &identity_provider_response) {
   bool res = true;
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
     if (locked_auth->AccessControlled()) {
-      const auto user_or_role = locked_auth->BearerAuthentication(response);
+      const auto user_or_role = locked_auth->Authenticate(identity_provider_response);
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
