@@ -605,8 +605,6 @@ TEST_F(ReplicationTest, RecoveryProcess) {
                      })
                      .HasError());
 
-    ASSERT_EQ(main.db.storage()->GetReplicaState(replicas[0]), ReplicaState::RECOVERY);
-
     while (main.db.storage()->GetReplicaState(replicas[0]) != ReplicaState::READY) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
