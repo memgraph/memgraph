@@ -14,72 +14,95 @@
 #include "replication/replication_server.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 
+#include <span>
+
 namespace memgraph::storage {
 
-void ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage,
-                                                    DatabaseAccessProtector db_acc) {
-  replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
+auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
+    -> std::vector<std::optional<ReplicaStream>> {
+  std::vector<std::optional<ReplicaStream>> replica_streams;
+  replication_clients_.WithLock([&, db_acc = std::move(db_acc)](auto &clients) mutable {
     for (auto &client : clients) {
-      client->StartTransactionReplication(seq_num, storage, std::move(db_acc));
+      replica_streams.emplace_back(client->StartTransactionReplication(seq_num, storage, std::move(db_acc)));
+    }
+  });
+  return replica_streams;
+}
+
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
+                                          std::span<std::optional<ReplicaStream>> replica_streams) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (int i = 0; i < clients.size(); i++) {
+      auto &client = clients[i];
+      auto &replica_stream = replica_streams[i];
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); },
+                                     replica_stream);
     }
   });
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp) {
+void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp,
+                                          std::span<std::optional<ReplicaStream>> replica_streams) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); });
-    }
-  });
-}
-
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); });
+    for (int i = 0; i < clients.size(); i++) {
+      auto &client = clients[i];
+      auto &replica_stream = replica_streams[i];
+      client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); }, replica_stream);
     }
   });
 }
 void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
                                               const std::set<PropertyId> &properties, const LabelIndexStats &stats,
                                               const LabelPropertyIndexStats &property_stats,
-                                              uint64_t final_commit_timestamp) {
+                                              uint64_t final_commit_timestamp,
+                                              std::span<std::optional<ReplicaStream>> replica_streams) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) {
-        stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-      });
+    for (int i = 0; i < clients.size(); i++) {
+      auto &client = clients[i];
+      auto &replica_stream = replica_streams[i];
+      client->IfStreamingTransaction(
+          [&](auto &stream) {
+            stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+          },
+          replica_stream);
     }
   });
 }
 
 void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                              uint64_t final_commit_timestamp) {
+                                              uint64_t final_commit_timestamp,
+                                              std::span<std::optional<ReplicaStream>> replica_streams) {
   replication_clients_.WithLock([&](auto &clients) {
-    for (auto &client : clients) {
+    for (int i = 0; i < clients.size(); i++) {
+      auto &client = clients[i];
+      auto &replica_stream = replica_streams[i];
       client->IfStreamingTransaction(
-          [&](auto &stream) { stream.AppendOperation(operation, edge_type, final_commit_timestamp); });
+          [&](auto &stream) { stream.AppendOperation(operation, edge_type, final_commit_timestamp); }, replica_stream);
     }
   });
 }
 
-bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage,
-                                                  DatabaseAccessProtector db_acc) {
-  return replication_clients_.WithLock([=, db_acc = std::move(db_acc)](auto &clients) mutable {
-    bool finalized_on_all_replicas = true;
-    MG_ASSERT(clients.empty() || db_acc.has_value(),
-              "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
-              "handle ASYNC tasks");
-    for (ReplicationClientPtr &client : clients) {
-      client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); });
-      const auto finalized = client->FinalizeTransactionReplication(storage, std::move(db_acc));
+bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
+                                                  std::vector<std::optional<ReplicaStream>> replica_streams) {
+  return replication_clients_.WithLock(
+      [=, db_acc = std::move(db_acc), replica_streams = std::move(replica_streams)](auto &clients) mutable {
+        bool finalized_on_all_replicas = true;
+        MG_ASSERT(clients.empty() || db_acc.has_value(),
+                  "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
+                  "handle ASYNC tasks");
+        for (int i = 0; i < clients.size(); i++) {
+          auto &client = clients[i];
+          auto &replica_stream = replica_streams[i];
+          client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, replica_stream);
+          const auto finalized =
+              client->FinalizeTransactionReplication(storage, std::move(db_acc), std::move(replica_stream));
 
-      if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
-        finalized_on_all_replicas = finalized && finalized_on_all_replicas;
-      }
-    }
-    return finalized_on_all_replicas;
-  });
+          if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
+            finalized_on_all_replicas = finalized && finalized_on_all_replicas;
+          }
+        }
+        return finalized_on_all_replicas;
+      });
 }
 
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
