@@ -329,7 +329,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                   spdlog::debug("Sending the latest wal files to {}", client_.name_);
                   auto response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
                   replica_commit = response.current_commit_timestamp;
-                  spdlog::debug("Wal files successfully transferred.");
+                  spdlog::debug("Wal files successfully transferred to {}.", client_.name_);
                 },
                 [this, &replica_commit, mem_storage, &rpcClient,
                  main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
@@ -342,7 +342,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     spdlog::debug("Sending current wal file to {}", client_.name_);
                     replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
                   } else {
-                    spdlog::debug("Cannot recover using current wal file");
+                    spdlog::debug("Cannot recover using current wal file {}", client_.name_);
                   }
                 },
                 [](auto const &in) {
@@ -357,7 +357,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
       }
     }
 
-    spdlog::trace("Current timestamp on replica: {}", replica_commit);
     // To avoid the situation where we read a correct commit timestamp in
     // one thread, and after that another thread commits a different a
     // transaction and THEN we set the state to READY in the first thread,
@@ -368,10 +367,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
-    SPDLOG_INFO("Replica timestamp: {}", replica_commit);
-    SPDLOG_INFO("Last commit: {}", last_commit_timestamp);
+    SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_commit_timestamp);
     if (last_commit_timestamp == replica_commit) {
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::READY; });
+      replica_state_.WithLock([name = client_.name_](auto &val) {
+        spdlog::trace("Replica {} set to ready", name);
+        val = replication::ReplicaState::READY;
+      });
       return;
     }
   }
