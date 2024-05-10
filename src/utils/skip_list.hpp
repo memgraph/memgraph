@@ -79,17 +79,19 @@ struct SkipListNode_base {
   // returns 0 which is an invalid height. To make the distribution binomial
   // this value is then mapped to `kSkipListMaxSize`.
   static uint32_t gen_height() {
-    thread_local std::mt19937 gen{std::random_device{}()};
+    thread_local std::mt19937_64 gen{std::random_device{}()};
     static_assert(kSkipListMaxHeight <= 32,
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
-    uint32_t value = gen();
+    uint64_t value = gen();
     if (value == 0) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
-    value >>= (32 - kSkipListMaxHeight);
+    static_assert(sizeof(decltype(gen)::result_type) * CHAR_BIT == 2 * kSkipListMaxHeight);
+    static_assert(sizeof(uint64_t) * CHAR_BIT == 2 * kSkipListMaxHeight);
+    //    value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
     //       ^    ^     ^
-    return __builtin_ffs(value);
+    return (__builtin_ffsl(value) + 1) / 2;
   }
 };
 }  // namespace detail
