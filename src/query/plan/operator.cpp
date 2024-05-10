@@ -1813,8 +1813,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if current is still empty, it means both are empty, so pull from
       // input
       if (to_visit_current_.empty()) {
+        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
         if (!input_cursor_->Pull(frame, context)) return false;
-        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;  // move it up
 
         to_visit_current_.clear();
         to_visit_next_.clear();
@@ -1875,8 +1875,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         }
       }
 
-      if (static_cast<int64_t>(edge_list.size()) < lower_bound_)
-        continue;  // consider adding check here for the number of hops and breaking if statement isn't satisfied
+      if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
       frame[self_.common_.node_symbol] = curr_vertex;
 
