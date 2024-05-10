@@ -54,9 +54,7 @@ bool EdgeAccessor::IsVisible(const View view) const {
     {
       auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      deleted = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
-                  return std::get<2>(out_edge) == edge_;
-                }) == from_vertex_->out_edges.end();
+      deleted = !from_vertex_->HasOutEdge(edge_);
       delta = from_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {

@@ -14,6 +14,7 @@ add_library(mg-storage-v2 STATIC
         durability/wal.cpp
         edge_accessor.cpp
         property_store.cpp
+        vertex.cpp
         vertex_accessor.cpp
         vertex_info_cache_fwd.hpp
         vertex_info_cache.hpp

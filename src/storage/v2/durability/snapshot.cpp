@@ -520,7 +520,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
     {
       auto in_size = snapshot.ReadUint();
       if (!in_size) throw RecoveryFailure("Couldn't read the number of in edges!");
-      vertex.in_edges.reserve(*in_size);
+      vertex.ReserveInEdges(*in_size);
       for (uint64_t j = 0; j < *in_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
         if (!edge_gid) throw RecoveryFailure("Couldn't read the edge gid!");
@@ -548,7 +548,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
             edge_ref = EdgeRef(&*edge);
           }
         }
-        vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
+        vertex.AddInEdge(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
       }
     }
 
@@ -556,7 +556,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
     {
       auto out_size = snapshot.ReadUint();
       if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
-      vertex.out_edges.reserve(*out_size);
+      vertex.ReserveOutEdges(*out_size);
       for (uint64_t j = 0; j < *out_size; ++j) {
         auto edge_gid = snapshot.ReadUint();
         if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
@@ -586,7 +586,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::pat
             edge_metadata_acc.insert(EdgeMetadata{Gid::FromUint(*edge_gid), &vertex});
           }
         }
-        vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
+        vertex.AddOutEdge(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.
         edge_count++;
@@ -886,7 +886,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
         spdlog::trace("Recovering inbound edges for vertex {}.", vertex.gid.AsUint());
         auto in_size = snapshot.ReadUint();
         if (!in_size) throw RecoveryFailure("Couldn't read the size of in edges!");
-        vertex.in_edges.reserve(*in_size);
+        vertex.ReserveInEdges(*in_size);
         for (uint64_t j = 0; j < *in_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
           if (!edge_gid) throw RecoveryFailure("Couldn't read egde gid!");
@@ -913,7 +913,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           }
           SPDLOG_TRACE("Recovered inbound edge {} with label \"{}\" from vertex {}.", *edge_gid,
                        name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), from_vertex->gid.AsUint());
-          vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
+          vertex.AddInEdge(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
         }
       }
 
@@ -922,7 +922,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
         spdlog::trace("Recovering outbound edges for vertex {}.", vertex.gid.AsUint());
         auto out_size = snapshot.ReadUint();
         if (!out_size) throw RecoveryFailure("Couldn't read the number of out edges!");
-        vertex.out_edges.reserve(*out_size);
+        vertex.ReserveOutEdges(*out_size);
         for (uint64_t j = 0; j < *out_size; ++j) {
           auto edge_gid = snapshot.ReadUint();
           if (!edge_gid) throw RecoveryFailure("Couldn't read edge gid!");
@@ -949,7 +949,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
           }
           SPDLOG_TRACE("Recovered outbound edge {} with label \"{}\" to vertex {}.", *edge_gid,
                        name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)), to_vertex->gid.AsUint());
-          vertex.out_edges.emplace_back(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
+          vertex.AddOutEdge(get_edge_type_from_id(*edge_type), &*to_vertex, edge_ref);
         }
         // Increment edge count. We only increment the count here because the
         // information is duplicated in in_edges.

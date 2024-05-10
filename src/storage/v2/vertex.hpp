@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <limits>
+#include <optional>
 #include <tuple>
 #include <vector>
 
@@ -24,26 +24,76 @@
 namespace memgraph::storage {
 
 struct Vertex {
-  Vertex(Gid gid, Delta *delta) : gid(gid), deleted(false), delta(delta) {
+ public:
+  using EdgeTuple = std::tuple<EdgeTypeId, Vertex *, EdgeRef>;
+  using Edges = std::vector<EdgeTuple>;
+
+  Vertex(Gid gid, Delta *delta) : gid(gid), delta(delta) {
     MG_ASSERT(delta == nullptr || delta->action == Delta::Action::DELETE_OBJECT ||
                   delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT,
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
+
+  // inline Edges InEdges() { return in_edges; }
+  // inline Edges OutEdges() { return out_edges; }
+
+  Edges::iterator InEdgesBegin();
+  Edges::iterator InEdgesEnd();
+  Edges::iterator OutEdgesBegin();
+  Edges::iterator OutEdgesEnd();
+
+  inline Edges::size_type InEdgesSize() const { return in_edges.size(); }
+  inline Edges::size_type OutEdgesSize() const { return out_edges.size(); }
+
+  inline void ReserveInEdges(Edges::size_type size) { in_edges.reserve(size); }
+  inline void ReserveOutEdges(Edges::size_type size) { out_edges.reserve(size); }
+
+  void AddInEdge(EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge_ref);
+  void AddOutEdge(EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge_ref);
+  void AddInEdge(EdgeTuple &&edge);
+  void AddOutEdge(EdgeTuple &&edge);
+
+  inline bool HasEdges() const { return !in_edges.empty() || !out_edges.empty(); }
+
+  bool HasInEdge(const EdgeTuple &edge) const;
+  bool HasOutEdge(const EdgeTuple &edge) const;
+
+  bool HasInEdge(const EdgeRef &edge) const;
+  bool HasOutEdge(const EdgeRef &edge) const;
+
+  bool RemoveInEdge(const EdgeTuple &edge);
+  bool RemoveOutEdge(const EdgeTuple &edge);
+
+  std::optional<EdgeTuple> PopBackInEdge();
+  std::optional<EdgeTuple> PopBackOutEdge();
+
+  Edges::size_type MoveInEdgesToEraseToEnd(const std::unordered_set<Gid> &set_for_erasure, bool properties_on_edges);
+  Edges::size_type MoveOutEdgesToEraseToEnd(const std::unordered_set<Gid> &set_for_erasure, bool properties_on_edges);
+
+  bool ChangeInEdgeType(const EdgeTuple &edge, EdgeTypeId new_type);
+  bool ChangeOutEdgeType(const EdgeTuple &edge, EdgeTypeId new_type);
+
+  std::optional<EdgeTuple> GetInEdge(const Gid &edge_gid, bool properties_on_edges) const;
+  std::optional<EdgeTuple> GetOutEdge(const Gid &edge_gid, bool properties_on_edges) const;
+
+  std::optional<EdgeTuple> FindInEdge(const Edge *edge_ptr) const;
+  std::optional<EdgeTuple> FindOutEdge(const Edge *edge_ptr) const;
 
   const Gid gid;
 
   std::vector<LabelId> labels;
   PropertyStore properties;
 
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
-
   mutable utils::RWSpinLock lock;
-  bool deleted;
+  bool deleted = false;
   // uint8_t PAD;
   // uint16_t PAD;
 
   Delta *delta;
+
+ private:
+  Edges in_edges;
+  Edges out_edges;
 };
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
