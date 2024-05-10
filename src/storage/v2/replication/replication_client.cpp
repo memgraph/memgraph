@@ -193,7 +193,8 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
                                                            DatabaseAccessProtector db_acc)
     -> std::optional<ReplicaStream> {
   auto locked_state = replica_state_.Lock();
-  spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_, StateToString());
+  spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_,
+                StateToString(*locked_state));
   std::optional<ReplicaStream> replica_stream;
   switch (*locked_state) {
     using enum replication::ReplicaState;
@@ -241,7 +242,8 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_, StateToString());
+  spdlog::trace("Finalizing transaction on replica {} in state {}", client_.name_,
+                StateToString(*replica_state_.Lock()));
   if (State() != replication::ReplicaState::REPLICATING) {
     spdlog::trace("Skipping finalizing transaction on replica {} because it's not replicating", client_.name_);
     return false;

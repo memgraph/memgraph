@@ -114,10 +114,8 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
 
-  auto StateToString() const -> std::string {
-    auto state = replica_state_.WithLock(std::identity());
-
-    switch (state) {
+  auto StateToString(replication::ReplicaState &replica_state) const -> std::string {
+    switch (replica_state) {
       case replication::ReplicaState::MAYBE_BEHIND:
         return "MAYBE_BEHIND";
       case replication::ReplicaState::READY:
