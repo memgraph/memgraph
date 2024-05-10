@@ -850,8 +850,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         case WalDeltaData::Type::VERTEX_DELETE: {
           auto vertex = vertex_acc.find(delta.vertex_create_delete.gid);
           if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
-          if (!vertex->in_edges.empty() || !vertex->out_edges.empty())
-            throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
+          if (vertex->HasEdges()) throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
 
           if (!vertex_acc.remove(delta.vertex_create_delete.gid))
             throw RecoveryFailure("The vertex must be removed here!");
@@ -904,15 +903,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
           {
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &*to_vertex, edge_ref};
-            auto it = std::find(from_vertex->out_edges.begin(), from_vertex->out_edges.end(), link);
-            if (it != from_vertex->out_edges.end()) throw RecoveryFailure("The from vertex already has this edge!");
-            from_vertex->out_edges.push_back(link);
+            if (from_vertex->HasOutEdge(link)) {
+              throw RecoveryFailure("The from vertex already has this edge!");
+            }
+            from_vertex->AddOutEdge(std::move(link));
           }
           {
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &*from_vertex, edge_ref};
-            auto it = std::find(to_vertex->in_edges.begin(), to_vertex->in_edges.end(), link);
-            if (it != to_vertex->in_edges.end()) throw RecoveryFailure("The to vertex already has this edge!");
-            to_vertex->in_edges.push_back(link);
+            if (to_vertex->HasInEdge(link)) {
+              throw RecoveryFailure("The to vertex already has this edge!");
+            }
+            to_vertex->AddInEdge(std::move(link));
           }
 
           ret.next_edge_id = std::max(ret.next_edge_id, edge_gid.AsUint() + 1);
@@ -938,17 +939,15 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
           {
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &*to_vertex, edge_ref};
-            auto it = std::find(from_vertex->out_edges.begin(), from_vertex->out_edges.end(), link);
-            if (it == from_vertex->out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
-            std::swap(*it, from_vertex->out_edges.back());
-            from_vertex->out_edges.pop_back();
+            if (!from_vertex->RemoveOutEdge(link)) {
+              throw RecoveryFailure("The from vertex doesn't have this edge!");
+            }
           }
           {
             std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{edge_type_id, &*from_vertex, edge_ref};
-            auto it = std::find(to_vertex->in_edges.begin(), to_vertex->in_edges.end(), link);
-            if (it == to_vertex->in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
-            std::swap(*it, to_vertex->in_edges.back());
-            to_vertex->in_edges.pop_back();
+            if (!to_vertex->RemoveInEdge(link)) {
+              throw RecoveryFailure("The to vertex doesn't have this edge!");
+            }
           }
           if (items.properties_on_edges) {
             if (!edge_acc.remove(edge_gid)) throw RecoveryFailure("The edge must be removed here!");

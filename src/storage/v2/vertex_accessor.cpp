@@ -597,7 +597,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
-    bool edges_modified_in_tx = !vertex_->in_edges.empty();
+    bool edges_modified_in_tx = (vertex_->InEdgesSize() > 0);
 
     disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
     if (view == View::OLD && !edges_modified_in_tx) {
@@ -615,12 +615,13 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
+    expanded_count = static_cast<int64_t>(vertex_->InEdgesSize());
     // TODO: a better filter copy
     if (edge_types.empty() && !destination) {
-      in_edges = vertex_->in_edges;
+      std::copy(vertex_->InEdgesBegin(), vertex_->InEdgesEnd(), std::back_inserter(in_edges));
     } else {
-      for (const auto &[edge_type, from_vertex, edge] : vertex_->in_edges) {
+      for (auto it = vertex_->InEdgesBegin(); it != vertex_->InEdgesEnd(); ++it) {
+        const auto &[edge_type, from_vertex, edge] = *it;
         if (destination && from_vertex != destination_vertex) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
@@ -686,7 +687,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
-    bool edges_modified_in_tx = !vertex_->out_edges.empty();
+    bool edges_modified_in_tx = (vertex_->OutEdgesSize() > 0);
 
     disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
 
@@ -705,11 +706,12 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
+    expanded_count = static_cast<int64_t>(vertex_->OutEdgesSize());
     if (edge_types.empty() && !destination) {
-      out_edges = vertex_->out_edges;
+      std::copy(vertex_->OutEdgesBegin(), vertex_->OutEdgesEnd(), std::back_inserter(out_edges));
     } else {
-      for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
+      for (auto it = vertex_->OutEdgesBegin(); it != vertex_->OutEdgesEnd(); ++it) {
+        const auto &[edge_type, to_vertex, edge] = *it;
         if (destination && to_vertex != dst_vertex) continue;
         if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
           continue;
@@ -779,7 +781,7 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    degree = vertex_->in_edges.size();
+    degree = vertex_->InEdgesSize();
     delta = vertex_->delta;
   }
 
@@ -835,7 +837,7 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    degree = vertex_->out_edges.size();
+    degree = vertex_->OutEdgesSize();
     delta = vertex_->delta;
   }
 

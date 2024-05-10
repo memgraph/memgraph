@@ -43,16 +43,14 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
       case Delta::Action::ADD_IN_EDGE: {
         if (edge == delta.vertex_edge.edge.ptr) {
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-          auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-          MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
+          MG_ASSERT(!vertex->HasInEdge(link.value()), "Invalid database state!");
           break;
         }
       }
       case Delta::Action::ADD_OUT_EDGE: {
         if (edge == delta.vertex_edge.edge.ptr) {
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-          auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-          MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
+          MG_ASSERT(!vertex->HasOutEdge(link.value()), "Invalid database state!");
           break;
         }
       }
@@ -85,7 +83,8 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
         continue;
       }
 
-      for (auto &edge : from_vertex.out_edges) {
+      for (auto edgeIt = from_vertex.OutEdgesBegin(); edgeIt != from_vertex.OutEdgesEnd(); ++edgeIt) {
+        auto edge = *edgeIt;
         const auto type = std::get<kEdgeTypeIdPos>(edge);
         if (type == edge_type) {
           auto *to_vertex = std::get<kVertexPos>(edge);
@@ -137,7 +136,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
       }
 
       if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted ||
-          !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
+          !std::ranges::all_of(it->from_vertex->OutEdgesBegin(), it->from_vertex->OutEdgesEnd(), [&](const auto &edge) {
             auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
             return to_vertex != it->to_vertex;
           })) {
@@ -253,20 +252,12 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Itera
     }
   }
 
-  const auto &from_edges = from_vertex->out_edges;
-  const auto &to_edges = to_vertex->in_edges;
+  auto optOutEdge = from_vertex->GetOutEdge(index_iterator_->edge->gid, true /*enabled_properties_on_edges*/);
+  auto optInEdge = to_vertex->GetInEdge(index_iterator_->edge->gid, true /*enabled_properties_on_edges*/);
 
-  auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
-    const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
-    return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
-      const auto &to_edge = std::get<kEdgeRefPos>(to_entry);
-      return index_iterator_->edge->gid == from_edge.ptr->gid && from_edge.ptr->gid == to_edge.ptr->gid;
-    });
-  });
-
-  if (it != from_edges.end()) {
-    const auto &from_edge = std::get<kEdgeRefPos>(*it);
-    return std::make_tuple(from_edge, std::get<kEdgeTypeIdPos>(*it), from_vertex, to_vertex);
+  if (optOutEdge && optInEdge) {
+    return std::make_tuple(std::get<kEdgeRefPos>(*optOutEdge), std::get<kEdgeTypeIdPos>(*optOutEdge), from_vertex,
+                           to_vertex);
   }
 
   return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};

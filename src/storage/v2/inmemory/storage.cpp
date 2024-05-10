@@ -31,6 +31,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
@@ -59,8 +60,8 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
     }
 
     // With the potentially cheaper side FindEdges
-    const auto out_n = from_vertex->out_edges.size();
-    const auto in_n = to_vertex->in_edges.size();
+    const auto out_n = from_vertex->OutEdgesSize();
+    const auto in_n = to_vertex->InEdgesSize();
     return out_n <= in_n;
   };
 
@@ -368,10 +369,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   }
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+    from_vertex->AddOutEdge(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    to_vertex->AddInEdge(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -472,10 +473,10 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   }
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+    from_vertex->AddOutEdge(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    to_vertex->AddInEdge(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -556,21 +557,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
   }
 
-  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    std::swap(*it, *edges->rbegin());
-    edges->pop_back();
-    return true;
-  };
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link_to_vertex(edge_type, to_vertex, edge_ref);
+  auto op1 = old_from_vertex->RemoveOutEdge(link_to_vertex);
 
-  auto op1 = delete_edge_from_storage(to_vertex, &old_from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(old_from_vertex, &to_vertex->in_edges);
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link_from_vertex(edge_type, old_from_vertex, edge_ref);
+  auto op2 = to_vertex->RemoveInEdge(link_from_vertex);
 
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
@@ -586,9 +577,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, old_from_vertex, edge_ref);
 
     CreateAndLinkDelta(&transaction_, new_from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_ref);
-    new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
+    new_from_vertex->AddOutEdge(edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
-    to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
+    to_vertex->AddInEdge(edge_type, new_from_vertex, edge_ref);
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -667,21 +658,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
   }
 
-  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    std::swap(*it, *edges->rbegin());
-    edges->pop_back();
-    return true;
-  };
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link_to_vertex(edge_type, old_to_vertex, edge_ref);
+  auto op1 = from_vertex->RemoveOutEdge(link_to_vertex);
 
-  auto op1 = delete_edge_from_storage(old_to_vertex, &from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(from_vertex, &old_to_vertex->in_edges);
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link_from_vertex(edge_type, from_vertex, edge_ref);
+  auto op2 = old_to_vertex->RemoveInEdge(link_from_vertex);
 
   if (config_.properties_on_edges) {
     MG_ASSERT((op1 && op2), "Invalid database state!");
@@ -698,9 +679,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     CreateAndLinkDelta(&transaction_, old_to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
 
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, new_to_vertex, edge_ref);
-    from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
+    from_vertex->AddOutEdge(edge_type, new_to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
-    new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
+    new_to_vertex->AddInEdge(edge_type, from_vertex, edge_ref);
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -756,20 +737,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
   MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
 
-  auto change_edge_type_in_storage = [&edge_type, &edge_ref, &new_edge_type, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    *it = std::tuple<EdgeTypeId, Vertex *, EdgeRef>{new_edge_type, vertex, edge_ref};
-    return true;
-  };
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link1(edge_type, to_vertex, edge_ref);
+  auto op1 = from_vertex->ChangeOutEdgeType(link1, new_edge_type);
 
-  auto op1 = change_edge_type_in_storage(to_vertex, &from_vertex->out_edges);
-  auto op2 = change_edge_type_in_storage(from_vertex, &to_vertex->in_edges);
+  std::tuple<EdgeTypeId, Vertex *, EdgeRef> link2(edge_type, from_vertex, edge_ref);
+  auto op2 = to_vertex->ChangeInEdgeType(link2, new_edge_type);
 
   MG_ASSERT((op1 && op2), "Invalid database state!");
 
@@ -1152,17 +1124,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::ADD_IN_EDGE: {
                 std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                                current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-                MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
-                vertex->in_edges.push_back(link);
+                MG_ASSERT(!vertex->HasInEdge(link), "Invalid database state!");
+                vertex->AddInEdge(std::move(link));
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
                 std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                                current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-                MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-                vertex->out_edges.push_back(link);
+                MG_ASSERT(!vertex->HasOutEdge(link), "Invalid database state!");
+                vertex->AddOutEdge(std::move(link));
                 // Increment edge count. We only increment the count here because
                 // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
                 // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
@@ -1173,19 +1143,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::REMOVE_IN_EDGE: {
                 std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                                current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-                MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
-                std::swap(*it, *vertex->in_edges.rbegin());
-                vertex->in_edges.pop_back();
+                MG_ASSERT(vertex->RemoveInEdge(link), "Invalid database state!");
                 break;
               }
               case Delta::Action::REMOVE_OUT_EDGE: {
                 std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
                                                                current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-                MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
-                std::swap(*it, *vertex->out_edges.rbegin());
-                vertex->out_edges.pop_back();
+                MG_ASSERT(vertex->RemoveOutEdge(link), "Invalid database state!");
                 // Decrement edge count. We only decrement the count here because
                 // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
                 // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
@@ -1542,12 +1506,12 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   auto vertices_acc = mem_storage->vertices_.access();
 
   auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
-    for (auto &out_edge : from_vertex->out_edges) {
-      if (std::get<2>(out_edge).ptr == edge_ptr) {
-        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
-      }
+    auto maybe_edge_tuple = from_vertex->FindOutEdge(edge_ptr);
+    if (!maybe_edge_tuple.has_value()) {
+      return std::nullopt;
     }
-    return std::nullopt;
+    auto &out_edge = maybe_edge_tuple.value();
+    return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
   };
 
   auto edge_accessor_from_info = [this, view](EdgeInfo &maybe_edge_info) -> std::optional<EdgeAccessor> {

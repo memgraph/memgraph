@@ -96,8 +96,8 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
     }
 
     // With the potentially cheaper side FindEdges
-    const auto out_n = from_vertex->out_edges.size();
-    const auto in_n = to_vertex->in_edges.size();
+    const auto out_n = from_vertex->OutEdgesSize();
+    const auto in_n = to_vertex->InEdgesSize();
     return out_n <= in_n;
   };
 
@@ -988,10 +988,10 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   transaction_.AddModifiedEdge(gid, modified_edge);
 
   CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-  from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  from_vertex->AddOutEdge(edge_type, to_vertex, edge);
 
   CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-  to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  to_vertex->AddInEdge(edge_type, from_vertex, edge);
 
   transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
   transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
@@ -1436,8 +1436,8 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());
     spdlog::trace("Edge {} added to in edges of vertex with gid {}", gid.ToString(), to_vertex->gid.AsUint());
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    from_vertex->AddOutEdge(edge_type, to_vertex, edge);
+    to_vertex->AddInEdge(edge_type, from_vertex, edge);
     transaction->manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction->manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
   }
