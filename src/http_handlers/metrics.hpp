@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
+#include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_histogram.hpp"
 
@@ -146,7 +147,7 @@ class MetricsService {
 class MetricsRequestHandler final {
  public:
   explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
-    spdlog::info("Basic request handler started!");
+    spdlog::trace("Metrics request handler started!");
   }
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
@@ -174,6 +175,14 @@ class MetricsRequestHandler final {
       res.prepare_payload();
       return res;
     };
+
+#ifdef MG_ENTERPRISE
+    if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      return send(bad_request("Memgraph must have an Enterprise License for providing metrics!"));
+    }
+#else
+    return send(bad_request("Memgraph must be built for Enterprise for providing metrics!"));
+#endif
 
     // Make sure we can handle the method
     if (req.method() != boost::beast::http::verb::get) {

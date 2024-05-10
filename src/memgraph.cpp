@@ -649,18 +649,16 @@ int main(int argc, char **argv) {
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
   memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
 
-#ifdef MG_ENTERPRISE
   // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-#endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server, &coordinator_state,
+                      &coordinator_state,
 #endif
-                      &websocket_server, &server, &interpreter_context_] {
+                      &metrics_server, &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -669,8 +667,8 @@ int main(int argc, char **argv) {
     // queries.
     interpreter_context_.Shutdown();
     websocket_server.Shutdown();
-#ifdef MG_ENTERPRISE
     metrics_server.Shutdown();
+#ifdef MG_ENTERPRISE
     if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
       coordinator_state->ShutDownCoordinator();
     }
@@ -685,12 +683,7 @@ int main(int argc, char **argv) {
   // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
-
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
-  }
-#endif
+  metrics_server.Start();
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
@@ -710,11 +703,7 @@ int main(int argc, char **argv) {
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
-  }
-#endif
+  metrics_server.AwaitShutdown();
 
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
