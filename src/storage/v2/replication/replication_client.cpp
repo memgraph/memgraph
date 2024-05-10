@@ -341,6 +341,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     transaction_guard.unlock();
                     spdlog::debug("Sending current wal file to {}", client_.name_);
                     replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
+                    spdlog::debug("Replica commit after replicating current wal: {}", replica_commit);
                   } else {
                     spdlog::debug("Cannot recover using current wal file {}", client_.name_);
                   }
