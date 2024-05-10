@@ -334,22 +334,46 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &identity_provide
 
   auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
 
-  // Verify response integrity.
+  // Verify response integrity:
+
   if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end() ||
       ret.find("username") == ret.end()) {
     return std::nullopt;
   }
   const auto &ret_authenticated = ret.at("authenticated");
-  const auto &ret_role = ret.at("role");
-  const auto &ret_username = ret.at("username");
-  if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
+  if (!ret_authenticated.is_boolean()) {
     return std::nullopt;
   }
-  auto is_authenticated = ret_authenticated.get<bool>();
+  const auto is_authenticated = ret_authenticated.get<bool>();
+
+  if (!is_authenticated) {
+    if (ret.find("errors") == ret.end()) {
+      return std::nullopt;
+    }
+    const auto &ret_errors = ret.at("errors");
+    if (!ret_errors.is_string()) {
+      return std::nullopt;
+    }
+    const auto &errors = ret_errors.get<std::string>();
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user:\n{}", errors, "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+
+  if (is_authenticated && (ret.find("role") == ret.end() || ret.find("username") == ret.end())) {
+    return std::nullopt;
+  }
+
+  const auto &ret_role = ret.at("role");
+  const auto &ret_username = ret.at("username");
+  if (!ret_username.is_string() || !ret_role.is_string()) {
+    return std::nullopt;
+  }
+
   const auto &rolename = ret_role.get<std::string>();
   const auto &username = ret_username.get<std::string>();
 
-  // Check if role is present
+  // Check if role is present:
+
   auto role = GetRole(rolename);
   if (!role) {
     spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
@@ -357,13 +381,8 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &identity_provide
     return std::nullopt;
   }
 
-  // Authenticate the user.
-  if (!is_authenticated) {
-    const auto &ret_errors = ret.at("errors");
-    const auto &errors = ret_errors.get<std::string>();
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user:\n{}", errors, "https://memgr.ph/sso"));
-    return std::nullopt;
-  }
+  // Authenticate the user:
+
   return RoleWUsername{username, std::move(*role)};
 }
 

@@ -10,6 +10,7 @@ add_library(mg-flags STATIC
         storage_mode.cpp
         query.cpp
         replication.cpp
+        sso.cpp
         experimental.cpp
         experimental.hpp
         coord_flag_env_handler.cpp

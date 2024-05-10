@@ -61,7 +61,7 @@ std::optional<State> BasicAuthentication(TSession &session, std::map<std::string
 
 template <typename TSession>
 std::optional<State> CustomAuthentication(TSession &session, std::map<std::string, Value> &data) {
-  if (!data.contains("response")) {
+  if (!data.contains("credentials")) {
     spdlog::warn("The client didn’t supply the SAML response!");
     return State::Close;
   }
