@@ -41,13 +41,15 @@ using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
 
-RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+RaftState::RaftState(CoordinatorInstanceInitConfig const &instance_init_config,
+                     CoordinatorStateMachineConfig const &state_machine_config,
+                     CoordinatorStateManagerConfig const &state_manager_config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
       logger_(cs_new<Logger>(config.nuraft_log_file)),
-      state_machine_(cs_new<CoordinatorStateMachine>(LoggerWrapper(static_cast<Logger *>(logger_.get())))),
-      state_manager_(cs_new<CoordinatorStateManager>(config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
+      state_machine_(cs_new<CoordinatorStateMachine>(LoggerWrapper(static_cast<Logger *>(logger_.get())), state_machine_config.state_machine_durability_dir_)),
+      state_manager_(cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 

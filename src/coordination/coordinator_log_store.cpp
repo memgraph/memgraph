@@ -16,6 +16,8 @@
 #include "coordination/coordinator_exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include "kvstore/kvstore.hpp"
+
 namespace memgraph::coordination {
 
 using nuraft::cs_new;
@@ -29,9 +31,12 @@ ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
 
 }  // namespace
 
-CoordinatorLogStore::CoordinatorLogStore() : start_idx_(1) {
+CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir) : start_idx_(1) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
+  if (durability_dir) {
+    kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
+  }
 }
 
 CoordinatorLogStore::~CoordinatorLogStore() = default;

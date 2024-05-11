@@ -30,16 +30,16 @@ namespace {
 constexpr std::string_view kServersKey = "servers";  // Key prefix for servers durability
 }  // namespace
 
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, LoggerWrapper logger)
-    : my_id_(static_cast<int>(config.coordinator_id)),
-      cur_log_store_(cs_new<CoordinatorLogStore>()),
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
+    : my_id_(static_cast<int>(config.coordinator_id_)),
+      cur_log_store_(cs_new<CoordinatorLogStore>(config.log_store_durability_dir_)),
       logger_(logger),
-      kv_store_(config.durability_dir) {
+      kv_store_(config.state_manager_durability_dir_) {
   auto const c2c =
-      CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
-                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
-  my_srv_config_ = cs_new<srv_config>(config.coordinator_id, 0, c2c.coordinator_server.SocketAddress(),
-                                      nlohmann::json(c2c).dump(), false);  // non-resolved IP in SocketAddress
+      CoordinatorToCoordinatorConfig{config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
+                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}};
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
+                                      nlohmann::json(c2c).dump(), false);
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);

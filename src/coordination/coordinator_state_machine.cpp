@@ -19,7 +19,11 @@ constexpr int MAX_SNAPSHOTS = 3;
 
 namespace memgraph::coordination {
 
-CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger) : logger_(logger) {}
+CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir): logger_(logger) {
+  if (durability_dir) {
+    kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
+  }
+}
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
@@ -155,7 +159,7 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
   } else {
     // Object ID > 0: second object, put actual value.
     ctx->cluster_state_.Serialize(data_out);
-    is_last_obj = true;
+    is_last_obj = true;  // TODO(antoniofilipovic) why do we put here true?
   }
 
   return 0;

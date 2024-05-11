@@ -15,6 +15,8 @@
 
 #include <libnuraft/nuraft.hxx>
 
+#include "kvstore/kvstore.hpp"
+
 namespace memgraph::coordination {
 
 using nuraft::buffer;
@@ -27,7 +29,7 @@ using nuraft::raft_server;
 
 class CoordinatorLogStore : public log_store {
  public:
-  CoordinatorLogStore();
+  CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -64,6 +66,7 @@ class CoordinatorLogStore : public log_store {
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_;
+  std::unique_ptr<kvstore::KVStore> kv_store_;
 };
 
 }  // namespace memgraph::coordination

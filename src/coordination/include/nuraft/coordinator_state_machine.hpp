@@ -14,12 +14,14 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
 
+#include <optional>
 #include <variant>
 
 namespace memgraph::coordination {
@@ -36,7 +38,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(LoggerWrapper logger);
+  explicit CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -115,6 +117,8 @@ class CoordinatorStateMachine : public state_machine {
   LoggerWrapper logger_;
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
+
+  std::unique_ptr<kvstore::KVStore> kv_store_;
 };
 
 }  // namespace memgraph::coordination

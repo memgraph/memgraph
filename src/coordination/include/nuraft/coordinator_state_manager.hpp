@@ -31,7 +31,7 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, LoggerWrapper logger);
+  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
