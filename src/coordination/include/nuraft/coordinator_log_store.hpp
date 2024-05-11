@@ -26,7 +26,13 @@ using nuraft::log_entry;
 using nuraft::log_store;
 using nuraft::ptr;
 using nuraft::raft_server;
-
+/**
+ * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability if user sets it.
+ * If durability is set, logs are persisted to disk and loaded on startup.
+ * On first startup, version is set to 1 and start index and last log entry index are stored to disk - which are 1 and 0
+ * respectfully. If some log is missing, we assert failure. Logs are stored in a map with key being the index of the log
+ * entry. In current version logs are also cached in memory fully. For durability we use RocksDB instance.
+ */
 class CoordinatorLogStore : public log_store {
  public:
   CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir);
@@ -66,6 +72,7 @@ class CoordinatorLogStore : public log_store {
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_;
+  std::atomic<ulong> next_idx_;
   std::unique_ptr<kvstore::KVStore> kv_store_;
 };
 

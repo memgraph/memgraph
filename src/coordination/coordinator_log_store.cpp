@@ -18,24 +18,115 @@
 
 #include "kvstore/kvstore.hpp"
 
+#include <ranges>
+#include "json/json.hpp"
+
 namespace memgraph::coordination {
 
+using nuraft::buffer_serializer;
 using nuraft::cs_new;
 
 namespace {
+
+constexpr std::string_view kLogEntryPrefix = "log_entry_";
+constexpr std::string_view kLastLogEntry = "last_log_entry";
+constexpr std::string_view kStartIdx = "start_idx";
+
+constexpr std::string_view kVersion = "v1";
+
+const std::string kLogEntryDataKey = "data";
+const std::string kLogEntryTermKey = "term";
+const std::string kLogEntryValTypeKey = "val_type";
+
+// map TaskState values to JSON as strings
+NLOHMANN_JSON_SERIALIZE_ENUM(nuraft::log_val_type, {
+                                                       {nuraft::log_val_type::app_log, "app_log"},
+                                                       {nuraft::log_val_type::conf, "conf"},
+                                                       {nuraft::log_val_type::cluster_server, "running"},
+                                                       {nuraft::log_val_type::log_pack, "completed"},
+                                                       {nuraft::log_val_type::snp_sync_req, "completed"},
+                                                       {nuraft::log_val_type::custom, "custom"},
+                                                   });
 
 ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
   return cs_new<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
                            entry->get_timestamp());
 }
 
-}  // namespace
+bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_last_slot, kvstore::KVStore &kv_store) {
+  buffer_serializer bs(clone->get_buf());  // data buff
+  clone->serialize();                      // term, value_type, data buff
+  auto const log_term_json = nlohmann::json({{kLogEntryTermKey, clone->get_term()},
+                                             {kLogEntryDataKey, nlohmann::json::parse(bs.get_str())},
+                                             {kLogEntryValTypeKey, clone->get_val_type()}});
+  spdlog::trace("Storing to log to disk {} with id {}", log_term_json.dump(), std::to_string(slot));
+  MG_ASSERT(kv_store.Put("log_entry_" + std::to_string(slot), log_term_json.dump()), "Failed to store log to disk!");
 
-CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir) : start_idx_(1) {
+  if (is_new_last_slot) {
+    MG_ASSERT(kv_store.Put(kLastLogEntry, std::to_string(slot)), "Failed to store last log entry to disk!");
+  }
+
+  return true;
+}
+
+}  // namespace
+CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
+
   if (durability_dir) {
     kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
+  }
+
+  if (!kv_store_) {
+    spdlog::warn("No durability directory provided, logs will not be persisted to disk");
+    start_idx_ = 1;
+    return;
+  }
+
+  int version{0};
+  auto maybe_version = kv_store_->Get(kVersion);
+  if (maybe_version.has_value()) {
+    version = std::stoi(maybe_version.value());
+  } else {
+    spdlog::trace("Assuming first start of log store with durability as version is missing, storing version 1.");
+    MG_ASSERT(kv_store_->Put(kVersion, "1"), "Failed to store version to disk");
+    version = 1;
+  }
+
+  MG_ASSERT(version == 1, "Unsupported version of log store with durability");  // Update on next changes
+
+  auto const maybe_last_log_entry = kv_store_->Get(kLastLogEntry);
+  auto const maybe_start_idx = kv_store_->Get(kStartIdx);
+  if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
+    spdlog::trace("No last log entry or start index found on disk, assuming first start of log store with durability",
+                  maybe_last_log_entry.value());
+    start_idx_ = 1;
+    MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+    MG_ASSERT(kv_store_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
+              "Failed to store last log entry to disk");
+    return;
+  }
+
+  uint64_t last_log_entry = std::stoull(maybe_last_log_entry.value());
+  start_idx_ = std::stoull(maybe_start_idx.value());
+
+  // Compaction might have happened so we might be missing some logs.
+  for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
+    auto const entry = kv_store_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
+
+    MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}>", id, start_idx_.load(),
+              last_log_entry + 1);
+
+    auto const j = nlohmann::json::parse(entry.value());
+    auto const term = j.at(kLogEntryDataKey).get<uint64_t>();
+    auto const data = j.at("data").get<std::string>();
+    auto const value_type = j.at("val_type").get<nuraft::log_val_type>();
+    auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + sizeof(data.size()));
+    buffer_serializer bs{log_term_buffer};
+    bs.put_str(data);
+    logs_[id] = cs_new<log_entry>(term, log_term_buffer, value_type);
+    spdlog::trace("Logging entry {} with id {}, data:{}, ", std::string{j.dump()}, std::to_string(id), data);
   }
 }
 
@@ -70,6 +161,11 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
 
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
+
+  if (kv_store_) {
+    StoreToDisk(clone, next_slot, next_slot == start_idx_ + logs_.size() - 1, *kv_store_);
+  }
+
   logs_[next_slot] = clone;
 
   return next_slot;
@@ -85,6 +181,10 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
     itr = logs_.erase(itr);
   }
   logs_[index] = clone;
+
+  if (kv_store_) {
+    StoreToDisk(clone, index, index >= start_idx_ - logs_.size() - 1, *kv_store_);
+  }
 }
 
 ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start, uint64_t end) {
@@ -92,14 +192,15 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
   ret->resize(end - start);
 
   for (uint64_t i = start, curr_index = 0; i < end; i++, curr_index++) {
-    ptr<log_entry> src = nullptr;
+    ptr<log_entry> src;
     {
       auto lock = std::lock_guard{logs_lock_};
-      if (auto const entry = logs_.find(i); entry != logs_.end()) {
-        src = entry->second;
-      } else {
-        throw RaftCouldNotFindEntryException("Could not find entry at index {}", i);
+      auto const entry = logs_.find(i);
+      if (entry == logs_.end()) {
+        spdlog::error("Could not find entry at index {}", i);
+        return nullptr;
       }
+      src = entry->second;
     }
     (*ret)[curr_index] = MakeClone(src);
   }
@@ -160,6 +261,9 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     {
       auto lock = std::lock_guard{logs_lock_};
       logs_[cur_idx] = le;
+      if (kv_store_) {
+        StoreToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1, *kv_store_);
+      }
     }
   }
 
@@ -179,18 +283,31 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   auto lock = std::lock_guard{logs_lock_};
   for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
-    if (entry != logs_.end()) {
-      logs_.erase(entry);
+    if (entry == logs_.end()) {
+      continue;
+    }
+    logs_.erase(entry);
+    if (kv_store_) {
+      MG_ASSERT(kv_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii)),
+                "Failed to delete log entry from disk");
     }
   }
 
   if (start_idx_ <= last_log_index) {
     start_idx_ = last_log_index + 1;
+    if (kv_store_) {
+      MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+    }
   }
   return true;
 }
 
-bool CoordinatorLogStore::flush() { return true; }
+bool CoordinatorLogStore::flush() {
+  if (kv_store_) {
+    return kv_store_->SyncWal();
+  }
+  return true;
+}
 
 }  // namespace memgraph::coordination
 #endif
