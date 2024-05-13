@@ -191,6 +191,8 @@ add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
 add_compile_options(
         -Wall
+        -Werror=non-virtual-dtor
+        -Werror=unused-private-field
         -Werror=switch
         -Werror=switch-bool
         -Werror=return-type
