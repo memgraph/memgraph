@@ -49,7 +49,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${TOOLCHAIN_VERSION}
+      toolchain: ${{ TOOLCHAIN_VERSION }}
       arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
