@@ -165,10 +165,10 @@ jobs:
           echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
 
       - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
         if: ${{ inputs.push_to_s3 == 'true' }}
+        run:
+          aws s3 sync $SOURCE_DIR s3://${{ inputs.s3_bucket }}/$DEST_DIR
         env:
-          AWS_S3_BUCKET: ${{ inputs.s3_bucket }}
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ inputs.s3_region }}
