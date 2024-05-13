@@ -23,15 +23,15 @@ namespace memgraph::slk {
 using ReplicationClientInfo = coordination::ReplicationClientInfo;
 
 inline void Save(io::network::Endpoint const &obj, Builder *builder) {
-  Save(obj.address, builder);
-  Save(obj.port, builder);
-  Save(obj.family, builder);
+  Save(obj.GetAddress(), builder);
+  Save(obj.GetPort(), builder);
+  Save(obj.GetIpFamily(), builder);
 }
 
 inline void Load(io::network::Endpoint *obj, Reader *reader) {
-  Load(&obj->address, reader);
-  Load(&obj->port, reader);
-  Load(&obj->family, reader);
+  Load(&obj->GetAddress(), reader);
+  Load(&obj->GetPort(), reader);
+  Load(&obj->GetIpFamily(), reader);
 }
 
 inline void Save(ReplicationClientInfo const &obj, Builder *builder) {

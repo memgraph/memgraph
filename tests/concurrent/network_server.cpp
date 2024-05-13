@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ TEST(Network, Server) {
   const auto &ep = server.endpoint();
   // start clients
   std::vector<std::thread> clients;
-  for (int i = 0; i < N; ++i) clients.push_back(std::thread(client_run, i, interface, ep.port, data, 30000, SIZE));
+  for (int i = 0; i < N; ++i) clients.push_back(std::thread(client_run, i, interface, ep.GetPort(), data, 30000, SIZE));
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();

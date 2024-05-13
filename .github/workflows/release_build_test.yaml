@@ -4,19 +4,25 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
+    tags:
+      - "v*.*.*-rc*"
+      - "v*.*-rc*"
+  schedule:
+    - cron: "0 22 * * *" #UTC
   workflow_dispatch:
     inputs:
       build_type:
         type: choice
         description: "Memgraph Build type. Default value is Release."
-        default: 'Release'
+        default: Release
         options:
           - Release
           - RelWithDebInfo
       os:
         type: choice
         description: "Target OS on which the release tests will be run."
-        default: 'debian-11'
+        default: debian-11
         options:
           - all
           - amzn-2
@@ -29,20 +35,13 @@ on:
           - rocky-9.3
           - ubuntu-20.04
           - ubuntu-22.04
-      toolchain:
-        type: choice
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v5'
-        options:
-          - v5
+          - ubuntu-24.04
 
-  push:
-    tags:
-      - "v*.*.*-rc*"
-      - "v*.*-rc*"
-  schedule:
-    # UTC
-    - cron: "0 22 * * *"
+env:
+  TOOLCHAIN_VERSION: v5
+  S3_BUCKET: deps.memgraph.io
+  S3_REGION: eu-west-1
+  S3_DEST_DIR: "memgraph/${{ github.ref_name }}"
 
 jobs:
   TestIndividual:
@@ -50,8 +49,8 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
-      arch: "amd"
+      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
@@ -60,31 +59,72 @@ jobs:
     if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04]
+        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
-      arch: "amd"
+      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
     secrets: inherit
 
-  PackageAndUpload:
+  PackageArtifact:
     if: github.ref_type == 'tag'
     needs: [TestIndividual]
     strategy:
       fail-fast: false
       matrix:
+        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         arch: [amd, arm]
+        build_type: [Release, RelWithDebInfo]
+        exclude: # Exclude unsupported combinations
+          - os: amzn-2
+            arch: arm
+          - os: centos-7
+            arch: arm
+          - os: centos-9
+            arch: arm
+          - os: fedora-38
+            arch: arm
+          - os: fedora-39
+            arch: arm
+          - os: rocky-9.3
+            arch: arm
+          - os: ubuntu-20.04
+            arch: arm
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: 'debian-12'
-      toolchain: 'v5'
-      arch: "${{ matrix.arch }}"
-      build_type: 'Release'
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      build_type: ${{ matrix.build_type }}
+      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: "deps.memgraph.io"
-      s3_region: "eu-west-1"
-      s3_dest_dir: "memgraph-unofficial/${{ github.ref_name }}"
+      s3_bucket: ${{ env.S3_BUCKET }}
+      s3_region: ${{ env.S3_REGION }}
+      s3_dest_dir: ${{ env.S3_DEST_DIR }}
+    secrets: inherit
+
+  DockerArtifact:
+    if: github.ref_type == 'tag'
+    needs: [TestIndividual]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [debian-12]
+        arch: [amd, arm]
+        build_type: [Release, RelWithDebInfo]
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ matrix.os }}
+      arch: ${{ matrix.arch }}
+      build_type: ${{ matrix.build_type }}
+      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      additional_build_args: --for-docker
+      push_to_github: 'false'
+      push_to_s3: 'true'
+      s3_bucket: ${{ env.S3_BUCKET }}
+      s3_region: ${{ env.S3_REGION }}
+      s3_dest_dir: ${{ env.S3_DEST_DIR }}
     secrets: inherit

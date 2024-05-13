@@ -21,6 +21,8 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
+#include <mutex>
+
 namespace memgraph::audit {
 
 // Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
@@ -144,13 +146,13 @@ void Log::Record(const std::string &address, const std::string &username, const 
 
 void Log::ReopenLog() {
   if (!started_.load(std::memory_order_relaxed)) return;
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   if (log_.IsOpen()) log_.Close();
   log_.Open(storage_directory_ / "audit.log", utils::OutputFile::Mode::APPEND_TO_EXISTING);
 }
 
 void Log::Flush() {
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   for (uint64_t i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;

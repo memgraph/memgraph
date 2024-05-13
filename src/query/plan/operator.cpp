@@ -4106,6 +4106,7 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
       case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::ZonedDateTime:
         return;
       default:
         throw QueryRuntimeException(

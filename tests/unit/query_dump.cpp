@@ -910,13 +910,11 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     // Indices and constraints are 4 queries and there must be at least one more
     // query for the data.
     ASSERT_GE(results.size(), 5);
-    int i = 0;
     for (const auto &item : results) {
       ASSERT_EQ(item.size(), 1);
       ASSERT_TRUE(item[0].IsString());
       spdlog::debug("Query: {}", item[0].ValueString());
       Execute(&interpreter_context, db_acc, item[0].ValueString());
-      ++i;
     }
   }
   ASSERT_EQ(GetState(this->db->storage()), db_initial_state);

@@ -47,6 +47,7 @@
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
+#include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
@@ -183,13 +184,15 @@ void Sort(std::vector<TypedValue, K> &vec) {
   return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const TypedValue &lv, const std::string &rv) { return std::string(TypedValue(lv).ValueString()) == rv; }
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
-  return lv == std::string(TypedValue(rv).ValueString());
+[[maybe_unused]] bool Same(const TypedValue &lv, const std::string &rv) {
+  return std::string_view(TypedValue(lv).ValueString()) == rv;
 }
 // NOLINTNEXTLINE (misc-unused-parameters)
-bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
+[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
+  return lv == std::string_view(TypedValue(rv).ValueString());
+}
+// NOLINTNEXTLINE (misc-unused-parameters)
+[[maybe_unused]] bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
@@ -333,14 +336,14 @@ class ReplQueryHandler {
 
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
-    auto maybe_endpoint =
-        io::network::Endpoint::ParseSocketOrAddress(socket_address, memgraph::replication::kDefaultReplicationPort);
+    auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
+        socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_endpoint) {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->address),
-                                               .port = maybe_endpoint->port,
+                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
+                                               .port = maybe_endpoint->GetPort(),
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};
 
@@ -527,17 +530,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
                                    std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
-    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
       throw QueryRuntimeException("Invalid bolt socket address!");
     }
 
-    auto const maybe_management_server = io::network::Endpoint::ParseSocketOrAddress(management_server);
+    auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
     if (!maybe_management_server) {
       throw QueryRuntimeException("Invalid management socket address!");
     }
 
-    auto const maybe_replication_server = io::network::Endpoint::ParseSocketOrAddress(replication_server);
+    auto const maybe_replication_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(replication_server);
     if (!maybe_replication_server) {
       throw QueryRuntimeException("Invalid replication socket address!");
     }
@@ -603,12 +606,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
                               std::string_view coordinator_server) -> void override {
-    auto const maybe_coordinator_server = io::network::Endpoint::ParseSocketOrAddress(coordinator_server);
+    auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
     }
 
-    auto const maybe_bolt_server = io::network::Endpoint::ParseSocketOrAddress(bolt_server);
+    auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
       throw QueryRuntimeException("Invalid bolt socket address!");
     }

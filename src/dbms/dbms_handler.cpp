@@ -23,10 +23,14 @@
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
+#include <mutex>
+
 namespace memgraph::dbms {
 
 namespace {
+#ifdef MG_ENTERPRISE
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
+#endif
 
 std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
   switch (error) {
@@ -270,7 +274,7 @@ struct DropDatabase : memgraph::system::ISystemAction {
 };
 
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
-  std::lock_guard<LockT> wr(lock_);
+  auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
     // MSG cannot delete the default db
     return DeleteError::DEFAULT_DB;

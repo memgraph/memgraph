@@ -95,7 +95,7 @@ auto RaftState::InitRaftServer() -> void {
   raft_launcher launcher;
 
   raft_server_ =
-      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.port, asio_opts, params, init_opts);
+      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.GetPort(), asio_opts, params, init_opts);
 
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
