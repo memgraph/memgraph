@@ -701,6 +701,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
           break;
         }
       }
+      break;
     }
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
