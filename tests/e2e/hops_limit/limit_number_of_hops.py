@@ -52,6 +52,18 @@ def prepare_graph():
     )
 
 
+def prepare_supernode_graph():
+    # prepare graph with supernode
+    execute_query("MATCH (n) DETACH DELETE n")
+    execute_query(
+        "CREATE (a)-[:CONNECTED]->(b) "
+        "CREATE (a)-[:CONNECTED]->(c) "
+        "CREATE (a)-[:CONNECTED]->(d) "
+        "CREATE (a)-[:CONNECTED]->(e) "
+        "CREATE (a)-[:CONNECTED]->(f)"
+    )
+
+
 def test_hops_limit_dfs():
     prepare_graph()
 
@@ -93,6 +105,44 @@ def test_simple_expand():
     assert len(response) == 3
 
     assert summary["number_of_hops"] == 5
+
+
+def test_hops_limit_flag():
+    prepare_supernode_graph()
+
+    execute_query("SET DATABASE SETTING 'hops_limit_partial_results' TO 'false'")
+
+    ### failing scenarios
+
+    with pytest.raises(Exception):
+        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED *]->(e) SET e:Test RETURN e")
+
+    response, summary = get_response("MATCH (n:Test) RETURN n")
+
+    assert len(response) == 0
+
+    with pytest.raises(Exception):
+        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED *BFS]->(e) SET e:Test RETURN e")
+
+    response, summary = get_response("MATCH (n:Test) RETURN n")
+    assert len(response) == 0
+
+    with pytest.raises(Exception):
+        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED]->(e) SET e:Test RETURN e")
+
+    response, summary = get_response("MATCH (n:Test) RETURN n")
+    assert len(response) == 0
+
+    ### passing scenarios
+
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]->(e) RETURN e")
+    assert len(response) == 5
+
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *BFS]->(e) RETURN e")
+    assert len(response) == 5
+
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED]->(e) RETURN e")
+    assert len(response) == 5
 
 
 if __name__ == "__main__":

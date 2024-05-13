@@ -625,7 +625,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
         std::copy_n(vertex_->in_edges.begin(), expanded_count, std::back_inserter(in_edges));
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->in_edges) {
-          if (*hops_limit == 0) break;
+          if (**hops_limit == 0) break;
           --(**hops_limit);
           expanded_count++;
           if (destination && to_vertex != destination_vertex) continue;
@@ -734,7 +734,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
         std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-          if (*hops_limit == 0) break;
+          if (**hops_limit == 0) break;
           --(**hops_limit);
           expanded_count++;
           if (destination && to_vertex != dst_vertex) continue;

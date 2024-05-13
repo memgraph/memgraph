@@ -931,7 +931,11 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
   };
 
-  if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+  if (context.hops_limit.has_value() && context.hops_limit.value() == 0) {
+    *(context.hops_limit) = -1;  // in case this is 0 we want to set this to -1 to indicate that we haven't reached
+                                 // the end of the expansion
+    return false;
+  }
 
   while (true) {
     AbortCheck(context);
@@ -1215,7 +1219,11 @@ class ExpandVariableCursor : public Cursor {
     while (true) {
       if (Expand(frame, context)) return true;
 
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+      if (context.hops_limit.has_value() && context.hops_limit.value() == 0) {
+        *(context.hops_limit) = -1;  // in case this is 0 we want to set this to -1 to indicate that we haven't reached
+                                     // the end of the expansion
+        return false;
+      }
 
       if (PullInput(frame, context)) {
         // if lower bound is zero we also yield empty paths
@@ -1464,7 +1472,11 @@ class STShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
     while (input_cursor_->Pull(frame, context)) {
-      if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
+      if (context.hops_limit.has_value() && context.hops_limit.value() == 0) {
+        *(context.hops_limit) = -1;  // in case this is 0 we want to set this to -1 to indicate that we haven't reached
+                                     // the end of the expansion
+        return false;
+      }
 
       const auto &source_tv = frame[self_.input_symbol_];
       const auto &sink_tv = frame[self_.common_.node_symbol];
@@ -1577,7 +1589,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
+        if (context.hops_limit.has_value() && context.hops_limit.value() == 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
@@ -1646,7 +1658,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) break;
+        if (context.hops_limit.has_value() && context.hops_limit.value() == 0) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
@@ -1813,7 +1825,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if current is still empty, it means both are empty, so pull from
       // input
       if (to_visit_current_.empty()) {
-        if (context.hops_limit.has_value() && context.hops_limit.value() <= 0) return false;
+        if (context.hops_limit.has_value() && context.hops_limit.value() == 0) {
+          *(context.hops_limit) = -1;  // in case this is 0 we want to set this to -1 to indicate that we haven't
+                                       // reached the end of the expansion
+          return false;
+        }
         if (!input_cursor_->Pull(frame, context)) return false;
 
         to_visit_current_.clear();
