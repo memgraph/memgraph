@@ -83,7 +83,7 @@ class DiffSetup:
         event_name = self._get_event_name()
         print(f"Event name: {event_name}")
         if event_name == "merge_group":
-            self._get_default_test_suite(True)
+            self._get_default_test_suite(self._check_diff_workflow())
         elif event_name == "pull_request":
             if self._check_diff_workflow():
                 self._setup_pull_request()
