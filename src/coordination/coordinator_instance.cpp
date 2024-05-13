@@ -493,7 +493,7 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
   return ForceResetClusterStateStatus::SUCCESS;  // Shouldn't execute
 }
 
-void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_acq_rel); }
+void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() -> void {
   auto const is_replica = [this](ReplicationInstanceConnector const &instance) {

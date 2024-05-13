@@ -191,6 +191,8 @@ add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
 add_compile_options(
         -Wall
+        -Werror=non-virtual-dtor
+        -Werror=unused-private-field
         -Werror=switch
         -Werror=switch-bool
         -Werror=return-type
@@ -259,7 +261,12 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+add_compile_definitions(
+    CMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}"
+    # In Debug also check we have correct usage of libstdc++
+    $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+)
+
 
 if (NOT MG_ARCH)
     set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
