@@ -49,7 +49,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: $TOOLCHAIN_VERSION
       arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -63,7 +63,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: $TOOLCHAIN_VERSION
       arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -98,12 +98,12 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: $TOOLCHAIN_VERSION
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: ${{ env.S3_BUCKET }}
-      s3_region: ${{ env.S3_REGION }}
-      s3_dest_dir: ${{ env.S3_DEST_DIR }}
+      s3_bucket: $S3_BUCKET
+      s3_region: $S3_REGION
+      s3_dest_dir: $S3_DEST_DIR
     secrets: inherit
 
   DockerArtifact:
@@ -120,11 +120,11 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: $TOOLCHAIN_VERSION
       additional_build_args: --for-docker
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: ${{ env.S3_BUCKET }}
-      s3_region: ${{ env.S3_REGION }}
-      s3_dest_dir: ${{ env.S3_DEST_DIR }}
+      s3_bucket: $S3_BUCKET
+      s3_region: $S3_REGION
+      s3_dest_dir: $S3_DEST_DIR
     secrets: inherit
