@@ -2407,6 +2407,7 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   if (!desired_commit_timestamp) {
     return timestamp_++;
   }
+
   // Special case logic, when txn is on REPLICA
   auto normal_next_timestamp = timestamp_;
   // any timestamps which are to be skipped need to be marked as finished
@@ -2414,6 +2415,10 @@ uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_
   for (auto const used_timestamp : std::ranges::views::iota(normal_next_timestamp, *desired_commit_timestamp)) {
     commit_log_->MarkFinished(used_timestamp);
   }
+
+  MG_ASSERT(*desired_commit_timestamp >= normal_next_timestamp,
+            "Invalid timestamp! Desired commit ts: {} normal next ts {}", *desired_commit_timestamp,
+            normal_next_timestamp);
   timestamp_ = std::max(normal_next_timestamp, *desired_commit_timestamp + 1);
   return *desired_commit_timestamp;
 }
