@@ -259,7 +259,12 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+add_compile_definitions(
+    CMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}"
+    # In Debug also check we have correct usage of libstdc++
+    $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+)
+
 
 if (NOT MG_ARCH)
     set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
