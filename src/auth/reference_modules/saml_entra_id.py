@@ -51,6 +51,13 @@ def load_from_file(path: str):
         return file.read()
 
 
+def str_to_bool(string: str):
+    if string.lower() == "true":
+        return True
+
+    return False
+
+
 def get_username(auth, attributes, use_nameid, username_attribute):
     if use_nameid:
         return auth.get_nameid()
@@ -82,8 +89,12 @@ def authenticate(response: str):
     settings["sp"]["x509cert"] = load_from_file(os.environ.get("AUTH_SAML_ENTRA_ID_SP_CERT", ""))
     settings["idp"]["x509cert"] = load_from_file(os.environ.get("AUTH_SAML_ENTRA_ID_IDP_CERT", ""))
     settings["idp"]["entityId"] = os.environ.get("AUTH_SAML_ENTRA_ID_IDP_ID", "")
-    settings["security"]["wantAssertionsEncrypted"] = os.environ.get("AUTH_SAML_ENTRA_ID_ASSERTIONS_ENCRYPTED", False)
-    settings["security"]["wantNameIdEncrypted"] = os.environ.get("AUTH_SAML_ENTRA_ID_NAME_ID_ENCRYPTED", False)
+    settings["security"]["wantAssertionsEncrypted"] = str_to_bool(
+        os.environ.get("AUTH_SAML_ENTRA_ID_ASSERTIONS_ENCRYPTED", "")
+    )
+    settings["security"]["wantNameIdEncrypted"] = str_to_bool(
+        os.environ.get("AUTH_SAML_ENTRA_ID_NAME_ID_ENCRYPTED", "")
+    )
 
     # Create a SAML2 instance
     saml_settings = OneLogin_Saml2_Settings(settings)
@@ -111,8 +122,8 @@ def authenticate(response: str):
         username = get_username(
             auth,
             attributes,
-            use_nameid=os.environ.get("AUTH_SAML_ENTRA_ID_USE_NAME_ID", False),
-            username_attribute=os.environ.get("AUTH_SAML_ENTRA_ID_USERNAME_ATTRIBUTE", False),
+            use_nameid=str_to_bool(os.environ.get("AUTH_SAML_ENTRA_ID_USE_NAME_ID", False)),
+            username_attribute=str_to_bool(os.environ.get("AUTH_SAML_ENTRA_ID_USERNAME_ATTRIBUTE", False)),
         )
     except Exception as e:
         return {"authenticated": False, "errors": str(e)}
