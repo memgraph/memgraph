@@ -102,7 +102,7 @@ def test_simple_expand():
     assert summary["number_of_hops"] == 5
 
     response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED]-(b) RETURN b")
-    assert len(response) == 3
+    assert len(response) == 5
 
     assert summary["number_of_hops"] == 5
 

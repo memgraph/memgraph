@@ -620,13 +620,17 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     deleted = vertex_->deleted;
     if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
-        expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
-        **hops_limit -= expanded_count;
-        std::copy_n(vertex_->in_edges.begin(), expanded_count, std::back_inserter(in_edges));
+        if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->in_edges.size()) > 0) {
+          **hops_limit = -1;
+        } else {
+          expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
+          **hops_limit -= expanded_count;
+          std::copy_n(vertex_->in_edges.begin(), expanded_count, std::back_inserter(in_edges));
+        }
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->in_edges) {
-          if (**hops_limit == 0) break;
           --(**hops_limit);
+          if (**hops_limit < 0) break;
           expanded_count++;
           if (destination && to_vertex != destination_vertex) continue;
           if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
@@ -729,13 +733,17 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     deleted = vertex_->deleted;
     if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
-        expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
-        **hops_limit -= expanded_count;
-        std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
+        if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->out_edges.size()) > 0) {
+          **hops_limit = -1;
+        } else {
+          expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
+          **hops_limit -= expanded_count;
+          std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
+        }
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-          if (**hops_limit == 0) break;
           --(**hops_limit);
+          if (**hops_limit < 0) break;
           expanded_count++;
           if (destination && to_vertex != dst_vertex) continue;
           if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
