@@ -2069,6 +2069,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
 
+  if (!flags::run_time::GetHopsLimitPartialResults() && (ctx_.hops_limit.has_value() && ctx_.hops_limit.value() <= 0)) {
+    throw QueryException("Query exceeded the maximum number of hops.");
+  }
+
   return GetStatsWithTotalTime(ctx_);
 }
 
