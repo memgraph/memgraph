@@ -315,22 +315,7 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &identity_provide
 
   nlohmann::json params = nlohmann::json::object();
   nlohmann::json sso_config = nlohmann::json::object();
-  sso_config["protocol"] = FLAGS_sso_protocol;
-  sso_config["identity_provider"] = FLAGS_sso_identity_provider;
-  if (FLAGS_sso_protocol == "saml") {
-    sso_config["sso.saml.assertion_audience"] = FLAGS_sso_saml_assertion_audience;
-    sso_config["sso.saml.identity_provider_id"] = FLAGS_sso_saml_identity_provider_id;
-    sso_config["sso.saml.message_recipient"] = FLAGS_sso_saml_message_recipient;
-    sso_config["sso.saml.private_decryption_key"] = FLAGS_sso_saml_private_decryption_key;
-    sso_config["sso.saml.require_encryption"] = FLAGS_sso_saml_require_encryption;
-    sso_config["sso.saml.require_signature_validation"] = FLAGS_sso_saml_require_signature_validation;
-    sso_config["sso.saml.role_mapping"] = FLAGS_sso_saml_role_mapping;
-    sso_config["sso.saml.use_NameID"] = FLAGS_sso_saml_use_NameID;
-    sso_config["sso.saml.username_attribute"] = FLAGS_sso_saml_username_attribute;
-    sso_config["sso.saml.x509_certificate"] = FLAGS_sso_saml_x509_certificate;
-  }
   params["response"] = identity_provider_response;
-  params["sso_config"] = sso_config;
 
   auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
 
