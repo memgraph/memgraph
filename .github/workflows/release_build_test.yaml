@@ -37,19 +37,13 @@ on:
           - ubuntu-22.04
           - ubuntu-24.04
 
-env:
-  TOOLCHAIN_VERSION: v5
-  S3_BUCKET: deps.memgraph.io
-  S3_REGION: eu-west-1
-  S3_DEST_DIR: "memgraph/${{ github.ref_name }}"
-
 jobs:
   TestIndividual:
     if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: v5
       arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -63,7 +57,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: v5
       arch: amd
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -98,12 +92,12 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: v5
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: ${{ env.S3_BUCKET }}
-      s3_region: ${{ env.S3_REGION }}
-      s3_dest_dir: ${{ env.S3_DEST_DIR }}
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "memgraph/${{ github.ref_name }}"
     secrets: inherit
 
   DockerArtifact:
@@ -120,11 +114,11 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: ${{ env.TOOLCHAIN_VERSION }}
+      toolchain: v5
       additional_build_args: --for-docker
       push_to_github: 'false'
       push_to_s3: 'true'
-      s3_bucket: ${{ env.S3_BUCKET }}
-      s3_region: ${{ env.S3_REGION }}
-      s3_dest_dir: ${{ env.S3_DEST_DIR }}
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: "memgraph/${{ github.ref_name }}"
     secrets: inherit
