@@ -32,6 +32,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
+#include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -485,6 +486,8 @@ class Storage {
 
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
+
+  utils::Synchronized<EnumStore, utils::SpinLock> enum_store_;
 };
 
 }  // namespace memgraph::storage

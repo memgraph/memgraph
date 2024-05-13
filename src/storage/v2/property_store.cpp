@@ -126,6 +126,7 @@ enum class Type : uint8_t {
   TEMPORAL_DATA = 0x80,
   ZONED_TEMPORAL_DATA = 0x90,
   OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
+  ENUM = 0xB0,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -745,6 +746,15 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       value = PropertyValue(*maybe_zoned_temporal_data);
       return true;
     }
+    case Type::ENUM:
+      //      auto enum_id = reader->ReadUint(payload_size);
+      //      if (!enum_id) return false;
+      //      auto val_size = enum_directory.enum_size(*enum_id);
+      //      //TODO: lookup the enum size
+      //      auto enum_ord = reader->ReadUint(val_size);
+      //      //TODO: lookup the value and insert
+      //      //value = PropertyValue(enum_id, enum_ord);
+      return false;
   }
 }
 
@@ -838,6 +848,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
+    case Type::ENUM:
+      // TODO
+      return false;
   }
 }
 
@@ -897,6 +910,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::OFFSET_ZONED_TEMPORAL_DATA: {
       return DecodeZonedTemporalData(*reader).has_value();
     }
+    case Type::ENUM:
+      // TODO
+      return false;
   }
 }
 
@@ -1008,6 +1024,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
       return *maybe_zoned_temporal_data == value.ValueZonedTemporalData();
     }
+    case Type::ENUM:
+      // TODO
+      return false;
   }
 }
 
