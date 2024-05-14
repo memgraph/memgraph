@@ -237,7 +237,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     return;
   }
 
-  ReadAndApplyDelta(
+  ReadAndApplyDeltas(
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
@@ -549,9 +549,9 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 }
 
 // The number of applied deltas also includes skipped deltas.
-uint64_t InMemoryReplicationHandlers::ReadAndApplyDelta(storage::InMemoryStorage *storage,
-                                                        storage::durability::BaseDecoder *decoder,
-                                                        const uint64_t version) {
+uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorage *storage,
+                                                         storage::durability::BaseDecoder *decoder,
+                                                         const uint64_t version) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
