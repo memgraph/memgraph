@@ -104,11 +104,11 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
       break;
     }
     case storage::PropertyValue::Type::Enum: {
-      auto const &val = pv.ValueEnum();
+      auto const &[e_type, e_value] = pv.ValueEnum();
       // TODO should this be identifiers/strings
       ret = nlohmann::json{
-          {"type", val.type_id_.value_of()},
-          {"value", val.value_id_.value_of()},
+          {"type", e_type.value_of()},
+          {"value", e_value.value_of()},
       };
       break;
     }

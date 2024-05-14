@@ -335,9 +335,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
                                temp_value.IntMicroseconds(), temp_value.TimezoneToString());
     }
     case PropertyValue::Type::Enum: {
-      auto const &enum_val = value.ValueEnum();
-      return os << fmt::format("{{ type: {}, value: {} }}", enum_val.type_id_.value_of(),
-                               enum_val.value_id_.value_of());
+      auto const &[e_type, e_value] = value.ValueEnum();
+
+      return os << fmt::format("{{ type: {}, value: {} }}", e_type.value_of(), e_value.value_of());
     }
   }
 }

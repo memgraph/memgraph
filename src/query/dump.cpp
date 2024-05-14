@@ -97,7 +97,8 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
 void DumpEnum(std::ostream &os, const storage::Enum &value) {
   // TODO: 1) is ToEnum what we want?
   //       2) need to output identifers/strings
-  os << "ToEnum(\"" << value.type_id_.value_of() << ", " << value.value_id_.value_of() << "\")";
+  auto const &[e_type, e_value] = value;
+  os << "ToEnum(\"" << e_type.value_of() << ", " << e_value.value_of() << "\")";
 }
 
 void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {

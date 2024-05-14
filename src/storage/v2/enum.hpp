@@ -30,8 +30,26 @@ struct Enum {
   //  friend auto operator<(Enum const &, Enum const &) -> bool = default;
   friend auto operator<=>(Enum const &, Enum const &) -> std::partial_ordering = default;
 
+  friend auto as_tuple(const Enum &obj) { return std::tie(obj.type_id_, obj.value_id_); }
+
+ private:
   EnumTypeId type_id_;
   EnumValueId value_id_;
 };
 
+template <std::size_t N>
+decltype(auto) get(const Enum &obj) {
+  return std::get<N>(as_tuple(obj));
+}
+
 }  // namespace memgraph::storage
+
+namespace std {
+template <>
+struct tuple_size<memgraph::storage::Enum> : std::integral_constant<std::size_t, 2> {};
+
+template <size_t N>
+struct tuple_element<N, memgraph::storage::Enum> {
+  using type = std::tuple_element_t<N, decltype(as_tuple(std::declval<memgraph::storage::Enum>()))>;
+};
+}  // namespace std

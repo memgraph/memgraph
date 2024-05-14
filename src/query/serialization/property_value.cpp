@@ -68,11 +68,11 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       return data;
     }
     case storage::PropertyValue::Type::Enum: {
-      auto const &val = property_value.ValueEnum();
+      auto const &[e_type, e_value] = property_value.ValueEnum();
       // TODO should this be identifiers/strings
       return nlohmann::json{
-          {"type", val.type_id_.value_of()},
-          {"value", val.value_id_.value_of()},
+          {"type", e_type.value_of()},
+          {"value", e_value.value_of()},
       };
     }
   }
