@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "storage/v2/enum.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -48,6 +49,7 @@ class PropertyValue {
     Map = 6,
     TemporalData = 7,
     ZonedTemporalData = 8,
+    Enum = 9,
   };
 
   static bool AreComparableTypes(Type a, Type b) {
@@ -64,6 +66,7 @@ class PropertyValue {
   explicit PropertyValue(const double value) : double_v{.val_ = value} {}
   explicit PropertyValue(const TemporalData value) : temporal_data_v{.val_ = value} {}
   explicit PropertyValue(const ZonedTemporalData value) : zoned_temporal_data_v{.val_ = value} {}
+  explicit PropertyValue(const Enum value) : enum_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -103,6 +106,7 @@ class PropertyValue {
       case Type::Double:
       case Type::TemporalData:
       case Type::ZonedTemporalData:
+      case Type::Enum:
         // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
         return;
       // destructor for non primitive types since we used placement new
@@ -128,6 +132,7 @@ class PropertyValue {
   bool IsString() const { return type_ == Type::String; }
   bool IsList() const { return type_ == Type::List; }
   bool IsMap() const { return type_ == Type::Map; }
+  bool IsEnum() const { return type_ == Type::Enum; }
   bool IsTemporalData() const { return type_ == Type::TemporalData; }
   bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
 
@@ -169,6 +174,14 @@ class PropertyValue {
     }
 
     return zoned_temporal_data_v.val_;
+  }
+
+  Enum ValueEnum() const {
+    if (type_ != Type::Enum) [[unlikely]] {
+      throw PropertyValueException("The value isn't an enum!");
+    }
+
+    return enum_data_v.val_;
   }
 
   // const value getters for non-primitive types
@@ -258,6 +271,10 @@ class PropertyValue {
       Type type_ = Type::ZonedTemporalData;
       ZonedTemporalData val_;
     } zoned_temporal_data_v;
+    struct {
+      Type type_ = Type::Enum;
+      Enum val_;
+    } enum_data_v;
   };
 };
 
@@ -283,6 +300,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type
       return os << "temporal data";
     case PropertyValue::Type::ZonedTemporalData:
       return os << "zoned temporal data";
+    case PropertyValue::Type::Enum:
+      return os << "enum";
   }
 }
 /// @throw anything std::ostream::operator<< may throw.
@@ -310,10 +329,16 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
     case PropertyValue::Type::TemporalData:
       return os << fmt::format("type: {}, microseconds: {}", TemporalTypeToString(value.ValueTemporalData().type),
                                value.ValueTemporalData().microseconds);
-    case PropertyValue::Type::ZonedTemporalData:
-      auto temp_value = value.ValueZonedTemporalData();
+    case PropertyValue::Type::ZonedTemporalData: {
+      auto const &temp_value = value.ValueZonedTemporalData();
       return os << fmt::format("type: {}, microseconds: {}, timezone: {}", ZonedTemporalTypeToString(temp_value.type),
                                temp_value.IntMicroseconds(), temp_value.TimezoneToString());
+    }
+    case PropertyValue::Type::Enum: {
+      auto const &enum_val = value.ValueEnum();
+      return os << fmt::format("{{ type: {}, value: {} }}", enum_val.type_id_.value_of(),
+                               enum_val.value_id_.value_of());
+    }
   }
 }
 
@@ -349,6 +374,8 @@ inline bool operator==(const PropertyValue &first, const PropertyValue &second) 
       return first.ValueTemporalData() == second.ValueTemporalData();
     case PropertyValue::Type::ZonedTemporalData:
       return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
+    case PropertyValue::Type::Enum:
+      return first.ValueEnum() == second.ValueEnum();
   }
 }
 
@@ -382,6 +409,8 @@ inline bool operator<(const PropertyValue &first, const PropertyValue &second) n
       return first.ValueTemporalData() < second.ValueTemporalData();
     case PropertyValue::Type::ZonedTemporalData:
       return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
+    case PropertyValue::Type::Enum:
+      return first.ValueEnum() < second.ValueEnum();
   }
 }
 
@@ -416,6 +445,9 @@ inline PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.ty
     case Type::ZonedTemporalData:
       this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
       return;
+    case Type::Enum:
+      this->enum_data_v.val_ = other.enum_data_v.val_;
+      return;
   }
 }
 
@@ -446,6 +478,9 @@ inline PropertyValue::PropertyValue(PropertyValue &&other) noexcept : type_(othe
       break;
     case Type::ZonedTemporalData:
       zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+      break;
+    case Type::Enum:
+      enum_data_v.val_ = other.enum_data_v.val_;
       break;
   }
 }
@@ -480,6 +515,9 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
       case Type::ZonedTemporalData:
         zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
         break;
+      case Type::Enum:
+        enum_data_v.val_ = other.enum_data_v.val_;
+        break;
     }
     return *this;
   } else {
@@ -505,6 +543,8 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
       case Type::TemporalData:
         break;
       case Type::ZonedTemporalData:
+        break;
+      case Type::Enum:
         break;
     }
     // construct
@@ -535,6 +575,9 @@ inline PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         break;
       case Type::ZonedTemporalData:
         new_this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+        break;
+      case Type::Enum:
+        new_this->enum_data_v.val_ = other.enum_data_v.val_;
         break;
     }
 
@@ -575,6 +618,9 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
       case Type::ZonedTemporalData:
         zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
         break;
+      case Type::Enum:
+        enum_data_v.val_ = other.enum_data_v.val_;
+        break;
     }
     return *this;
   } else {
@@ -600,6 +646,8 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
       case Type::TemporalData:
         break;
       case Type::ZonedTemporalData:
+        break;
+      case Type::Enum:
         break;
     }
     // construct (no need to destroy moved from type)
@@ -630,6 +678,9 @@ inline PropertyValue &PropertyValue::operator=(PropertyValue &&other) noexcept {
         break;
       case Type::ZonedTemporalData:
         new_this->zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+        break;
+      case Type::Enum:
+        new_this->enum_data_v.val_ = other.enum_data_v.val_;
         break;
     }
 

@@ -707,6 +707,11 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
       break;
     }
+    case memgraph::storage::PropertyValue::Type::Enum: {
+      // TODO: extend mgp_value
+      throw std::logic_error{"mgp_value for PropertyValue::Type::Enum doesn't exist."};
+      break;
+    }
   }
 }
 

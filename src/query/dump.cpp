@@ -94,6 +94,12 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
   os << "DURATION(\"" << dur << "\")";
 }
 
+void DumpEnum(std::ostream &os, const storage::Enum &value) {
+  // TODO: 1) is ToEnum what we want?
+  //       2) need to output identifers/strings
+  os << "ToEnum(\"" << value.type_id_.value_of() << ", " << value.value_id_.value_of() << "\")";
+}
+
 void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
   switch (value.type) {
     case storage::TemporalType::Date: {
@@ -171,6 +177,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     }
     case storage::PropertyValue::Type::ZonedTemporalData: {
       DumpZonedTemporalData(*os, value.ValueZonedTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      DumpEnum(*os, value.ValueEnum());
       return;
     }
   }

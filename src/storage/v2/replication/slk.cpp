@@ -119,6 +119,10 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
+    case storage::PropertyValue::Type::Enum: {
+      // TODO
+      return;
+    }
   }
 }
 
@@ -208,6 +212,10 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
         default:
           throw slk::SlkDecodeException("Trying to load ZonedTemporalData with invalid timezone representation!");
       }
+      return;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      // TODO
       return;
     }
   }

@@ -148,6 +148,10 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       }
       break;
     }
+    case PropertyValue::Type::Enum: {
+      // TODO
+      break;
+    }
   }
 }
 

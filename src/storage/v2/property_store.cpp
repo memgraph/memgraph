@@ -567,6 +567,16 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       // We don't need payload size so we set it to a random value
       return {{Type::OFFSET_ZONED_TEMPORAL_DATA, Size::INT8}};
     }
+    case PropertyValue::Type::Enum: {
+      // TODO: encode two ints
+      //      auto enum_val = value.ValueEnum();
+      //      auto size = writer->WriteInt(enum_val.id_.value_of());
+      //      if (!size) return std::nullopt;
+      //      auto size = writer->WriteInt(enum_val.id_.value_of());
+      //
+
+      return {{Type::ENUM, Size::INT8}};
+    }
   }
 }
 

@@ -103,6 +103,15 @@ inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
       ret = to_string(zoned_temporal_data);
       break;
     }
+    case storage::PropertyValue::Type::Enum: {
+      auto const &val = pv.ValueEnum();
+      // TODO should this be identifiers/strings
+      ret = nlohmann::json{
+          {"type", val.type_id_.value_of()},
+          {"value", val.value_id_.value_of()},
+      };
+      break;
+    }
   }
   return ret;
 }

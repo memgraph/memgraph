@@ -89,6 +89,8 @@ void PrintObject(std::ostream *out, const T &arg);
 
 void PrintObject(std::ostream *out, const std::string &str);
 
+void PrintObject(std::ostream *out, storage::Enum val);
+
 void PrintObject(std::ostream *out, Aggregation::Op op);
 
 void PrintObject(std::ostream *out, Expression *expr);
@@ -117,6 +119,10 @@ void PrintObject(std::ostream *out, const T &arg) {
 
 void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
 
+void PrintObject(std::ostream *out, storage::Enum val) {
+  // TODO: maybe needs to be better
+  *out << "<enum>";
+}
 void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
 
 void PrintObject(std::ostream *out, Expression *expr) {
@@ -175,6 +181,9 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
 
     case storage::PropertyValue::Type::ZonedTemporalData:
       PrintObject(out, value.ValueZonedTemporalData());
+      break;
+    case storage::PropertyValue::Type::Enum:
+      PrintObject(out, value.ValueEnum());
       break;
   }
 }

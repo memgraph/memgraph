@@ -345,6 +345,10 @@ Value ToBoltValue(const storage::PropertyValue &value) {
           return {utils::ZonedDateTime(type.microseconds, type.timezone)};
       }
     }
+    case storage::PropertyValue::Type::Enum: {
+      // TODO: better error
+      throw 1;  // can not be a bolt value
+    }
   }
 }
 

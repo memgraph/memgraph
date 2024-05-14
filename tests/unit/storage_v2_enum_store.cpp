@@ -33,7 +33,7 @@ TEST(EnumStore, BasicTests) {
 
   auto enum_id = sut.enum_id_of("Location");
   ASSERT_TRUE(enum_id.has_value());
-  ASSERT_EQ(enum_id, EnumId{0});
+  ASSERT_EQ(enum_id, EnumTypeId{0});
 
   {
     auto enum_value_id = sut.enum_value_id_of(*enum_id, "Zagreb");
@@ -46,9 +46,9 @@ TEST(EnumStore, BasicTests) {
     ASSERT_EQ(enum_value_id, EnumValueId{1});
   }
 
-  auto name = sut.enum_name(EnumId{0});
+  auto name = sut.enum_name(EnumTypeId{0});
   ASSERT_EQ(name, "Location");
 
-  auto value = sut.enum_value(EnumId{0}, EnumValueId{0});
+  auto value = sut.enum_value(EnumTypeId{0}, EnumValueId{0});
   ASSERT_EQ(value, "Zagreb");
 }

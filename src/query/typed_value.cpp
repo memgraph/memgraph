@@ -107,6 +107,10 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       }
       return;
     }
+    case storage::PropertyValue::Type::Enum: {
+      // TODO
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -184,6 +188,10 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
           break;
         }
       }
+    }
+    case storage::PropertyValue::Type::Enum: {
+      // TODO
+      break;
     }
   }
 
