@@ -217,6 +217,11 @@ startup_config_dict = {
     ),
     "query_max_plans": ("1000", "1000", "Maximum number of generated plans for a query."),
     "flag_file": ("", "", "load flags from file"),
+    "hops_limit_partial_results": (
+        "true",
+        "true",
+        "If set to true, the query will return partial results if the hops limit is reached.",
+    ),
     "init_file": (
         "",
         "",

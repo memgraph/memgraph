@@ -50,10 +50,10 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(hops_limit_partial_results, true,
             "If set to true, the query will return partial results if the "
-            "hops limit is reached. If set to false, the query will return no "
-            "results if the hops limit is reached.");
+            "hops limit is reached.");
 
 // Query plan flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
