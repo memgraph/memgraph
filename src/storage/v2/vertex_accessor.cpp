@@ -622,7 +622,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
         if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->in_edges.size()) > 0) {
-          **hops_limit = -1;
+          *hops_limit = -1;
         } else {
           expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
           **hops_limit -= expanded_count;
@@ -735,7 +735,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     if (hops_limit && hops_limit->has_value()) {
       if (edge_types.empty() && !destination) {
         if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->out_edges.size()) > 0) {
-          **hops_limit = -1;
+          *hops_limit = -1;
         } else {
           expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
           **hops_limit -= expanded_count;
