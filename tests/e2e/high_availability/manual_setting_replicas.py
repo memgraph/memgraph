@@ -61,4 +61,4 @@ def test_no_manual_setup_on_main():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))

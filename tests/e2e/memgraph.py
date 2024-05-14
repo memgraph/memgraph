@@ -61,11 +61,10 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def wait_for_succesful_connection(self, delay=1):
+    def wait_for_succesful_connection(self, delay=0.1):
         count = 0
-        while count < 15:
+        while count < 150:
             try:
-                print(f"Current time: {datetime.datetime.now().time()}")
                 conn = mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
@@ -101,15 +100,12 @@ class MemgraphInstanceRunner:
             return
         conn.autocommit = True
         cursor = conn.cursor()
-        log.info(f"Executing setup queries on instance {self.host}:{self.bolt_port}: {setup_queries}")
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
                 cursor.execute(query_coll)
-                log.info(f"Query executed {query_coll} on instance {self.host}:{self.bolt_port}")
             elif isinstance(query_coll, list):
                 for query in query_coll:
                     cursor.execute(query)
-                    log.info(f"Query executed {query} on instance {self.host}:{self.bolt_port}")
         cursor.close()
         conn.close()
 

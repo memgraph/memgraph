@@ -50,7 +50,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10011",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -65,7 +64,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10012",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -80,7 +78,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10013",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -94,7 +91,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=1",
             "--coordinator-port=10111",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/coordinator1.log",
         "setup_queries": [],
@@ -107,7 +103,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=2",
             "--coordinator-port=10112",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/coordinator2.log",
         "setup_queries": [],
@@ -120,7 +115,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=3",
             "--coordinator-port=10113",
-            "--also-log-to-stderr",
         ],
         "log_file": "high_availability/distributed_coords/coordinator3.log",
         "setup_queries": [
@@ -2877,4 +2871,4 @@ def test_coordinator_user_action_force_reset_works():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))

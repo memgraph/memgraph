@@ -198,4 +198,4 @@ def test_writing_disabled_on_main_restart():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))

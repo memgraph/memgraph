@@ -292,4 +292,4 @@ def test_not_replicate_old_main_register_new_cluster():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))
