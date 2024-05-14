@@ -924,7 +924,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last commit timestamp with
           // the commits received from main.
           // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
         }
 
         // TODO: can and should this be moved earlier?
@@ -2396,28 +2396,7 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
 }
 
 uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  // Normal logic, when txn is on MAIN
-  if (!desired_commit_timestamp) {
-    return timestamp_++;
-  } else {
-    return timestamp_++;
-  }
-
-  /*
-  // Special case logic, when txn is on REPLICA
-  auto normal_next_timestamp = timestamp_;
-  // any timestamps which are to be skipped need to be marked as finished
-  // otherwise GC would stop working correctly
-  for (auto const used_timestamp : std::ranges::views::iota(normal_next_timestamp, *desired_commit_timestamp)) {
-    commit_log_->MarkFinished(used_timestamp);
-  }
-
-  MG_ASSERT(*desired_commit_timestamp >= normal_next_timestamp,
-            "Invalid timestamp! Desired commit ts: {} normal next ts {}", *desired_commit_timestamp,
-            normal_next_timestamp);
-  timestamp_ = std::max(normal_next_timestamp, *desired_commit_timestamp + 1);
-  return *desired_commit_timestamp;
-   */
+  return timestamp_++;
 }
 
 void InMemoryStorage::PrepareForNewEpoch() {
