@@ -109,6 +109,9 @@ jobs:
         os: [debian-12]
         arch: [amd, arm]
         build_type: [Release, RelWithDebInfo]
+        exclude:
+          - arch: arm
+            build_type: RelWithDebInfo
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}
