@@ -56,8 +56,8 @@ class CoordinatorHandlers {
       return replication::ReplicationClientConfig{
           .name = repl_info_config.instance_name,
           .mode = repl_info_config.replication_mode,
-          .ip_address = repl_info_config.replication_server.address,
-          .port = repl_info_config.replication_server.port,
+          .ip_address = repl_info_config.replication_server.GetAddress(),
+          .port = repl_info_config.replication_server.GetPort(),
       };
     };
 

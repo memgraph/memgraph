@@ -12,11 +12,9 @@
 #include "storage/v2/disk/storage.hpp"
 
 #include <atomic>
-#include <charconv>
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -50,6 +48,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/small_vector.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
@@ -346,7 +345,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
+  storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
   return CreateVertexFromDisk(transaction, index_accessor, gid, std::move(labels_id), std::move(properties),
                               index_delta);
@@ -360,7 +359,7 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyInd
   if (ObjectExistsInCache(index_accessor, gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
+  storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
   return CreateVertexFromDisk(transaction, index_accessor, gid, std::move(labels_id), std::move(properties),
                               index_delta);
@@ -398,7 +397,7 @@ void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *tran
     storage::Gid gid = Gid::FromString(utils::ExtractGidFromMainDiskStorage(key));
     if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
-    std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+    storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
     CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
                          CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
@@ -431,7 +430,7 @@ void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
       if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
-      std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
+      storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
       CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
                            CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
@@ -481,7 +480,7 @@ void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Tra
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
       if (ObjectExistsInCache(cache_accessor, gid)) continue;
 
-      std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
+      storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
       CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
                            CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
@@ -1354,14 +1353,14 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(
   if (ObjectExistsInCache(main_storage_accessor, gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+  storage::small_vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
   return CreateVertexFromDisk(transaction, main_storage_accessor, gid, std::move(labels_id), std::move(properties),
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
 VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, std::vector<LabelId> label_ids,
+                                                 storage::Gid gid, storage::small_vector<LabelId> label_ids,
                                                  PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");

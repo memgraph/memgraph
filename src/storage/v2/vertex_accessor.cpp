@@ -21,13 +21,14 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/small_vector.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
@@ -217,10 +218,10 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
-Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
+Result<small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
-  std::vector<LabelId> labels;
+  small_vector<LabelId> labels;
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};

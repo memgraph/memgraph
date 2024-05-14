@@ -185,13 +185,9 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
-                                          View view, Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
-      edge_type_(edge_type),
-      view_(view),
-      storage_(storage),
-      transaction_(transaction) {}
+InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view, Storage *storage,
+                                          Transaction *transaction)
+    : index_accessor_(std::move(index_accessor)), view_(view), storage_(storage), transaction_(transaction) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
@@ -282,7 +278,7 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
                                                              Transaction *transaction) {
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
-  return {it->second.access(), edge_type, view, storage, transaction};
+  return {it->second.access(), view, storage, transaction};
 }
 
 }  // namespace memgraph::storage

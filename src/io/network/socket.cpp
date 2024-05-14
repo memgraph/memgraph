@@ -11,10 +11,12 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "utils/likely.hpp"
@@ -113,7 +115,7 @@ bool Socket::Bind(const Endpoint &endpoint) {
     return false;
   }
 
-  endpoint_ = Endpoint(endpoint.address, ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.GetAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }

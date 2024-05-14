@@ -21,6 +21,7 @@ namespace memgraph::query {
 class UserPolicy {
  public:
   virtual bool DoUpdate() const = 0;
+  virtual ~UserPolicy() = default;
 };
 extern struct SessionLongPolicy : UserPolicy {
  public:
