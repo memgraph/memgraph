@@ -1595,17 +1595,7 @@ Transaction InMemoryStorage::CreateTransaction(
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
-    // Replica should have only read queries and the write queries
-    // can come from main instance with any past timestamp.
-    // To preserve snapshot isolation we set the start timestamp
-    // of any query on replica to the last commited transaction
-    // which is timestamp_ as only commit of transaction with writes
-    // can change the value of it.
-    if (replication_role == memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
-      start_timestamp = timestamp_++;
-    } else {
-      start_timestamp = timestamp_;
-    }
+    start_timestamp = timestamp_++;
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false, !constraints_.empty()};
 }

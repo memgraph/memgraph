@@ -165,7 +165,7 @@ class ReplicationStorageClient {
       return;
     }
     if (!replica_stream || replica_stream->IsDefunct()) {
-      replica_state_.WithLock([this, &replica_stream](auto &state) {
+      replica_state_.WithLock([&replica_stream](auto &state) {
         replica_stream.reset();
         state = replication::ReplicaState::MAYBE_BEHIND;
       });
@@ -175,8 +175,7 @@ class ReplicationStorageClient {
     try {
       callback(*replica_stream);  // failure state what if not streaming (std::nullopt)
     } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock(
-          [this, &replica_stream](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
       return;
     }
