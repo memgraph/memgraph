@@ -514,7 +514,7 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     wal.SetPosition(wal_info.offset_deltas);
 
     for (size_t i = 0; i < wal_info.num_deltas;) {
-      i += ReadAndApplyDelta(storage, &wal, *version);
+      i += ReadAndApplyDeltas(storage, &wal, *version);
     }
 
     spdlog::debug("Replication from current WAL successful!");
