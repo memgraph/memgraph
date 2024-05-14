@@ -48,16 +48,26 @@ TEST(Endpoint, DNSResolution) {
 
   // test constructor
   endpoint = endpoint_t("localhost", 12347);
-  EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
-  EXPECT_EQ(endpoint.GetPort(), 12347);
-  EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
+  if (endpoint.GetIpFamily() == endpoint_t::IpFamily::IP4) {
+    EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
+    EXPECT_EQ(endpoint.GetPort(), 12347);
+    EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
+  } else {
+    EXPECT_EQ(endpoint.GetAddress(), "::1");
+    EXPECT_EQ(endpoint.GetPort(), 12347);
+    EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
+  }
 }
 
 TEST(Endpoint, DNSResolutiononParsing) {
   auto const maybe_endpoint = memgraph::io::network::Endpoint::ParseAndCreateSocketOrAddress("localhost:7687");
 
   ASSERT_EQ(maybe_endpoint.has_value(), true);
-  EXPECT_EQ(maybe_endpoint->GetAddress(), "127.0.0.1");
-  EXPECT_EQ(maybe_endpoint->GetPort(), 7687);
-  EXPECT_EQ(maybe_endpoint->GetIpFamily(), endpoint_t::IpFamily::IP4);
+  if (maybe_endpoint->GetIpFamily() == endpoint_t::IpFamily::IP4) {
+    EXPECT_EQ(maybe_endpoint->GetAddress(), "127.0.0.1");
+    EXPECT_EQ(maybe_endpoint->GetPort(), 7687);
+  } else {
+    EXPECT_EQ(maybe_endpoint->GetAddress(), "::1");
+    EXPECT_EQ(maybe_endpoint->GetPort(), 7687);
+  }
 }
