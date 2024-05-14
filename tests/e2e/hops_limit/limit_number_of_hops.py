@@ -28,10 +28,7 @@ def get_response(query: str):
     with GraphDatabase.driver(URI, auth=AUTH) as driver:
         with driver.session() as session:
             result = session.run(query)
-            records = []
-            for record in result:
-                records.append(record)
-            return records, result.consume().metadata
+            return result.single(), result.consume().metadata
 
 
 def prepare_graph():
@@ -67,14 +64,14 @@ def prepare_supernode_graph():
 def test_hops_limit_dfs():
     prepare_graph()
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]->(e) RETURN e")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]->(e) RETURN count(p)")
+    assert response["count(p)"] == 5
 
     assert summary["number_of_hops"] == 5
 
     # both directions
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]-(e) RETURN e")
-    assert len(response) == 4
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]-(e) RETURN count(p)")
+    assert response["count(p)"] == 4
 
     assert summary["number_of_hops"] == 5
 
@@ -82,14 +79,14 @@ def test_hops_limit_dfs():
 def test_hops_limit_bfs():
     prepare_graph()
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]->(e) RETURN e")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]->(e) RETURN count(p)")
+    assert response["count(p)"] == 5
 
     assert summary["number_of_hops"] == 5
 
     # both directions
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]-(e) RETURN e")
-    assert len(response) == 4
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]-(e) RETURN count(p)")
+    assert response["count(p)"] == 4
 
     assert summary["number_of_hops"] == 5
 
@@ -97,12 +94,13 @@ def test_hops_limit_bfs():
 def test_simple_expand():
     prepare_graph()
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED]->(b) RETURN b")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED]->(b) RETURN count(p)")
+    assert response["count(p)"] == 5
+
     assert summary["number_of_hops"] == 5
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED]-(b) RETURN b")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED]-(b) RETURN count(p)")
+    assert response["count(p)"] == 5
 
     assert summary["number_of_hops"] == 5
 
@@ -115,34 +113,34 @@ def test_hops_limit_flag():
     ### failing scenarios
 
     with pytest.raises(Exception):
-        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED *]->(e) SET e:Test RETURN e")
+        get_response("USING HOPS LIMIT 2 MATCH p=(a)-[:CONNECTED *]->(e) SET e:Test RETURN count(p)")
 
-    response, summary = get_response("MATCH (n:Test) RETURN n")
+    response, summary = get_response("MATCH (n:Test) RETURN count(n)")
 
-    assert len(response) == 0
-
-    with pytest.raises(Exception):
-        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED *BFS]->(e) SET e:Test RETURN e")
-
-    response, summary = get_response("MATCH (n:Test) RETURN n")
-    assert len(response) == 0
+    assert response["count(n)"] == 0
 
     with pytest.raises(Exception):
-        get_response("USING HOPS LIMIT 2 MATCH (a)-[:CONNECTED]->(e) SET e:Test RETURN e")
+        get_response("USING HOPS LIMIT 2 MATCH p=(a)-[:CONNECTED *BFS]->(e) SET e:Test RETURN count(p)")
 
-    response, summary = get_response("MATCH (n:Test) RETURN n")
-    assert len(response) == 0
+    response, summary = get_response("MATCH (n:Test) RETURN count(n)")
+    assert response["count(n)"] == 0
+
+    with pytest.raises(Exception):
+        get_response("USING HOPS LIMIT 2 MATCH p=(a)-[:CONNECTED]->(e) SET e:Test RETURN count(p)")
+
+    response, summary = get_response("MATCH (n:Test) RETURN count(n)")
+    assert response["count(n)"] == 0
 
     ### passing scenarios
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *]->(e) RETURN e")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]->(e) RETURN count(p)")
+    assert response["count(p)"] == 5
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED *BFS]->(e) RETURN e")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *BFS]->(e) RETURN count(p)")
+    assert response["count(p)"] == 5
 
-    response, summary = get_response("USING HOPS LIMIT 5 MATCH (a)-[:CONNECTED]->(e) RETURN e")
-    assert len(response) == 5
+    response, summary = get_response("USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED]->(e) RETURN count(p)")
+    assert response["count(p)"] == 5
 
 
 if __name__ == "__main__":
