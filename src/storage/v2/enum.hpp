@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include "strong_type/strong_type.hpp"
+
+#include "boost/functional/hash.hpp"
+
 #include <concepts>
 #include <cstdint>
-
-#include "strong_type/strong_type.hpp"
 
 namespace memgraph::storage {
 
@@ -31,6 +33,13 @@ struct Enum {
   friend auto operator<=>(Enum const &, Enum const &) -> std::partial_ordering = default;
 
   friend auto as_tuple(const Enum &obj) { return std::tie(obj.type_id_, obj.value_id_); }
+
+  friend auto hash_value(Enum const &obj) {
+    size_t seed = 0;
+    boost::hash_combine(seed, obj.type_id_.value_of());
+    boost::hash_combine(seed, obj.value_id_.value_of());
+    return seed;
+  }
 
  private:
   EnumTypeId type_id_;
@@ -52,4 +61,10 @@ template <size_t N>
 struct tuple_element<N, memgraph::storage::Enum> {
   using type = std::tuple_element_t<N, decltype(as_tuple(std::declval<memgraph::storage::Enum>()))>;
 };
+
+template <>
+struct hash<memgraph::storage::Enum> {
+  size_t operator()(const memgraph::storage::Enum &obj) const noexcept { return hash_value(obj); }
+};
+
 }  // namespace std

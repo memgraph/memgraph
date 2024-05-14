@@ -57,6 +57,9 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         return a.UnsafeValueDuration() <=> b.UnsafeValueDuration();
       case TypedValue::Type::Null:
         return std::partial_ordering::equivalent;
+      case TypedValue::Type::Enum:
+        return a.UnsafeValueEnum() <=> b.UnsafeValueEnum();
+        break;
       case TypedValue::Type::List:
       case TypedValue::Type::Map:
       case TypedValue::Type::Vertex:
@@ -98,6 +101,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::LocalDateTime:
       case TypedValue::Type::ZonedDateTime:
       case TypedValue::Type::Duration:
+      case TypedValue::Type::Enum:
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
         LOG_FATAL("Invalid type");

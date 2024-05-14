@@ -86,7 +86,8 @@ class TypedValue {
     ZonedDateTime,
     Duration,
     Graph,
-    Function
+    Function,
+    Enum,
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -153,6 +154,11 @@ class TypedValue {
   explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Double) {
     double_v = value;
+  }
+
+  explicit TypedValue(storage::Enum value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Enum) {
+    enum_v = value;
   }
 
   explicit TypedValue(const utils::Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
@@ -462,6 +468,7 @@ class TypedValue {
   TypedValue &operator=(const utils::LocalDateTime &);
   TypedValue &operator=(const utils::ZonedDateTime &);
   TypedValue &operator=(const utils::Duration &);
+  TypedValue &operator=(const storage::Enum &);
   TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
@@ -518,6 +525,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
@@ -566,6 +574,7 @@ class TypedValue {
     utils::LocalDateTime local_date_time_v;
     utils::ZonedDateTime zoned_date_time_v;
     utils::Duration duration_v;
+    storage::Enum enum_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
     std::function<void(TypedValue *)> function_v;

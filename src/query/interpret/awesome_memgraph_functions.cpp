@@ -631,6 +631,8 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("LOCAL_DATE_TIME", ctx.memory);
     case TypedValue::Type::Duration:
       return TypedValue("DURATION", ctx.memory);
+    case TypedValue::Type::Enum:
+      return TypedValue("ENUM", ctx.memory);
     case TypedValue::Type::ZonedDateTime:
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:

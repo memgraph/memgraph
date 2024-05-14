@@ -160,6 +160,10 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     }
+    case query::TypedValue::Type::Enum: {
+      // TODO
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Enum to Value");
+    }
   }
 }
 

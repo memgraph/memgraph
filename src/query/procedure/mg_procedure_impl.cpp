@@ -327,6 +327,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Enum:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Enum doesn't exist."};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
@@ -3929,6 +3931,9 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueZonedDateTime();
     case TypedValue::Type::Duration:
       return (*stream) << value.ValueDuration();
+    case TypedValue::Type::Enum:
+      // TODO: need to convert to EnumType::EnumValue form
+      LOG_FATAL("enum not printable - not yet implemented");
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
