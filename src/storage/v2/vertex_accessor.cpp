@@ -12,7 +12,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <algorithm>
-#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <utility>
