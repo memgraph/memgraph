@@ -44,7 +44,7 @@
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
-// #include "flags/general.hpp"
+#include "flags/general.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
@@ -4574,8 +4574,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   //   MG_ASSERT(1 == 0, "I will fail deliberately here!");
   // }
   // if (FLAGS_fail_by_segfault) {
-  //   int *ptr = nullptr;  // Create a null pointer
-  //   *ptr = 42;
+  int *ptr = nullptr;  // Create a null pointer
+  *ptr = 42;
   // }
 
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
