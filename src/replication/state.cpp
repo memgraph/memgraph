@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "replication/state.hpp"
 #include <optional>
+#include <variant>
 
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/coordination.hpp"
-#include "flags/replication.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"
+#include "replication/state.hpp"
 #include "replication/status.hpp"
 #include "utils/file.hpp"
 #include "utils/result.hpp"
@@ -57,7 +58,8 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
-  if (FLAGS_management_port && std::holds_alternative<RoleReplicaData>(replication_data)) {
+  if (flags::CoordinationSetupInstance().IsCoordinatorManaged() &&
+      std::holds_alternative<RoleReplicaData>(replication_data)) {
     spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
   }
@@ -293,7 +295,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](auto const &replica) {
         const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.address == config.ip_address && ep.port == config.port;
+        return ep.GetAddress() == config.ip_address && ep.GetPort() == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };

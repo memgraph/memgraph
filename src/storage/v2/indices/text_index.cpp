@@ -10,11 +10,17 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
+
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "mgcxx_text_search.hpp"
 #include "query/db_accessor.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "text_search.hpp"
+
+#include <span>
+#include <vector>
 
 namespace memgraph::storage {
 
@@ -76,6 +82,7 @@ nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, Propert
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
       case PropertyValue::Type::TemporalData:
+      case PropertyValue::Type::ZonedTemporalData:
       default:
         continue;
     }
@@ -105,6 +112,7 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
       case PropertyValue::Type::List:
       case PropertyValue::Type::Map:
       case PropertyValue::Type::TemporalData:
+      case PropertyValue::Type::ZonedTemporalData:
       default:
         continue;
     }
@@ -112,7 +120,8 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
+    std::span<storage::LabelId const> labels) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }

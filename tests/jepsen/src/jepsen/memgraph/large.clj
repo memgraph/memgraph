@@ -5,10 +5,11 @@
             [clojure.string :as string]
             [jepsen
              [checker :as checker]
+             [client :as client]
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.client :as client]))
+            [jepsen.memgraph.client :as mgclient]))
 
 ; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
 ; enough time to apply all deltas.
@@ -24,48 +25,63 @@
 
 (def create-nodes (create-nodes-builder))
 
-(client/replication-client Client []
-                           ; Open connection to the node. Setup each node.
-                           (open! [this test node]
-                                  (client/replication-open-connection this node nodes-config))
-                           ; On main detach-delete-all and create-nodes.
-                           (setup! [this test]
-                                   (when (= replication-role :main)
-                                     (utils/with-session conn session
-                                       (client/detach-delete-all session)
-                                       (create-nodes session)
-                                       (info "Initial nodes created."))))
-                           (invoke! [this test op]
-                                    (client/replication-invoke-case (:f op)
-                                                                    ; Create a map with the following structure: {:type :ok, :value {:count count, :node node}}
-                                                                    :read   (utils/with-session conn session
-                                                                              (assoc op
-                                                                                     :type :ok
-                                                                                     :value {:count (->> (get-node-count session)
-                                                                                                         first
-                                                                                                         :c)
-                                                                                             :node node}))
-                                                                    ; When executed on main, create nodes.
-                                                                    :add    (if (= replication-role :main)
-                                                                              (utils/with-session conn session
-                                                                                (try
-                                                                                  ((create-nodes session)
-                                                                                   (assoc op :type :ok :value "Nodes created."))
-                                                                                  (catch Exception e
-                                                                                    (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                                                                                      (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
-                                                                                      (assoc op :type :fail :value (str e))))))
+(defrecord Client [nodes-config]
+  client/Client
+  ; Open connection to the node. Setup each node.
+  (open! [this _test node]
+    (mgclient/replication-open-connection this node nodes-config))
+  ; On main detach-delete-all and create-nodes.
+  (setup! [this _test]
+    (when (= (:replication-role this) :main)
+      (utils/with-session (:conn this) session
+        (mgclient/detach-delete-all session)
+        (create-nodes session)
+        (info "Initial nodes created."))))
+  (invoke! [this _test op]
+    (case (:f op)
+      ; Create a map with the following structure: {:type :ok, :value {:count count, :node node}}
+      :read   (utils/with-session (:conn this) session
+                (assoc op
+                       :type :ok
+                       :value {:count (->> (get-node-count session)
+                                           first
+                                           :c)
+                               :node (:node this)}))
 
-                                                                              (assoc op :type :fail :info "Not main node"))))
-                           (teardown! [this test]
-                                      (when (= replication-role :main)
-                                        (utils/with-session conn session
-                                          (try
-                                            ; Can fail for various reasons, not important at this point.
-                                            (client/detach-delete-all session)
-                                            (catch Exception _)))))
-                           (close! [_ est]
-                                   (dbclient/disconnect conn)))
+      :register (if (= (:replication-role this) :main)
+                  (do
+                    (doseq [n (filter #(= (:replication-role (val %))
+                                          :replica)
+                                      nodes-config)]
+                      (try
+                        (utils/with-session (:conn this) session
+                          ((mgclient/create-register-replica-query
+                            (first n)
+                            (second n)) session))
+                        (catch Exception _e)))
+                    (assoc op :type :ok))
+                  (assoc op :type :fail))
+
+      ; When executed on main, create nodes.
+      :add    (if (= (:replication-role this) :main)
+                (utils/with-session (:conn this) session
+                  (try
+                    ((create-nodes session)
+                     (assoc op :type :ok :value "Nodes created."))
+                    (catch Exception e
+                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                        (assoc op :type :fail :value (str e))))))
+                (assoc op :type :fail :info "Not main node"))))
+  (teardown! [this _test]
+    (when (= (:replication-role this) :main)
+      (utils/with-session (:conn this) session
+        (try
+          ; Can fail for various reasons, not important at this point.
+          (mgclient/detach-delete-all session)
+          (catch Exception _)))))
+  (close! [this _test]
+    (dbclient/disconnect (:conn this))))
 
 (defn add-nodes
   "Add nodes"
@@ -121,10 +137,10 @@
 
 (defn workload
   [opts]
-  {:client (Client. nil nil nil (:nodes-config opts))
+  {:client (Client. (:nodes-config opts))
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
-   :generator (client/replication-gen
+   :generator (mgclient/replication-gen
                (gen/mix [read-nodes add-nodes]))
    :final-generator {:clients (gen/once read-nodes) :recovery-time 40}})

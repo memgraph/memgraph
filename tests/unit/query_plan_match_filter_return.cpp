@@ -89,7 +89,7 @@ class MatchReturnFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(MatchReturnFixture, StorageTypes);
+TYPED_TEST_SUITE(MatchReturnFixture, StorageTypes);
 
 TYPED_TEST(MatchReturnFixture, MatchReturn) {
   this->AddVertices(2);
@@ -237,7 +237,7 @@ class QueryPlan : public testing::Test {
   }
 };
 
-TYPED_TEST_CASE(QueryPlan, StorageTypes);
+TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, MatchReturnCartesian) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
@@ -522,7 +522,7 @@ class ExpandFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ExpandFixture, StorageTypes);
+TYPED_TEST_SUITE(ExpandFixture, StorageTypes);
 
 TYPED_TEST(ExpandFixture, Expand) {
   auto test_expand = [&](EdgeAtom::Direction direction, memgraph::storage::View view) {
@@ -816,7 +816,7 @@ class QueryPlanExpandVariable : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlanExpandVariable, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanExpandVariable, StorageTypes);
 
 TYPED_TEST(QueryPlanExpandVariable, OneVariableExpansion) {
   auto test_expand = [&](int layer, EdgeAtom::Direction direction, std::optional<size_t> lower,
@@ -1930,7 +1930,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlanExpandWeightedShortestPath, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanExpandWeightedShortestPath, StorageTypes);
 
 // Testing weighted shortest path on this graph:
 //
@@ -2373,7 +2373,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlanExpandAllShortestPaths, StorageTypes);
+TYPED_TEST_SUITE(QueryPlanExpandAllShortestPaths, StorageTypes);
 
 template <typename StorageType>
 bool compareResultType(const typename QueryPlanExpandAllShortestPaths<StorageType>::ResultType &a,
@@ -3745,7 +3745,7 @@ class ExistsFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(ExistsFixture, StorageTypes);
+TYPED_TEST_SUITE(ExistsFixture, StorageTypes);
 
 TYPED_TEST(ExistsFixture, BasicExists) {
   std::vector<memgraph::storage::EdgeTypeId> known_edge_types;
@@ -3818,7 +3818,7 @@ class SubqueriesFeature : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(SubqueriesFeature, StorageTypes);
+TYPED_TEST_SUITE(SubqueriesFeature, StorageTypes);
 
 TYPED_TEST(SubqueriesFeature, BasicCartesian) {
   // MATCH (n) CALL { MATCH (m) RETURN m } RETURN n, m

@@ -35,7 +35,7 @@ class QueryPlan : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlan, StorageTypes);
+TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
   auto dba = this->db->Access(ReplicationRole::MAIN);

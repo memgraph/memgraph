@@ -50,7 +50,7 @@ class ReplicationInstanceClientMock : public ReplicationInstanceClient {
   MOCK_METHOD(std::chrono::seconds, InstanceDownTimeoutSec, (), (override, const));
   MOCK_METHOD(std::chrono::seconds, InstanceGetUUIDFrequencySec, (), (override, const));
   MOCK_METHOD(std::string, InstanceName, (), (override, const));
-  MOCK_METHOD(std::string, CoordinatorSocketAddress, (), (override, const));
+  MOCK_METHOD(std::string, ManagementSocketAddress, (), (override, const));
   MOCK_METHOD(std::string, ReplicationSocketAddress, (), (override, const));
   MOCK_METHOD(bool, SendPromoteReplicaToMainRpc, (UUID const &uuid, ReplicationClientsInfo replication_clients_info),
               (override, const));
@@ -97,10 +97,10 @@ TEST_F(ReplicationInstanceConnectorTest, InstanceName) {
 
 TEST_F(ReplicationInstanceConnectorTest, CoordinatorSocketAddress) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, CoordinatorSocketAddress()).Times(1);
+  EXPECT_CALL(*client, ManagementSocketAddress()).Times(1);
 
   auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.CoordinatorSocketAddress();
+  connector.ManagementSocketAddress();
 }
 
 TEST_F(ReplicationInstanceConnectorTest, ReplicationSocketAddress) {

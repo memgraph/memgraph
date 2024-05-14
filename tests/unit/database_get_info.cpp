@@ -106,7 +106,7 @@ using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage,
 #endif
                                    >;
 
-TYPED_TEST_CASE(InfoTest, TestTypes);
+TYPED_TEST_SUITE(InfoTest, TestTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {

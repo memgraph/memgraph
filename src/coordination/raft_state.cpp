@@ -13,8 +13,11 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include "coordination/coordinator_communication_config.hpp"
@@ -92,7 +95,7 @@ auto RaftState::InitRaftServer() -> void {
   raft_launcher launcher;
 
   raft_server_ =
-      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.port, asio_opts, params, init_opts);
+      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.GetPort(), asio_opts, params, init_opts);
 
   if (!raft_server_) {
     throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
@@ -163,6 +166,18 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
   }
 }
 
+auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
+  using std::chrono::duration_cast;
+  using std::chrono::microseconds;
+  using std::chrono::milliseconds;
+
+  auto const peer_info = raft_server_->get_peer_info(static_cast<int>(srv_id));
+  auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
+  spdlog::trace("Elapsed time in miliseconds since last successful response from coordinator_{}: {}",
+                static_cast<int>(srv_id), elapsed_time_ms.count());
+  return elapsed_time_ms;
+}
+
 auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig> {
   std::vector<ptr<srv_config>> srv_configs;
   raft_server_->get_srv_config_all(srv_configs);
@@ -198,7 +213,7 @@ auto RaftState::AppendOpenLock() -> bool {
     spdlog::error("Failed to accept request to open lock");
     return false;
   }
-  spdlog::trace("Request for opening lock accepted");
+  spdlog::trace("Request for opening lock in thread {} accepted", std::this_thread::get_id());
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
@@ -217,7 +232,7 @@ auto RaftState::AppendCloseLock() -> bool {
     return false;
   }
 
-  spdlog::trace("Request for closing lock accepted");
+  spdlog::trace("Request for closing lock in thread {} accepted", std::this_thread::get_id());
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to close lock with error code {}", int(res->get_result_code()));
@@ -321,7 +336,7 @@ auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
         "the leader.");
     return false;
   }
-  spdlog::trace("Request for updating UUID accepted");
+  spdlog::trace("Request for updating UUID to {} accepted", std::string{uuid});
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update UUID with error code {}", int(res->get_result_code()));
@@ -358,7 +373,7 @@ auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, c
     spdlog::error("Failed to accept request for updating UUID of instance.");
     return false;
   }
-  spdlog::trace("Request for updating UUID of instance accepted");
+  spdlog::trace("Request for updating UUID of instance {} accepted", instance_name);
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
     spdlog::error("Failed to update UUID of instance with error code {}", int(res->get_result_code()));

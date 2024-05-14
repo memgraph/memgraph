@@ -17,6 +17,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
+#include <iostream>
 #include <thread>
 
 // Short help flag.

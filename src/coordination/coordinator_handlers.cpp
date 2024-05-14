@@ -100,8 +100,8 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
   slk::Load(&req, req_reader);
 
   const replication::ReplicationServerConfig clients_config{
-      .ip_address = req.replication_client_info.replication_server.address,
-      .port = req.replication_client_info.replication_server.port};
+      .ip_address = req.replication_client_info.replication_server.GetAddress(),
+      .port = req.replication_client_info.replication_server.GetPort()};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");

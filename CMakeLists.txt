@@ -42,13 +42,6 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
-#TODO: upgrade to cmake 3.24 + CheckIPOSupported
-#cmake_policy(SET CMP0138 NEW)
-#include(CheckIPOSupported)
-#check_ipo_supported()
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
-
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
@@ -191,13 +184,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-    -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-stack-address \
-    -Wno-c99-designator -Wmissing-field-initializers \
-    -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
+add_compile_options(
+        -Wall
+        -Werror=non-virtual-dtor
+        -Werror=unused-private-field
+        -Werror=switch
+        -Werror=switch-bool
+        -Werror=return-type
+        -Werror=return-stack-address
+        -Wno-c99-designator
+        -Wmissing-field-initializers
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+)
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
@@ -218,6 +221,13 @@ add_link_options(-fuse-ld=lld)
 string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
 separate_arguments(LD_LIBS)
 link_directories(${LD_LIBS})
+
+# After linker is set, check we can use link-time optimization
+cmake_policy(SET CMP0138 NEW)
+include(CheckIPOSupported)
+check_ipo_supported() # fatal error if IPO is not supported
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
@@ -251,7 +261,12 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+add_compile_definitions(
+    CMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}"
+    # In Debug also check we have correct usage of libstdc++
+    $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+)
+
 
 if (NOT MG_ARCH)
     set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")

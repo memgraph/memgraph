@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -697,4 +697,40 @@ TEST_F(BoltDecoder, LocalDateTime) {
   ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
   AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
   AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
+}
+
+TEST_F(BoltDecoder, ZonedDateTime) {
+  using Marker = memgraph::communication::bolt::Marker;
+
+  auto check_case = [](const auto &zdt, const uint8_t version, const auto &expected) {
+    TestDecoderBuffer buffer;
+    DecoderT decoder(buffer);
+    decoder.UpdateVersion(version);
+
+    Value dv;
+
+    std::vector<uint8_t> data{
+        Cast(Marker::TinyStruct3),
+    };
+    data.push_back(static_cast<uint8_t>(expected.type));
+    data.insert(data.end(), expected.seconds.begin(), expected.seconds.end());
+    data.insert(data.end(), expected.nanoseconds.begin(), expected.nanoseconds.end());
+    data.insert(data.end(), expected.tz.begin(), expected.tz.end());
+
+    buffer.Clear();
+    buffer.Write(data.data(), data.size());
+    ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::ZonedDateTime), true);
+    ASSERT_EQ(dv.ValueZonedDateTime(), zdt);
+  };
+
+  const std::array test_cases{
+      std::make_tuple(zdt_testdata::zdt, 5, zdt_testdata::expected_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 5, zdt_testdata::expected_zdt_offset),
+      std::make_tuple(zdt_testdata::zdt, 4, zdt_testdata::expected_legacy_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 4, zdt_testdata::expected_legacy_zdt_offset),
+  };
+
+  for (const auto &[zdt, version, expected] : test_cases) {
+    check_case(zdt, version, expected);
+  }
 }

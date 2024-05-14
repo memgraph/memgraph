@@ -22,8 +22,8 @@ using testing::UnorderedElementsAre;
 
 class StorageEdgeTest : public ::testing::TestWithParam<bool> {};
 
-INSTANTIATE_TEST_CASE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
-INSTANTIATE_TEST_CASE_P(EdgesWithoutProperties, StorageEdgeTest, ::testing::Values(false));
+INSTANTIATE_TEST_SUITE_P(EdgesWithProperties, StorageEdgeTest, ::testing::Values(true));
+INSTANTIATE_TEST_SUITE_P(EdgesWithoutProperties, StorageEdgeTest, ::testing::Values(false));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {

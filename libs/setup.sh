@@ -285,18 +285,20 @@ popd
 range_v3_ref="release-0.12.0"
 repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
 
+# Asio
+asio_tag="asio-1-24-0"
+repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
+
 # NuRaft
 NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
 NURAFT_TAG="master"
 repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" false
 pushd nuraft
+mv ../asio .
 git checkout $NURAFT_COMMIT_HASH
 git apply ../nuraft.patch
-asio_tag="asio-1-29-0"
-repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
 ./prepare.sh
 popd
-
 
 # mgcxx (text search)
 mgcxx_tag="v0.0.6"

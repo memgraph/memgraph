@@ -72,6 +72,13 @@ def test_value_type_on_duration_type(memgraph):
     assert result == "DURATION"
 
 
+def test_value_type_on_zoned_date_time_type(memgraph):
+    result = next(
+        memgraph.execute_and_fetch("RETURN valuetype(datetime('2024-06-22T12:06:03[America/Los_Angeles]')) AS type")
+    )[TYPE]
+    assert result == "ZONED_DATE_TIME"
+
+
 def test_value_type_on_node_type(memgraph):
     result = next(memgraph.execute_and_fetch("CREATE (n) WITH n RETURN valuetype(n) AS type"))[TYPE]
     assert result == "NODE"

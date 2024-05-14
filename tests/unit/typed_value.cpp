@@ -69,7 +69,7 @@ class AllTypesFixture : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(AllTypesFixture, StorageTypes);
+TYPED_TEST_SUITE(AllTypesFixture, StorageTypes);
 
 void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
 
@@ -354,7 +354,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueArithmeticTest, StorageTypes);
+TYPED_TEST_SUITE(TypedValueArithmeticTest, StorageTypes);
 
 TYPED_TEST(TypedValueArithmeticTest, Sum) {
   this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
@@ -395,6 +395,16 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::LocalDateTime(1)),
                TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) +
+                   TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
+               TypedValueException);
 }
 
 TYPED_TEST(TypedValueArithmeticTest, Difference) {
@@ -407,6 +417,7 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // implicit casting
   EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
+
   // Temporal Types
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
@@ -423,6 +434,16 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) -
+                  TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
                TypedValueException);
 }
 
@@ -490,7 +511,7 @@ class TypedValueLogicTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueLogicTest, StorageTypes);
+TYPED_TEST_SUITE(TypedValueLogicTest, StorageTypes);
 
 TYPED_TEST(TypedValueLogicTest, LogicalAnd) {
   this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });

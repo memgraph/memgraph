@@ -10,8 +10,11 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <utility>
+
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
@@ -205,15 +208,16 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-          [storage, &instance_client_ptr, db_acc = std::move(db_acc),
+          [is_coordinator_managed = flags::CoordinationSetupInstance().IsCoordinatorManaged(), storage,
+           &instance_client_ptr, db_acc = std::move(db_acc),
            main_uuid](auto &storage_clients) mutable {  // NOLINT
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
             client->Start(storage, std::move(db_acc));
-            bool const success = std::invoke([state = client->State()]() {
+            bool const success = std::invoke([&is_coordinator_managed, state = client->State()]() {
               // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
 #ifdef MG_ENTERPRISE
-                return FLAGS_management_port != 0;
+                return is_coordinator_managed;
 #else
                 return false;
 #endif

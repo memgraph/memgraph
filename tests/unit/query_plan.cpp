@@ -97,7 +97,7 @@ void DeleteListContent(std::list<BaseOpChecker *> *list) {
     delete ptr;
   }
 }
-TYPED_TEST_CASE(TestPlanner, PlannerTypes);
+TYPED_TEST_SUITE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n

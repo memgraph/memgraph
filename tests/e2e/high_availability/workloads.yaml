@@ -2,19 +2,19 @@ ha_cluster: &ha_cluster
   cluster:
     replica_1:
       args: ["--experimental-enabled=high-availability", "--bolt-port", "7688", "--log-level=TRACE", "--management-port=10011"]
-      log_file: "replication-e2e-replica1.log"
+      log_file: "high_availability/coordinator/replication-e2e-replica1.log"
       setup_queries: []
     replica_2:
       args: ["--experimental-enabled=high-availability", "--bolt-port", "7689", "--log-level=TRACE", "--management-port=10012"]
-      log_file: "replication-e2e-replica2.log"
+      log_file: "high_availability/coordinator/replication-e2e-replica2.log"
       setup_queries: []
     main:
       args: ["--experimental-enabled=high-availability", "--bolt-port", "7687", "--log-level=TRACE", "--management-port=10013"]
-      log_file: "replication-e2e-main.log"
+      log_file: "high_availability/coordinator/replication-e2e-main.log"
       setup_queries: []
     coordinator:
       args: ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level=TRACE", "--coordinator-id=1", "--coordinator-port=10111"]
-      log_file: "replication-e2e-coordinator.log"
+      log_file: "high_availability/coordinator/replication-e2e-coordinator.log"
       setup_queries: [
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",

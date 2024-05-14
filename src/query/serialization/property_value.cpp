@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,14 +9,22 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cstdint>
+#include <string>
+
+#include <json/json.hpp>
+
 #include "query/serialization/property_value.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::query::serialization {
 
 namespace {
-enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA };
+enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA, ZONED_TEMPORAL_DATA, OFFSET_ZONED_TEMPORAL_DATA };
 }  // namespace
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value) {
@@ -36,13 +44,29 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       return SerializePropertyValueVector(property_value.ValueList());
     case Type::Map:
       return SerializePropertyValueMap(property_value.ValueMap());
-    case Type::TemporalData:
+    case Type::TemporalData: {
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::TEMPORAL_DATA));
       data.emplace("value", nlohmann::json::object({{"type", static_cast<uint64_t>(temporal_data.type)},
                                                     {"microseconds", temporal_data.microseconds}}));
       return data;
+    }
+    case Type::ZonedTemporalData: {
+      const auto zoned_temporal_data = property_value.ValueZonedTemporalData();
+      auto data = nlohmann::json::object();
+      auto properties = nlohmann::json::object({{"type", static_cast<uint64_t>(zoned_temporal_data.type)},
+                                                {"microseconds", zoned_temporal_data.IntMicroseconds()}});
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        data.emplace("type", static_cast<uint64_t>(ObjectType::ZONED_TEMPORAL_DATA));
+        properties.emplace("timezone", zoned_temporal_data.timezone.TimezoneName());
+      } else {
+        data.emplace("type", static_cast<uint64_t>(ObjectType::OFFSET_ZONED_TEMPORAL_DATA));
+        properties.emplace("timezone", zoned_temporal_data.timezone.DefiningOffset());
+      }
+      data.emplace("value", properties);
+      return data;
+    }
   }
 }
 
@@ -99,6 +123,16 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data) {
     case ObjectType::TEMPORAL_DATA:
       return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
                                                           data["value"]["microseconds"].get<int64_t>()});
+    case ObjectType::ZONED_TEMPORAL_DATA:
+      return storage::PropertyValue(
+          storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
+                                     utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
+                                     utils::Timezone(data["value"]["timezone"].get<std::string>())});
+    case ObjectType::OFFSET_ZONED_TEMPORAL_DATA:
+      return storage::PropertyValue(
+          storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
+                                     utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
+                                     utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
   }
 }
 

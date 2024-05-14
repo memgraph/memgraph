@@ -540,3 +540,45 @@ TEST_F(BoltEncoder, LocalDateTime) {
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
 }
+
+TEST_F(BoltEncoder, ZonedDateTime) {
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
+
+  auto check_case = [](const auto &zdt, const uint8_t version, const auto &expected) {
+    bolt_encoder.UpdateVersion(version);
+
+    output.clear();
+    std::vector<Value> vals;
+
+    const auto value = Value(zdt);
+    vals.push_back(value);
+    ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
+
+    // 0x91 denotes the size of vals (it’s 0x91 because it's ANDed – see WriteTypeSize in base_encoder.hpp).
+    // The rest of the expected results follow logically from LocalTime and Date test cases
+    std::vector<uint8_t> encoding{
+        Cast(Marker::TinyStruct1),
+        Cast(Sig::Record),
+        0x91,
+        Cast(Marker::TinyStruct3),
+    };
+    encoding.push_back(static_cast<uint8_t>(expected.type));
+    encoding.insert(encoding.end(), expected.seconds.begin(), expected.seconds.end());
+    encoding.insert(encoding.end(), expected.nanoseconds.begin(), expected.nanoseconds.end());
+    encoding.insert(encoding.end(), expected.tz.begin(), expected.tz.end());
+
+    CheckOutput(output, encoding.data(), encoding.size());
+  };
+
+  const std::array test_cases{
+      std::make_tuple(zdt_testdata::zdt, 5, zdt_testdata::expected_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 5, zdt_testdata::expected_zdt_offset),
+      std::make_tuple(zdt_testdata::zdt, 4, zdt_testdata::expected_legacy_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 4, zdt_testdata::expected_legacy_zdt_offset),
+  };
+
+  for (const auto &[zdt, version, expected] : test_cases) {
+    check_case(zdt, version, expected);
+  }
+}

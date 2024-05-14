@@ -11,19 +11,24 @@
 
 #include "storage/v2/property_store.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <optional>
-#include <sstream>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 
@@ -78,7 +83,7 @@ namespace {
 //         ++   -> size of property ID (2 bits)
 //           ++ -> size of payload OR size of payload size indicator (2 bits)
 //
-// When encoding integers (`int64_t` and `uint64_t`) they are compressed so that
+// When encoding integers (`int64_t` and `uint32_t`) they are compressed so that
 // they are stored into 1, 2, 4 or 8 bytes depending on their value.
 //
 // The size of the metadata field is very important because it is encoded with
@@ -93,7 +98,7 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
-uint64_t SizeToByteSize(Size size) {
+uint32_t SizeToByteSize(Size size) {
   switch (size) {
     case Size::INT8:
       return 1;
@@ -119,6 +124,8 @@ enum class Type : uint8_t {
   LIST = 0x60,
   MAP = 0x70,
   TEMPORAL_DATA = 0x80,
+  ZONED_TEMPORAL_DATA = 0x90,
+  OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -143,13 +150,13 @@ const uint8_t kShiftIdSize = 2;
 //     - encoded value
 //   * STRING
 //     - type; payload size is used to indicate whether the string size is
-//       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded string size
 //     - string data
 //   * LIST
 //     - type; payload size is used to indicate whether the list size is encoded
-//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded list size
 //     - list items
@@ -159,27 +166,55 @@ const uint8_t kShiftIdSize = 2;
 //       + encoded item data
 //   * MAP
 //     - type; payload size is used to indicate whether the map size is encoded
-//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`
+//       as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`
 //     - encoded property ID
 //     - encoded map size
 //     - map items
 //       + type; id size is used to indicate whether the key size is encoded as
-//         `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`; payload size is used
+//         `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size is used
 //         as described above for the inner payload type
 //       + encoded key size
 //       + encoded key data
 //       + encoded value size
 //       + encoded value data
-//   * TEMPORAL_DATE
+//   * TEMPORAL_DATA
 //     - type; payload size isn't used
 //     - encoded property ID
 //     - value saved as Metadata
 //       + type; id size is used to indicate whether the temporal data type is encoded
-//         as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t`; payload size used to
+//         as `uint8_t`, `uint16_t`, `uint32_t` or `uint32_t`; payload size used to
 //         indicate whether the microseconds are encoded as `uint8_t`, `uint16_t, `uint32_t
-//         or `uint64_t`
+//         or `uint32_t`
 //       + encoded temporal data type value
 //       + encoded microseconds value
+//   * ZONED_TEMPORAL_DATA
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + string size (always uint_8; see TZ_NAME_LENGTH_SIZE)
+//         + string data
+//   * OFFSET_ZONED_TEMPORAL_DATA
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - value saved as Metadata (the same way as in TEMPORAL_DATA)
+//       + timezone offset
+//         + encoded value (always uint_16; see tz_offset_int)
+
+const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
+// As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
+// to those in the IANA time zone database.
+// The timezone names in the IANA database follow https://data.iana.org/time-zones/theory.html#naming rules:
+// * Maximal form: AREA/LOCATION/QUALIFIER
+// * Length of subcomponents (AREA, LOCATION, and QUALIFIER): <= 14
+// * All legacy names are shorter than this
+// Therefore, the longest valid timezone name has the length of 44 (14 + 1 + 14 + 1 + 14), a 8-bit integer.
+
+using tz_offset_int = int16_t;
+// When a zoned temporal value is specified with a UTC offset (as opposed to a timezone name), the following applies:
+// * Offsets are defined in minutes
+// * Valid offsets are in the UTC + [-18h, +18h] range
+// Therefore, every possible value is in the [-1080, +1080] range and it's thus stored with a 16-bit integer.
 
 struct Metadata {
   Type type{Type::EMPTY};
@@ -210,7 +245,7 @@ class Writer {
 
   Writer() = default;
 
-  Writer(uint8_t *data, uint64_t size) : data_(data), size_(size) {}
+  Writer(uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
   std::optional<MetadataHandle> WriteMetadata() {
     if (data_ && pos_ + 1 > size_) return std::nullopt;
@@ -250,6 +285,8 @@ class Writer {
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
 
+  bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
+
   bool WriteBytes(const uint8_t *data, uint64_t size) {
     if (data_ && pos_ + size > size_) return false;
     if (data_) memcpy(data_ + pos_, data, size);
@@ -257,12 +294,12 @@ class Writer {
     return true;
   }
 
-  bool WriteBytes(const char *data, uint64_t size) {
+  bool WriteBytes(const char *data, uint32_t size) {
     static_assert(std::is_same_v<uint8_t, unsigned char>);
     return WriteBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  uint64_t Written() const { return pos_; }
+  uint32_t Written() const { return pos_; }
 
  private:
   template <typename T, typename V>
@@ -279,14 +316,14 @@ class Writer {
   }
 
   uint8_t *data_{nullptr};
-  uint64_t size_{0};
-  uint64_t pos_{0};
+  uint32_t size_{0};
+  uint32_t pos_{0};
 };
 
 // Helper class used to read data from the binary stream.
 class Reader {
  public:
-  Reader(const uint8_t *data, uint64_t size) : data_(data), size_(size), pos_(0) {}
+  Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
 
   std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
@@ -366,33 +403,51 @@ class Reader {
     return utils::MemcpyCast<double>(*value);
   }
 
-  bool ReadBytes(uint8_t *data, uint64_t size) {
+  std::optional<utils::Timezone> ReadTimezone(auto type) {
+    if (type == Type::ZONED_TEMPORAL_DATA) {
+      auto tz_str_length = ReadUint(TZ_NAME_LENGTH_SIZE);
+      if (!tz_str_length) return std::nullopt;
+      std::string tz_str_v(*tz_str_length, '\0');
+      if (!ReadBytes(tz_str_v.data(), *tz_str_length)) return std::nullopt;
+      return utils::Timezone(tz_str_v);
+    }
+
+    if (type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
+      auto offset_value = InternalReadInt<tz_offset_int>();
+      if (!offset_value) return std::nullopt;
+      return utils::Timezone(std::chrono::minutes{static_cast<int64_t>(*offset_value)});
+    }
+
+    return std::nullopt;
+  }
+
+  bool ReadBytes(uint8_t *data, uint32_t size) {
     if (pos_ + size > size_) return false;
     memcpy(data, data_ + pos_, size);
     pos_ += size;
     return true;
   }
 
-  bool ReadBytes(char *data, uint64_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
+  bool ReadBytes(char *data, uint32_t size) { return ReadBytes(reinterpret_cast<uint8_t *>(data), size); }
 
-  bool VerifyBytes(const uint8_t *data, uint64_t size) {
+  bool VerifyBytes(const uint8_t *data, uint32_t size) {
     if (pos_ + size > size_) return false;
     if (memcmp(data, data_ + pos_, size) != 0) return false;
     pos_ += size;
     return true;
   }
 
-  bool VerifyBytes(const char *data, uint64_t size) {
+  bool VerifyBytes(const char *data, uint32_t size) {
     return VerifyBytes(reinterpret_cast<const uint8_t *>(data), size);
   }
 
-  bool SkipBytes(uint64_t size) {
+  bool SkipBytes(uint32_t size) {
     if (pos_ + size > size_) return false;
     pos_ += size;
     return true;
   }
 
-  uint64_t GetPosition() const { return pos_; }
+  uint32_t GetPosition() const { return pos_; }
 
  private:
   template <typename T>
@@ -405,8 +460,8 @@ class Reader {
   }
 
   const uint8_t *data_;
-  uint64_t size_;
-  uint64_t pos_;
+  uint32_t size_ = 0;
+  uint32_t pos_ = 0;
 };
 
 // Function used to encode a PropertyValue into a byte stream.
@@ -482,6 +537,35 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       // We don't need payload size so we set it to a random value
       return {{Type::TEMPORAL_DATA, Size::INT8}};
     }
+    case PropertyValue::Type::ZonedTemporalData: {
+      auto metadata = writer->WriteMetadata();
+      if (!metadata) return std::nullopt;
+
+      const auto zoned_temporal_data = value.ValueZonedTemporalData();
+      auto type_size = writer->WriteUint(utils::UnderlyingCast(zoned_temporal_data.type));
+      if (!type_size) return std::nullopt;
+
+      auto microseconds_size = writer->WriteInt(zoned_temporal_data.IntMicroseconds());
+      if (!microseconds_size) return std::nullopt;
+
+      if (zoned_temporal_data.timezone.InTzDatabase()) {
+        metadata->Set({Type::ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
+
+        const auto &tz_str = zoned_temporal_data.timezone.TimezoneName();
+        if (!writer->WriteUint(tz_str.size())) return std::nullopt;
+        if (!writer->WriteBytes(tz_str.data(), tz_str.size())) return std::nullopt;
+
+        // We don't need payload size so we set it to a random value
+        return {{Type::ZONED_TEMPORAL_DATA, Size::INT8}};
+      }
+      // Valid timezone offsets may be -18 to +18 hours, with minute precision. This means that the range of possible
+      // offset values is [-1080, +1080], which is represented with 16-bit integers.
+
+      if (!writer->WriteTimezoneOffset(zoned_temporal_data.timezone.DefiningOffset())) return std::nullopt;
+      metadata->Set({Type::OFFSET_ZONED_TEMPORAL_DATA, *type_size, *microseconds_size});
+      // We don't need payload size so we set it to a random value
+      return {{Type::OFFSET_ZONED_TEMPORAL_DATA, Size::INT8}};
+    }
   }
 }
 
@@ -499,8 +583,8 @@ std::optional<TemporalData> DecodeTemporalData(Reader &reader) {
   return TemporalData{static_cast<TemporalType>(*type_value), *microseconds_value};
 }
 
-std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
-  uint64_t temporal_data_size = 0;
+std::optional<uint32_t> DecodeTemporalDataSize(Reader &reader) {
+  uint32_t temporal_data_size = 0;
 
   auto metadata = reader.ReadMetadata();
   if (!metadata || metadata->type != Type::TEMPORAL_DATA) return std::nullopt;
@@ -518,6 +602,59 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
   temporal_data_size += SizeToByteSize(metadata->payload_size);
 
   return temporal_data_size;
+}
+
+std::optional<ZonedTemporalData> DecodeZonedTemporalData(Reader &reader) {
+  auto metadata = reader.ReadMetadata();
+
+  if (!metadata ||
+      (metadata->type != Type::ZONED_TEMPORAL_DATA && metadata->type != Type::OFFSET_ZONED_TEMPORAL_DATA)) {
+    return std::nullopt;
+  }
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  auto timezone = reader.ReadTimezone(metadata->type);
+  if (!timezone) return std::nullopt;
+
+  return ZonedTemporalData{static_cast<ZonedTemporalType>(*type_value), utils::AsSysTime(*microseconds_value),
+                           *timezone};
+}
+
+std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
+  uint64_t zoned_temporal_data_size = 0;
+
+  auto metadata = reader.ReadMetadata();
+  if (!metadata ||
+      (metadata->type != Type::ZONED_TEMPORAL_DATA && metadata->type != Type::OFFSET_ZONED_TEMPORAL_DATA)) {
+    return std::nullopt;
+  }
+
+  zoned_temporal_data_size += 1;
+
+  auto type_value = reader.ReadUint(metadata->id_size);
+  if (!type_value) return std::nullopt;
+
+  zoned_temporal_data_size += SizeToByteSize(metadata->id_size);
+
+  auto microseconds_value = reader.ReadInt(metadata->payload_size);
+  if (!microseconds_value) return std::nullopt;
+
+  zoned_temporal_data_size += SizeToByteSize(metadata->payload_size);
+
+  if (metadata->type == Type::ZONED_TEMPORAL_DATA) {
+    auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
+    if (!tz_str_length) return std::nullopt;
+    zoned_temporal_data_size += (1 + *tz_str_length);
+  } else if (metadata->type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
+    zoned_temporal_data_size += 2;  // tz_offset_int is 16-bit
+  }
+
+  return zoned_temporal_data_size;
 }
 
 }  // namespace
@@ -567,7 +704,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       if (!size) return false;
       std::vector<PropertyValue> list;
       list.reserve(*size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         PropertyValue item;
@@ -581,7 +718,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       std::map<std::string, PropertyValue> map;
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
@@ -595,18 +732,23 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       value = PropertyValue(std::move(map));
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data = DecodeTemporalData(*reader);
       if (!maybe_temporal_data) return false;
       value = PropertyValue(*maybe_temporal_data);
-
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data = DecodeZonedTemporalData(*reader);
+      if (!maybe_zoned_temporal_data) return false;
+      value = PropertyValue(*maybe_zoned_temporal_data);
       return true;
     }
   }
 }
 
-[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint64_t &property_size) {
+[[nodiscard]] bool DecodePropertyValueSize(Reader *reader, Type type, Size payload_size, uint32_t &property_size) {
   switch (type) {
     case Type::EMPTY: {
       return false;
@@ -640,9 +782,9 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t list_property_size = SizeToByteSize(payload_size);
+      uint32_t list_property_size = SizeToByteSize(payload_size);
 
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
@@ -657,9 +799,9 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint64_t map_property_size = SizeToByteSize(payload_size);
+      uint32_t map_property_size = SizeToByteSize(payload_size);
 
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
 
@@ -681,12 +823,19 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       property_size += map_property_size;
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       const auto maybe_temporal_data_size = DecodeTemporalDataSize(*reader);
       if (!maybe_temporal_data_size) return false;
 
       property_size += *maybe_temporal_data_size;
+      return true;
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      const auto maybe_zoned_temporal_data_size = DecodeZonedTemporalDataSize(*reader);
+      if (!maybe_zoned_temporal_data_size) return false;
+
+      property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
   }
@@ -720,7 +869,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto const size = reader->ReadUint(payload_size);
       if (!size) return false;
       auto size_val = *size;
-      for (uint64_t i = 0; i != size_val; ++i) {
+      for (uint32_t i = 0; i != size_val; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
@@ -731,7 +880,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto const size = reader->ReadUint(payload_size);
       if (!size) return false;
       auto size_val = *size;
-      for (uint64_t i = 0; i != size_val; ++i) {
+      for (uint32_t i = 0; i != size_val; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         auto key_size = reader->ReadUint(metadata->id_size);
@@ -741,9 +890,12 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
       return true;
     }
-
     case Type::TEMPORAL_DATA: {
       return DecodeTemporalData(*reader).has_value();
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      return DecodeZonedTemporalData(*reader).has_value();
     }
   }
 }
@@ -811,7 +963,7 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
       if (*size != list.size()) return false;
-      for (uint64_t i = 0; i < *size; ++i) {
+      for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
@@ -844,6 +996,17 @@ std::optional<uint64_t> DecodeTemporalDataSize(Reader &reader) {
       }
 
       return *maybe_temporal_data == value.ValueTemporalData();
+    }
+    case Type::ZONED_TEMPORAL_DATA:
+    case Type::OFFSET_ZONED_TEMPORAL_DATA: {
+      if (!value.IsZonedTemporalData()) return false;
+
+      const auto maybe_zoned_temporal_data = DecodeZonedTemporalData(*reader);
+      if (!maybe_zoned_temporal_data) {
+        return false;
+      }
+
+      return *maybe_zoned_temporal_data == value.ValueZonedTemporalData();
     }
   }
 }
@@ -909,7 +1072,7 @@ enum class ExpectedPropertyStatus {
 }
 
 [[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertySize(Reader *reader, PropertyId expected_property,
-                                                                uint64_t &size) {
+                                                                uint32_t &size) {
   auto metadata = reader->ReadMetadata();
   if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
 
@@ -1016,7 +1179,7 @@ enum class ExpectedPropertyStatus {
   }
 }
 
-[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint64_t &size) {
+[[nodiscard]] ExpectedPropertyStatus FindSpecificPropertySize(Reader *reader, PropertyId property, uint32_t &size) {
   ExpectedPropertyStatus ret = ExpectedPropertyStatus::SMALLER;
   while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
   }
@@ -1043,12 +1206,12 @@ enum class ExpectedPropertyStatus {
 
 // Struct used to return info about the property position and buffer size.
 struct SpecificPropertyAndBufferInfo {
-  uint64_t property_begin;
-  uint64_t property_end;
-  uint64_t property_size;
-  uint64_t all_begin;
-  uint64_t all_end;
-  uint64_t all_size;
+  uint32_t property_begin;
+  uint32_t property_end;
+  uint32_t property_size;
+  uint32_t all_begin;
+  uint32_t all_end;
+  uint32_t all_size;
 };
 
 // Struct used to return info about the property position
@@ -1071,10 +1234,10 @@ struct SpecificPropertyAndBufferInfoMinimal {
 //
 // @sa FindSpecificProperty
 SpecificPropertyAndBufferInfo FindSpecificPropertyAndBufferInfo(Reader *reader, PropertyId property) {
-  uint64_t property_begin = reader->GetPosition();
-  uint64_t property_end = reader->GetPosition();
-  uint64_t all_begin = reader->GetPosition();
-  uint64_t all_end = reader->GetPosition();
+  uint32_t property_begin = reader->GetPosition();
+  uint32_t property_end = reader->GetPosition();
+  const uint32_t all_begin = reader->GetPosition();
+  uint32_t all_end = reader->GetPosition();
   while (true) {
     auto ret = HasExpectedProperty(reader, property);
     if (ret == ExpectedPropertyStatus::MISSING_DATA) {
@@ -1113,8 +1276,8 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
 }
 
 // All data buffers will be allocated to a power of 8 size.
-uint64_t ToPowerOf8(uint64_t size) {
-  uint64_t mod = size % 8;
+uint32_t ToPowerOf8(uint32_t size) {
+  const uint32_t mod = size % 8;
   if (mod == 0) return size;
   return size - mod + 8;
 }
@@ -1152,23 +1315,23 @@ const uint8_t kUseLocalBuffer = 0x01;
 // Helper functions used to retrieve/store `size` and `data` from/into the
 // `buffer_`.
 
-std::pair<uint64_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
-  uint64_t size;
-  uint8_t *data;
-  memcpy(&size, buffer, sizeof(uint64_t));
-  memcpy(&data, buffer + sizeof(uint64_t), sizeof(uint8_t *));
+std::pair<uint32_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
+  memcpy(&size, buffer, sizeof(uint32_t));
+  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
   return {size, data};
 }
 
 struct BufferInfo {
-  uint64_t size;
+  uint32_t size = 0;
   uint8_t *data{nullptr};
-  bool in_local_buffer;
+  bool in_local_buffer = false;
 };
 
 template <size_t N>
 BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
-  uint64_t size = 0;
+  uint32_t size = 0;
   const uint8_t *data = nullptr;
   bool in_local_buffer = false;
   std::tie(size, data) = GetSizeData(buffer);
@@ -1185,9 +1348,9 @@ BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
   return {size, non_const_data, in_local_buffer};
 }
 
-void SetSizeData(uint8_t *buffer, uint64_t size, uint8_t *data) {
-  memcpy(buffer, &size, sizeof(uint64_t));
-  memcpy(buffer + sizeof(uint64_t), &data, sizeof(uint8_t *));
+void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
+  memcpy(buffer, &size, sizeof(uint32_t));
+  memcpy(buffer + sizeof(uint32_t), &data, sizeof(uint8_t *));
 }
 
 }  // namespace
@@ -1200,7 +1363,7 @@ PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
-  uint64_t size;
+  uint32_t size = 0;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
@@ -1215,7 +1378,7 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
 }
 
 PropertyStore::~PropertyStore() {
-  uint64_t size;
+  uint32_t size = 0;
   uint8_t *data;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
@@ -1233,11 +1396,11 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return value;
 }
 
-uint64_t PropertyStore::PropertySize(PropertyId property) const {
+uint32_t PropertyStore::PropertySize(PropertyId property) const {
   auto data_size_localbuffer = GetBufferInfo(buffer_);
   Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
 
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
   return property_size;
 }
@@ -1306,7 +1469,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 }
 
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   if (!value.IsNull()) {
     Writer writer;
     EncodeProperty(&writer, property, value);
@@ -1314,8 +1477,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   bool in_local_buffer = false;
-  uint64_t size;
-  uint8_t *data;
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 != 0) {
     // We are storing the data in the local buffer.
@@ -1376,7 +1539,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
       uint8_t *current_data = nullptr;
-      uint64_t current_size = 0;
+      uint32_t current_size = 0;
       if (new_size <= sizeof(buffer_) - 1) {
         // Use the local buffer.
         buffer_[0] = kUseLocalBuffer;
@@ -1430,14 +1593,14 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
-  uint64_t size = 0;
+  uint32_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   if (size != 0) {
     return false;
   }
 
-  uint64_t property_size = 0;
+  uint32_t property_size = 0;
   {
     Writer writer;
     for (const auto &[property, value] : properties) {
@@ -1551,7 +1714,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
     return;
   }
 
-  uint64_t size = 0;
+  uint32_t size = 0;
   uint8_t *data = nullptr;
   size = buffer.size();
   if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer

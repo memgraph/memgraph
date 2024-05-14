@@ -12,7 +12,7 @@
 /// @file
 #pragma once
 
-#include <iostream>
+#include <iosfwd>
 
 #include <json/json.hpp>
 

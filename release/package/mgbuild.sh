@@ -18,7 +18,7 @@ SUPPORTED_OS=(
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
     rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
 SUPPORTED_OS_V4=(
     amzn-2
@@ -33,7 +33,7 @@ SUPPORTED_OS_V5=(
     debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-38 fedora-39
     rocky-9.3
-    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
@@ -421,11 +421,11 @@ package_docker() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
-        package_dir="$PROJECT_ROOT/$2"
+        docker_host_folder="$PROJECT_ROOT/$2"
         shift 2
       ;;
       --src-dir)
-        docker_host_folder="$PROJECT_ROOT/$2"
+        package_dir="$PROJECT_ROOT/$2"
         shift 2
       ;;
       *)

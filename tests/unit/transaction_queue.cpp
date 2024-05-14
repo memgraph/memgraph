@@ -78,7 +78,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TransactionQueueSimpleTest, StorageTypes);
+TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {
   bool started = false;

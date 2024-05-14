@@ -268,7 +268,7 @@ add_unit_test(skip_list.cpp)
 target_link_libraries(${test_prefix}skip_list mg-utils)
 
 add_unit_test(small_vector.cpp)
-target_link_libraries(${test_prefix}small_vector mg-utils)
+target_link_libraries(${test_prefix}small_vector)
 
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
@@ -299,6 +299,9 @@ target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
 
 add_unit_test(lru_cache.cpp)
 target_link_libraries(${test_prefix}lru_cache mg-utils)
+
+add_unit_test(exponential_backoff exponential_backoff.cpp)
+target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -485,11 +488,4 @@ if(MG_ENTERPRISE)
 add_unit_test(replication_instance_connector.cpp)
 target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
-endif()
-
-# Test HA cluster setup
-if(MG_ENTERPRISE)
-add_unit_test(coordinator_cluster_setup.cpp)
-target_link_libraries(${test_prefix}coordinator_cluster_setup gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}coordinator_cluster_setup PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()

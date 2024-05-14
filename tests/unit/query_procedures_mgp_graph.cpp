@@ -181,7 +181,7 @@ class MgpGraphTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(MgpGraphTest, StorageTypes);
+TYPED_TEST_SUITE(MgpGraphTest, StorageTypes);
 
 TYPED_TEST(MgpGraphTest, IsMutable) {
   mgp_graph immutable_graph = this->CreateGraph(memgraph::storage::View::OLD);
@@ -409,7 +409,8 @@ TYPED_TEST(MgpGraphTest, VertexAddLabel) {
     ASSERT_TRUE(maybe_vertex);
     const auto label_ids = maybe_vertex->Labels(memgraph::storage::View::NEW);
     ASSERT_TRUE(label_ids.HasValue());
-    EXPECT_THAT(*label_ids, ::testing::ContainerEq(std::vector{read_uncommited_accessor->NameToLabel(label)}));
+    EXPECT_EQ(label_ids->size(), 1);
+    EXPECT_EQ((*label_ids)[0], read_uncommited_accessor->NameToLabel(label));
   };
   ASSERT_NO_FATAL_FAILURE(check_label());
   EXPECT_SUCCESS(mgp_vertex_add_label(vertex.get(), mgp_label{label.data()}));

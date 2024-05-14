@@ -721,6 +721,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::Double:
           case storage::PropertyValue::Type::String:
           case storage::PropertyValue::Type::TemporalData:
+          case storage::PropertyValue::Type::ZonedTemporalData:
             // These are all fine, there's also Point, Date and Time data types
             // which were added to Cypher, but we don't have support for those
             // yet.
@@ -1059,11 +1060,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node));
+          context.number_of_hops += edges_result.expanded_count;
           in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types));
+        context.number_of_hops += edges_result.expanded_count;
         in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
@@ -1078,11 +1081,13 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node));
+          context.number_of_hops += edges_result.expanded_count;
           out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result = UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types));
+        context.number_of_hops += edges_result.expanded_count;
         out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
@@ -1156,7 +1161,7 @@ namespace {
  */
 auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction direction,
                       const std::vector<storage::EdgeTypeId> &edge_types, utils::MemoryResource *memory,
-                      DbAccessor *db_accessor) {
+                      ExecutionContext *context) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&edges) {
     return iter::imap([direction](const auto &edge) { return std::make_pair(edge, direction); },
@@ -1168,16 +1173,18 @@ auto ExpandFromVertex(const VertexAccessor &vertex, EdgeAtom::Direction directio
       memory);
 
   if (direction != EdgeAtom::Direction::OUT) {
-    auto edges = UnwrapEdgesResult(vertex.InEdges(view, edge_types)).edges;
-    if (!edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges)));
+    auto edges_result = UnwrapEdgesResult(vertex.InEdges(view, edge_types));
+    context->number_of_hops += edges_result.expanded_count;
+    if (!edges_result.edges.empty()) {
+      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::IN, std::move(edges_result.edges)));
     }
   }
 
   if (direction != EdgeAtom::Direction::IN) {
-    auto edges = UnwrapEdgesResult(vertex.OutEdges(view, edge_types)).edges;
-    if (!edges.empty()) {
-      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges)));
+    auto edges_result = UnwrapEdgesResult(vertex.OutEdges(view, edge_types));
+    context->number_of_hops += edges_result.expanded_count;
+    if (!edges_result.edges.empty()) {
+      chain_elements.emplace_back(wrapper(EdgeAtom::Direction::OUT, std::move(edges_result.edges)));
     }
   }
 
@@ -1244,7 +1251,7 @@ class ExpandVariableCursor : public Cursor {
   // the expansion currently being Pulled
   using ExpandEdges =
       decltype(ExpandFromVertex(std::declval<VertexAccessor>(), EdgeAtom::Direction::IN, self_.common_.edge_types,
-                                utils::NewDeleteResource(), std::declval<DbAccessor *>()));
+                                utils::NewDeleteResource(), std::declval<ExecutionContext *>()));
 
   utils::pmr::vector<ExpandEdges> edges_;
   // an iterator indicating the position in the corresponding edges_ element
@@ -1286,7 +1293,7 @@ class ExpandVariableCursor : public Cursor {
       if (upper_bound_ > 0) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, context.db_accessor));
+            ExpandFromVertex(vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1413,8 +1420,8 @@ class ExpandVariableCursor : public Cursor {
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
-        edges_.emplace_back(ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory,
-                                             context.db_accessor));
+        edges_.emplace_back(
+            ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -1463,7 +1470,7 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
 
-      if (FindPath(*context.db_accessor, source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
+      if (FindPath(source, sink, lower_bound, upper_bound, &frame, &evaluator, context)) {
         return true;
       }
     }
@@ -1515,8 +1522,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  bool FindPath(const DbAccessor &dba, const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound,
-                int64_t upper_bound, Frame *frame, ExpressionEvaluator *evaluator, const ExecutionContext &context) {
+  bool FindPath(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound, int64_t upper_bound,
+                Frame *frame, ExpressionEvaluator *evaluator, ExecutionContext &context) {
     using utils::Contains;
 
     if (source == sink) return false;
@@ -1557,8 +1564,9 @@ class STShortestPathCursor : public query::plan::Cursor {
 
       for (const auto &vertex : source_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-          for (const auto &edge : out_edges) {
+          auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          context.number_of_hops += out_edges_result.expanded_count;
+          for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1567,7 +1575,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-
             if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
@@ -1583,8 +1590,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-          for (const auto &edge : in_edges) {
+          auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          context.number_of_hops += in_edges_result.expanded_count;
+          for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1593,7 +1601,6 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-
             if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
@@ -1623,8 +1630,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       // reversed.
       for (const auto &vertex : sink_frontier) {
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-          for (const auto &edge : out_edges) {
+          auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+          context.number_of_hops += out_edges_result.expanded_count;
+          for (const auto &edge : out_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1648,8 +1656,9 @@ class STShortestPathCursor : public query::plan::Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-          for (const auto &edge : in_edges) {
+          auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+          context.number_of_hops += in_edges_result.expanded_count;
+          for (const auto &edge : in_edges_result.edges) {
 #ifdef MG_ENTERPRISE
             if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
                 !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
@@ -1754,17 +1763,19 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // populates the to_visit_next_ structure with expansions
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
-    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion](const auto &vertex) {
+    auto expand_from_vertex = [this, &expand_pair, &restore_frame_state_after_expansion, &context](const auto &vertex) {
       if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-        for (const auto &edge : out_edges) {
+        auto out_edges_result = UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types));
+        context.number_of_hops += out_edges_result.expanded_count;
+        for (const auto &edge : out_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.To());
           restore_frame_state_after_expansion(was_expanded);
         }
       }
       if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types)).edges;
-        for (const auto &edge : in_edges) {
+        auto in_edges_result = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types));
+        context.number_of_hops += in_edges_result.expanded_count;
+        for (const auto &edge : in_edges_result.edges) {
           bool was_expanded = expand_pair(edge, edge.From());
           restore_frame_state_after_expansion(was_expanded);
         }
@@ -4095,6 +4106,7 @@ class AggregateCursor : public Cursor {
       case TypedValue::Type::Date:
       case TypedValue::Type::LocalTime:
       case TypedValue::Type::LocalDateTime:
+      case TypedValue::Type::ZonedDateTime:
         return;
       default:
         throw QueryRuntimeException(
