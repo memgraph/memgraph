@@ -189,7 +189,7 @@ query : cypherQuery
       | dropGraphQuery
       ;
 
-cypherQuery : ( usingStatements )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatements )* singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -261,7 +261,7 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 usingStatements: USING usingStatement ;
 
-usingStatement: hopsLimit | indexHints | ( hopsLimit indexHints ) | ( indexHints hopsLimit ) ;
+usingStatement: hopsLimit | indexHints ;
 
 hopsLimit: HOPS LIMIT literal ;
 
