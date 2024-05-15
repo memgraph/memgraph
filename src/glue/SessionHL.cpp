@@ -17,6 +17,7 @@
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "flags/sso.hpp"
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
@@ -145,8 +146,35 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
-    if (locked_auth->AccessControlled()) {
+    if (locked_auth->AccessControlled() && !FLAGS_auth_sso_on) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
+      if (user_or_role.has_value()) {
+        user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+      } else {
+        res = false;
+      }
+    } else {
+      // No access control -> give empty user
+      user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+      interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
+    }
+  }
+#ifdef MG_ENTERPRISE
+  // Start off with the default database
+  interpreter_.SetCurrentDB(GetDefaultDB(), false);
+#endif
+  implicit_db_.emplace(GetCurrentDB());
+  return res;
+}
+
+bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) {
+  bool res = true;
+  interpreter_.ResetUser();
+  {
+    auto locked_auth = auth_->Lock();
+    if (locked_auth->AccessControlled() && FLAGS_auth_sso_on) {
+      const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));

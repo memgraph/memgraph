@@ -17,6 +17,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/rpc.hpp"
+#include "flags/sso.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
@@ -35,6 +36,7 @@ DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth m
                           }
                           return true;
                         });
+
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a "
                        "response from the auth module.",
@@ -237,7 +239,7 @@ Auth::Auth(std::string storage_directory, Config config)
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
-  if (module_.IsUsed()) {
+  if (module_.IsUsed() && !FLAGS_auth_sso_on) {
     /*
      * MODULE AUTH STORAGE
      */
@@ -300,6 +302,102 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   return user;
 }
 
+std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
+                                                const std::string &identity_provider_response) {
+  if (!module_.IsUsed()) {
+    spdlog::warn(
+        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
+  }
+
+  if (!FLAGS_auth_sso_on) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate via SSO because the auth-sso-on is not set to true."));
+  }
+
+  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+  if (license_check_result.HasError()) {
+    spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+    return std::nullopt;
+  }
+
+  nlohmann::json params = nlohmann::json::object();
+  nlohmann::json sso_config = nlohmann::json::object();
+  params["scheme"] = scheme;
+  params["response"] = identity_provider_response;
+
+  auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
+
+  // Verify response integrity:
+
+  if (!ret.is_object() || ret.find("authenticated") == ret.end()) {
+    spdlog::warn(
+        utils::MessageWithLink("Couldn't authenticate user: the message returned by the external auth module needs to "
+                               "be an object with the success status in the \"authenticated\" field.",
+                               "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+  const auto &ret_authenticated = ret.at("authenticated");
+  if (!ret_authenticated.is_boolean()) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user: the authentication status returned by the external auth module "
+        "needs to be a boolean value.",
+        "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+  const auto is_authenticated = ret_authenticated.get<bool>();
+
+  if (!is_authenticated) {
+    if (ret.find("errors") == ret.end()) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user: the external auth module did not pass the errors to Memgraph.",
+          "https://memgr.ph/sso"));
+      return std::nullopt;
+    }
+    const auto &ret_errors = ret.at("errors");
+    if (!ret_errors.is_string()) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate user: the external auth module did not pass the errors to Memgraph.",
+          "https://memgr.ph/sso"));
+      return std::nullopt;
+    }
+    const auto &errors = ret_errors.get<std::string>();
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user:", errors, "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+
+  if (is_authenticated && (ret.find("role") == ret.end() || ret.find("username") == ret.end())) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user: the username/role fields were not returned by the external auth module.",
+        "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+
+  const auto &ret_role = ret.at("role");
+  const auto &ret_username = ret.at("username");
+  if (!ret_username.is_string() || !ret_role.is_string()) {
+    spdlog::warn(
+        utils::MessageWithLink("Couldn't authenticate user: the username/role returned by the external auth module "
+                               "need to be string values.",
+                               "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+
+  const auto &rolename = ret_role.get<std::string>();
+  const auto &username = ret_username.get<std::string>();
+
+  // Check if the role is present:
+
+  auto role = GetRole(rolename);
+  if (!role) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
+                                        username, rolename, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+
+  // Authenticate the user:
+
+  return RoleWUsername{username, std::move(*role)};
+}
+
 void Auth::LinkUser(User &user) const {
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
@@ -311,7 +409,7 @@ void Auth::LinkUser(User &user) const {
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
-  if (module_.IsUsed()) return std::nullopt;  // User's are not supported when using module
+  if (module_.IsUsed()) return std::nullopt;  // Users are not supported when using module
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
