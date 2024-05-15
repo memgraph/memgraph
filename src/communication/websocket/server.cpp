@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "communication/websocket/server.hpp"
 
 #include <spdlog/pattern_formatter.h>
+#include <spdlog/spdlog.h>
 
 namespace memgraph::communication::websocket {
 
@@ -22,11 +23,21 @@ Server::~Server() {
 
 void Server::Start() {
   MG_ASSERT(!background_thread_, "The server was already started!");
+  if (listener_->HasErrorHappened()) {
+    spdlog::error("We have error on websocket listener already! Aborting server start.");
+    return;
+  }
   listener_->Run();
   background_thread_.emplace([this] { ioc_.run(); });
 }
 
-void Server::Shutdown() { ioc_.stop(); }
+void Server::Shutdown() {
+  if (ioc_.stopped()) {
+    spdlog::trace("Websocket is already stopped!");
+    return;
+  }
+  ioc_.stop();
+}
 
 void Server::AwaitShutdown() {
   if (background_thread_ && background_thread_->joinable()) {
@@ -34,7 +45,9 @@ void Server::AwaitShutdown() {
   }
 }
 
-bool Server::IsRunning() const { return background_thread_ && !ioc_.stopped(); }
+bool Server::IsRunning() const { return !listener_->HasErrorHappened() && background_thread_ && !ioc_.stopped(); }
+
+bool Server::HasErrorHappened() const { return listener_->HasErrorHappened(); }
 
 boost::asio::ip::tcp::endpoint Server::GetEndpoint() const { return listener_->GetEndpoint(); };
 
