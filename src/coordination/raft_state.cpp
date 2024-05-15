@@ -90,6 +90,7 @@ auto RaftState::InitRaftServer() -> void {
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
     }
+    first_cb_executed_ = true;
     return CbReturnCode::Ok;
   };
 
@@ -128,7 +129,7 @@ auto RaftState::InitRaftServer() -> void {
   // Don't return until role is set
   auto maybe_stop = utils::ResettableCounter<500>();
   while (!maybe_stop()) {
-    if (raft_server_->is_leader()) {
+    if (first_cb_executed_) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
