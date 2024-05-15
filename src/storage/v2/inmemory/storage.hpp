@@ -429,7 +429,7 @@ class InMemoryStorage final : public Storage {
                                  const std::optional<std::string> text_index_name, LabelId label,
                                  uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
 
-  uint64_t CommitTimestamp(std::optional<uint64_t> desired_commit_timestamp = {});
+  uint64_t GetCommitTimestamp();
 
   void PrepareForNewEpoch() override;
 

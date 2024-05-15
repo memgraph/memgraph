@@ -868,7 +868,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-      commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
+      commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
       if (transaction_.constraint_verification_info &&
           transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
@@ -2395,9 +2395,7 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   edges_.run_gc();
 }
 
-uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  return timestamp_++;
-}
+uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};
