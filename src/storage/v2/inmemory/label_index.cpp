@@ -80,14 +80,15 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   return ret;
 }
 
-void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                               const std::set<LabelId> &labels) {
   auto maybe_stop = utils::ResettableCounter<2048>();
+  for (const auto &label : labels) {
+    auto it = index_.find(label);
+    if (it == index_.end()) continue;
 
-  for (auto &label_storage : index_) {
-    // before starting index, check if stop_requested
-    if (token.stop_requested()) return;
-
-    auto vertices_acc = label_storage.second.access();
+    auto &label_storage = it->second;
+    auto vertices_acc = label_storage.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {
       // Hot loop, don't check stop_requested every time
       if (maybe_stop() && token.stop_requested()) return;
@@ -101,7 +102,7 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
       }
 
       if ((next_it != vertices_acc.end() && it->vertex == next_it->vertex) ||
-          !AnyVersionHasLabel(*it->vertex, label_storage.first, oldest_active_start_timestamp)) {
+          !AnyVersionHasLabel(*it->vertex, label, oldest_active_start_timestamp)) {
         vertices_acc.remove(*it);
       }
 

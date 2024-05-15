@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -338,7 +339,8 @@ class InMemoryStorage final : public Storage {
     /// Duiring commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges);
+    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges,
+                             std::set<LabelId> &removed_labels);
     SalientConfig::Items config_;
   };
 

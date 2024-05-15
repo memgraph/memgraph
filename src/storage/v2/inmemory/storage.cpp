@@ -967,7 +967,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
-                                                            std::list<Gid> &current_deleted_edges) {
+                                                            std::list<Gid> &current_deleted_edges,
+                                                            std::set<LabelId> &removed_labels) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
@@ -984,6 +985,9 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           if (vertex.deleted) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
+            for (auto label : vertex.labels) {
+              removed_labels.insert(label);
+            }
           }
           break;
         }
@@ -1033,7 +1037,8 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
+  std::set<LabelId> removed_labels;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, removed_labels);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
