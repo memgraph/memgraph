@@ -87,8 +87,7 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
               "handle ASYNC tasks");
     for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
       clients[i]->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, replica_stream);
-      const auto finalized =
-          clients[i]->FinalizeTransactionReplication(storage, std::move(db_acc), std::move(replica_stream));
+      const auto finalized = clients[i]->FinalizeTransactionReplication(storage, db_acc, std::move(replica_stream));
 
       if (clients[i]->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
