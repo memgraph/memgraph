@@ -581,7 +581,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
   auto max_delta_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
-  auto current_durable_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
+  auto current_durable_commit_timestamp = max_delta_timestamp;
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     const auto [delta_timestamp, delta] = ReadDelta(decoder);
     if (delta_timestamp > max_delta_timestamp) {

@@ -151,9 +151,6 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
       LogRpcFailure();
     }
   } catch (const rpc::RpcFailedException &) {
-    // TODO: Something needs to happen here, replica_stream_.reset() isn't a fix
-    // You're not sure if somebody else has gained the stream, occurring throughout the code
-    // Lock the client and replica_state_ at the same time
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
                       // won't block
@@ -162,7 +159,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   return info;
 }
 
-void ReplicationStorageClient::LogRpcFailure() {
+void ReplicationStorageClient::LogRpcFailure() const {
   spdlog::error(
       utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
 }
@@ -195,12 +192,11 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   auto locked_state = replica_state_.Lock();
   spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_,
                 StateToString(*locked_state));
-  std::optional<ReplicaStream> replica_stream;
   switch (*locked_state) {
     using enum replication::ReplicaState;
     case RECOVERY:
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
-      return replica_stream;
+      return std::nullopt;
     case REPLICATING:
       spdlog::debug("Replica {} missed a transaction", client_.name_);
       // We missed a transaction because we're still replicating
@@ -214,17 +210,18 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       // This is a signal to any async streams that are still finalizing to start recovery, since this commit will be
       // missed.
       *locked_state = RECOVERY;
-      return replica_stream;
+      return std::nullopt;
     case MAYBE_BEHIND:
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
       TryCheckReplicaStateAsync(storage, std::move(db_acc));
-      return replica_stream;
+      return std::nullopt;
     case DIVERGED_FROM_MAIN:
       spdlog::error(utils::MessageWithLink("Couldn't replicate data to {} since replica has diverged from main.",
                                            client_.name_, "https://memgr.ph/replication"));
-      return replica_stream;
-    case READY:
+      return std::nullopt;
+    case READY: {
+      auto replica_stream = std::optional<ReplicaStream>{};
       try {
         replica_stream.emplace(storage, client_.rpc_client_, current_wal_seq_num, main_uuid_);
         *locked_state = REPLICATING;
@@ -233,11 +230,12 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
         LogRpcFailure();
       }
       return replica_stream;
+    }
   }
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                              std::optional<ReplicaStream> replica_stream) {
+                                                              std::optional<ReplicaStream> &&replica_stream) {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be

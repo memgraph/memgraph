@@ -175,6 +175,8 @@ class ReplicationStorageClient {
     try {
       callback(*replica_stream);  // failure state what if not streaming (std::nullopt)
     } catch (const rpc::RpcFailedException &) {
+      // We don't need to reset replica stream here, as it is destroyed when object goes out of scope
+      // in FinalizeTransactionReplication function
       replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
       return;
@@ -186,11 +188,12 @@ class ReplicationStorageClient {
    *
    * @param storage pointer to the storage associated with the client
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param replica_stream replica stream to finalize the transaction on
    * @return true
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> replica_stream);
+                                                    std::optional<ReplicaStream> &&replica_stream);
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -226,7 +229,7 @@ class ReplicationStorageClient {
    */
   std::pair<bool, uint64_t> ForceResetStorage(Storage *storage);
 
-  void LogRpcFailure();
+  void LogRpcFailure() const;
 
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary

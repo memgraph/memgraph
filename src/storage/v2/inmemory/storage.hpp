@@ -406,7 +406,7 @@ class InMemoryStorage final : public Storage {
   StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
 
   /// Return true in all cases except if any sync replicas have not sent confirmation.
-  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+  [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
