@@ -146,7 +146,11 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
-    if (locked_auth->AccessControlled() && !FLAGS_auth_sso_on) {
+    if (FLAGS_auth_sso_on) {
+      return false;
+    }
+
+    if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
