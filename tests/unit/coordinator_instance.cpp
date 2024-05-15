@@ -73,8 +73,6 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                                           main_data_directory / "high_availability1" / "coordinator"};
 
   auto instance1 = CoordinatorInstance{init_config1};
-  while (!instance1.IsLeader()) {
-  }
 
   auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
                                                           main_data_directory / "high_availability2" / "coordinator"};

@@ -110,7 +110,6 @@ class RaftState {
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
-  std::atomic<bool> first_cb_executed_{false};
 };
 
 }  // namespace memgraph::coordination

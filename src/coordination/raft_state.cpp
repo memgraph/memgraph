@@ -90,7 +90,6 @@ auto RaftState::InitRaftServer() -> void {
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
     }
-    first_cb_executed_ = true;
     return CbReturnCode::Ok;
   };
 
@@ -129,13 +128,15 @@ auto RaftState::InitRaftServer() -> void {
   // Don't return until role is set
   auto maybe_stop = utils::ResettableCounter<500>();
   while (!maybe_stop()) {
-    if (first_cb_executed_) {
+    // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
+    if (raft_server_->is_initialized()) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
-  if (!raft_server_->is_leader()) {
-    throw RaftServerStartException("Failed to start raft server as leader on {}", raft_endpoint_.SocketAddress());
+  if (!raft_server_->is_initialized()) {
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}",
+                                   raft_endpoint_.SocketAddress());
   }
 }
 
