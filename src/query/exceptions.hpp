@@ -453,4 +453,11 @@ class TextSearchDisabledException : public TextSearchException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
+class CreateEnumInMulticommandTxException : public QueryException {
+ public:
+  CreateEnumInMulticommandTxException()
+      : QueryException("Create enum can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(CreateEnumInMulticommandTxException)
+};
+
 }  // namespace memgraph::query

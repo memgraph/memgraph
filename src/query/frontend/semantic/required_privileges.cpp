@@ -124,6 +124,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(CoordinatorQuery & /*coordinator_query*/) override { AddPrivilege(AuthQuery::Privilege::COORDINATOR); }
 
+  void Visit(CreateEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(ShowEnumsQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;

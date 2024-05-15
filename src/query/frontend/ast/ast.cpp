@@ -308,4 +308,10 @@ constexpr utils::TypeInfo query::EdgeImportModeQuery::kType{utils::TypeId::AST_E
 constexpr utils::TypeInfo query::PatternComprehension::kType{utils::TypeId::AST_PATTERN_COMPREHENSION,
                                                              "PatternComprehension", &query::Expression::kType};
 
+constexpr utils::TypeInfo query::CreateEnumQuery::kType{utils::TypeId::AST_CREATE_ENUM_QUERY, "CreateEnumQuery",
+                                                        &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowEnumsQuery::kType{utils::TypeId::AST_SHOW_ENUMS_QUERY, "ShowEnumsQuery",
+                                                       &query::Query::kType};
+
 }  // namespace memgraph

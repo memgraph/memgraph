@@ -3093,4 +3093,16 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabase
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext * /*ctx*/) {
+  auto *create_enum_query = storage_->Create<CreateEnumQuery>();
+  query_ = create_enum_query;
+  return create_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowEnumsQuery(MemgraphCypher::ShowEnumsQueryContext * /*ctx*/) {
+  auto *show_enums_query = storage_->Create<ShowEnumsQuery>();
+  query_ = show_enums_query;
+  return show_enums_query;
+}
+
 }  // namespace memgraph::query::frontend
