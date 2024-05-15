@@ -47,18 +47,19 @@ def mock_request():
 
 
 def load_from_file(path: str):
+    if not path:
+        return ""
+
     with open(path, mode="r") as file:
         return file.read()
 
 
 def str_to_bool(string: str):
-    if string.lower() == "true":
-        return True
-
-    return False
+    return string.lower() == "true"
 
 
 def get_username(auth, attributes, use_nameid, username_attribute):
+    print(use_nameid, username_attribute)
     if use_nameid:
         return auth.get_nameid()
 
@@ -79,16 +80,31 @@ def get_role_mappings(raw_role_mappings: str):
     return {mapping.split(":")[0]: mapping.split(":")[1] for mapping in role_mappings.split(";")}
 
 
-def authenticate(response: str):
+def authenticate(scheme: str, response: str):
+    if scheme != "saml-entra-id":
+        return {
+            "authenticated": False,
+            "errors": f'The selected auth module is not compatible with the "{scheme}" scheme.',
+        }
+
     # Load default settings
     settings = SETTINGS_TEMPLATE
 
     # Apply user configuration
-    settings["sp"]["entityId"] = os.environ.get("AUTH_SAML_ENTRA_ID_ASSERTION_AUDIENCE", "")
+    settings["sp"]["entityId"] = os.environ.get(
+        "AUTH_SAML_ENTRA_ID_ASSERTION_AUDIENCE", "spn:f516a7de-6c3f-4d1d-a289-539301039291"
+    )
     settings["sp"]["privateKey"] = load_from_file(os.environ.get("AUTH_SAML_ENTRA_ID_SP_PRIVATE_KEY", ""))
-    settings["sp"]["x509cert"] = load_from_file(os.environ.get("AUTH_SAML_ENTRA_ID_SP_CERT", ""))
+    settings["sp"]["x509cert"] = load_from_file(
+        os.environ.get(
+            "AUTH_SAML_ENTRA_ID_SP_CERT",
+            "/home/ante/Memgraph/Code/sso/memgraph/src/auth/reference_modules/cert.txt",
+        )
+    )
     settings["idp"]["x509cert"] = load_from_file(os.environ.get("AUTH_SAML_ENTRA_ID_IDP_CERT", ""))
-    settings["idp"]["entityId"] = os.environ.get("AUTH_SAML_ENTRA_ID_IDP_ID", "")
+    settings["idp"]["entityId"] = os.environ.get(
+        "AUTH_SAML_ENTRA_ID_IDP_ID", "https://sts.windows.net/371aa2c4-2f9b-4fe1-bc52-23824e906c26/"
+    )
     settings["security"]["wantAssertionsEncrypted"] = str_to_bool(
         os.environ.get("AUTH_SAML_ENTRA_ID_ASSERTIONS_ENCRYPTED", "")
     )
@@ -111,6 +127,7 @@ def authenticate(response: str):
         return {"authenticated": False, "errors": "\n".join(errors)}
 
     attributes = auth.get_attributes()
+
     if ENTRA_IDP_ROLE_ATTRIBUTE not in attributes.keys():
         return {"authenticated": False, "errors": "Role not found in the SAML response."}
     idp_role = attributes[ENTRA_IDP_ROLE_ATTRIBUTE]
@@ -122,15 +139,21 @@ def authenticate(response: str):
         username = get_username(
             auth,
             attributes,
-            use_nameid=str_to_bool(os.environ.get("AUTH_SAML_ENTRA_ID_USE_NAME_ID", False)),
-            username_attribute=str_to_bool(os.environ.get("AUTH_SAML_ENTRA_ID_USERNAME_ATTRIBUTE", False)),
+            use_nameid=str_to_bool(os.environ.get("AUTH_SAML_ENTRA_ID_USE_NAME_ID", "False")),
+            username_attribute=os.environ.get(
+                "AUTH_SAML_ENTRA_ID_USERNAME_ATTRIBUTE",
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name",
+            ),
         )
     except Exception as e:
         return {"authenticated": False, "errors": str(e)}
 
     role_mappings = get_role_mappings(os.environ.get("AUTH_SAML_ENTRA_ID_ROLE_MAPPING", ""))
     if idp_role not in role_mappings:
-        return {"authenticated": False, "errors": f'The role "{idp_role}" is not present in the given role mappings.'}
+        return {
+            "authenticated": False,
+            "errors": f'The role "{idp_role}" is not present in the given role mappings.',
+        }
 
     return {
         "authenticated": True,
