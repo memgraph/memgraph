@@ -74,7 +74,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   bool Authenticate(const std::string &username, const std::string &password) override;
 
   // Called during Init
-  bool Authenticate(const std::string &identity_provider_response) override;
+  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) override;
 
   std::optional<std::string> GetServerNameForInit() override;
 
