@@ -1,0 +1,14 @@
+d: &saml_sso_cluster
+  cluster:
+    main:
+      args:
+        ["--bolt-port", "7687", "--log-level=TRACE", "--auth-module-executable=/home/ante/Memgraph/Code/sso/memgraph/src/auth/reference_modules/saml.py"]
+      log_file: "saml_sso.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Test SSO with dummy module"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["index_hints/test_sso.py"]
+    <<: *saml_sso_cluster
