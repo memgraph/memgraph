@@ -4895,3 +4895,30 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInWith) {
     ASSERT_TRUE(result_expr);
   }
 }
+
+TEST_P(CypherMainVisitorTest, CreateEnumQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD, BAD };"));
+    ASSERT_NE(query, nullptr);
+  }
+  {
+    const auto *query =
+        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD };"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status { GOOD, BAD };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD, };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE Status VALUES { GOOD, BAD};"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD, BAD;"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status VALUES GOOD, BAD };"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status VALUES GOOD, BAD;"), SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, ShowEnumsQuery) {
+  auto &ast_generator = *GetParam();
+  const auto *query = dynamic_cast<ShowEnumsQuery *>(ast_generator.ParseQuery("SHOW ENUMS;"));
+  ASSERT_NE(query, nullptr);
+}
