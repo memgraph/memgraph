@@ -124,6 +124,18 @@ auto RaftState::InitRaftServer() -> void {
 
   asio_listener_->listen(raft_server_);
   spdlog::trace("Asio listener active on {}", raft_endpoint_.SocketAddress());
+
+  // Don't return until role is set
+  auto maybe_stop = utils::ResettableCounter<500>();
+  while (!maybe_stop()) {
+    if (raft_server_->is_leader()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!raft_server_->is_leader()) {
+    throw RaftServerStartException("Failed to start raft server as leader on {}", raft_endpoint_.SocketAddress());
+  }
 }
 
 RaftState::~RaftState() {
@@ -133,10 +145,32 @@ RaftState::~RaftState() {
   logger_.reset();
 
   if (!raft_server_) {
+    spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
     return;
   }
   raft_server_->shutdown();
   raft_server_.reset();
+
+  spdlog::trace("Raft server closed");
+
+  if (asio_listener_) {
+    asio_listener_->stop();
+    asio_listener_->shutdown();
+    spdlog::trace("Asio listener closed");
+  }
+
+  if (asio_service_) {
+    asio_service_->stop();
+    size_t count = 0;
+    while (asio_service_->get_active_workers() != 0 && count < 500) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      count++;
+    }
+  }
+  if (asio_service_->get_active_workers() > 0) {
+    spdlog::warn("Failed to shutdown raft server correctly for coordinator_{} in 5s", coordinator_id_);
+  }
+  spdlog::trace("Asio service closed");
 }
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }

@@ -1174,5 +1174,7 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
+auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
+
 }  // namespace memgraph::coordination
 #endif

@@ -80,6 +80,8 @@ class CoordinatorInstance {
 
   auto ForceResetClusterState() -> ForceResetClusterStateStatus;
 
+  auto IsLeader() const -> bool;
+
   void ShuttingDown();
 
  private:
