@@ -41,6 +41,9 @@ struct Enum {
     return seed;
   }
 
+  auto type_id() const -> EnumTypeId const & { return type_id_; }
+  auto value_id() const -> EnumValueId const & { return value_id_; }
+
  private:
   EnumTypeId type_id_;
   EnumValueId value_id_;

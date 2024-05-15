@@ -336,6 +336,12 @@ class Storage {
 
     auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
 
+    auto GetEnumStoreUnique() -> EnumStore & {
+      DMG_ASSERT(unique_guard_.owns_lock());
+      return storage_->enum_store_;
+    }
+    auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
@@ -487,7 +493,8 @@ class Storage {
   std::atomic<uint64_t> vertex_id_{0};
   std::atomic<uint64_t> edge_id_{0};
 
-  utils::Synchronized<EnumStore, utils::SpinLock> enum_store_;
+  // Mutable methods only safe if we have UniqueAccess to this storage
+  EnumStore enum_store_;
 };
 
 }  // namespace memgraph::storage
