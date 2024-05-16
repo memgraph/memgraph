@@ -94,6 +94,7 @@ bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_l
   MG_ASSERT(kv_store.Put("log_entry_" + std::to_string(slot), log_term_json.dump()), "Failed to store log to disk!");
 
   if (is_new_last_slot) {
+    spdlog::trace("Storing last log entry to disk {}", std::to_string(slot));
     MG_ASSERT(kv_store.Put(kLastLogEntry, std::to_string(slot)), "Failed to store last log entry to disk!");
   }
 
@@ -172,6 +173,7 @@ auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry>
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
+  spdlog::trace("Start idx: {}, logs size: {}", start_idx_, logs_.size());
   return start_idx_ + logs_.size() - 1;
 }
 
