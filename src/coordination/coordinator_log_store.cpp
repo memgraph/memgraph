@@ -38,15 +38,43 @@ const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
 const std::string kLogEntryValTypeKey = "val_type";
 
-// map TaskState values to JSON as strings
-NLOHMANN_JSON_SERIALIZE_ENUM(nuraft::log_val_type, {
-                                                       {nuraft::log_val_type::app_log, "app_log"},
-                                                       {nuraft::log_val_type::conf, "conf"},
-                                                       {nuraft::log_val_type::cluster_server, "running"},
-                                                       {nuraft::log_val_type::log_pack, "completed"},
-                                                       {nuraft::log_val_type::snp_sync_req, "completed"},
-                                                       {nuraft::log_val_type::custom, "custom"},
-                                                   });
+nuraft::log_val_type GetLogValType(int val_type) {
+  switch (val_type) {
+    case 1:
+      return nuraft::log_val_type::app_log;
+    case 2:
+      return nuraft::log_val_type::conf;
+    case 3:
+      return nuraft::log_val_type::cluster_server;
+    case 4:
+      return nuraft::log_val_type::log_pack;
+    case 5:
+      return nuraft::log_val_type::snp_sync_req;
+    case 6:
+      return nuraft::log_val_type::custom;
+    default:
+      throw std::runtime_error("Invalid value type");
+  }
+}
+
+int FromLogValType(nuraft::log_val_type val_type) {
+  switch (val_type) {
+    case nuraft::log_val_type::app_log:
+      return 1;
+    case nuraft::log_val_type::conf:
+      return 2;
+    case nuraft::log_val_type::cluster_server:
+      return 3;
+    case nuraft::log_val_type::log_pack:
+      return 4;
+    case nuraft::log_val_type::snp_sync_req:
+      return 5;
+    case nuraft::log_val_type::custom:
+      return 6;
+    default:
+      throw std::runtime_error("Invalid log value type");
+  }
+}
 
 ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
   return cs_new<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
@@ -55,10 +83,13 @@ ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
 
 bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_last_slot, kvstore::KVStore &kv_store) {
   buffer_serializer bs(clone->get_buf());  // data buff
-  clone->serialize();                      // term, value_type, data buff
-  auto const log_term_json = nlohmann::json({{kLogEntryTermKey, clone->get_term()},
-                                             {kLogEntryDataKey, nlohmann::json::parse(bs.get_str())},
-                                             {kLogEntryValTypeKey, clone->get_val_type()}});
+  auto data_str = bs.get_str();
+  spdlog::trace("Serializing log entry with id {}", std::to_string(clone->get_term()));
+  spdlog::trace("Serializing log entry with id {}", data_str);
+  auto clone_val = FromLogValType(clone->get_val_type());
+  spdlog::trace("Clone val type {}", clone_val);
+  auto const log_term_json = nlohmann::json(
+      {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
   spdlog::trace("Storing to log to disk {} with id {}", log_term_json.dump(), std::to_string(slot));
   MG_ASSERT(kv_store.Put("log_entry_" + std::to_string(slot), log_term_json.dump()), "Failed to store log to disk!");
 
@@ -99,8 +130,7 @@ CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> du
   auto const maybe_last_log_entry = kv_store_->Get(kLastLogEntry);
   auto const maybe_start_idx = kv_store_->Get(kStartIdx);
   if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
-    spdlog::trace("No last log entry or start index found on disk, assuming first start of log store with durability",
-                  maybe_last_log_entry.value());
+    spdlog::trace("No last log entry or start index found on disk, assuming first start of log store with durability");
     start_idx_ = 1;
     MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
     MG_ASSERT(kv_store_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
@@ -119,13 +149,13 @@ CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> du
               last_log_entry + 1);
 
     auto const j = nlohmann::json::parse(entry.value());
-    auto const term = j.at(kLogEntryDataKey).get<uint64_t>();
-    auto const data = j.at("data").get<std::string>();
-    auto const value_type = j.at("val_type").get<nuraft::log_val_type>();
-    auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + sizeof(data.size()));
+    auto const term = j.at(kLogEntryTermKey).get<int>();
+    auto const data = j.at(kLogEntryDataKey).get<std::string>();
+    auto const value_type = j.at("val_type").get<int>();
+    auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
     buffer_serializer bs{log_term_buffer};
     bs.put_str(data);
-    logs_[id] = cs_new<log_entry>(term, log_term_buffer, value_type);
+    logs_[id] = cs_new<log_entry>(term, log_term_buffer, GetLogValType(value_type));
     spdlog::trace("Logging entry {} with id {}, data:{}, ", std::string{j.dump()}, std::to_string(id), data);
   }
 }

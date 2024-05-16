@@ -36,9 +36,15 @@ using nuraft::log_entry;
 // No networking communication in this test.
 class CoordinatorLogStoreTests : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
                                      "MG_tests_unit_coordinator_log_store_tests"};
