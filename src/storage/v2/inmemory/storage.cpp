@@ -1049,7 +1049,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
     mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), removed_labels);
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), removed_labels);
 
     // 3.b) remove from veretex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
