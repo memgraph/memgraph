@@ -342,6 +342,11 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
+    auto CreateEnum(const std::string &name, const std::vector<std::string> &values)
+        -> memgraph::utils::BasicResult<EnumStorageError> {
+      return storage_->enum_store_.register_enum(name, values);
+    }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;

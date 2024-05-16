@@ -579,8 +579,6 @@ enumName : symbolicName ;
 
 enumValue : symbolicName ;
 
-enumValuesList : enumValue ( ',' enumValue )* ;
-
-createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;

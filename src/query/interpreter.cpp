@@ -4511,6 +4511,31 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
+
+  auto *create_enum_query = utils::Downcast<CreateEnumQuery>(parsed_query.query);
+  MG_ASSERT(create_enum_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(create_enum_query->enum_name_),
+           enum_values = std::move(create_enum_query->enum_values_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.CreateEnum(enum_name, enum_values);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::EnumExists:
+                  throw QueryRuntimeException("Enum already exists.");
+                case storage::EnumStorageError::InvalidValues:
+                  throw QueryRuntimeException("Enum values are invalid.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4659,7 +4684,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query);
+        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+        utils::Downcast<CreateEnumQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
@@ -4669,6 +4695,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
                     utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
+                    utils::Downcast<CreateEnumQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
@@ -4737,7 +4764,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "set.");
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
@@ -4805,7 +4833,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (in_explicit_transaction_) {
         throw CreateEnumInMulticommandTxException();
       }
-      throw utils::NotYetImplemented("enums.");
+      prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
       throw utils::NotYetImplemented("enums.");
     } else {

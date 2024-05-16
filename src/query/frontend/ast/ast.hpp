@@ -3814,8 +3814,13 @@ class CreateEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  std::string enum_name_;
+  std::vector<std::string> enum_values_;
+
   CreateEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateEnumQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_values_ = enum_values_;
     return object;
   }
 

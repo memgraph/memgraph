@@ -3095,8 +3095,12 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabase
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext *ctx) {
   auto *create_enum_query = storage_->Create<CreateEnumQuery>();
+  create_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  for (auto *enumVal : ctx->enumValue()) {
+    create_enum_query->enum_values_.push_back(std::any_cast<std::string>(enumVal->symbolicName()->accept(this)));
+  }
   query_ = create_enum_query;
   return create_enum_query;
 }

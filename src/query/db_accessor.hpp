@@ -29,6 +29,7 @@
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/pmr/unordered_set.hpp"
+#include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
@@ -770,6 +771,11 @@ class DbAccessor final {
   }
 
   void DropGraph() { return accessor_->DropGraph(); }
+
+  utils::BasicResult<storage::EnumStorageError> CreateEnum(const std::string &name,
+                                                           const std::vector<std::string> &values) {
+    return accessor_->CreateEnum(name, values);
+  }
 };
 
 class SubgraphDbAccessor final {

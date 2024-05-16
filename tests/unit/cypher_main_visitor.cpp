@@ -4902,11 +4902,18 @@ TEST_P(CypherMainVisitorTest, CreateEnumQuery) {
     const auto *query =
         dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD, BAD };"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_values_.size(), 2);
+    ASSERT_EQ(query->enum_values_[0], "GOOD");
+    ASSERT_EQ(query->enum_values_[1], "BAD");
   }
   {
     const auto *query =
-        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM Status VALUES { GOOD };"));
+        dynamic_cast<CreateEnumQuery *>(ast_generator.ParseQuery("CREATE ENUM `Status` VALUES { `GOOD` };"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->enum_values_.size(), 1);
+    ASSERT_EQ(query->enum_values_[0], "GOOD");
   }
 
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ENUM Status { GOOD, BAD };"), SyntaxException);
