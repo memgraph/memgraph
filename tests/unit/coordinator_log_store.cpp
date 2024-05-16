@@ -211,3 +211,131 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     }
   }
 }
+
+TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
+  {
+    // Define two CoordinatorLogStore instances
+    CoordinatorLogStore log_store1{test_folder_ / "TestPackAndApplyPack1"};
+    CoordinatorLogStore log_store2{test_folder_ / "TestPackAndApplyPack2"};
+
+    // Add the same log to both stores at index 1
+    auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(
+        CoordinatorToReplicaConfig{.instance_name = "instance1",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                   .replication_client_info = {.instance_name = "instance_name1",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                   .instance_down_timeout_sec = std::chrono::seconds{5},
+                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                   .ssl = std::nullopt});
+    auto log_entry_common = cs_new<log_entry>(1, buffer, nuraft::log_val_type::app_log);
+    log_store1.append(log_entry_common);
+    log_store2.append(log_entry_common);
+
+    // Add different logs to each store between indices 2 and 4
+    // Add different logs to each store between indices 2 and 4
+    for (uint16_t i = 2; i <= 4; ++i) {
+      auto buffer1 = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+          .instance_name = "instance" + std::to_string(i),
+          .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
+          .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
+                                      .replication_mode = ReplicationMode::ASYNC,
+                                      .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}},
+          .instance_health_check_frequency_sec = std::chrono::seconds{1},
+          .instance_down_timeout_sec = std::chrono::seconds{5},
+          .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+          .ssl = std::nullopt});
+
+      auto buffer2 = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+          .instance_name = "instance" + std::to_string(i + 3),
+          .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i + 3)},
+          .replication_client_info = {.instance_name = "instance_name" + std::to_string(i + 3),
+                                      .replication_mode = ReplicationMode::ASYNC,
+                                      .replication_server =
+                                          Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i + 3)}},
+          .instance_health_check_frequency_sec = std::chrono::seconds{1},
+          .instance_down_timeout_sec = std::chrono::seconds{5},
+          .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+          .ssl = std::nullopt});
+
+      auto log_entry1 = cs_new<log_entry>(i, buffer1, nuraft::log_val_type::app_log);
+      auto log_entry2 = cs_new<log_entry>(i, buffer2, nuraft::log_val_type::app_log);
+
+      log_store1.append(log_entry1);
+      log_store2.append(log_entry2);
+    }
+
+    // Use the pack method to get the logs from the first store
+    auto packed_logs = log_store1.pack(2, 3);
+
+    // Use the apply_pack method to apply these logs to the second store
+    log_store2.apply_pack(2, *packed_logs);
+
+    // Check that the logs in log_store2 are the same as those in log_store1
+    for (int i = 1; i != log_store1.next_slot(); ++i) {
+      auto entry1 = log_store1.entry_at(i);
+      auto entry2 = log_store2.entry_at(i);
+      auto [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
+                std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
+      ASSERT_EQ(entry1->get_term(), entry2->get_term());
+      ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
+    }
+  }
+
+  // Check that the logs in log_store2 are the same as those in log_store1
+  {
+    CoordinatorLogStore log_store1{test_folder_ / "TestPackAndApplyPack1"};
+    CoordinatorLogStore log_store2{test_folder_ / "TestPackAndApplyPack2"};
+    for (int i = 1; i != log_store1.next_slot(); ++i) {
+      auto entry1 = log_store1.entry_at(i);
+      auto entry2 = log_store2.entry_at(i);
+      auto [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
+                std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
+      ASSERT_EQ(entry1->get_term(), entry2->get_term());
+      ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
+    }
+  }
+}
+
+TEST_F(CoordinatorLogStoreTests, TestCompact) {
+  // Define a CoordinatorLogStore instance
+  CoordinatorLogStore log_store{test_folder_ / "TestCompact"};
+
+  // Add 5 logs to the store
+  for (int i = 1; i <= 5; ++i) {
+    auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+        .instance_name = "instance" + std::to_string(i),
+        .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
+        .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
+                                    .replication_mode = ReplicationMode::ASYNC,
+                                    .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}},
+        .instance_health_check_frequency_sec = std::chrono::seconds{1},
+        .instance_down_timeout_sec = std::chrono::seconds{5},
+        .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+        .ssl = std::nullopt});
+    auto log_entry_obj = cs_new<log_entry>(i, buffer, nuraft::log_val_type::app_log);
+    log_store.append(log_entry_obj);
+  }
+
+  // Compact up to the log with index 3
+  log_store.compact(3);
+
+  // Check that only logs from 4 to 5 remain
+  for (int i = 4; i <= 5; ++i) {
+    auto entry = log_store.entry_at(i);
+    ASSERT_TRUE(entry != nullptr);
+    auto [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
+    ASSERT_EQ(std::get<CoordinatorToReplicaConfig>(payload).instance_name, "instance" + std::to_string(i));
+  }
+
+  // Check that logs from 1 to 3 do not exist
+  for (int i = 1; i <= 3; ++i) {
+    auto entry = log_store.entry_at(i);
+    ASSERT_EQ(entry->get_term(), 0);  // TODO: test that entry->get_term returns nullptr
+  }
+}

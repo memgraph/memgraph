@@ -102,6 +102,7 @@ bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_l
 }
 
 }  // namespace
+
 CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
@@ -255,6 +256,7 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
 
   size_t size_total = 0;
   uint64_t const end_index = index + cnt;
+  spdlog::trace("Doing pack from {} to {}", index, end_index);
   for (uint64_t i = index; i < end_index; ++i) {
     ptr<log_entry> le = nullptr;
     {
@@ -275,6 +277,7 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
     buf_out->put(static_cast<int32>(entry->size()));
     buf_out->put(*entry);
   }
+  spdlog::trace("Packed logs from {} to {} with size {}", index, end_index, buf_out->size());
   return buf_out;
 }
 
@@ -293,6 +296,7 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     {
       auto lock = std::lock_guard{logs_lock_};
       logs_[cur_idx] = le;
+      spdlog::trace("Applying pack to log entry with id {}", std::to_string(cur_idx));
       if (kv_store_) {
         StoreToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1, *kv_store_);
       }
@@ -304,6 +308,9 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     auto const entry = logs_.upper_bound(0);
     if (entry != logs_.end()) {
       start_idx_ = entry->first;
+      if (kv_store_) {
+        MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+      }
     } else {
       start_idx_ = 1;
     }

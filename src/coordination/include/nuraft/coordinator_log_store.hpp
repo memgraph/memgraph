@@ -26,6 +26,7 @@ using nuraft::log_entry;
 using nuraft::log_store;
 using nuraft::ptr;
 using nuraft::raft_server;
+
 /**
  * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability if user sets it.
  * If durability is set, logs are persisted to disk and loaded on startup.
@@ -69,6 +70,7 @@ class CoordinatorLogStore : public log_store {
  private:
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 
+  // TODO(antoniofilipovic) Isolate into CoordinatorLogStoreInternals
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_;
