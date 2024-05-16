@@ -3802,4 +3802,40 @@ class ShowDatabasesQuery : public memgraph::query::Query {
   }
 };
 
+class CreateEnumQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateEnumQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  CreateEnumQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CreateEnumQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ShowEnumsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ShowEnumsQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowEnumsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowEnumsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query
