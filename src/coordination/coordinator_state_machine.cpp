@@ -235,6 +235,12 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
 
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   snapshots_[snapshot->get_last_log_idx()] = ctx;
+  if (kv_store_) {
+    ptr<buffer> data;
+    cluster_state_.Serialize(data);
+    // TODO serialize snapshot also
+    kv_store_->Put("snapshot_id_" + std::to_string(snapshot->get_last_log_idx()), data->get_str());
+  }
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     snapshots_.erase(snapshots_.begin());
