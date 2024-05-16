@@ -15,7 +15,9 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/result.hpp"
 
-#include <strong_type/strong_type.hpp>
+#include "absl/container/flat_hash_map.h"
+#include "range/v3/all.hpp"
+#include "strong_type/strong_type.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -25,65 +27,65 @@
 
 namespace memgraph::storage {
 
-enum struct EnumStorageError : uint8_t { EnumExists };
+enum struct EnumStorageError : uint8_t { EnumExists, InvalidValues };
 
 struct EnumStore {
   auto register_enum(std::string type_str, std::vector<std::string> enum_value_strs)
       -> memgraph::utils::BasicResult<EnumStorageError> {
-    auto new_pos = next_enum_type_id_;
+    namespace rv = ranges::views;
+
+    auto new_pos = etype_strs_.size();
     auto new_id = EnumTypeId{new_pos};
 
-    // Add name to id mapping
-    auto [it1, inserted1] = name_to_etype_.try_emplace(type_str, new_id);
-    if (!inserted1) return EnumStorageError::EnumExists;
-    ++next_enum_type_id_;
-    etype_to_name_.resize(next_enum_type_id_);
-    etype_to_name_[new_pos] = std::move(type_str);
-
-    // insert values for the given type
-    auto [it2, inserted2] = enum_values_.try_emplace(new_id, std::move(enum_value_strs));
-    if (!inserted2) {
-      DMG_ASSERT(false, "logical bug");
-      name_to_etype_.erase(it1);
-      --next_enum_type_id_;
+    auto [it_type, inserted] = etype_lookup_.try_emplace(type_str, new_id);
+    if (!inserted) [[unlikely]] {
       return EnumStorageError::EnumExists;
     }
+
+    auto values_lookup = decltype(evalue_lookups_)::value_type{};
+    for (auto const &[pos, value] : rv::enumerate(enum_value_strs)) {
+      auto [it_values, inserted] = values_lookup.try_emplace(value, EnumValueId{pos});
+      if (!inserted) [[unlikely]] {
+        etype_lookup_.erase(it_type);
+        return EnumStorageError::InvalidValues;
+      }
+    }
+    try {
+      evalue_lookups_.emplace_back(std::move(values_lookup));
+      etype_strs_.emplace_back(std::move(type_str));
+      evalue_strs_.emplace_back(std::move(enum_value_strs));
+    } catch (...) {
+      etype_lookup_.erase(it_type);
+      if (etype_lookup_.size() < evalue_lookups_.size()) evalue_lookups_.pop_back();
+      if (etype_lookup_.size() < etype_strs_.size()) etype_strs_.pop_back();
+      throw;
+    }
+
+    DMG_ASSERT(etype_strs_.size() == evalue_strs_.size());
+    DMG_ASSERT(etype_strs_.size() == etype_lookup_.size());
+    DMG_ASSERT(etype_strs_.size() == evalue_lookups_.size());
 
     return {};
   }
 
   auto to_enum_type(std::string_view type_str) const -> std::optional<EnumTypeId> {
-    auto it = name_to_etype_.find(type_str);
-    if (it == name_to_etype_.cend()) return std::nullopt;
+    auto it = etype_lookup_.find(type_str);
+    if (it == etype_lookup_.cend()) return std::nullopt;
     return it->second;
   }
 
   auto to_enum_value(std::string_view type_str, std::string_view value_str) const -> std::optional<EnumValueId> {
     auto e_type = to_enum_type(type_str);
     if (!e_type) return std::nullopt;
-    auto it = enum_values_.find(*e_type);
-    if (it == enum_values_.cend()) return std::nullopt;
-    auto const &[_, details] = *it;
-
-    auto match = [&](auto &val) { return val == value_str; };
-    auto match_it = std::ranges::find_if(details, match);
-    if (match_it == details.cend()) return std::nullopt;
-
-    auto n = static_cast<uint64_t>(std::distance(details.cbegin(), match_it));
-    return EnumValueId{n};
+    return to_enum_value(*e_type, value_str);
   }
 
   auto to_enum_value(EnumTypeId e_type, std::string_view value_str) const -> std::optional<EnumValueId> {
-    auto it = enum_values_.find(e_type);
-    if (it == enum_values_.cend()) return std::nullopt;
-    auto const &[_, details] = *it;
-
-    auto match = [&](auto &val) { return val == value_str; };
-    auto match_it = std::ranges::find_if(details, match);
-    if (match_it == details.cend()) return std::nullopt;
-
-    auto n = static_cast<uint64_t>(std::distance(details.cbegin(), match_it));
-    return EnumValueId{n};
+    if (evalue_lookups_.size() <= e_type.value_of()) return std::nullopt;
+    auto const &evalue_lookup = evalue_lookups_[e_type.value_of()];
+    auto it = evalue_lookup.find(value_str);
+    if (it == evalue_lookup.cend()) return std::nullopt;
+    return it->second;
   }
 
   auto to_enum(std::string_view type_str, std::string_view value_str) const -> std::optional<Enum> {
@@ -95,15 +97,13 @@ struct EnumStore {
   }
 
   auto to_type_string(EnumTypeId id) const -> std::optional<std::string> {
-    // TODO: maybe guarentee lifetime (shared_ptr?)
-    if (etype_to_name_.size() <= id.value_of()) return std::nullopt;
-    return etype_to_name_[id.value_of()];
+    if (etype_strs_.size() <= id.value_of()) return std::nullopt;
+    return etype_strs_[id.value_of()];
   }
 
   auto to_value_string(EnumTypeId e_type, EnumValueId e_value) const -> std::optional<std::string> {
-    auto it = enum_values_.find(e_type);
-    if (it == enum_values_.cend()) return std::nullopt;
-    auto &values = it->second;
+    if (evalue_strs_.size() <= e_type.value_of()) return std::nullopt;
+    auto const &values = evalue_strs_[e_type.value_of()];
     if (values.size() <= e_value.value_of()) return std::nullopt;
     return values[e_value.value_of()];
   }
@@ -117,12 +117,14 @@ struct EnumStore {
     return std::format("{}::{}", *type_str, *value_str);
   }
 
- private:
-  uint64_t next_enum_type_id_{};
-  std::map<std::string, EnumTypeId, std::less<>> name_to_etype_;
-  std::vector<std::string> etype_to_name_;
+  auto all_registered() const { return ranges::views::zip(etype_strs_, evalue_strs_); }
 
-  std::map<EnumTypeId, std::vector<std::string>> enum_values_;
+ private:
+  std::vector<std::string> etype_strs_;
+  std::vector<std::vector<std::string>> evalue_strs_;
+
+  absl::flat_hash_map<std::string, EnumTypeId> etype_lookup_;
+  std::vector<absl::flat_hash_map<std::string, EnumValueId>> evalue_lookups_;
 };
 
 }  // namespace memgraph::storage

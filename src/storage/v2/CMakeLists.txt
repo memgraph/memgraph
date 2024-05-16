@@ -73,4 +73,5 @@ target_link_libraries(mg-storage-v2
     mgcxx_text_search
     tantivy_text_search
     strong_type::strong_type
+    rangev3
 )
