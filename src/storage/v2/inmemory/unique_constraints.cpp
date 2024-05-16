@@ -489,7 +489,7 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
 }
 
 void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                                      const std::set<LabelId> &labels) {
+                                                      const std::unordered_set<LabelId> &labels) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_props, storage] : constraints_) {

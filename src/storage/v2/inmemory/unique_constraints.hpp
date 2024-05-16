@@ -126,7 +126,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
 
   /// GC method that removes outdated entries from constraints' storages.
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                             const std::set<LabelId> &labels = {});
+                             const std::unordered_set<LabelId> &labels = {});
 
   void Clear() override;
 

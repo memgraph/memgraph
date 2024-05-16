@@ -340,7 +340,7 @@ class InMemoryStorage final : public Storage {
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges,
-                             std::set<LabelId> &removed_labels);
+                             std::unordered_set<LabelId> &removed_labels);
     SalientConfig::Items config_;
   };
 

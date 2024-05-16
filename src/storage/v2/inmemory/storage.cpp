@@ -36,6 +36,7 @@
 
 #include <mutex>
 #include <ranges>
+#include <unordered_set>
 
 namespace memgraph::storage {
 
@@ -970,7 +971,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
                                                             std::list<Gid> &current_deleted_edges,
-                                                            std::set<LabelId> &removed_labels) {
+                                                            std::unordered_set<LabelId> &removed_labels) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
@@ -1039,7 +1040,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  std::set<LabelId> removed_labels;
+  std::unordered_set<LabelId> removed_labels;
   GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, removed_labels);
 
   // STEP 3) skip_list removals
