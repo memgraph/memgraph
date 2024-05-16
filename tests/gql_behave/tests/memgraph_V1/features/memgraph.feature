@@ -81,14 +81,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE ENUM Status VALUES { Good, Okay, Bad };
+            CREATE ENUM Status VALUES { Good, Bad };
             """
-        Then an error should be raised
+        Then the result should be empty
 
     Scenario: Show Enums:
         Given an empty graph
+        # Values will be used from the previous scenario
         When executing query:
             """
             SHOW ENUMS;
             """
-        Then an error should be raised
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad'] |
