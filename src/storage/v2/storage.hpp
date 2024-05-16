@@ -347,6 +347,8 @@ class Storage {
       return storage_->enum_store_.register_enum(name, values);
     }
 
+    auto ShowEnums() { return storage_->enum_store_.all_registered(); }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;

@@ -776,6 +776,8 @@ class DbAccessor final {
                                                            const std::vector<std::string> &values) {
     return accessor_->CreateEnum(name, values);
   }
+
+  auto ShowEnums() { return accessor_->ShowEnums(); }
 };
 
 class SubgraphDbAccessor final {

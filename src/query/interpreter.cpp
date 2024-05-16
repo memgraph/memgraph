@@ -4536,6 +4536,45 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
           RWType::W};
 }
 
+PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  Callback callback;
+  callback.header = {"Enum Name", "Enum Values"};
+  callback.fn = [dba = *current_db.execution_db_accessor_]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> status;
+
+    auto enums = dba.ShowEnums();
+    status.reserve(enums.size());
+
+    for (const auto &[name, values] : enums) {
+      std::vector<TypedValue> enum_values;
+      enum_values.reserve(values.size());
+      for (const auto &value : values) {
+        enum_values.emplace_back(value);
+      }
+      status.emplace_back(std::vector<TypedValue>{TypedValue(name), TypedValue(std::move(enum_values))});
+    }
+    return status;
+  };
+
+  return PreparedQuery{
+      std::move(callback.header), std::move(parsed_query.required_privileges),
+      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto results = handler();
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE,
+      ""  // No target DB
+  };
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4685,7 +4724,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-        utils::Downcast<CreateEnumQuery>(parsed_query.query);
+        utils::Downcast<CreateEnumQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
@@ -4835,7 +4874,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
       prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
-      throw utils::NotYetImplemented("enums.");
+      prepared_query = PrepareShowEnumsQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
