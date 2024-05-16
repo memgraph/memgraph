@@ -54,8 +54,8 @@ class InMemoryReplicationHandlers {
 
   static void LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
 
-  static uint64_t ReadAndApplyDelta(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
-                                    uint64_t version);
+  static uint64_t ReadAndApplyDeltas(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
+                                     uint64_t version);
 };
 
 }  // namespace memgraph::dbms
