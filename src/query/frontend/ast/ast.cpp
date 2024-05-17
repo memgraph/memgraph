@@ -314,4 +314,7 @@ constexpr utils::TypeInfo query::CreateEnumQuery::kType{utils::TypeId::AST_CREAT
 constexpr utils::TypeInfo query::ShowEnumsQuery::kType{utils::TypeId::AST_SHOW_ENUMS_QUERY, "ShowEnumsQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::EnumValueAccess::kType{utils::TypeId::AST_ENUM_VALUE_ACCESS, "EnumValueAccess",
+                                                        &query::Expression::kType};
+
 }  // namespace memgraph

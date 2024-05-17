@@ -75,6 +75,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
   void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override;
 
  private:
   std::ostream *out_;
@@ -119,7 +120,7 @@ void PrintObject(std::ostream *out, const T &arg) {
 
 void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
 
-void PrintObject(std::ostream *out, storage::Enum val) {
+void PrintObject(std::ostream *out, storage::Enum /*val*/) {
   // TODO: maybe needs to be better
   *out << "<enum>";
 }
@@ -341,6 +342,10 @@ void ExpressionPrettyPrinter::Visit(RegexMatch &op) { PrintOperator(out_, "=~", 
 
 void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
   PrintOperator(out_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
+}
+
+void ExpressionPrettyPrinter::Visit(EnumValueAccess &op) {
+  PrintOperator(out_, "EnumValue", op.enum_name_, "::", op.enum_value_);
 }
 
 }  // namespace

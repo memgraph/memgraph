@@ -22,6 +22,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -3839,6 +3840,55 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   ShowEnumsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EnumValueAccess : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EnumValueAccess() = default;
+
+  EnumValueAccess(const std::string &enum_value_access) {
+    auto values = utils::SplitView(enum_value_access, "::");
+    if (values.size() != 2) {
+      throw SemanticException("Invalid enum value access");
+    }
+    enum_name_ = values[0];
+    enum_value_ = values[1];
+  }
+
+  EnumValueAccess(std::string enum_name, std::string enum_value)
+      : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  EnumValueAccess *MapTo(const Symbol &symbol) {
+    symbol_pos_ = symbol.position();
+    return this;
+  }
+
+  std::string enum_name_;
+  std::string enum_value_;
+  int32_t symbol_pos_{-1};
+
+  EnumValueAccess *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EnumValueAccess>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
     return object;
   }
 

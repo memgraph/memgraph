@@ -288,6 +288,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override{};
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();

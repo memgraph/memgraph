@@ -2668,6 +2668,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
   } else if (ctx->patternComprehension()) {
     return std::any_cast<Expression *>(ctx->patternComprehension()->accept(this));
+  } else if (ctx->enumValueAccess()) {
+    auto *enum_value_access = std::any_cast<std::string *>(ctx->enumValueAccess()->accept(this));
+    return std::any_cast<Expression *>(storage_->Create<EnumValueAccess>(*enum_value_access));
   }
 
   // TODO: Implement this. We don't support comprehensions, filtering... at

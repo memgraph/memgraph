@@ -259,6 +259,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override { op.expression_->Accept(*this); };
   void Visit(RegexMatch &op) override{};
   void Visit(PatternComprehension &op) override{};
+  void Visit(EnumValueAccess &op) override{};
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 

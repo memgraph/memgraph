@@ -103,6 +103,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
   UNSUCCESSFUL_VISIT(PatternComprehension);
+  UNSUCCESSFUL_VISIT(EnumValueAccess);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -173,6 +174,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
   INVALID_VISIT(PatternComprehension)
+  INVALID_VISIT(EnumValueAccess)
 
 #undef INVALID_VISIT
  private:
@@ -1157,6 +1159,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
     return frame_pattern_comprehension_value;
   }
+
+  TypedValue Visit(EnumValueAccess &enum_value_access) override { return TypedValue(); }
 
  private:
   template <class TRecordAccessor>

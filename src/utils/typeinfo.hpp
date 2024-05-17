@@ -236,6 +236,7 @@ enum class TypeId : uint64_t {
   AST_DROP_GRAPH_QUERY,
   AST_CREATE_ENUM_QUERY,
   AST_SHOW_ENUMS_QUERY,
+  AST_ENUM_VALUE_ACCESS,
 
   // Symbol
   SYMBOL = 4000,
