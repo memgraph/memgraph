@@ -26,6 +26,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <cstdint>
 #include <unordered_set>
 #include "storage/v2/small_vector.hpp"
 
@@ -293,11 +294,12 @@ class DiskStorage final : public Storage {
 
   std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
                                      const std::vector<EdgeTypeId> &possible_edge_types,
-                                     const VertexAccessor *destination, Transaction *transaction, View view);
+                                     const VertexAccessor *destination, Transaction *transaction, View view,
+                                     std::optional<int64_t> *hops_limit = nullptr);
 
   std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
                                     const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
-                                    Transaction *transaction, View view);
+                                    Transaction *transaction, View view, std::optional<int64_t> *hops_limit = nullptr);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
