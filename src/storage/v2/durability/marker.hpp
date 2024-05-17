@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include "storage/v2/enum_store.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -39,6 +40,7 @@ enum class Marker : uint8_t {
   SECTION_DELTA = 0x26,
   SECTION_EPOCH_HISTORY = 0x27,
   SECTION_EDGE_INDICES = 0x28,
+  SECTION_ENUMS = 0x29,
 
   SECTION_OFFSETS = 0x42,
 
@@ -95,6 +97,7 @@ static const Marker kMarkersAll[] = {
     Marker::SECTION_EPOCH_HISTORY,
     Marker::SECTION_EDGE_INDICES,
     Marker::SECTION_OFFSETS,
+    Marker::SECTION_ENUMS,
     Marker::DELTA_VERTEX_CREATE,
     Marker::DELTA_VERTEX_DELETE,
     Marker::DELTA_VERTEX_ADD_LABEL,

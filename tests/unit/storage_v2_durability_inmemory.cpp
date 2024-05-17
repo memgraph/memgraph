@@ -92,6 +92,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
+    auto res = store->enum_store_.register_enum("enum1", {"v1", "v2"});
+    ASSERT_FALSE(res.HasError());
+
     {
       // Create label index.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
@@ -293,6 +296,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_count = store->NameToProperty("count");
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
+
+    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v1").has_value());
+    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v2").has_value());
+    ASSERT_FALSE(store->enum_store_.to_enum("enum1", "v3").has_value());
+    ASSERT_FALSE(store->enum_store_.to_enum("enum2", "v1").has_value());
 
     // Create storage accessor.
     auto acc = store->Access(ReplicationRole::MAIN);
@@ -2973,14 +2981,16 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
+  memgraph::storage::EnumStore enum_store;
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
-                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
+  const auto info =
+      recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
+                           name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num, &enum_store);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);

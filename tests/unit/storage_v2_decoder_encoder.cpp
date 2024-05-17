@@ -365,6 +365,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::SECTION_EPOCH_HISTORY:
         case memgraph::storage::durability::Marker::SECTION_EDGE_INDICES:
         case memgraph::storage::durability::Marker::SECTION_OFFSETS:
+        case memgraph::storage::durability::Marker::SECTION_ENUMS:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_DELETE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_ADD_LABEL:

@@ -68,6 +68,14 @@ struct EnumStore {
     return {};
   }
 
+  // used by recovery in the event of failure
+  void clear() {
+    etype_strs_.clear();
+    evalue_strs_.clear();
+    etype_lookup_.clear();
+    evalue_lookups_.clear();
+  }
+
   auto to_enum_type(std::string_view type_str) const -> std::optional<EnumTypeId> {
     auto it = etype_lookup_.find(type_str);
     if (it == etype_lookup_.cend()) return std::nullopt;

@@ -218,6 +218,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure("Invalid WAL data!");
@@ -971,8 +972,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           edge->properties.SetProperty(property_id, property_value);
           break;
         }
-        case WalDeltaData::Type::TRANSACTION_END:
+        case WalDeltaData::Type::TRANSACTION_END: {
           break;
+        }
         case WalDeltaData::Type::LABEL_INDEX_CREATE: {
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
           AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");

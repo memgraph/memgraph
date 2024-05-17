@@ -396,6 +396,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -507,6 +508,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
