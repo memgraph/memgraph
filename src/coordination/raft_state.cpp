@@ -77,6 +77,7 @@ auto RaftState::InitRaftServer() -> void {
 
   raft_server::init_options init_opts;
 
+  init_opts.start_server_in_constructor_ = false;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
@@ -92,24 +93,51 @@ auto RaftState::InitRaftServer() -> void {
     return CbReturnCode::Ok;
   };
 
-  raft_launcher launcher;
+  asio_service_ = nuraft::cs_new<asio_service>(asio_opts, logger_);
 
-  raft_server_ =
-      launcher.init(state_machine_, state_manager_, logger_, raft_endpoint_.GetPort(), asio_opts, params, init_opts);
+  ptr<delayed_task_scheduler> scheduler = asio_service_;
+  ptr<rpc_client_factory> rpc_cli_factory = asio_service_;
 
-  if (!raft_server_) {
-    throw RaftServerStartException("Failed to launch raft server on {}", raft_endpoint_.SocketAddress());
+  nuraft::ptr<nuraft::state_mgr> casted_state_manager = state_manager_;
+  nuraft::ptr<nuraft::state_machine> casted_state_machine = state_machine_;
+
+  asio_listener_ = asio_service_->create_rpc_listener(raft_endpoint_.GetPort(), logger_);
+  if (!asio_listener_) {
+    throw RaftServerStartException("Failed to create rpc listener on port {}", raft_endpoint_.GetPort());
   }
 
-  auto maybe_stop = utils::ResettableCounter<20>();
-  do {
-    if (raft_server_->is_initialized()) {
-      return;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(250));
-  } while (!maybe_stop());
+  auto *ctx = new nuraft::context(casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory,
+                                  scheduler, params);
 
-  throw RaftServerStartException("Failed to initialize raft server on {}", raft_endpoint_.SocketAddress());
+  raft_server_ = nuraft::cs_new<raft_server>(ctx, init_opts);
+
+  if (!raft_server_) {
+    throw RaftServerStartException("Failed to allocate raft server on {}", raft_endpoint_.SocketAddress());
+  }
+  spdlog::trace("Raft server allocated on {}", raft_endpoint_.SocketAddress());
+
+  // If set to true, server won't be created and exception will be thrown.
+  // By setting it to false, all coordinators are started as leaders.
+  bool const skip_initial_election_timeout{false};
+  raft_server_->start_server(skip_initial_election_timeout);
+  spdlog::trace("Raft server started on {}", raft_endpoint_.SocketAddress());
+
+  asio_listener_->listen(raft_server_);
+  spdlog::trace("Asio listener active on {}", raft_endpoint_.SocketAddress());
+
+  // Don't return until role is set
+  auto maybe_stop = utils::ResettableCounter<500>();
+  while (!maybe_stop()) {
+    // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
+    if (raft_server_->is_initialized()) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!raft_server_->is_initialized()) {
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}",
+                                   raft_endpoint_.SocketAddress());
+  }
 }
 
 RaftState::~RaftState() {
@@ -119,10 +147,32 @@ RaftState::~RaftState() {
   logger_.reset();
 
   if (!raft_server_) {
+    spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
     return;
   }
   raft_server_->shutdown();
   raft_server_.reset();
+
+  spdlog::trace("Raft server closed");
+
+  if (asio_listener_) {
+    asio_listener_->stop();
+    asio_listener_->shutdown();
+    spdlog::trace("Asio listener closed");
+  }
+
+  if (asio_service_) {
+    asio_service_->stop();
+    size_t count = 0;
+    while (asio_service_->get_active_workers() != 0 && count < 500) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      count++;
+    }
+  }
+  if (asio_service_->get_active_workers() > 0) {
+    spdlog::warn("Failed to shutdown raft server correctly for coordinator_{} in 5s", coordinator_id_);
+  }
+  spdlog::trace("Asio service closed");
 }
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
