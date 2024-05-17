@@ -60,6 +60,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | EDGE
                       | EDGE_TYPES
+                      | ENUM
+                      | ENUMS
                       | EXECUTE
                       | FAILOVER
                       | FOR
@@ -149,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUES
                       | VERSION
                       | WEBSOCKET
                       ;
@@ -187,6 +190,8 @@ query : cypherQuery
       | edgeImportModeQuery
       | coordinatorQuery
       | dropGraphQuery
+      | createEnumQuery
+      | showEnumsQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -567,3 +572,13 @@ dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
 dropGraphQuery : DROP GRAPH ;
+
+enumName : symbolicName ;
+
+enumValue : symbolicName ;
+
+enumValuesList : enumValue ( ',' enumValue )* ;
+
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+
+showEnumsQuery : SHOW ENUMS ;

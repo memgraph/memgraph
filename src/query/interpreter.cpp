@@ -4796,6 +4796,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw DropGraphInMulticommandTxException();
       }
       prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw CreateEnumInMulticommandTxException();
+      }
+      throw utils::NotYetImplemented("enums.");
+    } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("enums.");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

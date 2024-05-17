@@ -76,3 +76,19 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n) RETURN CASE count(n) WHEN 10 THEN 10 END
             """
         Then an error should be raised
+
+    Scenario: Create Enum:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE ENUM Status VALUES { Good, Okay, Bad };
+            """
+        Then an error should be raised
+
+    Scenario: Show Enums:
+        Given an empty graph
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then an error should be raised
