@@ -988,7 +988,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           if (vertex.deleted) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
-            for (auto label : vertex.labels) {
+            for (const auto &label : vertex.labels) {
               removed_labels.insert(label);
             }
           }
