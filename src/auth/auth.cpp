@@ -47,7 +47,7 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
 
 // DEPRECATED FLAGS
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(
+DEFINE_VALIDATED_HIDDEN_string(
     auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
       spdlog::warn(
           "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
