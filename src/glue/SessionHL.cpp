@@ -17,7 +17,6 @@
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "flags/sso.hpp"
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
