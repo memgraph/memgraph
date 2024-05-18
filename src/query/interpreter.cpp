@@ -2047,6 +2047,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
+  summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
@@ -4795,6 +4796,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw DropGraphInMulticommandTxException();
       }
       prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw CreateEnumInMulticommandTxException();
+      }
+      throw utils::NotYetImplemented("enums.");
+    } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("enums.");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
