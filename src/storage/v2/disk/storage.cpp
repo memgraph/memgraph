@@ -76,7 +76,8 @@
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
-}
+extern const Event UnreleasedDeltaObjects;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -855,6 +856,7 @@ StorageInfo DiskStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetGaugeValue(memgraph::metrics::UnreleasedDeltaObjects);
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
