@@ -29,15 +29,16 @@ DEFINE_VALIDATED_string(auth_module_mappings, "",
                         "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
                         "<absolute path>, and individual mappings are separated with \";\".",
                         {
+                          if (value.empty()) return true;
+                          for (auto &[_, path] : memgraph::auth::ModuleMappingsToMap(value)) {
+                            auto status = std::filesystem::status(path);
+                            if (!std::filesystem::is_regular_file(status)) {
+                              std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+                              // TODO antepusic error message
+                              return false;
+                            }
+                          }
                           return true;
-                          // TODO antepusic add validation
-                          // Check the file status, following symlinks.
-                          // auto status = std::filesystem::status(value);
-                          // if (!std::filesystem::is_regular_file(status)) {
-                          //   std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
-                          //   return false;
-                          // }
-                          // return true;
                         });
 
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
@@ -251,14 +252,8 @@ std::unordered_map<std::string, auth::Module> PopulateModules(std::string &modul
     module_per_scheme.emplace("basic", FLAGS_auth_module_executable);
   }
 
-  for (const auto &mapping : utils::Split(module_mappings, ";")) {
-    const auto module_and_scheme = utils::Split(mapping, ":");
-    if (module_and_scheme.size() != 2) {
-      throw AuthException("Entries in the auth module mapping follow the \"auth_schema: module_path\" syntax!");
-    }
-    const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
-    const auto module_path = utils::Trim(module_and_scheme[1]);
-    module_per_scheme.emplace(scheme_name, module_path);
+  for (const auto &[scheme, module_path] : ModuleMappingsToMap(module_mappings)) {
+    module_per_scheme.emplace(scheme, module_path);
   }
   return module_per_scheme;
 }
