@@ -18,25 +18,12 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/rpc.hpp"
-#include "flags/sso.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/message.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
-
-DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
-                        {
-                          if (value.empty()) return true;
-                          // Check the file status, following symlinks.
-                          auto status = std::filesystem::status(value);
-                          if (!std::filesystem::is_regular_file(status)) {
-                            std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
-                            return false;
-                          }
-                          return true;
-                        });
 
 // TODO antepusic mappings
 
@@ -47,28 +34,45 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
 
 // DEPRECATED FLAGS
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_user, true,
-                             "Set to false to disable creation of missing users.", {
-                               spdlog::warn(
-                                   "auth_module_create_missing_user flag is deprecated. It not possible to create "
-                                   "users through the module anymore.");
-                               return true;
-                             });
+DEFINE_VALIDATED_string(
+    auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
+      spdlog::warn(
+          "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
+          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic: {your module’s path}.");
+      if (value.empty()) return true;
+      // Check the file status, following symlinks.
+      auto status = std::filesystem::status(value);
+      if (!std::filesystem::is_regular_file(status)) {
+        std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+        return false;
+      }
+      return true;
+    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_role, true,
-                             "Set to false to disable creation of missing roles.", {
-                               spdlog::warn(
-                                   "auth_module_create_missing_role flag is deprecated. It not possible to create "
-                                   "roles through the module anymore.");
-                               return true;
-                             });
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_create_missing_user, true, "Set to false to disable creation of missing users.", {
+      spdlog::warn(
+          "The auth_module_create_missing_user flag is deprecated. It is no longer possible to create "
+          "users through the module.");
+      return true;
+    });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.", {
+      spdlog::warn(
+          "The auth_module_create_missing_role flag is deprecated. It is no longer possible to create "
+          "roles through the module.");
+      return true;
+    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_HIDDEN_bool(
     auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.", {
       spdlog::warn(
-          "auth_module_manage_roles flag is deprecated. It not possible to create roles through the module anymore.");
+          "The auth_module_manage_roles flag is deprecated. It is no longer possible to create roles "
+          "through the module.");
       return true;
     });
 
@@ -228,6 +232,10 @@ std::unordered_map<std::string, auth::Module> PopulateModules(std::string &modul
   std::unordered_map<std::string, auth::Module> module_per_scheme;
   if (module_mappings.empty()) {
     return module_per_scheme;
+  }
+
+  if (!FLAGS_auth_module_executable.empty()) {
+    module_per_scheme.emplace(scheme_name, FLAGS_auth_module_executable);
   }
 
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
