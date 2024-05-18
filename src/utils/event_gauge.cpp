@@ -11,9 +11,7 @@
 
 #include "utils/event_gauge.hpp"
 
-#define APPLY_FOR_GAUGES(M)                                       \
-  M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.") \
-  M(UnreleasedDeltaObjects, CURRENT_VALUE, Memory, "Total number of unreleased delta objects in memory.")
+#define APPLY_FOR_GAUGES(M) M(PeakMemoryRes, MAX, Memory, "Peak res memory in the system.")
 
 namespace memgraph::metrics {
 #define M(NAME, GAUGE_TYPE, TYPE, DOCUMENTATION) extern const Event NAME = __COUNTER__;

@@ -83,7 +83,8 @@
   M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
-  M(SuccessfulQuery, Transaction, "Number of successful queries.")
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
+  M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
