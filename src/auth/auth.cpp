@@ -25,7 +25,20 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 
-// TODO antepusic mappings
+DEFINE_VALIDATED_string(auth_module_mappings, "",
+                        "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
+                        "<absolute path>, and individual mappings are separated with \";\".",
+                        {
+                          return true;
+                          // TODO antepusic add validation
+                          // Check the file status, following symlinks.
+                          // auto status = std::filesystem::status(value);
+                          // if (!std::filesystem::is_regular_file(status)) {
+                          //   std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+                          //   return false;
+                          // }
+                          // return true;
+                        });
 
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a "
@@ -264,8 +277,7 @@ auto ParseJson(std::string_view str) {
 
 Auth::Auth(std::string storage_directory, Config config)
     : storage_(std::move(storage_directory)), config_{std::move(config)} {
-  std::string xx = "";
-  modules_ = PopulateModules(xx);
+  modules_ = PopulateModules(FLAGS_auth_module_mappings);
   MigrateVersions(storage_);
 }
 
