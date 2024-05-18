@@ -1,8 +1,7 @@
-d: &saml_sso_cluster
+saml_sso_cluster: &saml_sso_cluster
   cluster:
     main:
-      args:
-        ["--bolt-port", "7687", "--log-level=TRACE", "--auth-module-executable=/home/ante/Memgraph/Code/sso/memgraph/src/auth/reference_modules/saml.py"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "saml_sso.log"
       setup_queries: []
       validation_queries: []

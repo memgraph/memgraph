@@ -4,13 +4,13 @@ import io
 import json
 
 
-def authenticate(response: str):
+def authenticate(scheme: str, response: str):
     response = base64.b64decode(response).decode("utf-8")
 
     if response == "send_error":
         return {
             "authenticated": False,
-            "errors": 'The "Memgraph.Architect" role is not present in the given role mappings.',
+            "errors": f'[Scheme: {scheme}] The "Memgraph.Architect" role is not present in the given role mappings.',
         }
 
     if response == "wrong_fields":
