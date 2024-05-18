@@ -214,6 +214,13 @@ class Auth final {
   bool AccessControlled() const;
 
   /**
+   * Returns whether the access is controlled by authentication/authorization carried out by an external module.
+   *
+   * @return `true` if auth needs to run
+   */
+  bool UsingAuthModule() const { return !modules_.empty(); }
+
+  /**
    * Gets a role from the storage.
    *
    * @param rolename
@@ -229,7 +236,7 @@ class Auth final {
       if (!condition) throw AuthException(std::move(msg));
     };
     // Special case if we are using a module; we must find the specified role
-    if (module_.IsUsed()) {
+    if (UsingAuthModule()) {
       expect(username && rolename, "When using a module, a role needs to be connected to a username.");
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
@@ -385,15 +392,15 @@ class Auth final {
 
   void UpdateEpoch() { ++epoch_; }
 
-  void DisableIfModuleUsed() const {
-    if (module_.IsUsed()) throw AuthException("Operation not permited when using an authentication module.");
+  void DisableIfUsingAuthModule() const {
+    if (UsingAuthModule()) throw AuthException("Operation not permited when using an authentication module.");
   }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
-  auth::Module module_;
+  std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
   Epoch epoch_{kStartEpoch};
 };
