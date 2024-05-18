@@ -315,22 +315,13 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
     return user;
   }
 
-  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-  if (license_check_result.HasError()) {
-    spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+  if (!HasAuthModulePrerequisites("basic")) {
     return std::nullopt;
   }
 
   nlohmann::json params = nlohmann::json::object();
   params["username"] = username;
   params["password"] = password;
-
-  if (!modules_.contains("basic")) {
-    spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate user: no module is specified for the basic (username + password) auth scheme.",
-        "https://memgr.ph/sso"));
-    return std::nullopt;
-  }
 
   auto ret = modules_.at("basic").Call(params, FLAGS_auth_module_timeout_ms);
 
@@ -344,45 +335,22 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
     return std::nullopt;
   }
   auto is_authenticated = ret_authenticated.get<bool>();
+  if (!is_authenticated) return std::nullopt;
   const auto &rolename = ret_role.get<std::string>();
 
-  // Check if role is present
-  auto role = GetRole(rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
-                                        username, rolename, "https://memgr.ph/auth"));
-    return std::nullopt;
-  }
-
-  // Authenticate the user.
-  if (!is_authenticated) return std::nullopt;
-
-  return RoleWUsername{username, std::move(*role)};
+  return GetUserOrRole(username, rolename);
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
                                                 const std::string &identity_provider_response) {
-  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-  if (license_check_result.HasError()) {
-    spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+  if (!HasAuthModulePrerequisites(scheme)) {
     return std::nullopt;
-  }
-
-  if (!UsingAuthModule()) {
-    spdlog::warn(
-        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
   }
 
   nlohmann::json params = nlohmann::json::object();
   nlohmann::json sso_config = nlohmann::json::object();
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
-
-  if (!modules_.contains(scheme)) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
-                                        scheme, "https://memgr.ph/sso"));
-    return std::nullopt;
-  }
 
   auto ret = modules_.at(scheme).Call(params, FLAGS_auth_module_timeout_ms);
 
@@ -444,18 +412,7 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   const auto &rolename = ret_role.get<std::string>();
   const auto &username = ret_username.get<std::string>();
 
-  // Check if the role is present:
-
-  auto role = GetRole(rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
-                                        username, rolename, "https://memgr.ph/auth"));
-    return std::nullopt;
-  }
-
-  // Authenticate the user:
-
-  return RoleWUsername{username, std::move(*role)};
+  return GetUserOrRole(username, rolename);
 }
 
 void Auth::LinkUser(User &user) const {

@@ -18,6 +18,7 @@
 #include "auth/module.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
+#include "license/license.hpp"
 #include "system/action.hpp"
 #include "utils/settings.hpp"
 #include "utils/synchronized.hpp"
@@ -391,6 +392,35 @@ class Auth final {
   bool NameRegexMatch(const std::string &user_or_role) const;
 
   void UpdateEpoch() { ++epoch_; }
+
+  /**
+   * Returns whether the prerequisites for authentication aided by external module are met:
+   * a) valid enterprise license
+   * b) module defined for the given auth scheme
+   *
+   * @return `true` if auth needs to run
+   */
+  bool HasAuthModulePrerequisites(const std::string &scheme) const {
+    const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+    if (license_check_result.HasError()) {
+      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+      return false;
+    }
+
+    if (modules_.empty()) {
+      spdlog::warn(
+          utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
+      return false;
+    }
+
+    if (!modules_.contains(scheme)) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
+                                          scheme, "https://memgr.ph/sso"));
+      return false;
+    }
+
+    return true;
+  }
 
   void DisableIfUsingAuthModule() const {
     if (UsingAuthModule()) throw AuthException("Operation not permited when using an authentication module.");
