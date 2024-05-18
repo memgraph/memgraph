@@ -81,7 +81,7 @@ const char *GetGaugeDocumentation(const Event event) {
 
 const char *GetGaugeTypeString(const Event event) {
   static const char *strings[] = {
-#define M(NAME, GAUGE_TYPE, TYPE, DOCUMENTATION) #GAUGE_TYPE,
+#define M(NAME, GAUGE_TYPE, TYPE, DOCUMENTATION) #TYPE,
       APPLY_FOR_GAUGES(M)
 #undef M
   };
