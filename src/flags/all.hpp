@@ -21,5 +21,4 @@
 #include "flags/query.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "flags/sso.hpp"
 #include "flags/storage_mode.hpp"
