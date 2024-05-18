@@ -338,7 +338,14 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   if (!is_authenticated) return std::nullopt;
   const auto &rolename = ret_role.get<std::string>();
 
-  return GetUserOrRole(username, rolename);
+  std::optional<UserOrRole> user_or_role = std::nullopt;
+  try {
+    user_or_role = GetUserOrRole(username, rolename);
+  } catch (const AuthException &) {
+    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+  return user_or_role;
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
@@ -412,7 +419,14 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   const auto &rolename = ret_role.get<std::string>();
   const auto &username = ret_username.get<std::string>();
 
-  return GetUserOrRole(username, rolename);
+  std::optional<UserOrRole> user_or_role = std::nullopt;
+  try {
+    user_or_role = GetUserOrRole(username, rolename);
+  } catch (const AuthException &) {
+    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+  return user_or_role;
 }
 
 void Auth::LinkUser(User &user) const {

@@ -409,7 +409,7 @@ class Auth final {
 
     if (modules_.empty()) {
       spdlog::warn(
-          utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
+          utils::MessageWithLink("Couldn't authenticate via SSO without an external module.", "https://memgr.ph/sso"));
       return false;
     }
 
