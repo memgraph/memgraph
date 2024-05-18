@@ -235,7 +235,7 @@ std::unordered_map<std::string, auth::Module> PopulateModules(std::string &modul
   }
 
   if (!FLAGS_auth_module_executable.empty()) {
-    module_per_scheme.emplace(scheme_name, FLAGS_auth_module_executable);
+    module_per_scheme.emplace("basic", FLAGS_auth_module_executable);
   }
 
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
