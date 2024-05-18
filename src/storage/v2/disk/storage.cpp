@@ -56,6 +56,7 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/disk_utils.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -72,6 +73,10 @@
 #include "utils/typeinfo.hpp"
 
 #include <mutex>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}
 
 namespace memgraph::storage {
 
@@ -848,6 +853,9 @@ StorageInfo DiskStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
+  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }

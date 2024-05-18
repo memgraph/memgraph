@@ -78,6 +78,7 @@ struct StorageInfo {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_res;
+  uint64_t peak_memory_res;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
