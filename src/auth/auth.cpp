@@ -41,6 +41,7 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 }
 }  // namespace memgraph
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 DEFINE_VALIDATED_string(auth_module_mappings, "",
                         "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
                         "<absolute path>, and individual mappings are separated with \";\".",
@@ -354,7 +355,6 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   }
 
   nlohmann::json params = nlohmann::json::object();
-  nlohmann::json sso_config = nlohmann::json::object();
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
