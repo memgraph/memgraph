@@ -1,13 +1,4 @@
-saml_sso_cluster: &saml_sso_cluster
-  cluster:
-    main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
-      log_file: "saml_sso.log"
-      setup_queries: []
-      validation_queries: []
-
 workloads:
-  - name: "Test SSO with dummy module"
+  - name: "SSO dummy module"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["index_hints/test_sso.py"]
-    <<: *saml_sso_cluster
+    args: ["sso/test_sso.py"]

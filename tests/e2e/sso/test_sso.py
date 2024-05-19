@@ -10,7 +10,7 @@ from neo4j import Auth, GraphDatabase
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
-    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..", "..")
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "memgraph", "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
@@ -21,7 +21,7 @@ INSTANCE_NAME = "test_instance"
 INSTANCE_DESCRIPTION = {
     INSTANCE_NAME: {
         "args": ["--bolt-port=7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-        "log_file": "sso/main.log",
+        "log_file": "sso.log",
         "data_directory": TEMP_DIR,
         "setup_queries": [],
         "skip_auth": True,
@@ -32,7 +32,7 @@ MG_URI = "bolt://localhost:7687"
 CLIENT_ERROR_MESSAGE = "{code: Memgraph.ClientError.Security.Unauthenticated} {message: Authentication failure}"
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def provide_role():
     interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
 
@@ -124,7 +124,6 @@ def test_sso_successful(provide_role):
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         client.verify_connectivity()
-
         client.execute_query("MATCH (n) RETURN n;")
 
 
