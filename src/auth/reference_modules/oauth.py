@@ -5,7 +5,6 @@ import json
 import os
 import time
 
-import dotenv
 import jwt
 
 import requests
