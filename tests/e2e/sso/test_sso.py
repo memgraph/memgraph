@@ -29,14 +29,14 @@ INSTANCE_DESCRIPTION = {
 }
 
 MG_URI = "bolt://localhost:7687"
-CLIENT_ERROR_MESSAGE = "{code: Memgraph.ClientError.Security.Unauthenticated} {message: Authentication failure}"
+CLIENT_ERROR_MESSAGE = "Authentication failure"
 
 
 @pytest.fixture(scope="module")
 def provide_role():
     interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
 
-    with GraphDatabase.driver(MG_URI) as client:
+    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
         client.verify_connectivity()
         with client.session() as session:
             session.run("CREATE ROLE architect;")
@@ -54,7 +54,7 @@ def provide_role():
 
     interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
 
-    with GraphDatabase.driver(MG_URI) as client:
+    with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
         client.verify_connectivity()
         with client.session() as session:
             session.run("DROP ROLE architect;")
@@ -68,7 +68,7 @@ def test_sso_empty_module():
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
     interactive_mg_runner.stop_instance(INSTANCE_DESCRIPTION, INSTANCE_NAME)
 
@@ -76,9 +76,8 @@ def test_sso_empty_module():
 def test_sso_module_error(provide_role):
     response = base64.b64encode(b"send_error").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
-
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
@@ -87,7 +86,7 @@ def test_sso_json_with_wrong_fields(provide_role):
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
@@ -96,7 +95,7 @@ def test_sso_json_with_wrong_value_types(provide_role):
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
@@ -105,7 +104,7 @@ def test_sso_missing_username(provide_role):
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
@@ -114,7 +113,7 @@ def test_sso_role_does_not_exist(provide_role):
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
@@ -124,7 +123,8 @@ def test_sso_successful(provide_role):
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         client.verify_connectivity()
-        client.execute_query("MATCH (n) RETURN n;")
+        with client.session() as session:
+            session.run("MATCH (n) RETURN n;")
 
 
 if __name__ == "__main__":
