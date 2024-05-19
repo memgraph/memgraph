@@ -147,5 +147,4 @@ if __name__ == "__main__":
     while True:
         params = json.loads(input_stream.readline().decode("ascii"))
         ret = authenticate(**params)
-        print("result", ret)
         output_stream.write((json.dumps(ret) + "\n").encode("ascii"))
