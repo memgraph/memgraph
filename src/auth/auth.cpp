@@ -41,6 +41,7 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 }
 }  // namespace memgraph
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 DEFINE_VALIDATED_string(auth_module_mappings, "",
                         "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
                         "<absolute path>, and individual mappings are separated with \";\".",
@@ -49,8 +50,7 @@ DEFINE_VALIDATED_string(auth_module_mappings, "",
                           for (auto &[_, path] : memgraph::ModuleMappingsToMap(value)) {
                             auto status = std::filesystem::status(path);
                             if (!std::filesystem::is_regular_file(status)) {
-                              std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
-                              // TODO antepusic error message
+                              std::cerr << "The auth module path doesn't exist or isn't a file!\n";
                               return false;
                             }
                           }
@@ -73,7 +73,7 @@ DEFINE_VALIDATED_HIDDEN_string(
       // Check the file status, following symlinks.
       auto status = std::filesystem::status(value);
       if (!std::filesystem::is_regular_file(status)) {
-        std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+        std::cerr << "The auth module path doesn't exist or isn't a file!\n";
         return false;
       }
       return true;
@@ -355,7 +355,6 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   }
 
   nlohmann::json params = nlohmann::json::object();
-  nlohmann::json sso_config = nlohmann::json::object();
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
