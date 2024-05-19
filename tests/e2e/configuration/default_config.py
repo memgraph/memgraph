@@ -14,7 +14,13 @@
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
 startup_config_dict = {
-    "auth_module_executable": ("", "", "Absolute path to the auth module executable that should be used."),
+    "auth_module_mappings": (
+        "",
+        "",
+        "Associates auth schemas to external modules. A mapping is structured as "
+        "follows: <scheme>: <absolute path>, and individual mappings are separated "
+        'with ";".',
+    ),
     "auth_module_timeout_ms": (
         "10000",
         "10000",

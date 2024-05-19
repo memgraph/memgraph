@@ -119,7 +119,7 @@ class Memgraph:
                 args.append(value)
         self._process = subprocess.Popen(args)
         time.sleep(0.1)
-        assert self._process.poll() is None, "Memgraph process died " "prematurely!"
+        assert self._process.poll() is None, "Memgraph process died prematurely!"
         wait_for_server(7687)
 
     def stop(self, check=True):

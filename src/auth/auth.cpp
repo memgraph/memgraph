@@ -10,6 +10,7 @@
 
 #include <iosfwd>
 #include <optional>
+#include <ranges>
 #include <utility>
 
 #include <fmt/format.h>
@@ -17,7 +18,6 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/rpc.hpp"
-#include "flags/sso.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
@@ -25,14 +25,34 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 
-DEFINE_VALIDATED_string(auth_module_executable, "", "Absolute path to the auth module executable that should be used.",
+namespace memgraph {
+std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::string &module_mappings) {
+  std::unordered_map<std::string, std::string> module_per_scheme;
+  for (const auto &mapping : utils::Split(module_mappings, ";")) {
+    const auto module_and_scheme = utils::Split(mapping, ":");
+    if (module_and_scheme.size() != 2) {
+      throw auth::AuthException("Entries in the auth module mapping follow the \"auth_schema: module_path\" syntax!");
+    }
+    const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
+    const auto module_path = std::string{utils::Trim(module_and_scheme[1])};
+    module_per_scheme.emplace(scheme_name, module_path);
+  }
+  return module_per_scheme;
+}
+}  // namespace memgraph
+
+DEFINE_VALIDATED_string(auth_module_mappings, "",
+                        "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
+                        "<absolute path>, and individual mappings are separated with \";\".",
                         {
                           if (value.empty()) return true;
-                          // Check the file status, following symlinks.
-                          auto status = std::filesystem::status(value);
-                          if (!std::filesystem::is_regular_file(status)) {
-                            std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
-                            return false;
+                          for (auto &[_, path] : memgraph::ModuleMappingsToMap(value)) {
+                            auto status = std::filesystem::status(path);
+                            if (!std::filesystem::is_regular_file(status)) {
+                              std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+                              // TODO antepusic error message
+                              return false;
+                            }
                           }
                           return true;
                         });
@@ -44,28 +64,45 @@ DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
 
 // DEPRECATED FLAGS
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_user, true,
-                             "Set to false to disable creation of missing users.", {
-                               spdlog::warn(
-                                   "auth_module_create_missing_user flag is deprecated. It not possible to create "
-                                   "users through the module anymore.");
-                               return true;
-                             });
+DEFINE_VALIDATED_HIDDEN_string(
+    auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
+      spdlog::warn(
+          "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
+          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic: {your module’s path}.");
+      if (value.empty()) return true;
+      // Check the file status, following symlinks.
+      auto status = std::filesystem::status(value);
+      if (!std::filesystem::is_regular_file(status)) {
+        std::cerr << "The auth module path doesn't exist or isn't a file!" << std::endl;
+        return false;
+      }
+      return true;
+    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(auth_module_create_missing_role, true,
-                             "Set to false to disable creation of missing roles.", {
-                               spdlog::warn(
-                                   "auth_module_create_missing_role flag is deprecated. It not possible to create "
-                                   "roles through the module anymore.");
-                               return true;
-                             });
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_create_missing_user, true, "Set to false to disable creation of missing users.", {
+      spdlog::warn(
+          "The auth_module_create_missing_user flag is deprecated. It is no longer possible to create "
+          "users through the module.");
+      return true;
+    });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_HIDDEN_bool(
+    auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.", {
+      spdlog::warn(
+          "The auth_module_create_missing_role flag is deprecated. It is no longer possible to create "
+          "roles through the module.");
+      return true;
+    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_HIDDEN_bool(
     auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.", {
       spdlog::warn(
-          "auth_module_manage_roles flag is deprecated. It not possible to create roles through the module anymore.");
+          "The auth_module_manage_roles flag is deprecated. It is no longer possible to create roles "
+          "through the module.");
       return true;
     });
 
@@ -221,6 +258,22 @@ void MigrateVersions(kvstore::KVStore &store) {
   }
 }
 
+std::unordered_map<std::string, auth::Module> PopulateModules(std::string &module_mappings) {
+  std::unordered_map<std::string, auth::Module> module_per_scheme;
+  if (module_mappings.empty()) {
+    return module_per_scheme;
+  }
+
+  if (!FLAGS_auth_module_executable.empty()) {
+    module_per_scheme.emplace("basic", FLAGS_auth_module_executable);
+  }
+
+  for (const auto &[scheme, module_path] : ModuleMappingsToMap(module_mappings)) {
+    module_per_scheme.emplace(scheme, module_path);
+  }
+  return module_per_scheme;
+}
+
 auto ParseJson(std::string_view str) {
   nlohmann::json data;
   try {
@@ -234,88 +287,70 @@ auto ParseJson(std::string_view str) {
 };  // namespace
 
 Auth::Auth(std::string storage_directory, Config config)
-    : storage_(std::move(storage_directory)), module_(FLAGS_auth_module_executable), config_{std::move(config)} {
+    : storage_(std::move(storage_directory)), config_{std::move(config)} {
+  modules_ = PopulateModules(FLAGS_auth_module_mappings);
   MigrateVersions(storage_);
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
-  if (module_.IsUsed() && !FLAGS_auth_sso_on) {
+  if (!modules_.contains("basic")) {
     /*
-     * MODULE AUTH STORAGE
+     * LOCAL AUTH STORAGE
      */
-    const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-    if (license_check_result.HasError()) {
-      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+    auto user = GetUser(username);
+    if (!user) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
+                                          "https://memgr.ph/auth"));
       return std::nullopt;
     }
-
-    nlohmann::json params = nlohmann::json::object();
-    params["username"] = username;
-    params["password"] = password;
-
-    auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
-
-    // Verify response integrity.
-    if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end()) {
+    if (!user->CheckPassword(password)) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
+                                          username, "https://memgr.ph/auth"));
       return std::nullopt;
     }
-    const auto &ret_authenticated = ret.at("authenticated");
-    const auto &ret_role = ret.at("role");
-    if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
-      return std::nullopt;
-    }
-    auto is_authenticated = ret_authenticated.get<bool>();
-    const auto &rolename = ret_role.get<std::string>();
-
-    // Check if role is present
-    auto role = GetRole(rolename);
-    if (!role) {
-      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
-                                          username, rolename, "https://memgr.ph/auth"));
-      return std::nullopt;
+    if (user->UpgradeHash(password)) {
+      SaveUser(*user);
     }
 
-    // Authenticate the user.
-    if (!is_authenticated) return std::nullopt;
-
-    return RoleWUsername{username, std::move(*role)};
+    return user;
   }
 
-  /*
-   * LOCAL AUTH STORAGE
-   */
-  auto user = GetUser(username);
-  if (!user) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the user doesn't exist.", username,
-                                        "https://memgr.ph/auth"));
+  if (!HasAuthModulePrerequisites("basic")) {
     return std::nullopt;
   }
-  if (!user->CheckPassword(password)) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the password is not correct.",
-                                        username, "https://memgr.ph/auth"));
+
+  nlohmann::json params = nlohmann::json::object();
+  params["username"] = username;
+  params["password"] = password;
+
+  auto ret = modules_.at("basic").Call(params, FLAGS_auth_module_timeout_ms);
+
+  // Verify response integrity.
+  if (!ret.is_object() || ret.find("authenticated") == ret.end() || ret.find("role") == ret.end()) {
     return std::nullopt;
   }
-  if (user->UpgradeHash(password)) {
-    SaveUser(*user);
+  const auto &ret_authenticated = ret.at("authenticated");
+  const auto &ret_role = ret.at("role");
+  if (!ret_authenticated.is_boolean() || !ret_role.is_string()) {
+    return std::nullopt;
   }
+  auto is_authenticated = ret_authenticated.get<bool>();
+  if (!is_authenticated) return std::nullopt;
+  const auto &rolename = ret_role.get<std::string>();
 
-  return user;
+  std::optional<UserOrRole> user_or_role = std::nullopt;
+  try {
+    user_or_role = GetUserOrRole(username, rolename);
+  } catch (const AuthException &) {
+    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
+    return std::nullopt;
+  }
+  return user_or_role;
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
                                                 const std::string &identity_provider_response) {
-  if (!module_.IsUsed()) {
-    spdlog::warn(
-        utils::MessageWithLink("Couldn't authenticate via SSO without an external module. https://memgr.ph/sso"));
-  }
-
-  if (!FLAGS_auth_sso_on) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate via SSO because the auth-sso-on is not set to true."));
-  }
-
-  const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
-  if (license_check_result.HasError()) {
-    spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+  if (!HasAuthModulePrerequisites(scheme)) {
     return std::nullopt;
   }
 
@@ -324,7 +359,7 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   params["scheme"] = scheme;
   params["response"] = identity_provider_response;
 
-  auto ret = module_.Call(params, FLAGS_auth_module_timeout_ms);
+  auto ret = modules_.at(scheme).Call(params, FLAGS_auth_module_timeout_ms);
 
   // Verify response integrity:
 
@@ -384,18 +419,14 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   const auto &rolename = ret_role.get<std::string>();
   const auto &username = ret_username.get<std::string>();
 
-  // Check if the role is present:
-
-  auto role = GetRole(rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate user '{}' because the role '{}' doesn't exist.",
-                                        username, rolename, "https://memgr.ph/auth"));
+  std::optional<UserOrRole> user_or_role = std::nullopt;
+  try {
+    user_or_role = GetUserOrRole(username, rolename);
+  } catch (const AuthException &) {
+    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
     return std::nullopt;
   }
-
-  // Authenticate the user:
-
-  return RoleWUsername{username, std::move(*role)};
+  return user_or_role;
 }
 
 void Auth::LinkUser(User &user) const {
@@ -409,7 +440,7 @@ void Auth::LinkUser(User &user) const {
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
-  if (module_.IsUsed()) return std::nullopt;  // Users are not supported when using module
+  if (UsingAuthModule()) return std::nullopt;  // Users are not supported when using module
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
@@ -420,7 +451,7 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
-  DisableIfModuleUsed();
+  DisableIfUsingAuthModule();
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
     success = storage_.PutMultiple(
@@ -445,7 +476,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
-  DisableIfModuleUsed();
+  DisableIfUsingAuthModule();
   // Check if null
   if (!password) {
     if (!config_.password_permit_null) {
@@ -477,7 +508,7 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
 
 std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
-  DisableIfModuleUsed();
+  DisableIfUsingAuthModule();
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
@@ -492,7 +523,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 }
 
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
-  DisableIfModuleUsed();
+  DisableIfUsingAuthModule();
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
@@ -546,7 +577,7 @@ std::vector<std::string> Auth::AllUsernames() const {
 
 bool Auth::HasUsers() const { return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix); }
 
-bool Auth::AccessControlled() const { return HasUsers() || module_.IsUsed(); }
+bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
   auto rolename = utils::ToLowerCase(rolename_orig);
@@ -637,7 +668,7 @@ std::vector<std::string> Auth::AllRolenames() const {
 }
 
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
-  DisableIfModuleUsed();
+  DisableIfUsingAuthModule();
   const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
@@ -658,7 +689,7 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 #ifdef MG_ENTERPRISE
 Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (module_.IsUsed()) {
+  if (UsingAuthModule()) {
     if (auto role = GetRole(name)) {
       GrantDatabase(db, *role, system_tx);
       return SUCCESS;
@@ -696,7 +727,7 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
 
 Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (module_.IsUsed()) {
+  if (UsingAuthModule()) {
     if (auto role = GetRole(name)) {
       DenyDatabase(db, *role, system_tx);
       return SUCCESS;
@@ -734,7 +765,7 @@ void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *
 
 Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (module_.IsUsed()) {
+  if (UsingAuthModule()) {
     if (auto role = GetRole(name)) {
       RevokeDatabase(db, *role, system_tx);
       return SUCCESS;
@@ -796,7 +827,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
 
 Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (module_.IsUsed()) {
+  if (UsingAuthModule()) {
     if (auto role = GetRole(name)) {
       SetMainDatabase(db, *role, system_tx);
       return SUCCESS;

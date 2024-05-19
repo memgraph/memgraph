@@ -18,6 +18,7 @@
 #include "auth/module.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
+#include "license/license.hpp"
 #include "system/action.hpp"
 #include "utils/settings.hpp"
 #include "utils/synchronized.hpp"
@@ -214,6 +215,13 @@ class Auth final {
   bool AccessControlled() const;
 
   /**
+   * Returns whether the access is controlled by authentication/authorization carried out by an external module.
+   *
+   * @return `true` if auth needs to run
+   */
+  bool UsingAuthModule() const { return !modules_.empty(); }
+
+  /**
    * Gets a role from the storage.
    *
    * @param rolename
@@ -229,7 +237,7 @@ class Auth final {
       if (!condition) throw AuthException(std::move(msg));
     };
     // Special case if we are using a module; we must find the specified role
-    if (module_.IsUsed()) {
+    if (UsingAuthModule()) {
       expect(username && rolename, "When using a module, a role needs to be connected to a username.");
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
@@ -385,15 +393,44 @@ class Auth final {
 
   void UpdateEpoch() { ++epoch_; }
 
-  void DisableIfModuleUsed() const {
-    if (module_.IsUsed()) throw AuthException("Operation not permited when using an authentication module.");
+  /**
+   * Returns whether the prerequisites for authentication aided by external module are met:
+   * a) valid enterprise license
+   * b) module defined for the given auth scheme
+   *
+   * @return `true` if auth needs to run
+   */
+  bool HasAuthModulePrerequisites(const std::string &scheme) const {
+    const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
+    if (license_check_result.HasError()) {
+      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.GetError(), "authentication modules"));
+      return false;
+    }
+
+    if (modules_.empty()) {
+      spdlog::warn(
+          utils::MessageWithLink("Couldn't authenticate via SSO without an external module.", "https://memgr.ph/sso"));
+      return false;
+    }
+
+    if (!modules_.contains(scheme)) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
+                                          scheme, "https://memgr.ph/sso"));
+      return false;
+    }
+
+    return true;
+  }
+
+  void DisableIfUsingAuthModule() const {
+    if (UsingAuthModule()) throw AuthException("Operation not permited when using an authentication module.");
   }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
-  auth::Module module_;
+  std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
   Epoch epoch_{kStartEpoch};
 };
