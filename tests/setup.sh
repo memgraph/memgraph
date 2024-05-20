@@ -39,7 +39,7 @@ for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
 # https://github.com/SAML-Toolkits/python3-saml?tab=readme-ov-file#note
-pip install --force-reinstall --no-binary lxml lxml
+pip --timeout 1000 install --upgrade lxml==5.2.1
 pip --timeout 1000 install "networkx==2.4"
 
 # Install mgclient from source becasue of full flexibility.
