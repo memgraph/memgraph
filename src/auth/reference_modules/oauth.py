@@ -10,10 +10,12 @@ import jwt
 import requests
 
 
-def validate_jwt_token(token: str, scheme: str, client_id, tenant_id):
+def validate_jwt_token(token: str, scheme: str, client_id, tenant_id, type="access"):
     jwks_uri = None
     if scheme == "oauth-entra-id":
         jwks_uri = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+    else:
+        return {"valid": False, "error": "Unsupported scheme"}
 
     jwks = requests.get(jwks_uri).json()
 
@@ -41,61 +43,55 @@ def validate_jwt_token(token: str, scheme: str, client_id, tenant_id):
     if decoded_token.get("exp", None) < int(time.time()):
         return {"valid": False, "error": "Token expired"}
 
-    return {"valid": True, "token": decoded_token}
+    return {"valid": True, f"{type}_token": decoded_token}
 
 
 def _parse_response(response):
     return dict(token.split("=") for token in response.split(";"))
 
 
-def _load_from_file(path: str):
-    with open(path, mode="r") as file:
-        return file.read()
+def _load_role_mappings(raw_role_mappings: str) -> dict:
+    if raw_role_mappings:
+        role_mapping = {}
+        raw_role_mappings = raw_role_mappings.split(";")
+        for mapping in raw_role_mappings:
+            idp_role, mg_role = mapping.split(":")
+            role_mapping[idp_role.strip()] = mg_role.strip()
+        return role_mapping
+    return {}
 
 
 def _load_config_from_env(scheme: str):
     config = {}
 
     if scheme == "oauth-entra-id":
-        config["id_issuer"] = os.getenv("AUTH_OAUTH_ENTRA_ID_ISSUER")
-        config["authorization_url"] = os.getenv("AUTH_OAUTH_ENTRA_ID_AUTHORIZATION_URL")
-        config["token_url"] = os.getenv("AUTH_OAUTH_ENTRA_ID_TOKEN_URL")
-        config["user_info_url"] = os.getenv("AUTH_OAUTH_ENTRA_ID_USER_INFO_URL")
-        config["client_id"] = os.getenv("AUTH_OAUTH_ENTRA_ID_CLIENT_ID")
-        config["client_secret"] = os.getenv("AUTH_OAUTH_ENTRA_ID_CLIENT_SECRET")
-        config["callback_url"] = os.getenv("AUTH_OAUTH_ENTRA_ID_CALLBACK_URL")
-        config["scope"] = os.getenv("AUTH_OAUTH_ENTRA_ID_SCOPE")
-        config["tenant_id"] = os.getenv("AUTH_OAUTH_ENTRA_ID_TENANT_ID")
-        config["role_mapping"] = json.loads(_load_from_file(os.getenv("AUTH_OAUTH_ENTRA_ID_ROLE_MAPPING")))
+        config["id_issuer"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_ISSUER", "")
+        config["authorization_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_AUTHORIZATION_URL", "")
+        config["token_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_TOKEN_URL", "")
+        config["user_info_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_USER_INFO_URL", "")
+        config["client_id"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CLIENT_ID", "")
+        config["client_secret"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CLIENT_SECRET", "")
+        config["callback_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CALLBACK_URL", "")
+        config["scope"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_SCOPE", "")
+        config["tenant_id"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_TENANT_ID", "")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("AUTH_OAUTH_ENTRA_ID_ROLE_MAPPING", ""))
+
     elif scheme == "oauth-okta":
-        config["id_issuer"] = os.getenv("AUTH_OAUTH_OKTA_ISSUER")
-        config["authorization_url"] = os.getenv("AUTH_OAUTH_OKTA_AUTHORIZATION_URL")
-        config["token_url"] = os.getenv("AUTH_OAUTH_OKTA_TOKEN_URL")
-        config["client_id"] = os.getenv("AUTH_OAUTH_OKTA_CLIENT_ID")
-        config["client_secret"] = os.getenv("AUTH_OAUTH_OKTA_CLIENT_SECRET")
-        config["callback_url"] = os.getenv("AUTH_OAUTH_OKTA_CALLBACK_URL")
-        config["scope"] = os.getenv("AUTH_OAUTH_OKTA_SCOPE")
+        config["id_issuer"] = os.environ.get("AUTH_OAUTH_OKTA_ISSUER", "")
+        config["authorization_url"] = os.environ.get("AUTH_OAUTH_OKTA_AUTHORIZATION_URL", "")
+        config["token_url"] = os.environ.get("AUTH_OAUTH_OKTA_TOKEN_URL", "")
+        config["client_id"] = os.environ.get("AUTH_OAUTH_OKTA_CLIENT_ID", "")
+        config["client_secret"] = os.environ.get("AUTH_OAUTH_OKTA_CLIENT_SECRET", "")
+        config["callback_url"] = os.environ.get("AUTH_OAUTH_OKTA_CALLBACK_URL", "")
+        config["scope"] = os.environ.get("AUTH_OAUTH_OKTA_SCOPE", "")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("AUTH_OAUTH_OKTA_ROLE_MAPPING", ""))
 
     return config
 
 
-def authenticate(response: str, scheme: str):
-    if scheme not in ["oauth-entra-id", "oidc-entra-id", "oauth-okta"]:
-        return {"authenticated": False, "error": "Invalid SSO scheme"}
-
-    config = _load_config_from_env(scheme)
-
-    tokens = None
-    if scheme in ["oauth-entra-id", "oauth-okta"]:
-        tokens = {"access_token": response}
-    else:
-        tokens = _parse_response(response)
-
-    access_token_validity = None
+def decode_tokens(scheme, config, tokens):
     if scheme == "oauth-entra-id":
-        access_token_validity = validate_jwt_token(
-            tokens["access_token"], scheme, config["client_id"], config["tenant_id"]
-        )
+        return validate_jwt_token(tokens["access_token"], scheme, config["client_id"], config["tenant_id"])
     elif scheme == "oauth-okta":
         validation_url = f"{config['id_issuer']}/oauth2/v1/introspect"
         data = {
@@ -106,39 +102,51 @@ def authenticate(response: str, scheme: str):
         }
         res = requests.post(validation_url, data=data).json()
         if "active" not in res or res["active"] == False:
-            return {"authenticated": False, "error": "Invalid access token"}
+            return {"valid": False, "error": "Invalid access token"}
         token = jwt.decode(tokens["access_token"], options={"verify_signature": False})
         token["username"] = res["username"]
-        access_token_validity = {"valid": True, "token": token}
+        return {"valid": True, "access_token": token}
+    else:
+        return {"valid": False, "error": f"Invalid scheme {scheme}"}
 
-    if "error" in access_token_validity:
-        return {"authenticated": False, "error": access_token_validity["error"]}
 
-    if scheme == "oidc-entra-id":
-        id_token_validity = validate_jwt_token(tokens["id_token"], scheme, config["tenant_id"], config["client_id"])
-        if "error" in id_token_validity:
-            return {"authenticated": False, "error": id_token_validity["error"]}
+def process_tokens(tokens, config, scheme):
+    if "error" in tokens:
+        return {"authenticated": False, "errors": tokens["error"]}
 
-    token = access_token_validity["token"]
-    if "roles" not in token:
+    access_token = tokens["access_token"]
+    if "roles" not in access_token:
         return {
             "authenticated": False,
-            "error": "Missing roles field, roles are probably not correctly configured on the token issuer",
+            "errors": "Missing roles field, roles are probably not correctly configured on the token issuer",
         }
 
-    roles = token["roles"]
+    roles = access_token["roles"]
     role = roles[0] if isinstance(roles, list) else roles
 
     if role not in config["role_mapping"]:
-        return {"authenticated": False, "error": f"Cannot map role {role} to Memgraph role"}
+        return {"authenticated": False, "errors": f"Cannot map role {role} to Memgraph role"}
 
     return {
         "authenticated": True,
         "role": config["role_mapping"][role],
-        "username": access_token_validity["token"]["preferred_username"]
-        if "entra" in scheme
-        else access_token_validity["token"]["username"],
+        "username": access_token["preferred_username"] if "entra" in scheme else access_token["username"],
     }
+
+
+def authenticate(response: str, scheme: str):
+    if scheme not in ["oauth-entra-id", "oauth-okta"]:
+        return {"authenticated": False, "error": "Invalid SSO scheme"}
+
+    config = _load_config_from_env(scheme)
+
+    tokens = None
+    if scheme in ["oauth-entra-id", "oauth-okta"]:
+        tokens = {"access_token": response}
+    else:
+        tokens = _parse_response(response)
+
+    return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
 
 
 if __name__ == "__main__":
