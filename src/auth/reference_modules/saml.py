@@ -6,8 +6,7 @@ import os
 from onelogin.saml2.auth import OneLogin_Saml2_Auth
 from onelogin.saml2.settings import OneLogin_Saml2_Settings
 
-# NOSONAR
-ENTRA_IDP_ROLE_ATTRIBUTE = "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"
+ENTRA_IDP_ROLE_ATTRIBUTE = "http://schemas.microsoft.com/ws/2008/06/identity/claims/role"  # NOSONAR
 # ^ standardized by Microsoft: https://learn.microsoft.com/en-us/entra/identity-platform/reference-saml-tokens
 
 # Default settings: "sp" refers to the service provider (Memgraph), and "idp" to the identity provider (Entra ID)
