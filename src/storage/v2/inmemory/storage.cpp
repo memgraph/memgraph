@@ -1851,8 +1851,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             // the parent object in order to be able to use its lock.
             auto parent = prev;
             while (parent.type == PreviousPtr::Type::DELTA) {
-              if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
-                modified_labels.insert(delta.label.value);
+              if (parent.delta->action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
+                modified_labels.insert(parent.delta->label.value);
               }
               parent = parent.delta->prev.Get();
             }
