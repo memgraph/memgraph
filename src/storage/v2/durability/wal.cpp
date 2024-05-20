@@ -439,7 +439,6 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
         }
       }
       break;
-      break;
     }
   }
 
