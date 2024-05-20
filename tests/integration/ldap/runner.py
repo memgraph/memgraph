@@ -110,6 +110,9 @@ class Memgraph:
             "--auth-module-executable",
             kwargs.pop("module_executable", self._auth_module),
         ]
+        if args[-2:] == ["--auth-module-executable", ""]:
+            args.pop()
+            args.pop()
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
             if isinstance(value, bool):
@@ -117,6 +120,9 @@ class Memgraph:
             else:
                 args.append(ldap_key)
                 args.append(value)
+        if args[-2:] == ["--auth-module-executable", ""]:
+            args.pop()
+            args.pop()
         self._process = subprocess.Popen(args)
         time.sleep(0.1)
         assert self._process.poll() is None, "Memgraph process died prematurely!"

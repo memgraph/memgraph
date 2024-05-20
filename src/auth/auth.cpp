@@ -260,12 +260,12 @@ void MigrateVersions(kvstore::KVStore &store) {
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string &module_mappings) {
   std::unordered_map<std::string, auth::Module> module_per_scheme;
-  if (module_mappings.empty()) {
-    return module_per_scheme;
-  }
-
   if (!FLAGS_auth_module_executable.empty()) {
     module_per_scheme.emplace("basic", FLAGS_auth_module_executable);
+  }
+
+  if (module_mappings.empty()) {
+    return module_per_scheme;
   }
 
   for (const auto &[scheme, module_path] : ModuleMappingsToMap(module_mappings)) {
