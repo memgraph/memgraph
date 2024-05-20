@@ -173,7 +173,13 @@ void Endpoint::SetAddress(std::string address) { address_ = std::move(address); 
 void Endpoint::SetPort(uint16_t port) { port_ = port; }
 
 void to_json(nlohmann::json &j, Endpoint const &config) {
+<<<<<<< HEAD
   j = nlohmann::json{{"address", config.GetAddress()}, {"port", config.GetPort()}};
+||||||| parent of 8263a9d8e (Use hostname, when registering replicas in HA)
+  j = nlohmann::json{{"hostname", config.GetHostname()}, {"port", config.GetPort()}, {"family", config.GetIpFamily()}};
+=======
+  j = nlohmann::json{{"hostname", config.GetHostname()}, {"port", config.GetPort()}};
+>>>>>>> 8263a9d8e (Use hostname, when registering replicas in HA)
 }
 
 void from_json(nlohmann::json const &j, Endpoint &config) {
