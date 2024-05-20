@@ -174,7 +174,7 @@ void Endpoint::SetHostname(std::string const &hostname) { hostname_ = hostname; 
 void Endpoint::SetPort(uint16_t port) { port_ = port; }
 
 void to_json(nlohmann::json &j, Endpoint const &config) {
-  j = nlohmann::json{{"hostname", config.GetHostname()}, {"port", config.GetPort()}, {"family", config.GetIpFamily()}};
+  j = nlohmann::json{{"hostname", config.GetHostname()}, {"port", config.GetPort()}};
 }
 
 void from_json(nlohmann::json const &j, Endpoint &config) {

@@ -66,7 +66,7 @@ struct ReplicasInfo {
       : name_(std::move(name)),
         socket_address_(std::move(socket_address)),
         sync_mode_(sync_mode),
-        system_info_(std::move(system_info)),
+        system_info_(system_info),
         data_info_(std::move(data_info)) {}
 
   std::string name_;

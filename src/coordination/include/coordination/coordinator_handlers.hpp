@@ -57,7 +57,8 @@ class CoordinatorHandlers {
           .name = repl_info_config.instance_name,
           .mode = repl_info_config.replication_mode,
           .ip_address = repl_info_config.replication_server
-                            .GetResolvedIPAddress(),  // when registering replica, we need to resolve IP
+                            .GetHostname(),  // when using ReplicationClientConfig in coordination, ip_address isn't
+                                             // necessarily an IP address, could be hostname = DNS entry.
           .port = repl_info_config.replication_server.GetPort(),
       };
     };
