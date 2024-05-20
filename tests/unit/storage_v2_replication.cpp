@@ -1020,10 +1020,10 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
 
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
   ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
 
   main.reset();
@@ -1033,10 +1033,10 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   replica_infos = other_main.db.storage()->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
   ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
 }
 
@@ -1081,10 +1081,10 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
 
   ASSERT_EQ(replica_infos.size(), 2);
   ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
   ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
 
   auto handler = main->repl_handler;
@@ -1094,7 +1094,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   replica_infos = main->db.storage()->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
   ASSERT_EQ(replica_infos[0].name, replicas[1]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[1]);
 
   main.reset();
@@ -1104,7 +1104,7 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   replica_infos = other_main.db.storage()->ReplicasInfo();
   ASSERT_EQ(replica_infos.size(), 1);
   ASSERT_EQ(replica_infos[0].name, replicas[1]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetAddress(), local_host);
+  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
   ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[1]);
 }
 

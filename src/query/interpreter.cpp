@@ -342,7 +342,7 @@ class ReplQueryHandler {
       const auto replication_config =
           replication::ReplicationClientConfig{.name = name,
                                                .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
+                                               .ip_address = maybe_endpoint->GetResolvedIPAddress(),
                                                .port = maybe_endpoint->GetPort(),
                                                .replica_check_frequency = replica_check_frequency,
                                                .ssl = std::nullopt};

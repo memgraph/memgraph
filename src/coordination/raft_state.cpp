@@ -186,7 +186,7 @@ auto RaftState::RaftSocketAddress() const -> std::string {
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
-  auto const endpoint = config.coordinator_server.SocketAddress();
+  auto const endpoint = config.coordinator_server.SocketAddress();  // non-resolved IP
   auto const aux = nlohmann::json(config).dump();
   srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, endpoint, aux, false);
 
@@ -472,7 +472,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto res = RoutingTable{};
 
   auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
-    return instance.config.BoltSocketAddress();
+    return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
   // TODO: (andi) This is wrong check, Fico will correct in #1819.
@@ -501,7 +501,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   }
 
   auto const coord_instance_to_bolt = [](CoordinatorToCoordinatorConfig const &instance) {
-    return instance.bolt_server.SocketAddress();
+    return instance.bolt_server.SocketAddress();  // non-resolved IP
   };
 
   auto const &raft_log_coord_instances = GetCoordinatorInstances();

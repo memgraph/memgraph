@@ -46,7 +46,7 @@ CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
 CoordinatorServer::~CoordinatorServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
-    spdlog::trace("Closing coordinator server on {}:{}", endpoint.GetAddress(), endpoint.GetPort());
+    spdlog::trace("Closing coordinator server on {}:{}", endpoint.GetHostname(), endpoint.GetPort());
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();

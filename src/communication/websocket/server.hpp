@@ -29,8 +29,8 @@ class Server final {
  public:
   explicit Server(io::network::Endpoint endpoint, ServerContext *context, AuthenticationInterface &auth)
       : listener_{Listener::Create(
-            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.GetAddress()), endpoint.GetPort()},
-            auth)} {}
+            ioc_, context,
+            tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()}, auth)} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
