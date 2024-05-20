@@ -134,7 +134,8 @@ def authenticate(scheme: str, response: str):
         return {"authenticated": False, "errors": f"Errors while processing SAML response: {str(e)}"}
     errors = auth.get_errors()
     if errors:
-        return {"authenticated": False, "errors": f"Errors while processing SAML response: {'n'.join(errors)}"}
+        joined = "\n".join(errors)
+        return {"authenticated": False, "errors": f"Errors while processing SAML response: {joined}"}
 
     attributes = auth.get_attributes()
 
