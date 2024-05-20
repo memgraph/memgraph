@@ -3972,16 +3972,29 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
         results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
                            TypedValue(static_cast<int64_t>(info.memory_res))});
-        results.push_back({TypedValue("PeakMemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.peak_memory_res))});
-        results.push_back({TypedValue("UnreleasedDeltaObjects"), TypedValue("Memory"), TypedValue("Gauge"),
-                           TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))});
         results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
                            TypedValue(static_cast<int64_t>(info.disk_usage))});
         for (const auto &metric : metrics_info) {
           results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
                              TypedValue(static_cast<int64_t>(metric.value))});
         }
+        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
+          const auto type_1 = record_1[1].ValueString();
+          const auto type_2 = record_2[1].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          const auto event_type_1 = record_1[2].ValueString();
+          const auto event_type_2 = record_2[2].ValueString();
+
+          if (event_type_1 != event_type_2) {
+            return event_type_1 < event_type_2;
+          }
+
+          return record_1[0].ValueString() < record_2[0].ValueString();
+        });
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
 
