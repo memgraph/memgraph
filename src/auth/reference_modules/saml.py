@@ -72,7 +72,7 @@ def get_username(auth, attributes, use_nameid, username_attribute):
         return auth.get_nameid()
 
     if username_attribute not in attributes.keys():
-        raise Exception("Username attribute not supplied.")
+        raise ValueError("Username attribute not supplied.")
 
     if isinstance(attributes[username_attribute], list):
         return attributes[username_attribute][0]
