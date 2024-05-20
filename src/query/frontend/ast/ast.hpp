@@ -3854,15 +3854,6 @@ class EnumValueAccess : public memgraph::query::Expression {
 
   EnumValueAccess() = default;
 
-  EnumValueAccess(const std::string &enum_value_access) {
-    auto values = utils::SplitView(enum_value_access, "::");
-    if (values.size() != 2) {
-      throw SemanticException("Invalid enum value access");
-    }
-    enum_name_ = values[0];
-    enum_value_ = values[1];
-  }
-
   EnumValueAccess(std::string enum_name, std::string enum_value)
       : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
 

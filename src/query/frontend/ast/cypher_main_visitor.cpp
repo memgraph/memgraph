@@ -2669,8 +2669,14 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
   } else if (ctx->patternComprehension()) {
     return std::any_cast<Expression *>(ctx->patternComprehension()->accept(this));
   } else if (ctx->enumValueAccess()) {
-    auto *enum_value_access = std::any_cast<std::string *>(ctx->enumValueAccess()->accept(this));
-    return std::any_cast<Expression *>(storage_->Create<EnumValueAccess>(*enum_value_access));
+    auto enum_value_access_parts = ctx->enumValueAccess()->symbolicName();
+    if (enum_value_access_parts.size() != 2) {
+      throw SyntaxException("Enum value access should be in the form of 'enum_name::enum_value'");
+    }
+    auto enum_name = std::any_cast<std::string>(enum_value_access_parts[0]->accept(this));
+    auto enum_value = std::any_cast<std::string>(enum_value_access_parts[1]->accept(this));
+
+    return static_cast<Expression *>(storage_->Create<EnumValueAccess>(enum_name, enum_value));
   }
 
   // TODO: Implement this. We don't support comprehensions, filtering... at

@@ -1160,7 +1160,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return frame_pattern_comprehension_value;
   }
 
-  TypedValue Visit(EnumValueAccess &enum_value_access) override { return TypedValue(); }
+  TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
+    if (!maybe_enum) [[unlikely]] {
+      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
+                                  enum_value_access.enum_name_);
+    }
+    return TypedValue(*maybe_enum, ctx_->memory);
+  }
 
  private:
   template <class TRecordAccessor>

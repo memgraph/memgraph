@@ -19,6 +19,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -161,8 +162,11 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     }
     case query::TypedValue::Type::Enum: {
-      // TODO
-      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Enum to Value");
+      auto maybe_enum_value_str = db->enum_store_.to_string(value.ValueEnum());
+      if (!maybe_enum_value_str) [[unlikely]] {
+        throw communication::bolt::ValueException("Enum not registered in the database");
+      }
+      return Value(*maybe_enum_value_str);
     }
   }
 }
@@ -181,7 +185,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   if (maybe_properties.HasError()) return maybe_properties.GetError();
   std::map<std::string, Value> properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
@@ -198,7 +202,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   if (maybe_properties.HasError()) return maybe_properties.GetError();
   std::map<std::string, Value> properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   const auto element_id = std::to_string(id.AsInt());
@@ -299,7 +303,7 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
   }
 }
 
-Value ToBoltValue(const storage::PropertyValue &value) {
+Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &db) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       return Value();
@@ -317,7 +321,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       std::vector<Value> vec;
       vec.reserve(values.size());
       for (const auto &v : values) {
-        vec.push_back(ToBoltValue(v));
+        vec.push_back(ToBoltValue(v, db));
       }
       return Value(std::move(vec));
     }
@@ -325,7 +329,7 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       const auto &map = value.ValueMap();
       std::map<std::string, Value> dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToBoltValue(kv.second));
+        dv_map.emplace(kv.first, ToBoltValue(kv.second, db));
       }
       return Value(std::move(dv_map));
     }
@@ -350,8 +354,11 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       }
     }
     case storage::PropertyValue::Type::Enum: {
-      // TODO: better error
-      throw 1;  // can not be a bolt value
+      auto maybe_enum_value_str = db.enum_store_.to_string(value.ValueEnum());
+      if (!maybe_enum_value_str) [[unlikely]] {
+        throw communication::bolt::ValueException("Enum not registered in the database");
+      }
+      return {*maybe_enum_value_str};
     }
   }
 }

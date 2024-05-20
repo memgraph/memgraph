@@ -70,7 +70,7 @@ storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue 
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
-communication::bolt::Value ToBoltValue(const storage::PropertyValue &value);
+communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &db);
 
 storage::PropertyValue ToPropertyValue(const communication::bolt::Value &value);
 

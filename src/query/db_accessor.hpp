@@ -778,6 +778,10 @@ class DbAccessor final {
   }
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
+
+  std::optional<storage::Enum> GetEnumValue(const std::string &name, const std::string &value) {
+    return accessor_->GetEnumValue(name, value);
+  }
 };
 
 class SubgraphDbAccessor final {

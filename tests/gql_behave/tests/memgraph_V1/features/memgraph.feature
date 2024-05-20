@@ -95,3 +95,25 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | Enum Name | Enum Values     |
             | 'Status'  | ['Good', 'Bad'] |
+
+    Scenario: Create an edge with an Enum property:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        Then the result should be empty
+
+    Scenario: Get nodes and edges with Enum properties:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n)-[e]->(m) RETURN n, e, m
+            """
+        Then the result should be:
+            | n                             | e                           | m                            |
+            | (:Person {s: 'Status::Good'}) | [:KNOWS {s: 'Status::Bad'}] | (:Person {s: 'Status::Bad'}) |
