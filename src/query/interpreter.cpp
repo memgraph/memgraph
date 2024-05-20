@@ -3951,6 +3951,24 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
+    case DatabaseInfoQuery::InfoType::METRICS: {
+#ifdef MG_ENTERPRISE
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+      }
+#else
+      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+#endif
+      header = {"name", "type", "metric type", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto info = storage->GetBaseInfo();
+        auto metrics_info = storage->GetMetrics();
+        std::vector<std::vector<TypedValue>> results;
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -4735,7 +4753,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "set.");
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,

@@ -132,6 +132,9 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
+  if (ctx->metricsInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
