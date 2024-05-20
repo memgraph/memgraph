@@ -42,7 +42,7 @@ using nuraft::srv_config;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
-    : raft_endpoint_("0.0.0.0", config.coordinator_port),
+    : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
       state_machine_(cs_new<CoordinatorStateMachine>()),
       state_manager_(cs_new<CoordinatorStateManager>(config)),
@@ -101,9 +101,9 @@ auto RaftState::InitRaftServer() -> void {
   nuraft::ptr<nuraft::state_mgr> casted_state_manager = state_manager_;
   nuraft::ptr<nuraft::state_machine> casted_state_machine = state_machine_;
 
-  asio_listener_ = asio_service_->create_rpc_listener(raft_endpoint_.GetPort(), logger_);
+  asio_listener_ = asio_service_->create_rpc_listener(coordinator_port_, logger_);
   if (!asio_listener_) {
-    throw RaftServerStartException("Failed to create rpc listener on port {}", raft_endpoint_.GetPort());
+    throw RaftServerStartException("Failed to create rpc listener on port {}", coordinator_port_);
   }
 
   auto *ctx = new nuraft::context(casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory,
@@ -112,18 +112,21 @@ auto RaftState::InitRaftServer() -> void {
   raft_server_ = nuraft::cs_new<raft_server>(ctx, init_opts);
 
   if (!raft_server_) {
-    throw RaftServerStartException("Failed to allocate raft server on {}", raft_endpoint_.SocketAddress());
+    throw RaftServerStartException("Failed to allocate coordinator server on port {}", coordinator_port_);
   }
-  spdlog::trace("Raft server allocated on {}", raft_endpoint_.SocketAddress());
+
+  auto const coord_endpoint = raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
+
+  spdlog::trace("Raft server allocated on {}", coord_endpoint);
 
   // If set to true, server won't be created and exception will be thrown.
   // By setting it to false, all coordinators are started as leaders.
   bool const skip_initial_election_timeout{false};
   raft_server_->start_server(skip_initial_election_timeout);
-  spdlog::trace("Raft server started on {}", raft_endpoint_.SocketAddress());
+  spdlog::trace("Raft server started on {}", coord_endpoint);
 
   asio_listener_->listen(raft_server_);
-  spdlog::trace("Asio listener active on {}", raft_endpoint_.SocketAddress());
+  spdlog::trace("Asio listener active on {}", coord_endpoint);
 
   // Don't return until role is set
   auto maybe_stop = utils::ResettableCounter<500>();
@@ -135,8 +138,7 @@ auto RaftState::InitRaftServer() -> void {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}",
-                                   raft_endpoint_.SocketAddress());
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}", coord_endpoint);
   }
 }
 
@@ -177,7 +179,9 @@ RaftState::~RaftState() {
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
-auto RaftState::RaftSocketAddress() const -> std::string { return raft_endpoint_.SocketAddress(); }
+auto RaftState::RaftSocketAddress() const -> std::string {
+  return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
+}
 
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
@@ -235,6 +239,7 @@ auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoor
   return ranges::views::transform(
              srv_configs,
              [](auto const &srv_config) {
+               spdlog::trace("Endpoint: {}", srv_config->get_endpoint());
                return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
              }) |
          ranges::to<std::vector>();
