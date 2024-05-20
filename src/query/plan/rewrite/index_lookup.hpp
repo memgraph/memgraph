@@ -143,20 +143,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
 
-      std::vector<Symbol> modified_symbols;
-      for (const auto &filter : op.all_filters_) {
-        if (filter.property_filter) {
-          modified_symbols.push_back(filter.property_filter->symbol_);
-        }
-      }
+      const auto modified_symbols = op.ModifiedSymbols(*symbol_table_);
 
       auto does_modify = [&]() {
-        for (const auto &sym_in : input->ModifiedSymbols(*symbol_table_)) {
-          if (std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end()) {
-            return true;
-          }
-        }
-        return false;
+        const auto &symbols = input->ModifiedSymbols(*symbol_table_);
+        return std::any_of(symbols.begin(), symbols.end(), [&](const auto &sym_in) {
+          return std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end();
+        });
       };
 
       // Find first possible branching point
