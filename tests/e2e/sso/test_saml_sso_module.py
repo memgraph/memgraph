@@ -20,7 +20,7 @@ import saml
 def provide_env():
     os.environ["AUTH_SAML_ENTRA_ID_CALLBACK_URL"] = "auth/providers/saml-entra-id/callback"
     os.environ["AUTH_SAML_ENTRA_ID_ASSERTION_AUDIENCE"] = "spn:f516a7de-6c3f-4d1d-a289-539301039291"
-    os.environ["AUTH_SAML_ENTRA_ID_SP_CERT"] = compose_path(filename="entra_id_cert.txt")
+    os.environ["AUTH_SAML_ENTRA_ID_SP_CERT"] = compose_path(filename="dummy_cert.txt")
     os.environ["AUTH_SAML_ENTRA_ID_IDP_ID"] = "https://sts.windows.net/371aa2c4-2f9b-4fe1-bc52-23824e906c26/"
     os.environ["AUTH_SAML_ENTRA_ID_USERNAME_ATTRIBUTE"] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
     os.environ["AUTH_SAML_ENTRA_ID_USE_NAME_ID"] = "False"
@@ -28,7 +28,7 @@ def provide_env():
 
     os.environ["AUTH_SAML_OKTA_CALLBACK_URL"] = "auth/providers/saml-okta/callback"
     os.environ["AUTH_SAML_OKTA_ASSERTION_AUDIENCE"] = "myApplication"
-    os.environ["AUTH_SAML_OKTA_SP_CERT"] = compose_path(filename="okta_cert.txt")
+    os.environ["AUTH_SAML_OKTA_SP_CERT"] = compose_path(filename="dummy_cert.txt")
     os.environ["AUTH_SAML_OKTA_IDP_ID"] = "http://www.okta.com/exke6ubrkbz9TG2iB697"
     os.environ["AUTH_SAML_OKTA_WANT_ATTRIBUTE_STATEMENT"] = "false"
     os.environ["AUTH_SAML_OKTA_USERNAME_ATTRIBUTE"] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
