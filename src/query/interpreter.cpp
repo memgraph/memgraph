@@ -3964,6 +3964,24 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto info = storage->GetBaseInfo();
         auto metrics_info = storage->GetMetrics();
         std::vector<std::vector<TypedValue>> results;
+        results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.vertex_count))});
+        results.push_back({TypedValue("EdgeCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.edge_count))});
+        results.push_back(
+            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
+        results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.memory_res))});
+        results.push_back({TypedValue("PeakMemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.peak_memory_res))});
+        results.push_back({TypedValue("UnreleasedDeltaObjects"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))});
+        results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.disk_usage))});
+        for (const auto &metric : metrics_info) {
+          results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
+                             TypedValue(static_cast<int64_t>(metric.value))});
+        }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
 
