@@ -20,19 +20,23 @@
 #include "query/constants.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/query_user.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <algorithm>
+#include <span>
+
 #ifdef MG_ENTERPRISE
 namespace {
 bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
-                        const std::vector<memgraph::storage::LabelId> &labels,
+                        std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::all_of(labels.begin(), labels.end(), [dba, &user_or_role, fine_grained_privilege](const auto &label) {
+  return std::ranges::all_of(labels, [dba, &user_or_role, fine_grained_privilege](const auto &label) {
     return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
                         return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
                                    dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(

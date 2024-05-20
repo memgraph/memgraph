@@ -13,12 +13,14 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/small_vector.hpp"
 #include "storage/v2/view.hpp"
 
 #include "absl/container/flat_hash_map.h"
 
 #include <gflags/gflags.h>
 #include <tuple>
+#include "storage/v2/small_vector.hpp"
 
 DECLARE_uint64(delta_chain_cache_threshold);
 
@@ -65,9 +67,9 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex);
 
-  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<std::vector<LabelId> const>;
+  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<small_vector<LabelId> const>;
 
-  void StoreLabels(View view, Vertex const *vertex, std::vector<LabelId> const &res);
+  void StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res);
 
   auto GetHasLabel(View view, Vertex const *vertex, LabelId label) const -> std::optional<bool>;
 
@@ -86,7 +88,7 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex, PropertyId property_key);
 
-  using EdgeStore = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+  using EdgeStore = small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
   auto GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                   const std::vector<EdgeTypeId> &edge_types) const -> detail::optref<const EdgeStore>;
@@ -146,7 +148,7 @@ struct VertexInfoCache final {
     map<Vertex const *, bool> deletedCache_;
     map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
     map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
-    map<Vertex const *, std::vector<LabelId>> labelCache_;
+    map<Vertex const *, small_vector<LabelId>> labelCache_;
     map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
     // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
     map<EdgeKey, EdgeStore> inEdgesCache_;

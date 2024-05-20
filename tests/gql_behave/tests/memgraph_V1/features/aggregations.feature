@@ -277,7 +277,23 @@ Feature: Aggregations
             | 2023-03-05T09:15:59.000000000 |
         And no side effects
 
-    Scenario: Min test 08: Duration
+    Scenario: Min test 08: ZonedDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [datetime("2024-01-22T08:12:31[Etc/UTC]"),
+            datetime("2024-01-22T08:42:31+00:30"),
+            datetime("2024-01-22T08:57:31+00:45"),
+            datetime("2024-01-22T09:12:31[Europe/Zurich]"),
+            datetime("2024-01-22T09:12:31[Europe/Warsaw]")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)                              |
+            | 2024-01-22T08:12:31.000000000+00:00 |
+        And no side effects
+
+    Scenario: Min test 09: Duration
         Given any graph
         When executing query:
             """
@@ -378,7 +394,23 @@ Feature: Aggregations
             | 2024-03-05T09:15:00.000000000 |
         And no side effects
 
-    Scenario: Max test 08: Duration
+    Scenario: Max test 08: ZonedDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [datetime("2024-01-22T08:12:31[Etc/UTC]"),
+            datetime("2024-01-22T08:42:31+00:30"),
+            datetime("2024-01-22T08:57:31+00:45"),
+            datetime("2024-01-22T09:12:31[Europe/Zurich]"),
+            datetime("2024-01-22T09:12:31[Europe/Warsaw]")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)                              |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+        And no side effects
+
+    Scenario: Max test 09: Duration
         Given any graph
         When executing query:
             """
