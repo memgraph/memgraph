@@ -24,6 +24,8 @@ class AuthenticationInterface {
   virtual bool HasPermission(auth::Permission permission) const = 0;
 
   virtual bool AccessControlled() const = 0;
+
+  virtual ~AuthenticationInterface() = default;
 };
 
 class SafeAuth : public AuthenticationInterface {

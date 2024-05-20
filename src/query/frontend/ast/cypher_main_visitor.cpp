@@ -1495,6 +1495,7 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(MemgraphCypher::UserOrRoleN
 antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
+  auth->if_not_exists_ = !!ctx->ifNotExists();
   auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
   return auth;
 }
@@ -1524,6 +1525,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoles(MemgraphCypher::ShowRolesContext
 antlrcpp::Any CypherMainVisitor::visitCreateUser(MemgraphCypher::CreateUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_USER;
+  auth->if_not_exists_ = !!ctx->ifNotExists();
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   if (ctx->password) {
     if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
@@ -3091,6 +3093,18 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseC
 antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext * /*ctx*/) {
   query_ = storage_->Create<ShowDatabasesQuery>();
   return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext * /*ctx*/) {
+  auto *create_enum_query = storage_->Create<CreateEnumQuery>();
+  query_ = create_enum_query;
+  return create_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowEnumsQuery(MemgraphCypher::ShowEnumsQueryContext * /*ctx*/) {
+  auto *show_enums_query = storage_->Create<ShowEnumsQuery>();
+  query_ = show_enums_query;
+  return show_enums_query;
 }
 
 }  // namespace memgraph::query::frontend

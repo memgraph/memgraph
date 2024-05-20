@@ -413,11 +413,11 @@ package_docker() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-dir)
-        package_dir="$PROJECT_ROOT/$2"
+        docker_host_folder="$PROJECT_ROOT/$2"
         shift 2
       ;;
       --src-dir)
-        docker_host_folder="$PROJECT_ROOT/$2"
+        package_dir="$PROJECT_ROOT/$2"
         shift 2
       ;;
       *)
@@ -431,7 +431,11 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  if [[ "$build_type" == "Release" ]]; then
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  else
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src"
+  fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
   local docker_host_image_path="$docker_host_folder/$docker_image_name"

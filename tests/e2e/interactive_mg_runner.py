@@ -45,6 +45,8 @@ import yaml
 
 from memgraph import MemgraphInstanceRunner, extract_bolt_port
 
+log = logging.getLogger("memgraph.tests.e2e")
+
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(PROJECT_DIR, "build")
@@ -137,7 +139,7 @@ def _start_instance(
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
-
+    log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
     mg_instance.start(args=binary_args, setup_queries=setup_queries, bolt_port=bolt_port)
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
 
@@ -221,6 +223,7 @@ def start_instance(context, name, procdir):
         instance = _start_instance(
             name, args, log_file, queries, use_ssl, procdir, data_directory, username, password, default_bolt_port
         )
+        log.info(f"Instance with name {name} started")
         mg_instances[name] = instance
 
     assert len(mg_instances) == 1
