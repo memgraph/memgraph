@@ -2236,7 +2236,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   if (!transaction.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
       wal_file_->AppendDelta(delta, parent, timestamp);
-      repl_storage_state_.AppendDelta(delta, parent, timestamp, streams);
+      repl_storage_state_.AppendDelta(streams, delta, parent, timestamp);
     });
   }
 
@@ -2343,15 +2343,15 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
                              final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp,
-                                      replica_streams);
+  repl_storage_state_.AppendOperation(replica_streams, operation, label, properties, stats, property_stats,
+                                      final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
                                                 uint64_t final_commit_timestamp,
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp, replica_streams);
+  repl_storage_state_.AppendOperation(replica_streams, operation, edge_type, final_commit_timestamp);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
@@ -2393,7 +2393,7 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 uint64_t final_commit_timestamp,
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, etype, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, etype, final_commit_timestamp, replica_streams);
+  repl_storage_state_.AppendOperation(replica_streams, operation, etype, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
