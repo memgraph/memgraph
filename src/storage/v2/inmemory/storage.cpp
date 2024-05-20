@@ -2050,7 +2050,7 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
     return false;
   if (!wal_file_) {
     wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
-                      wal_seq_num_++, &file_retainer_);
+                      wal_seq_num_++, &file_retainer_, &enum_store_);
   }
   return true;
 }
@@ -2321,6 +2321,10 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, info.label,
                                   info.properties, durability_commit_timestamp, streams);
       } break;
+      case MetadataDelta::Action::ENUM_CREATE: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_CREATE, md_delta.enum_info.etype,
+                                  durability_commit_timestamp, streams);
+      } break;
     }
   }
 
@@ -2383,6 +2387,13 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
   return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp,
                                    replica_streams);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EnumTypeId etype,
+                                                uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  wal_file_->AppendOperation(operation, etype, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, etype, final_commit_timestamp, replica_streams);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

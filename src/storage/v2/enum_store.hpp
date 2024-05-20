@@ -31,7 +31,7 @@ enum struct EnumStorageError : uint8_t { EnumExists, InvalidValues };
 
 struct EnumStore {
   auto register_enum(std::string type_str, std::vector<std::string> enum_value_strs)
-      -> memgraph::utils::BasicResult<EnumStorageError> {
+      -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
     namespace rv = ranges::views;
 
     auto new_pos = etype_strs_.size();
@@ -65,7 +65,7 @@ struct EnumStore {
     DMG_ASSERT(etype_strs_.size() == etype_lookup_.size());
     DMG_ASSERT(etype_strs_.size() == evalue_lookups_.size());
 
-    return {};
+    return {new_id};
   }
 
   // used by recovery in the event of failure
@@ -107,6 +107,11 @@ struct EnumStore {
   auto to_type_string(EnumTypeId id) const -> std::optional<std::string> {
     if (etype_strs_.size() <= id.value_of()) return std::nullopt;
     return etype_strs_[id.value_of()];
+  }
+
+  auto to_values_strings(EnumTypeId e_type) const -> std::vector<std::string> const * {
+    if (evalue_strs_.size() <= e_type.value_of()) return nullptr;
+    return std::addressof(evalue_strs_[e_type.value_of()]);
   }
 
   auto to_value_string(EnumTypeId e_type, EnumValueId e_value) const -> std::optional<std::string> {

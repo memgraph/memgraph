@@ -77,6 +77,17 @@ void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperati
   });
 }
 
+void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EnumTypeId etype,
+                                              uint64_t final_commit_timestamp,
+                                              std::span<std::optional<ReplicaStream>> replica_streams) {
+  replication_clients_.WithLock([&](auto &clients) {
+    for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
+      clients[i]->IfStreamingTransaction(
+          [&](auto &stream) { stream.AppendOperation(operation, etype, final_commit_timestamp); }, replica_stream);
+    }
+  });
+}
+
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                                                   std::vector<std::optional<ReplicaStream>> replica_streams) {
   return replication_clients_.WithLock([=, db_acc = std::move(db_acc),

@@ -92,9 +92,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
-    auto res = store->enum_store_.register_enum("enum1", {"v1", "v2"});
-    ASSERT_FALSE(res.HasError());
-
+    {
+      // Create enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->CreateEnum("enum1", {"v1", "v2"}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     {
       // Create label index.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);

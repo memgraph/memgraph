@@ -924,6 +924,17 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         }
         break;
       }
+      case WalDeltaData::Type::ENUM_CREATE: {
+        std::stringstream ss;
+        utils::PrintIterable(ss, delta.operation_enum.evalues);
+        spdlog::trace("       Create enum {} with values {}", delta.operation_enum.etype, ss.str());
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->CreateEnum(delta.operation_enum.etype, delta.operation_enum.evalues);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
     }
     applied_deltas++;
   }

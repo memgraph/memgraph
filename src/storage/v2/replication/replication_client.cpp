@@ -434,6 +434,12 @@ void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operati
   EncodeOperation(&encoder, storage_->name_id_mapper_.get(), operation, edge_type, timestamp);
 }
 
+void ReplicaStream::AppendOperation(durability::StorageMetadataOperation operation, EnumTypeId etype,
+                                    uint64_t timestamp) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  EncodeOperation(&encoder, &storage_->enum_store_, operation, etype, timestamp);
+}
+
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
 
 }  // namespace memgraph::storage

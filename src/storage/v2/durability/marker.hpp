@@ -69,6 +69,7 @@ enum class Marker : uint8_t {
   DELTA_EDGE_TYPE_INDEX_DROP = 0x66,
   DELTA_TEXT_INDEX_CREATE = 0x67,
   DELTA_TEXT_INDEX_DROP = 0x68,
+  DELTA_ENUM_CREATE = 0x69,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -123,6 +124,7 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_EXISTENCE_CONSTRAINT_DROP,
     Marker::DELTA_UNIQUE_CONSTRAINT_CREATE,
     Marker::DELTA_UNIQUE_CONSTRAINT_DROP,
+    Marker::DELTA_ENUM_CREATE,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

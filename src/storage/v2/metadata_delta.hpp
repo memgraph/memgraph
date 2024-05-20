@@ -43,6 +43,7 @@ struct MetadataDelta {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    ENUM_CREATE,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -77,6 +78,8 @@ struct MetadataDelta {
   } unique_constraint_create;
   static constexpr struct UniqueConstraintDrop {
   } unique_constraint_drop;
+  static constexpr struct EnumCreate {
+  } enum_create;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -93,7 +96,8 @@ struct MetadataDelta {
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property, LabelPropertyIndexStats stats)
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property,
+                LabelPropertyIndexStats const &stats)
       : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, property, stats} {}
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
@@ -105,10 +109,10 @@ struct MetadataDelta {
   MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
 
   MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_CREATE), text_index{index_name, label} {}
+      : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label} {}
 
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_DROP), text_index{index_name, label} {}
+      : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name), label} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -122,6 +126,8 @@ struct MetadataDelta {
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
       : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
 
+  MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_info{.etype = etype} {}
+
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
   MetadataDelta &operator=(const MetadataDelta &) = delete;
@@ -129,25 +135,31 @@ struct MetadataDelta {
 
   ~MetadataDelta() {
     switch (action) {
-      case Action::LABEL_INDEX_CREATE:
-      case Action::LABEL_INDEX_DROP:
-      case Action::LABEL_INDEX_STATS_SET:
-      case Action::LABEL_INDEX_STATS_CLEAR:
-      case Action::LABEL_PROPERTY_INDEX_CREATE:
-      case Action::LABEL_PROPERTY_INDEX_DROP:
-      case Action::LABEL_PROPERTY_INDEX_STATS_SET:
-      case Action::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      case Action::EDGE_INDEX_CREATE:
-      case Action::EDGE_INDEX_DROP:
-      case Action::TEXT_INDEX_CREATE:
-      case Action::TEXT_INDEX_DROP:
-      case Action::EXISTENCE_CONSTRAINT_CREATE:
-      case Action::EXISTENCE_CONSTRAINT_DROP:
+      using enum memgraph::storage::MetadataDelta::Action;
+      case LABEL_INDEX_CREATE:
+      case LABEL_INDEX_DROP:
+      case LABEL_INDEX_STATS_SET:
+      case LABEL_INDEX_STATS_CLEAR:
+      case LABEL_PROPERTY_INDEX_CREATE:
+      case LABEL_PROPERTY_INDEX_DROP:
+      case LABEL_PROPERTY_INDEX_STATS_SET:
+      case LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      case EDGE_INDEX_CREATE:
+      case EDGE_INDEX_DROP:
+      case EXISTENCE_CONSTRAINT_CREATE:
+      case EXISTENCE_CONSTRAINT_DROP:
+      case ENUM_CREATE:
         break;
-      case Action::UNIQUE_CONSTRAINT_CREATE:
-      case Action::UNIQUE_CONSTRAINT_DROP:
-        label_properties.properties.~set<PropertyId>();
+      case UNIQUE_CONSTRAINT_CREATE:
+      case UNIQUE_CONSTRAINT_DROP: {
+        std::destroy_at(&label_properties);
         break;
+      }
+      case TEXT_INDEX_CREATE:
+      case TEXT_INDEX_DROP: {
+        std::destroy_at(&text_index);
+        break;
+      }
     }
   }
 
@@ -183,6 +195,10 @@ struct MetadataDelta {
       std::string index_name;
       LabelId label;
     } text_index;
+
+    struct {
+      EnumTypeId etype;
+    } enum_info;
   };
 };
 

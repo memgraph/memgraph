@@ -343,8 +343,12 @@ class Storage {
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
     auto CreateEnum(const std::string &name, const std::vector<std::string> &values)
-        -> memgraph::utils::BasicResult<EnumStorageError> {
-      return storage_->enum_store_.register_enum(name, values);
+        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+      auto res = storage_->enum_store_.register_enum(name, values);
+      if (res.HasValue()) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
+      }
+      return res;
     }
 
     auto ShowEnums() { return storage_->enum_store_.all_registered(); }

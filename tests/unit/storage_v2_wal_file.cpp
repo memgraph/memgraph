@@ -65,6 +65,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
     case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
       return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
+    case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
+      return memgraph::storage::durability::WalDeltaData::Type::ENUM_CREATE;
   }
 }
 
@@ -227,7 +229,7 @@ class DeltaGenerator final {
         epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
-                  &file_retainer_),
+                  &file_retainer_, &enum_store_),
         storage_mode_(storage_mode) {}
 
   Transaction CreateTransaction() { return Transaction(this); }
@@ -293,6 +295,7 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
           MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);
@@ -326,6 +329,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
           MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);
@@ -365,6 +369,7 @@ class DeltaGenerator final {
   uint64_t vertices_count_{0};
   std::list<memgraph::storage::Vertex> vertices_;
   memgraph::storage::NameIdMapper mapper_;
+  memgraph::storage::EnumStore enum_store_;
 
   memgraph::storage::durability::WalFile wal_file_;
 

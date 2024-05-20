@@ -75,10 +75,12 @@ struct WalDeltaData {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    ENUM_CREATE,
   };
 
   Type type{Type::TRANSACTION_END};
 
+  // TODO: this is a massive object....no union
   struct {
     Gid gid;
   } vertex_create_delete;
@@ -134,6 +136,11 @@ struct WalDeltaData {
     std::string index_name;
     std::string label;
   } operation_text;
+
+  struct {
+    std::string etype;
+    std::vector<std::string> evalues;
+  } operation_enum;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -176,6 +183,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::ENUM_CREATE:
       return true;  // TODO: Still true?
   }
 }
@@ -229,22 +237,25 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
                      EdgeTypeId edge_type, uint64_t timestamp);
 
+void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
+                     EnumTypeId etype, uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
-RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
+RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
                      std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items);
+                     SalientConfig::Items items, EnumStore *enum_store);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
-  WalFile(const std::filesystem::path &wal_directory, std::string_view uuid, std::string_view epoch_id,
+  WalFile(const std::filesystem::path &wal_directory, const std::string_view uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
-          utils::FileRetainer *file_retainer);
+          utils::FileRetainer *file_retainer, EnumStore *enum_store);
   WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
           uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer);
+          utils::FileRetainer *file_retainer, EnumStore *enum_store);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -263,6 +274,8 @@ class WalFile {
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, EnumTypeId etype, uint64_t timestamp);
 
   void Sync();
 
@@ -296,6 +309,7 @@ class WalFile {
 
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
+  EnumStore *enum_store_;
   Encoder wal_;
   std::filesystem::path path_;
   uint64_t from_timestamp_;
