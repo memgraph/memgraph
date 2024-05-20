@@ -23,6 +23,8 @@ set(mg_query_sources
     plan/read_write_type_checker.cpp
     plan/rewrite/index_lookup.cpp
     plan/rewrite/enum.hpp
+    plan/rewrite/general.cpp
+    plan/rewrite/range.cpp
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
     procedure/mg_procedure_impl.cpp
