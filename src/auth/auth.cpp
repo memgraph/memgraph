@@ -28,10 +28,14 @@
 namespace memgraph {
 std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::string &module_mappings) {
   std::unordered_map<std::string, std::string> module_per_scheme;
+  if (module_mappings.empty()) {
+    return module_per_scheme;
+  }
+
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
     const auto module_and_scheme = utils::Split(mapping, ":");
     if (module_and_scheme.size() != 2) {
-      throw auth::AuthException("Entries in the auth module mapping follow the \"auth_schema: module_path\" syntax!");
+      throw auth::AuthException("Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
     }
     const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
     const auto module_path = std::string{utils::Trim(module_and_scheme[1])};
@@ -43,13 +47,13 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 
 // NOLINTNEXTLINE(misc-unused-parameters)
 DEFINE_VALIDATED_string(auth_module_mappings, "",
-                        "Associates auth schemas to external modules. A mapping is structured as follows: <scheme>: "
-                        "<absolute path>, and individual mappings are separated with \";\".",
+                        "Associates auth schemas to external modules. A mapping is structured as follows: \"<scheme>: "
+                        "<absolute path>\", and individual mappings are separated with \";\".",
                         {
                           if (value.empty()) return true;
                           for (auto &[_, path] : memgraph::ModuleMappingsToMap(value)) {
-                            auto status = std::filesystem::status(path);
-                            if (!std::filesystem::is_regular_file(status)) {
+                            auto module_file = std::filesystem::status(path);
+                            if (!std::filesystem::is_regular_file(module_file)) {
                               std::cerr << "The auth module path doesn't exist or isn't a file!\n";
                               return false;
                             }
