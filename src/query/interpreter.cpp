@@ -2226,7 +2226,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->hops_limit_);
   if (hops_limit) {
-    spdlog::info("Running query with hops limit of {}", *hops_limit);
+    spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
@@ -2398,7 +2398,6 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
-  // TODO: how to expose metrics when we have hops limit?
   const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->hops_limit_);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
