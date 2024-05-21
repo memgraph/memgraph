@@ -76,6 +76,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::optional<std::string> GetServerNameForInit() override;
 
   std::string GetCurrentDB() const override;
+  bool CanPrintQuery() const override;
 
  private:
   std::map<std::string, memgraph::communication::bolt::Value> DecodeSummary(
@@ -94,6 +95,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   bool in_explicit_db_{false};  //!< If true, the user has defined the database to use via metadata
+  bool can_print_query_{true};
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;

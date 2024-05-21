@@ -219,6 +219,7 @@ class Session {
   std::optional<BoltMetrics::Metrics> metrics_;
 
   virtual std::string GetCurrentDB() const = 0;
+  virtual bool CanPrintQuery() const = 0;
   std::string UUID() const { return session_uuid_; }
 
  private:

@@ -135,6 +135,8 @@ std::string SessionHL::GetCurrentDB() const {
   return db->name();
 }
 
+bool SessionHL::CanPrintQuery() const { return can_print_query_; }
+
 std::optional<std::string> SessionHL::GetServerNameForInit() {
   const auto &name = flags::run_time::GetServerName();
   return name.empty() ? std::nullopt : std::make_optional(name);
@@ -362,6 +364,20 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     MultiDatabaseAuth(user_or_role_.get(), db);
     interpreter_.SetCurrentDB(db, in_explicit_db_);
   }
+
+  std::string runner_app;
+  if (run_time_info.contains("runner_application")) {
+    const auto &runner_application = run_time_info.at("runner_application");
+    if (!runner_application.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed runner_application name.");
+    }
+    runner_app = runner_application.ValueString();
+
+    if (runner_app == "MemgraphLAB") {
+      can_print_query_ = false;
+    }
+  }
+
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
