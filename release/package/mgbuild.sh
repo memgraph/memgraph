@@ -393,7 +393,7 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "apt update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
-  docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
+  docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
 package_docker() {
