@@ -22,7 +22,7 @@ TEST(Endpoint, IPv4) {
 
   // test constructor
   endpoint = endpoint_t("127.0.0.1", 12347);
-  EXPECT_EQ(endpoint.GetHostname(), "127.0.0.1");
+  EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
   EXPECT_EQ(endpoint.GetPort(), 12347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
 }
@@ -32,7 +32,7 @@ TEST(Endpoint, IPv6) {
 
   // test constructor
   endpoint = endpoint_t("ab:cd:ef::3", 12347);
-  EXPECT_EQ(endpoint.GetHostname(), "ab:cd:ef::3");
+  EXPECT_EQ(endpoint.GetAddress(), "ab:cd:ef::3");
   EXPECT_EQ(endpoint.GetPort(), 12347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
 }
