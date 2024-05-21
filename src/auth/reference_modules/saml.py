@@ -43,7 +43,7 @@ SETTINGS_TEMPLATE = {
 def mock_request(scheme_env):
     return {
         "http_host": "localhost:3000",
-        "script_name": os.environ.get(f"AUTH_SAML_{scheme_env}_CALLBACK_URL", ""),
+        "script_name": os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_CALLBACK_URL", ""),
     }
 
 
@@ -63,7 +63,7 @@ def has_role_attribute(scheme: str, attributes):
     if scheme == "saml-entra-id":
         return ENTRA_IDP_ROLE_ATTRIBUTE in attributes.keys()
     elif scheme == "saml-okta":
-        return os.environ.get("AUTH_SAML_OKTA_ROLE_ATTRIBUTE", "") in attributes.keys()
+        return os.environ.get("MEMGRAPH_SSO_OKTA_SAML_ROLE_ATTRIBUTE", "") in attributes.keys()
     return False
 
 
@@ -101,19 +101,19 @@ def authenticate(scheme: str, response: str):
     settings = SETTINGS_TEMPLATE
 
     # Apply user configuration
-    settings["sp"]["entityId"] = os.environ.get(f"AUTH_SAML_{scheme_env}_ASSERTION_AUDIENCE", "")
-    settings["sp"]["privateKey"] = load_from_file(os.environ.get(f"AUTH_SAML_{scheme_env}_SP_PRIVATE_KEY", ""))
-    settings["sp"]["x509cert"] = load_from_file(os.environ.get(f"AUTH_SAML_{scheme_env}_SP_CERT", ""))
-    settings["idp"]["x509cert"] = load_from_file(os.environ.get(f"AUTH_SAML_{scheme_env}_IDP_CERT", ""))
-    settings["idp"]["entityId"] = os.environ.get(f"AUTH_SAML_{scheme_env}_IDP_ID", "")
+    settings["sp"]["entityId"] = os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_ASSERTION_AUDIENCE", "")
+    settings["sp"]["privateKey"] = load_from_file(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_SP_PRIVATE_KEY", ""))
+    settings["sp"]["x509cert"] = load_from_file(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_SP_CERT", ""))
+    settings["idp"]["x509cert"] = load_from_file(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_IDP_CERT", ""))
+    settings["idp"]["entityId"] = os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_IDP_ID", "")
     settings["security"]["wantAssertionsEncrypted"] = str_to_bool(
-        os.environ.get(f"AUTH_SAML_{scheme_env}_ASSERTIONS_ENCRYPTED", "")
+        os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_ASSERTIONS_ENCRYPTED", "")
     )
     settings["security"]["wantNameIdEncrypted"] = str_to_bool(
-        os.environ.get(f"AUTH_SAML_{scheme_env}_NAME_ID_ENCRYPTED", "")
+        os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_NAME_ID_ENCRYPTED", "")
     )
     settings["security"]["wantAttributeStatement"] = str_to_bool(
-        os.environ.get(f"AUTH_SAML_{scheme_env}_WANT_ATTRIBUTE_STATEMENT", "true")
+        os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_WANT_ATTRIBUTE_STATEMENT", "true")
     )
 
     # Create a SAML2 instance
@@ -142,7 +142,7 @@ def authenticate(scheme: str, response: str):
     if not has_role_attribute(scheme, attributes):
         return {"authenticated": False, "errors": "Role not found in the SAML response."}
     attribute_name = (
-        ENTRA_IDP_ROLE_ATTRIBUTE if scheme == "saml-entra-id" else os.environ.get("AUTH_SAML_OKTA_ROLE_ATTRIBUTE", "")
+        ENTRA_IDP_ROLE_ATTRIBUTE if scheme == "saml-entra-id" else os.environ.get("MEMGRAPH_SSO_OKTA_SAML_ROLE_ATTRIBUTE", "")
     )
     idp_role = attributes[attribute_name]
     if not isinstance(idp_role, (str, list)):
@@ -153,13 +153,13 @@ def authenticate(scheme: str, response: str):
         username = get_username(
             auth,
             attributes,
-            use_nameid=str_to_bool(os.environ.get(f"AUTH_SAML_{scheme_env}_USE_NAME_ID", "")),
-            username_attribute=os.environ.get(f"AUTH_SAML_{scheme_env}_USERNAME_ATTRIBUTE", ""),
+            use_nameid=str_to_bool(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_USE_NAME_ID", "")),
+            username_attribute=os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_USERNAME_ATTRIBUTE", ""),
         )
     except Exception as e:
         return {"authenticated": False, "errors": str(e)}
 
-    role_mappings = get_role_mappings(os.environ.get(f"AUTH_SAML_{scheme_env}_ROLE_MAPPING", ""))
+    role_mappings = get_role_mappings(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_ROLE_MAPPING", ""))
     if idp_role not in role_mappings:
         return {
             "authenticated": False,
