@@ -94,4 +94,13 @@ std::shared_ptr<Server::LoggingSink> Server::GetLoggingSink() {
   return sink;
 }
 
+std::shared_ptr<Server::LoggingSink> Server::GetHelpSink() {
+  auto formatter = std::make_unique<spdlog::pattern_formatter>();
+  formatter->add_flag<QuoteEscapeFormatter>('*').set_pattern(
+      R"json({"event": "help", "level": "%l", "message": "%*"})json");
+  auto sink = std::make_shared<LoggingSink>(listener_);
+  sink->set_formatter(std::move(formatter));
+  return sink;
+}
+
 }  // namespace memgraph::communication::websocket

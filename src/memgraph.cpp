@@ -658,11 +658,13 @@ int main(int argc, char **argv) {
 
   spdlog::trace("Websocket server created!");
   if (!websocket_server.HasErrorHappened()) {
-    spdlog::trace("Initializing logger sync");
+    spdlog::trace("Initializing logger sinks");
     memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
     spdlog::trace("Logger sink added!");
+    memgraph::flags::AddHelpSink(websocket_server.GetHelpSink());
+    spdlog::trace("Help sink added!");
   } else {
-    spdlog::error("Skipping adding logger sync for websocket");
+    spdlog::error("Skipping adding logger sinks for websocket");
   }
 
 #ifdef MG_ENTERPRISE

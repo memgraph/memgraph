@@ -60,6 +60,7 @@ class Server final {
   };
 
   std::shared_ptr<LoggingSink> GetLoggingSink();
+  std::shared_ptr<LoggingSink> GetHelpSink();
 
  private:
   boost::asio::io_context ioc_;

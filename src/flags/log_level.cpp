@@ -108,6 +108,13 @@ void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
   CreateLoggerFromSink(sinks, default_logger->level());
 }
 
+// TODO: Make sure this is used in a safe way
+void memgraph::flags::AddHelpSink(spdlog::sink_ptr new_sink) {
+  auto help_logger = std::make_shared<spdlog::logger>("help_logger", new_sink);
+  help_logger->set_level(spdlog::level::info);
+  spdlog::register_logger(help_logger);
+}
+
 // Thread-safe because the level enum is an atomic
 // NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
 void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
