@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -35,7 +36,7 @@ struct Indices {
   /// index.
   /// TODO: unused in disk indices
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                             const std::unordered_set<LabelId> &labels = {}) const;
+                             const std::unordered_set<LabelId> &labels) const;
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices
