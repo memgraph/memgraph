@@ -126,6 +126,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
   std::string GetCurrentDB() const override { return ""; }
+  bool CanPrintQuery() const override { return true; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
