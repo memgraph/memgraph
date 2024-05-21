@@ -2,6 +2,7 @@
   "TODO, fill"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
+            [clojure.string :as string]
             [jepsen
              [checker :as checker]
              [generator :as gen]
@@ -43,23 +44,62 @@
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
+(dbclient/defquery show-repl-role
+  "SHOW REPLICATION ROLE")
+
+(defn data-instance-is-main?
+  "Find current main. This function shouldn't be executed on coordinator instances because you can easily check if the instance is coordinator."
+  [bolt-conn]
+  (utils/with-session bolt-conn session
+    (let [result (show-repl-role session)
+          role (val (first (seq (first result))))
+          main? (= "main" (str role))]
+      main?)))
+
+(defn data-instance?
+  "Is node data instances?"
+  [node]
+  (some #(= % node) #{"n1" "n2" "n3"}))
+
+(defn is-main?
+  "Is node main?"
+  [node bolt-conn]
+  (and (data-instance? node) (data-instance-is-main? bolt-conn)))
+
+(defn coord-instance?
+  "Is node coordinator instances?"
+  [node]
+  (some #(= % node) #{"n4" "n5" "n6"}))
+
+(defn accounts-not-created?
+  "Check if accounts are not created."
+  [conn]
+  (utils/with-session conn session
+    (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))]
+      (empty? accounts))))
+
+(defn transfer-money
+  "Transfer money from one account to another by some amount
+  if the account you're transfering money from has enough
+  money."
+  [conn from to amount]
+  (dbclient/with-transaction conn tx
+    (when (-> (get-account tx {:id from}) first :n :balance (>= amount))
+      (update-balance tx {:id from :amount (- amount)})
+      (update-balance tx {:id to :amount amount})))
+  (info "Transfered money from account" from "to account" to "with amount" amount))
+
 (defrecord Client [nodes-config license organization]
   client/Client
   ; Open Bolt connection to all nodes and Bolt+routing to coordinators.
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
-          node-config (get nodes-config node)
-          new-this (assoc this
-                          :bolt-conn bolt-conn
-                          :node-config node-config
-                          :node node)]
-      (if (#{"n4" "n5" "n6"} node)
-        (do
-          (info "Opening bolt+routing connection to coordinator node..." node)
-          (assoc new-this :bolt+routing-conn (utils/open-bolt+routing node)))
-        new-this)))
-
+          node-config (get nodes-config node)]
+      (assoc this
+             :bolt-conn bolt-conn
+             :node-config node-config
+             :node node)))
   ; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
     (utils/with-session (:bolt-conn this) session
@@ -67,67 +107,117 @@
       ((haclient/set-db-setting "organization.name" organization) session)))
 
   (invoke! [this _test op]
-    (let [node-config (:node-config this)]
-      (case (:f op)
-        :show-instances-read (if (contains? node-config :coordinator-id)
-                (try
-                  (utils/with-session (:bolt-conn this) session ; Use bolt connection for running show instances.
-                    (let [instances (->> (get-all-instances session) (reduce conj []))]
-                      (assoc op
-                             :type :ok
-                             :value {:instances instances :node (:node this)})))
-                  (catch Exception e
-                    (assoc op :type :fail :value e)))
-                (assoc op :type :fail :value "Not coord"))
-        :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
-                    (do
-                      (doseq [repl-config (filter #(contains? (val %) :replication-port)
-                                                  nodes-config)]
-                        (try
-                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering replication instances.
-                            ((haclient/register-replication-instance
-                              (first repl-config)
-                              (second repl-config)) session))
-                          (catch Exception e
-                            (assoc op :type :fail :value e))))
-                      (doseq [coord-config (->> nodes-config
-                                                (filter #(not= (key %) "n4")) ; Don't register itself
-                                                (filter #(contains? (val %) :coordinator-id)))]
-                        (try
-                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering coordinator instances.
-                            ((haclient/add-coordinator-instance
-                              (second coord-config)) session))
-                          (catch Exception e
-                            (assoc op :type :fail :value e))))
-                      (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
-                        (try
-                          (utils/with-session (:bolt-conn this) session ; Use bolt connection for setting instance to main.
-                            ((haclient/set-instance-to-main rand-main) session)
-                            ; Detach-delete and initialize accounts only when setting instance to main passed.
-                            (when (= (:node this) "n4")
-                              (utils/with-session (:bolt+routing-conn this) session
-                                (do
-                                  (mgclient/detach-delete-all session)
-                                  (dotimes [i account-num]
-                                    (create-account session {:id i :balance starting-balance})
-                                    (info "Created account:" i))))))
+    (case (:f op)
+      ; Show instances should be run only on coordinator.
+      :show-instances-read (if (coord-instance? (:node this))
+                             (try
+                               (utils/with-session (:bolt-conn this) session ; Use bolt connection for running show instances.
+                                 (let [instances (->> (get-all-instances session) (reduce conj []))]
+                                   (assoc op
+                                          :type :ok
+                                          :value {:instances instances :node (:node this)})))
+                               (catch Exception e
+                                 (assoc op :type :fail :value e)))
+                             (assoc op :type :fail :value "Not coord"))
+      ; Reading balances should be done only on data instances -> use bolt connection.
+      :read-balances (if (data-instance? (:node this))
+                       (utils/with-session (:bolt-conn this) session
+                         (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                               total (reduce + (map :balance accounts))]
+                           (assoc op
+                                  :type :ok
+                                  :value {:accounts accounts
+                                          :node (:node this)
+                                          :total total
+                                          :correct (= total (* account-num starting-balance))})))
+                       (assoc op :type :fail :value "Not data instance"))
 
-                          (catch Exception e
-                            (assoc op :type :fail :value e))))
+        ; Transfer money from one account to another. Only executed on main.
+        ; If the transferring succeeds, return :ok, otherwise return :fail.
+        ; Transfer will fail if the account doesn't exist or if the account doesn't have enough or if update-balance
+        ; doesn't return anything.
+        ; Allow the exception due to down sync replica.
+      :transfer (if (is-main? (:node this) (:bolt-conn this))
+                  (try
+                    (let [transfer-info (:value op)]
+                      (transfer-money
+                       (:bolt-conn this)
+                       (:from transfer-info)
+                       (:to transfer-info)
+                       (:amount transfer-info)))
+                    (assoc op :type :ok)
+                    (catch Exception e
+                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                        (assoc op :type :fail :value (str e)))))
+                  (assoc op :type :fail :value "Not main node."))
 
-                      (assoc op :type :ok))
-                    (assoc op :type :fail :value "Trying to register on node != n4")))))
+      :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
+                  (do
+                    (doseq [repl-config (filter #(contains? (val %) :replication-port)
+                                                nodes-config)]
+                      (try
+                        (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering replication instances.
+                          ((haclient/register-replication-instance
+                            (first repl-config)
+                            (second repl-config)) session))
+                        (catch Exception e
+                          (assoc op :type :fail :value e))))
+                    (doseq [coord-config (->> nodes-config
+                                              (filter #(not= (key %) "n4")) ; Don't register itself
+                                              (filter #(contains? (val %) :coordinator-id)))]
+                      (try
+                        (utils/with-session (:bolt-conn this) session ; Use bolt connection for registering coordinator instances.
+                          ((haclient/add-coordinator-instance
+                            (second coord-config)) session))
+                        (catch Exception e
+                          (assoc op :type :fail :value e))))
+                    (let [rand-main (nth (keys nodes-config) (rand-int 3))] ; 3 because first 3 instances are replication instances in cluster.edn
+                      (try
+                        (utils/with-session (:bolt-conn this) session ; Use bolt connection for setting instance to main.
+                          ((haclient/set-instance-to-main rand-main) session))
+                        (catch Exception e
+                          (assoc op :type :fail :value (str e)))))
+
+                    (assoc op :type :ok))
+
+                  (when (and (data-instance? (:node this)) (data-instance-is-main? (:bolt-conn this)) (accounts-not-created? (:bolt-conn this)))
+                    (utils/with-session (:bolt-conn this) session
+                      (info "Detaching and deleting all accounts...")
+                      (mgclient/detach-delete-all session)
+                      (info "Creating accounts...")
+                      (dotimes [i account-num]
+                        (create-account session {:id i :balance starting-balance})
+                        (info "Created account:" i)))))))
 
   (teardown! [_this _test])
   (close! [this _test]
-    (dbclient/disconnect (:bolt-conn this))
-    (when (or (= (:node this) "n4") (= (:node this) "n5") (= (:node this) "n6"))
-      (dbclient/disconnect (:bolt+routing-conn this)))))
+    (dbclient/disconnect (:bolt-conn this))))
 
 (defn show-instances-reads
   "Create read action."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))
 
 (defn single-read-to-roles
   "Convert single read to roles. Single read is a list of instances."
@@ -240,5 +330,5 @@
    :checker   (checker/compose
                {:habank     (habank-checker)
                 :timeline (timeline/html)})
-   :generator (haclient/ha-gen (gen/mix [show-instances-reads]))
+   :generator (haclient/ha-gen (gen/mix [show-instances-reads read-balances valid-transfer]))
    :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}})
