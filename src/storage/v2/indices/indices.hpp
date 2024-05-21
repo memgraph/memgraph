@@ -37,7 +37,7 @@ struct Indices {
   /// index.
   /// TODO: unused in disk indices
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                             const absl::flat_hash_set<LabelId> &labels) const;
+                             const std::unordered_set<LabelId> &labels = {}) const;
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices

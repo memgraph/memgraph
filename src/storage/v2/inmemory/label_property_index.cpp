@@ -149,13 +149,13 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
 }
 
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                                       const absl::flat_hash_set<LabelId> &labels) {
+                                                       const std::unordered_set<LabelId> &labels) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_property, index] : index_) {
     auto [label_id, prop_id] = label_property;
 
-    if (labels.find(label_id) == labels.end()) {
+    if (!labels.empty() && labels.find(label_id) == labels.end()) {
       continue;
     }
 

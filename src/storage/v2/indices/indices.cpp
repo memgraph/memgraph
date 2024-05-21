@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/indices.hpp"
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
@@ -38,7 +37,7 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
 }
 
 void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                    const absl::flat_hash_set<LabelId> &labels) const {
+                                    const std::unordered_set<LabelId> &labels) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token, labels);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
