@@ -292,8 +292,6 @@ if (USE_READLINE)
   endif()
 endif()
 
-set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-add_subdirectory(libs EXCLUDE_FROM_ALL)
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
