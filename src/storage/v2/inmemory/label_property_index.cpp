@@ -155,7 +155,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
   for (auto &[label_property, index] : index_) {
     auto [label_id, prop_id] = label_property;
 
-    if (!labels.empty() && labels.find(label_id) == labels.end()) {
+    if (!labels.contains(label_id)) {
       continue;
     }
 

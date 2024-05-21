@@ -497,7 +497,7 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_sta
     // before starting constraint, check if stop_requested
     if (token.stop_requested()) return;
 
-    if (!labels.empty() && labels.find(label_props.first) == labels.end()) {
+    if (!labels.contains(label_props.first)) {
       continue;
     }
 

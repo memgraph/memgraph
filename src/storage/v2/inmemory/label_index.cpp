@@ -88,7 +88,7 @@ void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_time
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
-    if (!labels.empty() && labels.find(label_storage.first) == labels.end()) {
+    if (!labels.contains(label_storage.first)) {
       continue;
     }
 

@@ -14,8 +14,6 @@
 #include <memory>
 #include <span>
 
-#include "absl/container/flat_hash_set.h"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
