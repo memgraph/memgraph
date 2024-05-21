@@ -268,20 +268,21 @@
   []
   (reify checker/Checker
     (check [_ _ history _]
-      (let [reads  (->> history
-                        (filter #(= :ok (:type %)))
-                        (filter #(= :show-instances-read (:f %)))
-                        (map :value))
+      ; si prefix stands for show-instances
+      (let [si-reads  (->> history
+                           (filter #(= :ok (:type %)))
+                           (filter #(= :show-instances-read (:f %)))
+                           (map :value))
             ; Full reads all reads which returned 6 instances
-            full-reads (->> reads
-                            (filter #(= 6 (count (:instances %)))))
+            full-si-reads (->> si-reads
+                               (filter #(= 6 (count (:instances %)))))
             ; All reads grouped by node
-            coord->reads (->> reads
+            coord->reads (->> si-reads
                               (group-by :node)
                               (map (fn [[node values]] [node (map :instances values)]))
                               (into {}))
             ; All full reads grouped by node
-            coord->full-reads (->> full-reads
+            coord->full-reads (->> full-si-reads
                                    (group-by :node)
                                    (map (fn [[node values]] [node (map :instances values)]))
                                    (into {}))
@@ -307,21 +308,62 @@
                    (filter (fn [[_ reads]] (some alive-instances-no-main reads)))
                    (vals))
             ; Node is considered empty if all reads are empty -> probably a mistake in registration.
-            empty-nodes (->> coord->reads
-                             (filter (fn [[_ reads]]
-                                       (every? empty? reads)))
-                             (keys))
+            empty-si-nodes (->> coord->reads
+                                (filter (fn [[_ reads]]
+                                          (every? empty? reads)))
+                                (keys))
             coordinators (set (keys coord->reads)) ; Only coordinators should run SHOW INSTANCES
-            ]
+            ok-data-reads  (->> history
+                                (filter #(= :ok (:type %)))
+                                (filter #(= :read-balances (:f %))))
+            bad-data-reads (->> ok-data-reads
+                                (map #(->> % :value))
+                                (filter #(= (count (:accounts %)) 5))
+                                (map (fn [value]
+                                       (let [balances  (map :balance (:accounts value))
+                                             expected-total (* account-num starting-balance)]
+                                         (cond (and
+                                                (not-empty balances)
+                                                (not=
+                                                 expected-total
+                                                 (reduce + balances)))
+                                               {:type :wrong-total
+                                                :expected expected-total
+                                                :found (reduce + balances)
+                                                :value value}
 
-        {:valid? (and (empty? empty-nodes)
+                                               (some neg? balances)
+                                               {:type :negative-value
+                                                :found balances
+                                                :op value}))))
+                                (filter identity)
+                                (into []))
+            empty-data-nodes (let [all-nodes (->> ok-data-reads
+                                                  (map #(-> % :value :node))
+                                                  (reduce conj #{}))]
+                               (->> all-nodes
+                                    (filter (fn [node]
+                                              (every?
+                                               empty?
+                                               (->> ok-data-reads
+                                                    (map :value)
+                                                    (filter #(= node (:node %)))
+                                                    (map :accounts)))))
+                                    (filter identity)
+                                    (into [])))]
+
+        {:valid? (and (empty? empty-si-nodes)
                       (= coordinators #{"n4" "n5" "n6"})
                       (empty? coords-missing-reads)
-                      (empty? more-than-one-main))
-         :empty-nodes empty-nodes ; nodes which have all reads empty
+                      (empty? more-than-one-main)
+                      (empty? bad-data-reads)
+                      (empty? empty-data-nodes))
+         :empty-si-nodes empty-si-nodes ; nodes which have all reads empty
          :missing-coords-nodes coords-missing-reads ; coordinators which have missing coordinators in their reads
          :more-than-one-main-nodes more-than-one-main ; nodes on which more-than-one-main was detected
-         :coordinators coordinators}))))
+         :coordinators coordinators
+         :bad-data-reads bad-data-reads
+         :empty-data-nodes empty-data-nodes}))))
 
 (defn workload
   "Basic HA workload."
