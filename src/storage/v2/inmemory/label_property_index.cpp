@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <limits>
 
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"

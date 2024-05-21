@@ -11,7 +11,6 @@
 
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include <memory>
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
