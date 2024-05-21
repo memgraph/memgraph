@@ -65,6 +65,8 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
@@ -1955,7 +1957,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit) {
-  ctx_.hops_limit = hops_limit;
+  ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -2069,7 +2071,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
 
-  if (!flags::run_time::GetHopsLimitPartialResults() && (ctx_.hops_limit.has_value() && ctx_.hops_limit.value() < 0)) {
+  if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
     throw QueryException("Query exceeded the maximum number of hops.");
   }
 

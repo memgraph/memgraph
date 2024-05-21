@@ -19,6 +19,7 @@
 
 #include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -160,7 +161,7 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    std::optional<int64_t> *hops_limit = nullptr) const {
+                                                    query::HopsLimit *hops_limit = nullptr) const {
     auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
@@ -177,7 +178,7 @@ class VertexAccessor final {
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
                                                     const VertexAccessor &dest,
-                                                    std::optional<int64_t> *hops_limit = nullptr) const {
+                                                    query::HopsLimit *hops_limit = nullptr) const {
     auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
@@ -191,7 +192,7 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     std::optional<int64_t> *hops_limit = nullptr) const {
+                                                     query::HopsLimit *hops_limit = nullptr) const {
     auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
@@ -208,7 +209,7 @@ class VertexAccessor final {
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
                                                      const VertexAccessor &dest,
-                                                     std::optional<int64_t> *hops_limit = nullptr) const {
+                                                     query::HopsLimit *hops_limit = nullptr) const {
     auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 

@@ -1044,7 +1044,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
-    if (context.hops_limit.has_value() && context.hops_limit.value() < 0) return false;
+    if (context.hops_limit.IsLimitReached()) return false;
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -1279,7 +1279,7 @@ class ExpandVariableCursor : public Cursor {
 
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      if (context.hops_limit.has_value() && context.hops_limit.value() < 0) return false;
+      if (context.hops_limit.IsLimitReached()) return false;
 
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -1430,8 +1430,7 @@ class ExpandVariableCursor : public Cursor {
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
-      if (upper_bound_ > static_cast<int64_t>(edges_.size()) &&
-          (!context.hops_limit.has_value() || context.hops_limit.value() > 0)) {
+      if (upper_bound_ > static_cast<int64_t>(edges_.size()) && !context.hops_limit.IsLimitReached()) {
         auto *memory = edges_.get_allocator().GetMemoryResource();
         edges_.emplace_back(
             ExpandFromVertex(current_vertex, self_.common_.direction, self_.common_.edge_types, memory, &context));
@@ -1465,7 +1464,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
     while (input_cursor_->Pull(frame, context)) {
-      if (context.hops_limit.has_value() && context.hops_limit.value() < 0) return false;
+      if (context.hops_limit.IsLimitReached()) return false;
 
       const auto &source_tv = frame[self_.input_symbol_];
       const auto &sink_tv = frame[self_.common_.node_symbol];
@@ -1578,7 +1577,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (context.hops_limit.has_value() && context.hops_limit.value() < 0) break;
+        if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
@@ -1647,7 +1646,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (context.hops_limit.has_value() && context.hops_limit.value() < 0) break;
+        if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto out_edges_result =
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
@@ -1816,7 +1815,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (to_visit_current_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
 
-        if (context.hops_limit.has_value() && context.hops_limit.value() < 0) return false;
+        if (context.hops_limit.IsLimitReached()) return false;
 
         to_visit_current_.clear();
         to_visit_next_.clear();
@@ -1872,7 +1871,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
         }
-        if (!context.hops_limit.has_value() || context.hops_limit.value() > 0) {
+        if (!context.hops_limit.IsLimitReached()) {
           expand_from_vertex(curr_vertex);
         }
       }

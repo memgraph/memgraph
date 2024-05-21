@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
@@ -588,7 +589,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination,
-                                                          std::optional<int64_t> *hops_limit) const {
+                                                          query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -618,19 +619,21 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    if (hops_limit && hops_limit->has_value()) {
+    if (hops_limit && hops_limit->IsUsed()) {
       if (edge_types.empty() && !destination) {
-        if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->in_edges.size()) > 0) {
-          *hops_limit = -1;
+        // we need this check to because if limit is reached but it is not passed we can still use vertices without any
+        // neighbors
+        if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(vertex_->in_edges.size()) > 0) {
+          hops_limit->limit_passed = true;
         } else {
-          expanded_count = (std::min(**hops_limit, static_cast<int64_t>(vertex_->in_edges.size())));
-          **hops_limit -= expanded_count;
+          expanded_count = (std::min(hops_limit->LeftHops(), static_cast<int64_t>(vertex_->in_edges.size())));
+          hops_limit->Increment();
           std::copy_n(vertex_->in_edges.begin(), expanded_count, std::back_inserter(in_edges));
         }
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->in_edges) {
-          --(**hops_limit);
-          if (**hops_limit < 0) break;
+          hops_limit->Increment();
+          if (hops_limit->IsLimitReached()) break;
           expanded_count++;
           if (destination && to_vertex != destination_vertex) continue;
           if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
@@ -701,7 +704,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination,
-                                                           std::optional<int64_t> *hops_limit) const {
+                                                           query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -731,19 +734,21 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    if (hops_limit && hops_limit->has_value()) {
+    if (hops_limit && hops_limit->IsUsed()) {
       if (edge_types.empty() && !destination) {
-        if (**hops_limit <= 0 && static_cast<int64_t>(vertex_->out_edges.size()) > 0) {
-          *hops_limit = -1;
+        // we need this check to because if limit is reached but it is not passed we can still use vertices without any
+        // neighbors
+        if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(vertex_->out_edges.size()) > 0) {
+          hops_limit->limit_passed = true;
         } else {
-          expanded_count = std::min(**hops_limit, static_cast<int64_t>(vertex_->out_edges.size()));
-          **hops_limit -= expanded_count;
+          expanded_count = std::min(hops_limit->LeftHops(), static_cast<int64_t>(vertex_->out_edges.size()));
+          hops_limit->Increment();
           std::copy_n(vertex_->out_edges.begin(), expanded_count, std::back_inserter(out_edges));
         }
       } else {
         for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-          --(**hops_limit);
-          if (**hops_limit < 0) break;
+          hops_limit->Increment();
+          if (hops_limit->IsLimitReached()) break;
           expanded_count++;
           if (destination && to_vertex != dst_vertex) continue;
           if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())

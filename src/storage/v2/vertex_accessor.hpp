@@ -15,6 +15,7 @@
 
 #include "storage/v2/vertex.hpp"
 
+#include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/small_vector.hpp"
@@ -99,14 +100,14 @@ class VertexAccessor final {
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                             const VertexAccessor *destination = nullptr,
-                                            std::optional<int64_t> *hops_limit = nullptr) const;
+                                            query::HopsLimit *hops_limit = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
                                              const VertexAccessor *destination = nullptr,
-                                             std::optional<int64_t> *hops_limit = nullptr) const;
+                                             query::HopsLimit *hops_limit = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 

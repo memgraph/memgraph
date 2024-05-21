@@ -210,8 +210,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  for (auto *using_statements_ctx : ctx->usingStatements()) {
-    if (auto *index_hints_ctx = using_statements_ctx->usingStatement()->indexHints()) {
+  for (auto *using_statement_ctx : ctx->usingStatement()) {
+    if (auto *index_hints_ctx = using_statement_ctx->usingStatementItem()->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         if (!index_hint_ctx->propertyKeyName()) {
@@ -226,7 +226,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
       }
     } else {
       cypher_query->hops_limit_ =
-          std::any_cast<Expression *>(using_statements_ctx->usingStatement()->hopsLimit()->accept(this));
+          std::any_cast<Expression *>(using_statement_ctx->usingStatementItem()->hopsLimit()->accept(this));
     }
   }
 
