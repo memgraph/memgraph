@@ -24,7 +24,7 @@ namespace memgraph::io::network {
 class Endpoint {
  public:
   Endpoint() = default;
-  Endpoint(std::string hostname, uint16_t port);
+  Endpoint(std::string address, uint16_t port);
 
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
@@ -40,15 +40,15 @@ class Endpoint {
                                                                std::optional<uint16_t> default_port = {});
 
   // Returns hostname as specified by user. Could be FQDN (IP address) or DNS name.
-  [[nodiscard]] auto GetHostname() const -> std::string const &;
-  [[nodiscard]] auto GetHostname() -> std::string &;
+  [[nodiscard]] auto GetAddress() const -> std::string const &;
+  [[nodiscard]] auto GetAddress() -> std::string &;
   [[nodiscard]] auto GetPort() const -> uint16_t const &;
   [[nodiscard]] auto GetPort() -> uint16_t &;
 
   // Does resolution
   [[nodiscard]] auto GetIpFamily() const -> IpFamily;
 
-  void SetHostname(std::string const &hostname);
+  void SetAddress(std::string address);
   void SetPort(uint16_t port);
 
   // Returns hostname:port as specified by user. Could be FQDN (IP address) or DNS name.
@@ -69,7 +69,7 @@ class Endpoint {
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;
 
-  std::string hostname_{};
+  std::string address_{};
   uint16_t port_{0};
 };
 
