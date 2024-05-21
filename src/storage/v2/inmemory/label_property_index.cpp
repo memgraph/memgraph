@@ -13,7 +13,9 @@
 #include <cstdint>
 #include <limits>
 
+#include "absl/container/flat_hash_set.h"
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -149,7 +151,7 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
 }
 
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                                       const std::unordered_set<LabelId> &labels) {
+                                                       const absl::flat_hash_set<LabelId> &labels) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_property, index] : index_) {

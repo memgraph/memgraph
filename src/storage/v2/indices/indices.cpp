@@ -36,7 +36,7 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
 }
 
 void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                    const std::unordered_set<LabelId> &labels) const {
+                                    const absl::flat_hash_set<LabelId> &labels) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token, labels);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())

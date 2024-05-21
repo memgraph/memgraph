@@ -971,7 +971,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
                                                             std::list<Gid> &current_deleted_edges,
-                                                            std::unordered_set<LabelId> &modified_labels) {
+                                                            absl::flat_hash_set<LabelId> &modified_labels) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
@@ -1041,7 +1041,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  std::unordered_set<LabelId> modified_labels;
+  absl::flat_hash_set<LabelId> modified_labels;
   GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, modified_labels);
 
   // STEP 3) skip_list removals
@@ -1717,7 +1717,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   std::list<Gid> current_deleted_vertices;
 
   // We will collect all labels that were modified in this GC cycle so we can delete them from indices
-  std::unordered_set<LabelId> modified_labels;
+  absl::flat_hash_set<LabelId> modified_labels;
 
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
