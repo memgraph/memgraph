@@ -1801,6 +1801,11 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   return {};
 }
 
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
+    CommitReplArgs reparg, DatabaseAccessProtector /*db_acc*/) {
+  return {};
+}
+
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
 

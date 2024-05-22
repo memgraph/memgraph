@@ -969,6 +969,183 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
+    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+  MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
+  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+
+  auto could_replicate_all_sync_replicas = true;
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
+  if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
+    // We don't have to update the commit timestamp here because no one reads
+    // it.
+    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  } else {
+    // This is usually done by the MVCC, but it does not handle the metadata deltas
+    transaction_.EnsureCommitTimestampExists();
+
+    if (transaction_.constraint_verification_info &&
+        transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
+      const auto vertices_to_update =
+          transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
+      for (auto const *vertex : vertices_to_update) {
+        // No need to take any locks here because we modified this vertex and no
+        // one else can touch it until we commit.
+        auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
+        if (validation_result) {
+          Abort();
+          DMG_ASSERT(!commit_timestamp_.has_value());
+          return StorageManipulationError{*validation_result};
+        }
+      }
+    }
+
+    // Result of validating the vertex against unqiue constraints. It has to be
+    // declared outside of the critical section scope because its value is
+    // tested for Abort call which has to be done out of the scope.
+    std::optional<ConstraintViolation> unique_constraint_violation;
+
+    // Save these so we can mark them used in the commit log.
+    uint64_t start_timestamp = transaction_.start_timestamp;
+
+    {
+      auto engine_guard = std::unique_lock{storage_->engine_lock_};
+
+      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+          for (auto &label : label_indices) {
+            --label.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific label, we only build the index
+            // when the last one commits.
+            if (label.second == 0) {
+              CreateIndex(label.first, false);
+              label_indices.erase(label.first);
+            }
+          }
+        });
+      }
+
+      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+        storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+          for (auto &edge_type : edge_type_indices) {
+            --edge_type.second;
+            // If there are multiple transactions that would like to create an
+            // auto-created index on a specific edge-type, we only build the index
+            // when the last one commits.
+            if (edge_type.second == 0) {
+              CreateIndex(edge_type.first, false);
+              edge_type_indices.erase(edge_type.first);
+            }
+          }
+        });
+      }
+
+      auto *mem_unique_constraints =
+          static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+      commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+
+      if (transaction_.constraint_verification_info &&
+          transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
+        // Before committing and validating vertices against unique constraints,
+        // we have to update unique constraints with the vertices that are going
+        // to be validated/committed.
+        const auto vertices_to_update =
+            transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
+
+        for (auto const *vertex : vertices_to_update) {
+          mem_unique_constraints->UpdateBeforeCommit(vertex, transaction_);
+        }
+
+        for (auto const *vertex : vertices_to_update) {
+          // No need to take any locks here because we modified this vertex and no
+          // one else can touch it until we commit.
+          unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
+          if (unique_constraint_violation) {
+            break;
+          }
+        }
+      }
+
+      if (!unique_constraint_violation) {
+        [[maybe_unused]] bool const is_main_or_replica_write =
+            reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
+
+        // TODO Figure out if we can assert this
+        // DMG_ASSERT(is_main_or_replica_write, "Should only get here on writes");
+        // Currently there are queries that write to some subsystem that are allowed on a replica
+        // ex. analyze graph stats
+        // There are probably others. We not to check all of them and figure out if they are allowed and what are
+        // they even doing here...
+
+        // Write transaction to WAL while holding the engine lock to make sure
+        // that committed transactions are sorted by the commit timestamp in the
+        // WAL files. We supply the new commit timestamp to the function so that
+        // it knows what will be the final commit timestamp. The WAL must be
+        // written before actually committing the transaction (before setting
+        // the commit timestamp) so that no other transaction can see the
+        // modifications before they are written to disk.
+        // Replica can log only the write transaction received from Main
+        // so the Wal files are consistent
+        auto const durability_commit_timestamp =
+            reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
+        if (is_main_or_replica_write) {
+          could_replicate_all_sync_replicas =
+              mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
+
+          // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+          // Replica can only update the last commit timestamp with
+          // the commits received from main.
+          // Update the last commit timestamp
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
+        }
+
+        // TODO: can and should this be moved earlier?
+        mem_storage->commit_log_->MarkFinished(start_timestamp);
+
+        // while still holding engine lock
+        // and after durability + replication
+        // check if we can fast discard deltas (ie. do not hand over to GC)
+        bool no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
+        bool no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
+        if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+          // STEP 0) Can only do fast discard if GC is not running
+          //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
+          //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
+          auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
+          if (gc_guard.try_lock()) {
+            FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
+          }
+        }
+      }
+    }  // Release engine lock because we don't have to hold it anymore
+
+    if (unique_constraint_violation) {
+      Abort();
+      DMG_ASSERT(commit_timestamp_.has_value());
+      commit_timestamp_.reset();  // We have aborted, hence we have not committed
+      return StorageManipulationError{*unique_constraint_violation};
+    }
+
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      mem_storage->indices_.text_index_.Commit();
+    }
+  }
+
+  // is_transaction_active_ = false;
+
+  if (!could_replicate_all_sync_replicas) {
+    return StorageManipulationError{ReplicationError{}};
+  }
+
+  return {};
+}
+
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
                                                             std::list<Gid> &current_deleted_edges,
                                                             absl::flat_hash_set<LabelId> &modified_labels) {

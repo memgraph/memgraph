@@ -268,6 +268,8 @@ class Storage {
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+                                                                              DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
 

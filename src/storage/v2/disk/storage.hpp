@@ -156,6 +156,8 @@ class DiskStorage final : public Storage {
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
                                                               DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+                                                                      DatabaseAccessProtector db_acc = {}) override;
 
     void UpdateObjectsCountOnAbort();
 

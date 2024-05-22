@@ -420,6 +420,7 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
   void Commit();
+  void PeriodicCommit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
