@@ -180,6 +180,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   bool Visit(Identifier & /*unused*/) override { return true; }
   bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
   bool Visit(ParameterLookup & /*unused*/) override { return true; }
+  bool Visit(EnumValueAccess & /*unused*/) override { return true; }
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {

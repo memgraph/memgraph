@@ -96,6 +96,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | Enum Name | Enum Values     |
             | 'Status'  | ['Good', 'Bad'] |
 
+    Scenario: Compare Enums for equality:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        When executing query:
+            """
+            RETURN Status::Good = Status::Good AS result1, Status::Good = Status::Bad AS result2
+            """
+        Then the result should be:
+            | result1 | result2 |
+            | true    | false   |
+
     Scenario: Create an edge with an Enum property:
         Given an empty graph
         When executing query:

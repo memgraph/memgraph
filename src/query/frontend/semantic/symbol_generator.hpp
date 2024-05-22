@@ -93,6 +93,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Exists & /*exists*/) override;
   bool PostVisit(Exists & /*exists*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
+  ReturnType Visit(EnumValueAccess &) override { return true; }
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;

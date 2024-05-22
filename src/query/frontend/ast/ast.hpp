@@ -3860,12 +3860,7 @@ class EnumValueAccess : public memgraph::query::Expression {
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<void>);
-
-  bool Accept(HierarchicalTreeVisitor &visitor) override {
-    if (visitor.PreVisit(*this)) {
-    }
-    return visitor.PostVisit(*this);
-  }
+  DEFVISITABLE(HierarchicalTreeVisitor);
 
   EnumValueAccess *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();

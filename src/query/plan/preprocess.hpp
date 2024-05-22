@@ -95,6 +95,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
+  bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
