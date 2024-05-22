@@ -60,6 +60,8 @@ memgraphCypherKeyword : cypherKeyword
                       | DURABILITY
                       | EDGE
                       | EDGE_TYPES
+                      | ENUM
+                      | ENUMS
                       | EXECUTE
                       | FAILOVER
                       | FOR
@@ -149,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUES
                       | VERSION
                       | WEBSOCKET
                       ;
@@ -187,6 +190,8 @@ query : cypherQuery
       | edgeImportModeQuery
       | coordinatorQuery
       | dropGraphQuery
+      | createEnumQuery
+      | showEnumsQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -311,14 +316,16 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE role=userOrRoleName ;
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
-createUser : CREATE USER user=userOrRoleName
+createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
+
+ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
@@ -567,3 +574,13 @@ dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
 dropGraphQuery : DROP GRAPH ;
+
+enumName : symbolicName ;
+
+enumValue : symbolicName ;
+
+enumValuesList : enumValue ( ',' enumValue )* ;
+
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+
+showEnumsQuery : SHOW ENUMS ;

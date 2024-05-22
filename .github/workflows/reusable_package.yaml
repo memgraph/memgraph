@@ -140,6 +140,7 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
+          --build-type ${{ inputs.build_type }} \
           package-docker \
           --src-dir ${{ env.PACKAGE_ARTIFACT_DIR }} \
           --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
