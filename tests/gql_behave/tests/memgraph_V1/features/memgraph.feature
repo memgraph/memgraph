@@ -77,7 +77,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-    Scenario: Create Enum:
+    Scenario: Create enum:
         Given an empty graph
         When executing query:
             """
@@ -85,7 +85,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be empty
 
-    Scenario: Show Enums:
+    Scenario: Show enums:
         Given an empty graph
         # Values will be used from the previous scenario
         When executing query:
@@ -96,7 +96,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | Enum Name | Enum Values     |
             | 'Status'  | ['Good', 'Bad'] |
 
-    Scenario: Compare Enums for equality:
+    Scenario: Compare enums for equality:
         Given an empty graph
         # Values will be used from the previous scenario
         When executing query:
@@ -107,7 +107,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result1 | result2 |
             | true    | false   |
 
-    Scenario: Create an edge with an Enum property:
+    Scenario: Create an edge with an enum property:
         Given an empty graph
         When executing query:
             """
@@ -115,7 +115,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be empty
 
-    Scenario: Get nodes and edges with Enum properties:
+    Scenario: Get nodes and edges with enum properties:
         Given an empty graph
         And having executed
             """
@@ -123,8 +123,34 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         When executing query:
             """
-            MATCH (n)-[e]->(m) RETURN n, e, m
+            MATCH (n)-[e]->(m) RETURN n, n.s, e, e.s, m
             """
         Then the result should be:
-            | n                             | e                           | m                            |
-            | (:Person {s: 'Status::Good'}) | [:KNOWS {s: 'Status::Bad'}] | (:Person {s: 'Status::Bad'}) |
+            | n                             | n.s            | e                           | e.s           | m                            |
+            | (:Person {s: 'Status::Good'}) | 'Status::Good' | [:KNOWS {s: 'Status::Bad'}] | 'Status::Bad' | (:Person {s: 'Status::Bad'}) |
+
+    Scenario: Filter nodes by enum property equal op:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.s = Status::Bad RETURN n
+            """
+        Then the result should be:
+            | n                            |
+            | (:Person {s: 'Status::Bad'}) |
+
+    Scenario: Filter nodes by enum property comparison op:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.s <= Status::Bad RETURN n
+            """
+        Then an error should be raised
