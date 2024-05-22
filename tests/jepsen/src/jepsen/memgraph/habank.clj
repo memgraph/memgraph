@@ -91,9 +91,19 @@
 
 (defn main-to-initialize?
   "Check if main needs to be initialized. Accepts the name of the node and its bolt connection."
-  [node bolt-conn]
-  (and (is-main? node bolt-conn) ; TODO: (andi) Every instance is main at the beginning
-       (not (accounts-exist? bolt-conn))))
+  [bolt-conn node first-main]
+  (try
+    (and (= node first-main)
+         (is-main? node bolt-conn)
+         (not (accounts-exist? bolt-conn)))
+    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+      (do
+        (info "Node" node "is down.")
+        false))
+    (catch Exception e
+      (do
+        (info "Node" node "failed because" (str e))
+        false))))
 
 (defn transfer-money
   "Transfer money from one account to another by some amount
@@ -106,9 +116,67 @@
       (update-balance tx {:id to :amount amount})))
   (info "Transfered money from account" from "to account" to "with amount" amount))
 
+(defn register-repl-instances
+  "Register replication instances."
+  [bolt-conn node nodes-config]
+  (doseq [repl-config (filter #(contains? (val %) :replication-port)
+                              nodes-config)]
+    (try
+      (utils/with-session bolt-conn session ; Use bolt connection for registering replication instances.
+        ((haclient/register-replication-instance
+          (first repl-config)
+          (second repl-config)) session))
+      (info "Registered replication instance:" (first repl-config))
+      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+        (info "Registering instance" (first repl-config) "failed because node" node "is down."))
+      (catch Exception e
+        (info "Registering instance" (first repl-config) "failed because" (str e))))))
+
+(defn add-coordinator-instances
+  "Register coordinator instances."
+  [bolt-conn node first-leader nodes-config]
+  (doseq [coord-config (->> nodes-config
+                            (filter #(not= (key %) first-leader)) ; Don't register itself
+                            (filter #(contains? (val %) :coordinator-id)))]
+    (try
+      (utils/with-session bolt-conn session ; Use bolt connection for registering coordinator instances.
+        ((haclient/add-coordinator-instance
+          (second coord-config)) session))
+      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+        (info "Adding coordinator" (first coord-config) "failed because node" node "is down."))
+      (catch Exception e
+        (info "Adding coordinator" (first coord-config) "failed because" (str e))))))
+
+(defn set-instance-to-main
+  "Set instance to main."
+  [bolt-conn node first-main]
+  (try
+    (utils/with-session bolt-conn session ; Use bolt connection for setting instance to main.
+      ((haclient/set-instance-to-main first-main) session))
+    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+      (info "Setting instance" first-main "to main failed because node" node "is down."))
+    (catch Exception e
+      (info "Setting instance" first-main "to main failed because" (str e)))))
+
+(defn initialize-main
+  "Delete existing accounts and create new ones."
+  [bolt-conn node]
+  (try
+    (utils/with-session bolt-conn session
+      (info "Deleting all accounts...")
+      (mgclient/detach-delete-all session)
+      (info "Creating accounts...")
+      (dotimes [i account-num]
+        (create-account session {:id i :balance starting-balance})
+        (info "Created account:" i)))
+    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+      (info "Initializing main failed because node" node "is down."))
+    (catch Exception e
+      (info "Initializing main failed because" (str e)))))
+
 (defrecord Client [nodes-config first-leader first-main license organization]
   client/Client
-  ; Open Bolt connection to all nodes and Bolt+routing to coordinators.
+  ; Open Bolt connection to all nodes.
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
@@ -140,10 +208,10 @@
                                             :value {:instances instances :node node})))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    ; Even whole assoc can be returned -> so we don't forget :ok
-                                   (assoc op :type :ok :value (str "Node " node " is down"))) ; TODO: (abstract this message into a function)
+                                   (assoc op :type :info :value (str "Node " node " is down"))) ; TODO: (abstract this message into a function)
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
-                               (assoc op :type :ok :value "Not coord"))
+                               (assoc op :type :info :value "Not coord"))
       ; Reading balances should be done only on data instances -> use bolt connection.
         :read-balances (if (data-instance? node)
                          (try
@@ -157,10 +225,10 @@
                                               :total total
                                               :correct (= total (* account-num starting-balance))})))
                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                             (assoc op :type :ok :value (str "Node " node " is down")))
+                             (assoc op :type :info :value (str "Node " node " is down")))
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
-                         (assoc op :type :ok :value "Not data instance"))
+                         (assoc op :type :info :value "Not data instance"))
 
         ; Transfer money from one account to another. Only executed on main.
         ; If the transferring succeeds, return :ok, otherwise return :fail.
@@ -176,64 +244,31 @@
                  (:to transfer-info)
                  (:amount transfer-info))
                 (assoc op :type :ok))
-              (assoc op :type :ok :value "Transfer allowed only on initialized main."))
+              (assoc op :type :info :value "Transfer allowed only on initialized main."))
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (assoc op :type :ok :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] in transfer is down")))
+              (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
             (catch Exception e
-              (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+              (if (or
+                   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                   (string/includes? (str e) "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message."))
+                (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
                 (assoc op :type :fail :value (str e))))))
 
-        :register
+        :initialize
+        ; If nothing was done before, registration will be done on the 1st leader and all good.
+        ; If leader didn't change but registration was done, all this will fail but not critically.
+        ; If leader changes, registration will fail because of `not leader` message and again all good.
         (if (= node first-leader)
           (do
-            (doseq [repl-config (filter #(contains? (val %) :replication-port)
-                                        nodes-config)]
-              (try
-                (utils/with-session bolt-conn session ; Use bolt connection for registering replication instances.
-                  ((haclient/register-replication-instance
-                    (first repl-config)
-                    (second repl-config)) session))
-                (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                  (assoc op :type :ok :value (str "Node " node " is down.")))
-                ; TODO: (andi) We can be here more finer-grained and do better ok/fail handling.
-                (catch Exception e
-                  (assoc op :type :fail :value (str e))))) ; We set type to fail but this isn't being checked at the end.
-
-            (doseq [coord-config (->> nodes-config
-                                      (filter #(not= (key %) first-leader)) ; Don't register itself
-                                      (filter #(contains? (val %) :coordinator-id)))]
-              (try
-                (utils/with-session bolt-conn session ; Use bolt connection for registering coordinator instances.
-                  ((haclient/add-coordinator-instance
-                    (second coord-config)) session))
-                (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                  (assoc op :type :ok :value (str "Node " node " is down.")))
-                (catch Exception e
-                  (assoc op :type :fail :value (str e)))))
-            (try
-              (utils/with-session bolt-conn session ; Use bolt connection for setting instance to main.
-                ((haclient/set-instance-to-main first-main) session))
-              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                (assoc op :type :ok :value (str "Node " node " is down.")))
-              (catch Exception e
-                (assoc op :type :fail :value (str e))))
-
-            (assoc op :type :ok))
-
-          (try
-            (when (main-to-initialize? node bolt-conn)
-              (utils/with-session bolt-conn session
-                (info "Deleting all accounts...")
-                (mgclient/detach-delete-all session)
-                (info "Creating accounts...")
-                (dotimes [i account-num]
-                  (create-account session {:id i :balance starting-balance})
-                  (info "Created account:" i))))
-            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (assoc op :type :ok :value (str "Node " node " is down.")))
-            (catch Exception e
-              (assoc op :type :fail :value (str e))))))))
+            (register-repl-instances bolt-conn node nodes-config)
+            (add-coordinator-instances bolt-conn node first-leader nodes-config)
+            (set-instance-to-main bolt-conn node first-main)
+            (assoc op :type :ok)) ; NOTE: This doesn't mean all instances were successfully registered.
+          (if (main-to-initialize? bolt-conn node first-main)
+            (do
+              (initialize-main bolt-conn node) ; NOTE: This doesn't mean that data is all set up 100%.
+              (assoc op :type :ok))
+            (assoc op :type :info :value "Not registering on the 1st leader"))))))
 
   (teardown! [_this _test])
   (close! [this _test]
@@ -312,9 +347,21 @@
   "High availability bank checker"
   []
   (reify checker/Checker
-    (check [_ _ history _]
+    (check [_checker _test history _opts]
       ; si prefix stands for show-instances
-      (let [si-reads  (->> history
+      (let [failed-initalizations (->> history
+                                       (filter #(= :fail (:type %)))
+                                       (filter #(= :initialize (:f %)))
+                                       (map :value))
+            failed-show-instances (->> history
+                                       (filter #(= :fail (:type %)))
+                                       (filter #(= :show-instances-read (:f %)))
+                                       (map :value))
+            failed-read-balances (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :read-balances (:f %)))
+                                      (map :value))
+            si-reads  (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :show-instances-read (:f %)))
                            (map :value))
@@ -402,12 +449,18 @@
                       (empty? coords-missing-reads)
                       (empty? more-than-one-main)
                       (empty? bad-data-reads)
-                      (empty? empty-data-nodes))
+                      (empty? empty-data-nodes)
+                      (empty? failed-initalizations)
+                      (empty? failed-show-instances)
+                      (empty? failed-read-balances))
          :empty-si-nodes empty-si-nodes ; nodes which have all reads empty
-         :missing-coords-nodes coords-missing-reads ; coordinators which have missing coordinators in their reads
+         :coords-missing-reads coords-missing-reads ; coordinators which have missing coordinators in their reads
          :more-than-one-main-nodes more-than-one-main ; nodes on which more-than-one-main was detected
          :coordinators coordinators
          :bad-data-reads bad-data-reads
+         :failed-initalizations failed-initalizations
+         :failed-show-instances failed-show-instances
+         :failed-read-balances failed-read-balances
          :empty-data-nodes empty-data-nodes}))))
 
 (defn workload

@@ -44,9 +44,9 @@
   (testing "Test read operation of large test."
     (is (= (large/read-nodes :1 :2) {:type :invoke :f :read :value nil}))))
 
-(deftest register-repl-instances
+(deftest initialize-instances
   (testing "Test registration replication instances op"
-    (is (= (haclient/register-replication-instances :1 :2) {:type :invoke :f :register :value nil}))))
+    (is (= (haclient/initialize-instances :1 :2) {:type :invoke :f :initialize :value nil}))))
 
 (deftest bank-test-setup
   (testing "Test that bank test is configured correctly with the number of accounts."

@@ -42,7 +42,7 @@
                     (assoc op :type :fail :value e)))
                 (assoc op :type :fail :value "Not coord"))
 
-        :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
+        :initialize (if (= (:node this) "n4") ; Node with coordinator-id = 1
                     (do
                       (doseq [repl-config (filter #(contains? (val %) :replication-port)
                                                   nodes-config)]
