@@ -45,10 +45,11 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
                                  {kPort, replica.config.port}};
 
-    if (p.version == DurabilityVersion::V4) {
-      common[kAddress] = replica.config.address;
-    } else {
+    if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 ||
+        p.version == DurabilityVersion::V3) {
       common[kIpAddress] = replica.config.address;
+    } else {
+      common[kAddress] = replica.config.address;
     }
 
     if (replica.main_uuid.has_value()) {
@@ -83,10 +84,10 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       uint16_t port;
       // In V4 we renamed key `replica_ip_address` to `replica_address`
-      if (version == DurabilityVersion::V4) {
-        j.at(kAddress).get_to(address);
-      } else {
+      if (j.contains(kIpAddress)) {
         j.at(kIpAddress).get_to(address);
+      } else {
+        j.at(kAddress).get_to(address);
       }
 
       j.at(kPort).get_to(port);
@@ -95,7 +96,6 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
       }
-      // TODO: (andi) Should we bump here to V4? After reading old version, modify and bump to new?
       p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
       break;
     }
@@ -109,10 +109,10 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
-  if (p.version == DurabilityVersion::V4) {
-    common[kAddress] = p.config.address;
-  } else {
+  if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 || p.version == DurabilityVersion::V3) {
     common[kIpAddress] = p.config.address;
+  } else {
+    common[kAddress] = p.config.address;
   }
 
   if (p.config.ssl.has_value()) {
@@ -141,10 +141,10 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
       .replica_check_frequency = std::chrono::seconds{seconds},
   };
 
-  if (version == DurabilityVersion::V4) {
-    config.address = j.at(kAddress).get<std::string>();
+  if (j.contains(kIpAddress)) {
+    j.at(kIpAddress).get_to(config.address);
   } else {
-    config.address = j.at(kIpAddress).get<std::string>();
+    j.at(kAddress).get_to(config.address);
   }
 
   if (!key_file.is_null()) {
@@ -152,7 +152,6 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
     key_file.get_to(config.ssl->key_file);
     cert_file.get_to(config.ssl->cert_file);
   }
-  // TODO: (andi) Should we bump here to V4? After reading old version, modify and bump to new?
   p = ReplicationReplicaEntry{.version = version, .config = std::move(config)};
 }
 }  // namespace memgraph::replication::durability

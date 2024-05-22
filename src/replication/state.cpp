@@ -158,7 +158,10 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 if (json.is_discarded()) return FetchReplicationError::PARSE_ERROR;
                 try {
                   durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
-                  // TODO: (andi) Here should be HandleVersionMigration code
+                  if (!HandleVersionMigration(data)) {
+                    return FetchReplicationError::PARSE_ERROR;
+                  }
+
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
@@ -226,8 +229,70 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V3: {
-      // Real migration is happening in JSON functions, here just bump version to V4.
+      std::map<std::string, std::string> to_put;
+      std::vector<std::string> to_delete;
+      for (auto [old_key, old_data] : *durability_) {
+        // This is handled after for loop ends
+        if (old_key == durability::kReplicationRoleName) {
+          continue;
+        }
+        // Turn old data to new data
+        auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+        if (old_json.is_discarded()) return false;
+        try {
+          durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
+          new_data.version = durability::DurabilityVersion::V4;
+          to_put.emplace(old_key, nlohmann::json(new_data).dump());
+        } catch (...) {
+          return false;
+        }
+        to_delete.push_back(std::move(old_key));
+      }
       data.version = durability::DurabilityVersion::V4;
+      to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
+      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V4: {
+      // do nothing - add code if V5 ever happens
+      break;
+    }
+  }
+  return true;
+}
+
+bool ReplicationState::HandleVersionMigration(durability::ReplicationReplicaEntry &data) const {
+  // Versions V1, V2 and V3 are all actually V1 because no changes were made.
+  // If version wasn't specified when reading from json we set it to V3(= V1 = V2)
+  switch (data.version) {
+    case durability::DurabilityVersion::V1: {
+    }
+    case durability::DurabilityVersion::V2: {
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V3: {
+      std::map<std::string, std::string> to_put;
+      std::vector<std::string> to_delete;
+      for (auto [old_key, old_data] : *durability_) {
+        auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+        if (old_json.is_discarded()) return false;  // Can not read old_data as json
+
+        try {
+          if (old_key == durability::kReplicationRoleName) {
+            durability::ReplicationRoleEntry new_data = old_json.get<durability::ReplicationRoleEntry>();
+            new_data.version = durability::DurabilityVersion::V4;
+            to_put.emplace(old_key, nlohmann::json(new_data).dump());
+          } else {
+            durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
+            new_data.version = durability::DurabilityVersion::V4;
+            to_put.emplace(old_key, nlohmann::json(new_data).dump());
+          }
+        } catch (...) {
+          return false;  // Can not parse as ReplicationRoleEntry
+        }
+        to_delete.push_back(std::move(old_key));
+      }
+      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V4: {

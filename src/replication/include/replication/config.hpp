@@ -16,7 +16,6 @@
 #include <optional>
 #include <string>
 #include "replication_coordination_glue/mode.hpp"
-
 namespace memgraph::replication {
 
 inline constexpr uint16_t kDefaultReplicationPort = 10000;
@@ -46,7 +45,7 @@ struct ReplicationClientConfig {
 };
 
 struct ReplicationServerConfig {
-  std::string address;  // could be IP or DNS
+  std::string address;  // could be IP or domain name
   uint16_t port{};
   struct SSL {
     std::string key_file;

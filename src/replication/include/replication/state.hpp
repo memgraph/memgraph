@@ -130,6 +130,7 @@ struct ReplicationState {
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
+  bool HandleVersionMigration(durability::ReplicationReplicaEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
