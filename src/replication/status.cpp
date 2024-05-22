@@ -18,6 +18,7 @@ namespace memgraph::replication::durability {
 
 constexpr auto *kReplicaName = "replica_name";
 constexpr auto *kIpAddress = "replica_ip_address";
+constexpr auto *kAddress = "replica_address";
 constexpr auto *kPort = "replica_port";
 constexpr auto *kSyncMode = "replica_sync_mode";
 constexpr auto *kCheckFrequency = "replica_check_frequency";
@@ -42,8 +43,14 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processREPLICA = [&](ReplicaRole const &replica) {
     auto common = nlohmann::json{{kVersion, p.version},
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-                                 {kIpAddress, replica.config.ip_address},
                                  {kPort, replica.config.port}};
+
+    if (p.version == DurabilityVersion::V4) {
+      common[kAddress] = replica.config.address;
+    } else {
+      common[kIpAddress] = replica.config.address;
+    }
+
     if (replica.main_uuid.has_value()) {
       common[kMainUUID] = replica.main_uuid.value();
     }
@@ -72,30 +79,41 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
-      std::string ip_address;
+      std::string address;
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       uint16_t port;
-      j.at(kIpAddress).get_to(ip_address);
+      // In V4 we renamed key `replica_ip_address` to `replica_address`
+      if (version == DurabilityVersion::V4) {
+        j.at(kAddress).get_to(address);
+      } else {
+        j.at(kIpAddress).get_to(address);
+      }
+
       j.at(kPort).get_to(port);
-      auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
+      auto config = ReplicationServerConfig{.address = std::move(address), .port = port};
       auto replica_role = ReplicaRole{.config = std::move(config)};
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
       }
-
+      // TODO: (andi) Should we bump here to V4? After reading old version, modify and bump to new?
       p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
-
       break;
     }
   }
 }
 
 void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
-  auto common = nlohmann::json{{kReplicaName, p.config.name},
-                               {kIpAddress, p.config.ip_address},
+  auto common = nlohmann::json{{kVersion, p.version},
+                               {kReplicaName, p.config.name},
                                {kPort, p.config.port},
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
+
+  if (p.version == DurabilityVersion::V4) {
+    common[kAddress] = p.config.address;
+  } else {
+    common[kIpAddress] = p.config.address;
+  }
 
   if (p.config.ssl.has_value()) {
     common[kSSLKeyFile] = p.config.ssl->key_file;
@@ -107,6 +125,9 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   j = std::move(common);
 }
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
+  // This value did not exist until DurabilityVersion::V4, hence default DurabilityVersion::V3
+  DurabilityVersion version = j.value(kVersion, DurabilityVersion::V3);
+
   const auto &key_file = j.at(kSSLKeyFile);
   const auto &cert_file = j.at(kSSLCertFile);
 
@@ -116,15 +137,22 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
-      .ip_address = j.at(kIpAddress).get<std::string>(),
       .port = j.at(kPort).get<uint16_t>(),
       .replica_check_frequency = std::chrono::seconds{seconds},
   };
+
+  if (version == DurabilityVersion::V4) {
+    config.address = j.at(kAddress).get<std::string>();
+  } else {
+    config.address = j.at(kIpAddress).get<std::string>();
+  }
+
   if (!key_file.is_null()) {
     config.ssl = ReplicationClientConfig::SSL{};
     key_file.get_to(config.ssl->key_file);
     cert_file.get_to(config.ssl->cert_file);
   }
-  p = ReplicationReplicaEntry{.config = std::move(config)};
+  // TODO: (andi) Should we bump here to V4? After reading old version, modify and bump to new?
+  p = ReplicationReplicaEntry{.version = version, .config = std::move(config)};
 }
 }  // namespace memgraph::replication::durability

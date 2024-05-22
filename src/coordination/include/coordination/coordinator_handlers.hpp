@@ -58,6 +58,7 @@ class CoordinatorHandlers {
           .mode = repl_info_config.replication_mode,
           .ip_address = repl_info_config.replication_server
                             .GetAddress(),  // when using ReplicationClientConfig in HA cluster, ip_address isn't
+                                            // necessarily an IP address, could be hostname = DNS entry.
           .port = repl_info_config.replication_server.GetPort(),
       };
     };

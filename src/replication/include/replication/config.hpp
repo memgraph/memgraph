@@ -25,7 +25,7 @@ inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 struct ReplicationClientConfig {
   std::string name;
   replication_coordination_glue::ReplicationMode mode{};
-  std::string ip_address;
+  std::string address;  // could be IP or DNS
   uint16_t port{};
 
   // The default delay between main checking/pinging replicas is 1s because
@@ -46,7 +46,7 @@ struct ReplicationClientConfig {
 };
 
 struct ReplicationServerConfig {
-  std::string ip_address;
+  std::string address;  // could be IP or DNS
   uint16_t port{};
   struct SSL {
     std::string key_file;

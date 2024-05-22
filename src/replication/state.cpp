@@ -158,6 +158,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 if (json.is_discarded()) return FetchReplicationError::PARSE_ERROR;
                 try {
                   durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
+                  // TODO: (andi) Here should be HandleVersionMigration code
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
@@ -222,10 +223,15 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
         main.main_uuid = utils::UUID{};
       }
       data.version = durability::DurabilityVersion::V3;
-      break;
+      [[fallthrough]];
     }
     case durability::DurabilityVersion::V3: {
-      // do nothing - add code if V4 ever happens
+      // Real migration is happening in JSON functions, here just bump version to V4.
+      data.version = durability::DurabilityVersion::V4;
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V4: {
+      // do nothing - add code if V5 ever happens
       break;
     }
   }
@@ -295,7 +301,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](auto const &replica) {
         const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.GetResolvedIPAddress() == config.ip_address && ep.GetPort() == config.port;
+        return ep.GetAddress() == config.address && ep.GetPort() == config.port;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
