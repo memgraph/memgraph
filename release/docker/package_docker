@@ -58,10 +58,12 @@ fi
 
 dockerfile_path_rwdi_extension=""
 docker_arg_source_code=""
+tag_extension=""
 if [[ -n "$src_path" ]]; then
   cp -r "$src_path" "${working_dir}/src"
   dockerfile_path_rwdi_extension="_relwithdebinfo"
   docker_arg_source_code="--build-arg SOURCE_CODE=src"
+  tag_extension="-relwithdebinfo"
 fi
 
 # Copy the .deb to working directory.
@@ -85,8 +87,9 @@ else
   exit 1
 fi
 
-image_name="memgraph:${version}"
-image_package_name="memgraph-${version}-docker.tar.gz"
+tag="${version}${tag_extension}"
+image_name="memgraph:${tag}"
+image_package_name="memgraph-${tag}-docker.tar.gz"
 
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.
