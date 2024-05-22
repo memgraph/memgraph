@@ -143,27 +143,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       LogicalOperator *input = op.input().get();
       LogicalOperator *parent = &op;
 
-      const auto modified_symbols = op.ModifiedSymbols(*symbol_table_);
-
-      auto does_modify = [&]() {
-        const auto &symbols = input->ModifiedSymbols(*symbol_table_);
-        return std::any_of(symbols.begin(), symbols.end(), [&](const auto &sym_in) {
-          return std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end();
-        });
-      };
-
       // Find first possible branching point
-      // Edge uniqueness filter comes always before filter in plan generation
-      bool was_euf = false;
-      while (does_modify()) {
-        bool is_euf = input->GetTypeInfo() == EdgeUniquenessFilter::kType;
-        if (was_euf && !is_euf) break;
-        was_euf = is_euf;
+      while (input->HasSingleInput()) {
         parent = input;
         input = input->input().get();
       }
 
-      bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
 
       if (is_child_cartesian) {
         // if we removed something from filter in front of a Cartesian, then we are doing a join from
