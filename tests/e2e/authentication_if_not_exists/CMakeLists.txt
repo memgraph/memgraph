@@ -1,0 +1,8 @@
+function(copy_authentication_if_not_exists_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(authentication_if_not_exists ${FILE_NAME})
+endfunction()
+
+copy_authentication_if_not_exists_e2e_python_files(common.py)
+copy_authentication_if_not_exists_e2e_python_files(authentication_if_not_exists.py)
+
+copy_e2e_files(authentication_if_not_exists workloads.yaml)
