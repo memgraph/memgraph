@@ -166,7 +166,10 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
-      return Value(*maybe_enum_value_str);
+      auto map = std::map<std::string, Value>{};
+      map.try_emplace("__type", "mg_enum");
+      map.try_emplace("__value", *std::move(maybe_enum_value_str));
+      return Value(std::move(map));
     }
   }
 }
@@ -358,7 +361,10 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &d
       if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
-      return {*maybe_enum_value_str};
+      auto map = std::map<std::string, Value>{};
+      map.try_emplace("__type", "mg_enum");
+      map.try_emplace("__value", *std::move(maybe_enum_value_str));
+      return Value(std::move(map));
     }
   }
 }
