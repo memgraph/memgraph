@@ -32,6 +32,15 @@
 
 namespace memgraph::query {
 
+namespace {
+template <typename T>
+concept TypedValueValidPrimativeType =
+    std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
+    std::is_same_v<T, storage::Enum> || std::is_same_v<T, utils::Date> || std::is_same_v<T, utils::LocalTime> ||
+    std::is_same_v<T, utils::LocalDateTime> || std::is_same_v<T, utils::ZonedDateTime> ||
+    std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
+}
+
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Stores a query runtime value and its type.
@@ -226,9 +235,14 @@ class TypedValue {
   /** Construct a copy using the given utils::MemoryResource */
   explicit TypedValue(const std::vector<TypedValue> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(memory_);
-    list_v.reserve(value.size());
-    list_v.assign(value.begin(), value.end());
+    new (&list_v) TVector(value.begin(), value.end(), memory_);
+  }
+
+  template <class T>
+  requires TypedValueValidPrimativeType<T>
+  explicit TypedValue(const std::vector<T> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::List) {
+    new (&list_v) TVector(value.begin(), value.end(), memory_);
   }
 
   /**

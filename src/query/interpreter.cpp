@@ -120,6 +120,9 @@
 #include "flags/experimental.hpp"
 #endif
 
+namespace r = ranges;
+namespace rv = ranges::views;
+
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -4537,32 +4540,15 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
 }
 
 PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  Callback callback;
-  callback.header = {"Enum Name", "Enum Values"};
-  callback.fn = [dba = *current_db.execution_db_accessor_]() mutable -> std::vector<std::vector<TypedValue>> {
-    std::vector<std::vector<TypedValue>> status;
-
-    auto enums = dba.ShowEnums();
-    status.reserve(enums.size());
-
-    for (const auto &[name, values] : enums) {
-      std::vector<TypedValue> enum_values;
-      enum_values.reserve(values.size());
-      for (const auto &value : values) {
-        enum_values.emplace_back(value);
-      }
-      status.emplace_back(std::vector<TypedValue>{TypedValue(name), TypedValue(std::move(enum_values))});
-    }
-    return status;
-  };
-
   return PreparedQuery{
-      std::move(callback.header), std::move(parsed_query.required_privileges),
-      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+      {"Enum Name", "Enum Values"},
+      std::move(parsed_query.required_privileges),
+      [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
-          auto results = handler();
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+          auto enums = dba.ShowEnums();
+          auto to_row = [](auto &&p) { return std::vector{TypedValue{p.first}, TypedValue{p.second}}; };
+          pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
         }
 
         if (pull_plan->Pull(stream, n)) {
