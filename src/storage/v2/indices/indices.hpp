@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 
+#include "absl/container/flat_hash_set.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
@@ -35,7 +36,8 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// index.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                             const absl::flat_hash_set<LabelId> &labels) const;
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices

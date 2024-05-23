@@ -224,6 +224,10 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
   dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
     storage->repl_storage_state_.epoch_ = epoch;
+
+    // Durability is tracking last commit timestamp from MAIN, whereas timestamp_ is dependent on MVCC
+    // We need to take bigger timestamp not to lose durability ordering
+    storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_commit_timestamp_.load());
   });
 
   return true;

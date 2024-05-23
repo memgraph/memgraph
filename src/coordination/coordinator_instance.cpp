@@ -493,7 +493,7 @@ auto CoordinatorInstance::ForceResetClusterState() -> ForceResetClusterStateStat
   return ForceResetClusterStateStatus::SUCCESS;  // Shouldn't execute
 }
 
-void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_acq_rel); }
+void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
 auto CoordinatorInstance::TryFailover() -> void {
   auto const is_replica = [this](ReplicationInstanceConnector const &instance) {
@@ -1173,6 +1173,8 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
 }
 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
+
+auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
 
 }  // namespace memgraph::coordination
 #endif

@@ -16,6 +16,7 @@ tag_latest=""
 toolchain_version="v5"
 package_path=""
 arch=""
+src_path=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --latest)
@@ -25,6 +26,10 @@ while [[ $# -gt 0 ]]; do
     ;;
     --package-path)
         package_path=$2
+        shift 2
+    ;;
+    --src-path)
+        src_path=$2
         shift 2
     ;;
     --toolchain)
@@ -51,39 +56,51 @@ if [[ "$package_path" == "" || ! -f "$package_path" ]]; then
   exit 1
 fi
 
+dockerfile_path_rwdi_extension=""
+docker_arg_source_code=""
+tag_extension=""
+if [[ -n "$src_path" ]]; then
+  cp -r "$src_path" "${working_dir}/src"
+  dockerfile_path_rwdi_extension="_relwithdebinfo"
+  docker_arg_source_code="--build-arg SOURCE_CODE=src"
+  tag_extension="-relwithdebinfo"
+fi
+
 # Copy the .deb to working directory.
 cp "$package_path" "${working_dir}/"
 cd ${working_dir}
 
 extension="${package_path##*.}"
-
+dockerfile_path="${working_dir}/${toolchain_version}_${extension}${dockerfile_path_rwdi_extension}.dockerfile"
 if [[ "$extension" == "deb" ]]; then
   # Extract version and offering from deb name.
   package_name=`echo $(basename "$package_path") | sed 's/.deb$//'`
   version=`echo ${package_name} | cut -d '_' -f 2 | rev | cut -d '-' -f 2- | rev | tr '+~' '__'`
-  dockerfile_path="${working_dir}/${toolchain_version}_deb.dockerfile"
 elif [[ "$extension" == "rpm" ]]; then
-  # Extract version and offering from deb name.
+  # Extract version and offering from rpm name.
   package_name=`echo $(basename "$package_path") | sed 's/.rpm$//'`
   version=`echo ${package_name} | cut -d '-' -f 2 | rev | cut -d '-' -f 2- | rev`
   version=${version%_1}
-  dockerfile_path="${working_dir}/${toolchain_version}_rpm.dockerfile"
 else
   echo "Invalid file sent as the package"
   print_help
   exit 1
 fi
 
-image_name="memgraph:${version}"
-image_package_name="memgraph-${version}-docker.tar.gz"
+tag="${version}${tag_extension}"
+image_name="memgraph:${tag}"
+image_package_name="memgraph-${tag}-docker.tar.gz"
 
 # Build docker image.
 # NOTE: --pull is here to always pull that latest base image because of security patches.
 docker build --pull -t ${image_name} ${tag_latest} -f ${dockerfile_path} \
 --build-arg BINARY_NAME=${package_name} \
---build-arg EXTENSION=${extension} \
+--build-arg EXTENSION=${extension} ${docker_arg_source_code} \
 --build-arg TARGETARCH="" .
 docker save ${image_name} ${latest_image} | gzip > ${image_package_name}
-rm "${package_name}.${extension}"
+rm "${working_dir}/${package_name}.${extension}"
+if [[ -n "$src_path" ]]; then
+  rm -rf "${working_dir}/src"
+fi
 docker image rm $image_name
 echo "Built Docker image at '${working_dir}/${image_package_name}'"
