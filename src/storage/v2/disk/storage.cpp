@@ -1447,7 +1447,7 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex,
                                                 const std::vector<EdgeTypeId> &edge_types,
                                                 const VertexAccessor *destination, Transaction *transaction, View view,
-                                                std::optional<int64_t> *hops_limit) {
+                                                query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && src_vertex->vertex_->deleted) return {};
 
@@ -1469,9 +1469,9 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   std::vector<EdgeAccessor> result;
   auto out_edges = utils::Split(out_edges_str, ",");
   for (const std::string &edge_gid_str : out_edges) {
-    if (hops_limit && hops_limit->has_value()) {
-      --(**hops_limit);
-      if (**hops_limit < 0) return result;
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->Increment();
+      if (hops_limit->IsLimitReached()) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
@@ -1515,8 +1515,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
-                                               Transaction *transaction, View view,
-                                               std::optional<int64_t> *hops_limit) {
+                                               Transaction *transaction, View view, query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
 
@@ -1538,9 +1537,9 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   auto in_edges = utils::Split(in_edges_str, ",");
   std::vector<EdgeAccessor> result;
   for (const std::string &edge_gid_str : in_edges) {
-    if (hops_limit && hops_limit->has_value()) {
-      --(**hops_limit);
-      if (**hops_limit < 0) return result;
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->Increment();
+      if (hops_limit->IsLimitReached()) break;
     }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
