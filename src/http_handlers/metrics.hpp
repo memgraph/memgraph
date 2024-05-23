@@ -146,9 +146,7 @@ class MetricsService {
 // Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
-    spdlog::trace("Metrics request handler started!");
-  }
+  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
   MetricsRequestHandler(MetricsRequestHandler &&) = delete;
