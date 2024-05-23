@@ -34,6 +34,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no 6
+
       - name: Spin up mgbuild container
         run: |
           ./release/package/mgbuild.sh \
@@ -58,11 +63,6 @@ jobs:
           --os $OS \
           --arch $ARCH \
           copy --binary --dest-dir build
-
-      - name: Refresh Jepsen Cluster
-        run: |
-          cd tests/jepsen
-          ./run.sh cluster-refresh --nodes-no 6
 
       - name: Run unit tests for Jepsen code
         run: |
