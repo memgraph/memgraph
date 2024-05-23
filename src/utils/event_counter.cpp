@@ -83,7 +83,10 @@
   M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
-  M(SuccessfulQuery, Transaction, "Number of successful queries.")
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
+  M(ActiveGCProcesses, Memory, "Number of active GC processes. Should be not higher than 1.")                        \
+  M(ActiveSnapshotCreationProcesses, Snapshot,                                                                       \
+    "Number of active snapshot creation processes. Should be not higher than 1.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
