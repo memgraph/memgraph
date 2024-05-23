@@ -369,6 +369,8 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
+  void SetFreeMemoryFuncPtr(std::function<void(std::unique_lock<utils::ResourceLock>, bool)> free_memory_func);
+
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -506,6 +508,8 @@ class InMemoryStorage final : public Storage {
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
+
+  std::atomic<std::function<void(std::unique_lock<utils::ResourceLock>, bool)> *> free_memory_func_ptr_;
 
   // A way to tell async operation to stop
   std::stop_source stop_source;

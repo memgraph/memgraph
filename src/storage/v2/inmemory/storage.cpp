@@ -149,6 +149,18 @@ InMemoryStorage::InMemoryStorage(Config config)
     }
   }
 
+  SetFreeMemoryFuncPtr([this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+    CollectGarbage<true>(std::move(main_guard), periodic);
+
+    static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
+    static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+    static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
+
+    // SkipList is already threadsafe
+    vertices_.run_gc();
+    edges_.run_gc();
+  });
+
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
     gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->FreeMemory({}, true); });
@@ -2397,16 +2409,18 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   return {};
 }
 
+void InMemoryStorage::SetFreeMemoryFuncPtr(
+    std::function<void(std::unique_lock<utils::ResourceLock>, bool)> free_memory_func) {
+  auto *new_ptr = new std::function<void(std::unique_lock<utils::ResourceLock>, bool)>(std::move(free_memory_func));
+  auto *old_ptr = free_memory_func_ptr_.exchange(new_ptr);
+  delete old_ptr;
+}
+
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  CollectGarbage(std::move(main_guard), periodic);
-
-  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
-  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
-  static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
-
-  // SkipList is already threadsafe
-  vertices_.run_gc();
-  edges_.run_gc();
+  auto *free_memory_func_ptr = free_memory_func_ptr_.load();
+  if (free_memory_func_ptr && *free_memory_func_ptr) {
+    (*free_memory_func_ptr)(std::move(main_guard), periodic);
+  }
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
