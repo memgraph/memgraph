@@ -42,6 +42,7 @@
 namespace memgraph::metrics {
 extern const Event ActiveSnapshotCreationProcesses;
 extern const Event ActiveGCProcesses;
+extern const Event GCLatency_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -2409,8 +2410,12 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveGCProcesses);
-  memgraph::utils::OnScopeExit no_active_gc_processes(
-      [] { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveGCProcesses); });
+  utils::Timer timer;
+  memgraph::utils::OnScopeExit no_active_gc_processes([&timer] {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveGCProcesses);
+    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  });
 
   CollectGarbage(std::move(main_guard), periodic);
 

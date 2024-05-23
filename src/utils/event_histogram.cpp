@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,8 @@
 #define APPLY_FOR_HISTOGRAMS(M)                                                                    \
   M(QueryExecutionLatency_us, Query, "Query execution latency in microseconds", 50, 90, 99)        \
   M(SnapshotCreationLatency_us, Snapshot, "Snapshot creation latency in microseconds", 50, 90, 99) \
-  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99)
+  M(SnapshotRecoveryLatency_us, Snapshot, "Snapshot recovery latency in microseconds", 50, 90, 99) \
+  M(GCLatency_us, Memory, "Garbage collection latency in microseconds", 50, 90, 99)
 
 namespace memgraph::metrics {
 
