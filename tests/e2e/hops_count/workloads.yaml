@@ -7,12 +7,7 @@ hops_limit_cluster: &hops_limit_cluster
       validation_queries: []
 
 workloads:
-  - name: "Count limit for hops"
+  - name: "Count number of hops"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_limit/count_hops.py"]
-    <<: *hops_limit_cluster
-
-  - name: "Limit number of hops"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_limit/limit_number_of_hops.py"]
+    args: ["hops_limit/hops_count.py"]
     <<: *hops_limit_cluster
