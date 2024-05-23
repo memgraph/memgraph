@@ -509,7 +509,7 @@ class InMemoryStorage final : public Storage {
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
 
-  std::atomic<std::function<void(std::unique_lock<utils::ResourceLock>, bool)> *> free_memory_func_ptr_;
+  std::atomic<std::shared_ptr<std::function<void(std::unique_lock<utils::ResourceLock>, bool)>>> free_memory_func_ptr_;
 
   // A way to tell async operation to stop
   std::stop_source stop_source;

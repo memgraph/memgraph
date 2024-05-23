@@ -2411,13 +2411,13 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
 void InMemoryStorage::SetFreeMemoryFuncPtr(
     std::function<void(std::unique_lock<utils::ResourceLock>, bool)> free_memory_func) {
-  auto *new_ptr = new std::function<void(std::unique_lock<utils::ResourceLock>, bool)>(std::move(free_memory_func));
-  auto *old_ptr = free_memory_func_ptr_.exchange(new_ptr);
-  delete old_ptr;
+  auto new_ptr =
+      std::make_shared<std::function<void(std::unique_lock<utils::ResourceLock>, bool)>>(std::move(free_memory_func));
+  free_memory_func_ptr_.store(new_ptr);
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  auto *free_memory_func_ptr = free_memory_func_ptr_.load();
+  auto free_memory_func_ptr = free_memory_func_ptr_.load();
   if (free_memory_func_ptr && *free_memory_func_ptr) {
     (*free_memory_func_ptr)(std::move(main_guard), periodic);
   }
