@@ -98,7 +98,7 @@ class RaftState {
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
 
  private:
-  io::network::Endpoint raft_endpoint_;
+  int coordinator_port_;
   uint32_t coordinator_id_;
 
   ptr<CoordinatorStateMachine> state_machine_;
