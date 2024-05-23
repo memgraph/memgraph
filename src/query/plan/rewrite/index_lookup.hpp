@@ -149,9 +149,24 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         input = input->input().get();
       }
 
-      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+      std::vector<Symbol> modified_symbols;
+      for (const auto &filter : op.all_filters_) {
+        if (filter.property_filter) {
+          modified_symbols.push_back(filter.property_filter->symbol_);
+        }
+      }
 
-      if (is_child_cartesian) {
+      auto does_modify = [&]() {
+        for (const auto &sym_in : input->ModifiedSymbols(*symbol_table_)) {
+          if (std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end()) {
+            return true;
+          }
+        }
+        return false;
+      };
+
+      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+      if (is_child_cartesian && does_modify()) {
         // if we removed something from filter in front of a Cartesian, then we are doing a join from
         // 2 different branches
         auto *cartesian = dynamic_cast<Cartesian *>(input);
