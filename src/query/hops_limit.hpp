@@ -30,7 +30,7 @@ struct HopsLimit {
 
   int64_t LeftHops() const { return *limit - hops_counter; }
 
-  void Increment(int increment = 1) {
+  void IncrementHopsCount(int increment = 1) {
     if (limit.has_value()) {
       hops_counter += increment;
       limit_reached = hops_counter > *limit;
