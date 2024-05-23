@@ -58,7 +58,10 @@ fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
     # TODO(deda): install apt get docker-compose-plugin on all build machines.
-    git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+   echo "Cloning Jepsen ..."
+    git clone http://mgdeps-cache:8000/git/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen" &> /dev/null \
+    || git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+
 fi
 
 PROCESS_ARGS() {
