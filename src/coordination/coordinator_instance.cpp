@@ -201,8 +201,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const coord_instance_to_status =
       [this, &stringify_coord_health](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-            .coordinator_server = instance.coordinator_server.SocketAddress(),
-            .bolt_server = instance.bolt_server.SocketAddress(),
+            .coordinator_server = instance.coordinator_server.SocketAddress(),  // show non-resolved IP
+            .bolt_server = instance.bolt_server.SocketAddress(),                // show non-resolved IP
             .cluster_role = "coordinator",
             .health = stringify_coord_health(instance),
             .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
@@ -224,8 +224,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_leader =
         [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
-              .management_server = instance.ManagementSocketAddress(),
-              .bolt_server = instance.BoltSocketAddress(),
+              .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
+              .bolt_server = instance.BoltSocketAddress(),              // show non-resolved IP
               .cluster_role = stringify_repl_role(instance),
               .health = stringify_repl_health(instance),
               .last_succ_resp_ms = instance.LastSuccRespMs().count()};
@@ -251,8 +251,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
-              .management_server = instance.config.ManagementSocketAddress(),
-              .bolt_server = instance.config.BoltSocketAddress(),
+              .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
+              .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
               .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };
