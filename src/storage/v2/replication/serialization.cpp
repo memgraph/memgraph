@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -98,6 +98,11 @@ std::optional<std::string> Decoder::ReadString() {
   std::string value;
   slk::Load(&value, reader_);
   return std::move(value);
+}
+
+std::optional<Enum> Decoder::ReadEnumValue() {
+  // TODO
+  return std::nullopt;
 }
 
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {

@@ -139,6 +139,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     // Create vertices.
+    auto enum_val = *store->enum_store_.to_enum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access(ReplicationRole::MAIN);
       auto vertex = acc->CreateVertex();
@@ -149,8 +150,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-        ASSERT_TRUE(
-            vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        if (i % 4 == 0) {
+          ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+        } else {
+          ASSERT_TRUE(
+              vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        }
       }
       ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -450,6 +455,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Verify base dataset.
     if (have_base_dataset) {
+      auto enum_val = *store->enum_store_.to_enum("enum1", "v2");
       // Verify vertices.
       for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
         auto vertex = acc->FindVertex(base_vertex_gids_[i], memgraph::storage::View::OLD);
@@ -465,7 +471,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          if (i % 4 == 0) {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+          } else {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          }
+
         } else {
           ASSERT_EQ(properties->size(), 0);
         }

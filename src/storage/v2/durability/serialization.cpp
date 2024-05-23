@@ -149,7 +149,12 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       break;
     }
     case PropertyValue::Type::Enum: {
-      // TODO
+      const auto &enum_val = value.ValueEnum();
+      auto etype = utils::HostToLittleEndian(enum_val.type_id().value_of());
+      auto evalue = utils::HostToLittleEndian(enum_val.value_id().value_of());
+      WriteMarker(Marker::TYPE_ENUM);
+      Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
+      Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
       break;
     }
   }
@@ -263,6 +268,18 @@ std::optional<std::string> Decoder::ReadString() {
   std::string value(*size, '\0');
   if (!Read(reinterpret_cast<uint8_t *>(value.data()), *size)) return std::nullopt;
   return value;
+}
+
+std::optional<Enum> Decoder::ReadEnumValue() {
+  auto marker = ReadMarker();
+  if (!marker || *marker != Marker::TYPE_ENUM) return std::nullopt;
+  uint64_t etype;
+  if (!Read(reinterpret_cast<uint8_t *>(&etype), sizeof(etype))) return std::nullopt;
+  etype = utils::LittleEndianToHost(etype);
+  uint64_t evalue;
+  if (!Read(reinterpret_cast<uint8_t *>(&evalue), sizeof(evalue))) return std::nullopt;
+  evalue = utils::LittleEndianToHost(evalue);
+  return Enum{EnumTypeId{etype}, EnumValueId{evalue}};
 }
 
 namespace {
@@ -384,6 +401,11 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       if (!maybe_zoned_temporal_data) return std::nullopt;
       return PropertyValue(*maybe_zoned_temporal_data);
     }
+    case Marker::TYPE_ENUM: {
+      const auto maybe_enum_value = ReadEnumValue();
+      if (!maybe_enum_value) return std::nullopt;
+      return PropertyValue(*maybe_enum_value);
+    }
 
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
@@ -496,6 +518,9 @@ bool Decoder::SkipPropertyValue() {
     }
     case Marker::TYPE_ZONED_TEMPORAL_DATA: {
       return !!ReadZonedTemporalData(*this);
+    }
+    case Marker::TYPE_ENUM: {
+      return !!ReadEnumValue();
     }
 
     case Marker::TYPE_PROPERTY_VALUE:

@@ -92,6 +92,7 @@ class BaseDecoder {
   virtual std::optional<uint64_t> ReadUint() = 0;
   virtual std::optional<double> ReadDouble() = 0;
   virtual std::optional<std::string> ReadString() = 0;
+  virtual std::optional<Enum> ReadEnumValue() = 0;
   virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
 
   virtual bool SkipString() = 0;
@@ -115,6 +116,7 @@ class Decoder final : public BaseDecoder {
   std::optional<uint64_t> ReadUint() override;
   std::optional<double> ReadDouble() override;
   std::optional<std::string> ReadString() override;
+  std::optional<Enum> ReadEnumValue() override;
   std::optional<PropertyValue> ReadPropertyValue() override;
 
   bool SkipString() override;

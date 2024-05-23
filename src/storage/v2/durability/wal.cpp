@@ -212,6 +212,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_TEMPORAL_DATA:
     case Marker::TYPE_ZONED_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
+    case Marker::TYPE_ENUM:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
     case Marker::SECTION_MAPPER:
