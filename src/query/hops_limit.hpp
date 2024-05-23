@@ -33,7 +33,7 @@ struct HopsLimit {
   void Increment(int increment = 1) {
     if (limit.has_value()) {
       hops_counter += increment;
-      limit_reached = hops_counter == *limit;
+      limit_reached = hops_counter > *limit;
     }
   }
 };
