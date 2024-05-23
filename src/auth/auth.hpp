@@ -90,7 +90,6 @@ class Auth final {
   enum class Result {
     SUCCESS,
     NO_USER_ROLE,
-    NO_ROLE,
   };
 
   explicit Auth(std::string storage_directory, Config config);
@@ -124,7 +123,7 @@ class Auth final {
   std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
 
   /**
-   * Authenticates a user using a bearer token, i.e. a identity provider response. Requires an external auth module.
+   * Authenticates a user using the identity provider response/token. Requires an external auth module.
    *
    * @param response
    *
@@ -241,6 +240,9 @@ class Auth final {
       expect(username && rolename, "When using a module, a role needs to be connected to a username.");
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
+      // External module auth: check if the username returned by the module is not duplicated in Memgraph
+      const auto user_in_storage = GetUser(*username);
+      expect(user_in_storage == std::nullopt, "User " + *username + " already exists as local user");
       return UserOrRole(auth::RoleWUsername{*username, *role});
     }
 

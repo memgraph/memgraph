@@ -345,8 +345,8 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   std::optional<UserOrRole> user_or_role = std::nullopt;
   try {
     user_or_role = GetUserOrRole(username, rolename);
-  } catch (const AuthException &) {
-    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
+  } catch (const AuthException &e) {
+    spdlog::warn(utils::MessageWithLink(e.what(), "https://memgr.ph/sso"));
     return std::nullopt;
   }
   return user_or_role;
@@ -425,8 +425,8 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   std::optional<UserOrRole> user_or_role = std::nullopt;
   try {
     user_or_role = GetUserOrRole(username, rolename);
-  } catch (const AuthException &) {
-    spdlog::warn(utils::MessageWithLink("Role not found!", "https://memgr.ph/sso"));
+  } catch (const AuthException &e) {
+    spdlog::warn(utils::MessageWithLink(e.what(), "https://memgr.ph/sso"));
     return std::nullopt;
   }
   return user_or_role;
@@ -454,7 +454,6 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
-  DisableIfUsingAuthModule();
   bool success = false;
   if (const auto *role = user.role(); role != nullptr) {
     success = storage_.PutMultiple(
@@ -479,7 +478,6 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
-  DisableIfUsingAuthModule();
   // Check if null
   if (!password) {
     if (!config_.password_permit_null) {
@@ -511,7 +509,6 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
 
 std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
                                   system::Transaction *system_tx) {
-  DisableIfUsingAuthModule();
   if (!NameRegexMatch(username)) {
     throw AuthException("Invalid user name.");
   }
@@ -526,7 +523,6 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 }
 
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
-  DisableIfUsingAuthModule();
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
@@ -692,13 +688,6 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
 #ifdef MG_ENTERPRISE
 Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (UsingAuthModule()) {
-    if (auto role = GetRole(name)) {
-      GrantDatabase(db, *role, system_tx);
-      return SUCCESS;
-    }
-    return NO_ROLE;
-  }
   if (auto user = GetUser(name)) {
     GrantDatabase(db, *user, system_tx);
     return SUCCESS;
@@ -730,13 +719,6 @@ void Auth::GrantDatabase(const std::string &db, Role &role, system::Transaction 
 
 Auth::Result Auth::DenyDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (UsingAuthModule()) {
-    if (auto role = GetRole(name)) {
-      DenyDatabase(db, *role, system_tx);
-      return SUCCESS;
-    }
-    return NO_ROLE;
-  }
   if (auto user = GetUser(name)) {
     DenyDatabase(db, *user, system_tx);
     return SUCCESS;
@@ -768,13 +750,6 @@ void Auth::DenyDatabase(const std::string &db, Role &role, system::Transaction *
 
 Auth::Result Auth::RevokeDatabase(const std::string &db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (UsingAuthModule()) {
-    if (auto role = GetRole(name)) {
-      RevokeDatabase(db, *role, system_tx);
-      return SUCCESS;
-    }
-    return NO_ROLE;
-  }
   if (auto user = GetUser(name)) {
     RevokeDatabase(db, *user, system_tx);
     return SUCCESS;
@@ -830,13 +805,6 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
 
 Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, system::Transaction *system_tx) {
   using enum Auth::Result;
-  if (UsingAuthModule()) {
-    if (auto role = GetRole(name)) {
-      SetMainDatabase(db, *role, system_tx);
-      return SUCCESS;
-    }
-    return NO_ROLE;
-  }
   if (auto user = GetUser(name)) {
     SetMainDatabase(db, *user, system_tx);
     return SUCCESS;

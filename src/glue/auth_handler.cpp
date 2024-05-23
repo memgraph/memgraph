@@ -375,9 +375,6 @@ void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::stri
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -395,9 +392,6 @@ void AuthQueryHandler::DenyDatabase(const std::string &db_name, const std::strin
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -415,9 +409,6 @@ void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::str
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -451,9 +442,6 @@ void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::stri
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
