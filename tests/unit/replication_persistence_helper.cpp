@@ -24,6 +24,7 @@
 using namespace memgraph::replication::durability;
 using namespace memgraph::replication;
 using namespace memgraph::replication_coordination_glue;
+using namespace memgraph::io::network;
 
 TEST(ReplicationDurability, V1Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V1,
@@ -64,7 +65,7 @@ TEST(ReplicationDurability, V1Replica) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V1,
                            .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.address = "000.123.456.789", .port = 2023},
+                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);
@@ -77,7 +78,7 @@ TEST(ReplicationDurability, V2Replica) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V2,
                            .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.address = "000.123.456.789", .port = 2023},
+                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);
@@ -90,7 +91,7 @@ TEST(ReplicationDurability, V3ReplicaNoMain) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V3,
                            .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.address = "000.123.456.789", .port = 2023},
+                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);
@@ -103,7 +104,7 @@ TEST(ReplicationDurability, V3ReplicaMain) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V3,
                            .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.address = "000.123.456.789", .port = 2023},
+                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
                                .main_uuid = memgraph::utils::UUID{},
                            }};
   nlohmann::json j;
@@ -117,7 +118,7 @@ TEST(ReplicationDurability, V4Replica) {
   auto const role_entry =
       ReplicationRoleEntry{.version = DurabilityVersion::V4,
                            .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.address = "memgraph.dns.example", .port = 2023},
+                               .config = ReplicationServerConfig{.repl_server = Endpoint("memgraph.dns.example", 2023)},
                                .main_uuid = memgraph::utils::UUID{},
                            }};
   nlohmann::json j;
@@ -149,8 +150,8 @@ TEST(ReplicationDurability, HandleMigrationV3ToV4ReplicationRoleEntry) {
   ReplicationRoleEntry role_entry;
   from_json(json, role_entry);
   ASSERT_EQ(role_entry.version, DurabilityVersion::V3);
-  ASSERT_EQ(std::get<ReplicaRole>(role_entry.role).config.address, "000.123.456.789");
-  ASSERT_EQ(std::get<ReplicaRole>(role_entry.role).config.port, 2023);
+  ASSERT_EQ(std::get<ReplicaRole>(role_entry.role).config.repl_server.GetAddress(), "000.123.456.789");
+  ASSERT_EQ(std::get<ReplicaRole>(role_entry.role).config.repl_server.GetPort(), 2023);
 }
 
 TEST(ReplicationDurability, ReplicaEntrySync) {
@@ -159,8 +160,7 @@ TEST(ReplicationDurability, ReplicaEntrySync) {
   auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
                                                          .name = "TEST_NAME"s,
                                                          .mode = ReplicationMode::SYNC,
-                                                         .address = "000.123.456.789"s,
-                                                         .port = 2023,
+                                                         .repl_server_endpoint = Endpoint("000.123.456.789", 2023),
                                                          .replica_check_frequency = 3s,
                                                      }};
   nlohmann::json j;
@@ -176,8 +176,7 @@ TEST(ReplicationDurability, ReplicaEntryAsync) {
   auto const replica_entry = ReplicationReplicaEntry{.config = ReplicationClientConfig{
                                                          .name = "TEST_NAME"s,
                                                          .mode = ReplicationMode::ASYNC,
-                                                         .address = "000.123.456.789"s,
-                                                         .port = 2023,
+                                                         .repl_server_endpoint = Endpoint("000.123.456.789", 2023),
                                                          .replica_check_frequency = 3s,
                                                      }};
   nlohmann::json j;
@@ -204,7 +203,7 @@ TEST(ReplicationDurability, ReplicaEntryMigrationNoVersionToV4) {
   ASSERT_EQ(deser.version, DurabilityVersion::V3);
   ASSERT_EQ(deser.config.name, "TEST_NAME");
   ASSERT_EQ(deser.config.mode, ReplicationMode::ASYNC);
-  ASSERT_EQ(deser.config.address, "000.123.456.789");
-  ASSERT_EQ(deser.config.port, 2023);
+  ASSERT_EQ(deser.config.repl_server_endpoint.GetAddress(), "000.123.456.789");
+  ASSERT_EQ(deser.config.repl_server_endpoint.GetPort(), 2023);
   ASSERT_EQ(deser.config.replica_check_frequency, 3s);
 }

@@ -8,7 +8,10 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #include "replication/status.hpp"
+
+#include "io/network/endpoint.hpp"
 
 #include "fmt/format.h"
 #include "utils/logging.hpp"
@@ -18,7 +21,7 @@ namespace memgraph::replication::durability {
 
 constexpr auto *kReplicaName = "replica_name";
 constexpr auto *kIpAddress = "replica_ip_address";
-constexpr auto *kAddress = "replica_address";
+constexpr auto *kReplicaServer = "replica_server";
 constexpr auto *kPort = "replica_port";
 constexpr auto *kSyncMode = "replica_sync_mode";
 constexpr auto *kCheckFrequency = "replica_check_frequency";
@@ -42,14 +45,14 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     auto common = nlohmann::json{{kVersion, p.version},
-                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-                                 {kPort, replica.config.port}};
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA}};
 
     if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 ||
         p.version == DurabilityVersion::V3) {
-      common[kIpAddress] = replica.config.address;
+      common[kIpAddress] = replica.config.repl_server.GetAddress();  // non-resolved
+      common[kPort] = replica.config.repl_server.GetPort();
     } else {
-      common[kAddress] = replica.config.address;
+      common[kReplicaServer] = replica.config.repl_server;  // non-resolved
     }
 
     if (replica.main_uuid.has_value()) {
@@ -80,18 +83,16 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
-      std::string address;
-      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-      uint16_t port;
-      // In V4 we renamed key `replica_ip_address` to `replica_address`
-      if (j.contains(kIpAddress)) {
-        j.at(kIpAddress).get_to(address);
-      } else {
-        j.at(kAddress).get_to(address);
-      }
+      using io::network::Endpoint;
+      // In V4 we renamed key `replica_ip_address` to `replica_server`
+      auto repl_server = [j]() -> Endpoint {
+        if (j.contains(kReplicaServer)) {
+          return j.at(kReplicaServer).get<Endpoint>();
+        }
+        return {j.at(kIpAddress).get<std::string>(), j.at(kPort).get<uint16_t>()};
+      }();
 
-      j.at(kPort).get_to(port);
-      auto config = ReplicationServerConfig{.address = std::move(address), .port = port};
+      auto config = ReplicationServerConfig{.repl_server = std::move(repl_server)};
       auto replica_role = ReplicaRole{.config = std::move(config)};
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
@@ -105,14 +106,14 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
 void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   auto common = nlohmann::json{{kVersion, p.version},
                                {kReplicaName, p.config.name},
-                               {kPort, p.config.port},
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
   if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 || p.version == DurabilityVersion::V3) {
-    common[kIpAddress] = p.config.address;
+    common[kIpAddress] = p.config.repl_server_endpoint.GetAddress();  // non-resolved
+    common[kPort] = p.config.repl_server_endpoint.GetPort();
   } else {
-    common[kAddress] = p.config.address;
+    common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
   }
 
   if (p.config.ssl.has_value()) {
@@ -125,6 +126,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   j = std::move(common);
 }
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
+  using io::network::Endpoint;
   // This value did not exist until DurabilityVersion::V4, hence default DurabilityVersion::V3
   DurabilityVersion version = j.value(kVersion, DurabilityVersion::V3);
 
@@ -137,15 +139,17 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
-      .port = j.at(kPort).get<uint16_t>(),
       .replica_check_frequency = std::chrono::seconds{seconds},
   };
 
-  if (j.contains(kIpAddress)) {
-    j.at(kIpAddress).get_to(config.address);
-  } else {
-    j.at(kAddress).get_to(config.address);
-  }
+  auto repl_server_endpoint = [j]() -> Endpoint {
+    if (j.contains(kReplicaServer)) {
+      return j.at(kReplicaServer).get<Endpoint>();
+    }
+    return {j.at(kIpAddress).get<std::string>(), j.at(kPort).get<uint16_t>()};
+  }();
+
+  config.repl_server_endpoint = std::move(repl_server_endpoint);
 
   if (!key_file.is_null()) {
     config.ssl = ReplicationClientConfig::SSL{};
