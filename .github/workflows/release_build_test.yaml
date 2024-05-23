@@ -71,7 +71,7 @@ jobs:
       matrix:
         os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         arch: [amd, arm]
-        build_type: [Release, RelWithDebInfo]
+        build_type: [Release]
         exclude: # Exclude unsupported combinations
           - os: amzn-2
             arch: arm
@@ -109,6 +109,9 @@ jobs:
         os: [debian-12]
         arch: [amd, arm]
         build_type: [Release, RelWithDebInfo]
+        exclude:
+          - arch: arm
+            build_type: RelWithDebInfo
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}

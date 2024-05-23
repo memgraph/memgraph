@@ -1639,7 +1639,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     for (const auto &md_delta : transaction_.md_deltas) {
@@ -1733,7 +1733,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
               }))) {
   } else {
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
+    commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
     transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
@@ -2097,13 +2097,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           storage_mode,   edge_import_mode_active, !constraints_.empty()};
 }
 
-uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  if (!desired_commit_timestamp) {
-    return timestamp_++;
-  }
-  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-  return *desired_commit_timestamp;
-}
+uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
 std::unique_ptr<Storage::Accessor> DiskStorage::Access(
     memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,

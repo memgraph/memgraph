@@ -36,6 +36,7 @@
 
 #include <mutex>
 #include <ranges>
+#include <unordered_set>
 
 namespace memgraph::storage {
 
@@ -868,7 +869,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-      commit_timestamp_.emplace(mem_storage->CommitTimestamp(reparg.desired_commit_timestamp));
+      commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
       if (transaction_.constraint_verification_info &&
           transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
@@ -912,9 +913,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
+        auto const durability_commit_timestamp =
+            reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
         if (is_main_or_replica_write) {
           could_replicate_all_sync_replicas =
-              mem_storage->AppendToWal(transaction_, *commit_timestamp_, std::move(db_acc));
+              mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -922,7 +925,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Replica can only update the last commit timestamp with
           // the commits received from main.
           // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(*commit_timestamp_);
+          mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
         }
 
         // TODO: can and should this be moved earlier?
@@ -967,11 +970,15 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
-                                                            std::list<Gid> &current_deleted_edges) {
+                                                            std::list<Gid> &current_deleted_edges,
+                                                            absl::flat_hash_set<LabelId> &modified_labels) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
+      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
+        modified_labels.insert(delta.label.value);
+      }
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::NULLPTR:
@@ -984,6 +991,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           if (vertex.deleted) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
+            modified_labels.insert(vertex.labels.cbegin(), vertex.labels.cend());
           }
           break;
         }
@@ -1033,16 +1041,17 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
+  absl::flat_hash_set<LabelId> modified_labels;
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, modified_labels);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
     // 3.a) clear from indexes first
     std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
 
     // 3.b) remove from veretex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
@@ -1595,17 +1604,7 @@ Transaction InMemoryStorage::CreateTransaction(
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
-    // Replica should have only read queries and the write queries
-    // can come from main instance with any past timestamp.
-    // To preserve snapshot isolation we set the start timestamp
-    // of any query on replica to the last commited transaction
-    // which is timestamp_ as only commit of transaction with writes
-    // can change the value of it.
-    if (replication_role == memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
-      start_timestamp = timestamp_++;
-    } else {
-      start_timestamp = timestamp_;
-    }
+    start_timestamp = timestamp_++;
   }
   return {transaction_id, start_timestamp, isolation_level, storage_mode, false, !constraints_.empty()};
 }
@@ -1717,6 +1716,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
 
+  // We will collect all labels that were modified in this GC cycle so we can delete them from indices
+  absl::flat_hash_set<LabelId> modified_labels;
+
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
 
@@ -1775,6 +1777,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // The chain can be only read without taking any locks.
 
     for (Delta &delta : linked_entry->deltas_) {
+      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
+        modified_labels.insert(delta.label.value);
+      }
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1790,6 +1795,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
+              modified_labels.insert(vertex->labels.cbegin(), vertex->labels.cend());
             }
             break;
           }
@@ -1892,9 +1898,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // in every index every time.
     auto token = stop_source.get_token();
     if (!token.stop_requested()) {
-      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token, modified_labels);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token), modified_labels);
     }
   }
 
@@ -2051,7 +2057,7 @@ void InMemoryStorage::FinalizeWalFile() {
   }
 }
 
-bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final_commit_timestamp,
+bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
                                   DatabaseAccessProtector db_acc) {
   if (!InitializeWalFile(repl_storage_state_.epoch_)) {
     return true;
@@ -2060,8 +2066,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  //////// AF only this calls initialize transaction
-  repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
+  auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -2074,7 +2079,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
       }
       while (true) {
         if (filter(delta->action)) {
-          callback(*delta, parent, final_commit_timestamp);
+          callback(*delta, parent, durability_commit_timestamp);
         }
         auto prev = delta->prev.Get();
         MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
@@ -2214,7 +2219,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
   if (!transaction.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
       wal_file_->AppendDelta(delta, parent, timestamp);
-      repl_storage_state_.AppendDelta(delta, parent, timestamp);
+      repl_storage_state_.AppendDelta(delta, parent, timestamp, streams);
     });
   }
 
@@ -2223,136 +2228,144 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t final
     switch (md_delta.action) {
       case MetadataDelta::Action::LABEL_INDEX_CREATE: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::EDGE_INDEX_CREATE: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
-                                  {info.property}, final_commit_timestamp);
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::EDGE_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, info.label,
-                                  {info.property}, final_commit_timestamp);
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
         const auto &info = md_delta.label_stats;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET, info.label, info.stats,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
         const auto &info = md_delta.label_stats;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR, info.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
         const auto &info = md_delta.label_property_stats;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET, info.label,
-                                  {info.property}, info.stats, final_commit_timestamp);
+                                  {info.property}, info.stats, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: /* Special case we clear all label/property
                                                                        pairs with the defined label */
       {
         const auto &info = md_delta.label_stats;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         const auto &info = md_delta.text_index;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::TEXT_INDEX_DROP: {
         const auto &info = md_delta.text_index;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
-                                  final_commit_timestamp);
+                                  durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
-                                  {info.property}, final_commit_timestamp);
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
         const auto &info = md_delta.label_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP, info.label,
-                                  {info.property}, final_commit_timestamp);
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
         const auto &info = md_delta.label_properties;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE, info.label,
-                                  info.properties, final_commit_timestamp);
+                                  info.properties, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         const auto &info = md_delta.label_properties;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, info.label,
-                                  info.properties, final_commit_timestamp);
+                                  info.properties, durability_commit_timestamp, streams);
       } break;
     }
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
-  wal_file_->AppendTransactionEnd(final_commit_timestamp);
+  wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(final_commit_timestamp, this, std::move(db_acc));
+  return repl_storage_state_.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc),
+                                                 std::move(streams));
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
                                                 const std::optional<std::string> text_index_name, LabelId label,
                                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
-                                                LabelPropertyIndexStats property_stats,
-                                                uint64_t final_commit_timestamp) {
+                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
                              final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp,
+                                      replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                                uint64_t final_commit_timestamp) {
+                                                uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(operation, edge_type, final_commit_timestamp, replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                                 const std::set<PropertyId> &properties,
-                                                LabelPropertyIndexStats property_stats,
-                                                uint64_t final_commit_timestamp) {
+                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
   return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
-                                   final_commit_timestamp);
+                                   final_commit_timestamp, replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                LabelIndexStats stats, uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp);
+                                                LabelIndexStats stats, uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp,
+                                   replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties,
-                                                uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, properties, {}, final_commit_timestamp);
+                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  return AppendToWalDataDefinition(operation, label, properties, {}, final_commit_timestamp, replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp);
+                                                uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp, replica_streams);
 }
 
 void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
                                                 const std::optional<std::string> text_index_name, LabelId label,
-                                                uint64_t final_commit_timestamp) {
-  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp);
+                                                uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp,
+                                   replica_streams);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
@@ -2396,21 +2409,7 @@ void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guar
   edges_.run_gc();
 }
 
-uint64_t InMemoryStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  // Normal logic, when txn is on MAIN
-  if (!desired_commit_timestamp) {
-    return timestamp_++;
-  }
-  // Special case logic, when txn is on REPLICA
-  auto normal_next_timestamp = timestamp_;
-  // any timestamps which are to be skipped need to be marked as finished
-  // otherwise GC would stop working correctly
-  for (auto const used_timestamp : std::ranges::views::iota(normal_next_timestamp, *desired_commit_timestamp)) {
-    commit_log_->MarkFinished(used_timestamp);
-  }
-  timestamp_ = std::max(normal_next_timestamp, *desired_commit_timestamp + 1);
-  return *desired_commit_timestamp;
-}
+uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
   std::unique_lock engine_guard{engine_lock_};

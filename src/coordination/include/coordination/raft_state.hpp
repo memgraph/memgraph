@@ -31,11 +31,16 @@ using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
 using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
+using nuraft::asio_service;
 using nuraft::buffer;
+using nuraft::context;
+using nuraft::delayed_task_scheduler;
 using nuraft::logger;
 using nuraft::ptr;
 using nuraft::raft_launcher;
 using nuraft::raft_server;
+using nuraft::rpc_client_factory;
+using nuraft::rpc_listener;
 using nuraft::srv_config;
 using nuraft::state_machine;
 using nuraft::state_mgr;
@@ -99,8 +104,9 @@ class RaftState {
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;
   ptr<logger> logger_;
-  raft_launcher launcher_;
   ptr<raft_server> raft_server_;
+  ptr<asio_service> asio_service_;
+  ptr<rpc_listener> asio_listener_;
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;

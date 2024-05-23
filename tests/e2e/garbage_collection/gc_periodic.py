@@ -55,5 +55,20 @@ def test_gc_periodic(connection):
     raise MemoryError("GC didn't clean the memory after 10 seconds")
 
 
+def test_gc_fast_discard_of_deltas(connection):
+    cursor = connection.cursor()
+
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :L1")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :L2")
+
+    execute_and_fetch_all(cursor, "CREATE (n) SET n:L1 REMOVE n:L1 SET n:L2 DETACH DELETE n")
+
+    result = execute_and_fetch_all(cursor, "MATCH (n:L1) return n")
+    assert len(result) == 0
+
+    result = execute_and_fetch_all(cursor, "MATCH (n:L1) return n")
+    assert len(result) == 0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
