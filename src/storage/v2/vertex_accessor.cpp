@@ -621,7 +621,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     deleted = vertex_->deleted;
     if (hops_limit && hops_limit->IsUsed()) {
       if (edge_types.empty() && !destination) {
-        // we need this check to because if limit is reached but it is not passed we can still use vertices without any
+        // we need this check because if limit is reached but it is not passed we can still reach vertices without any
         // neighbors
         if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(vertex_->in_edges.size()) > 0) {
           hops_limit->limit_passed = true;
@@ -736,7 +736,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     deleted = vertex_->deleted;
     if (hops_limit && hops_limit->IsUsed()) {
       if (edge_types.empty() && !destination) {
-        // we need this check to because if limit is reached but it is not passed we can still use vertices without any
+        // we need this check because if limit is reached but it is not passed we can reach use vertices without any
         // neighbors
         if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(vertex_->out_edges.size()) > 0) {
           hops_limit->limit_passed = true;

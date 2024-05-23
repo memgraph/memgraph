@@ -26,7 +26,6 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
-#include <cstdint>
 #include <unordered_set>
 #include "storage/v2/small_vector.hpp"
 

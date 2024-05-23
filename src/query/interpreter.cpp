@@ -65,7 +65,6 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"

@@ -1211,7 +1211,6 @@ class ExpandVariableCursor : public Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
-
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -1276,7 +1275,6 @@ class ExpandVariableCursor : public Cursor {
     // In those cases we skip that input pull and continue with the next.
     while (true) {
       AbortCheck(context);
-
       if (!input_cursor_->Pull(frame, context)) return false;
 
       if (context.hops_limit.IsLimitReached()) return false;
@@ -1360,7 +1358,6 @@ class ExpandVariableCursor : public Cursor {
     // vertex is exhausted or a valid variable-length expansion is available.
     while (true) {
       AbortCheck(context);
-
       // pop from the stack while there is stuff to pop and the current
       // level is exhausted
       while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
@@ -1840,6 +1837,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           // Add initial vertex of path to the accumulated path
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
         }
+
         expand_from_vertex(vertex);
 
         // go back to loop start and see if we expanded anything

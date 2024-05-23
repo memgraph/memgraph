@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <optional>
 #include <type_traits>
 
 #include "query/common.hpp"
