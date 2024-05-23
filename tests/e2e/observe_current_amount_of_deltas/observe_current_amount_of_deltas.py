@@ -12,58 +12,65 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, connect_with_autocommit, execute_and_fetch_all
 
 
 def get_current_amount_of_deltas():
-    storage_cursor = connect().cursor()
+    storage_info_connection = connect_with_autocommit()
+
+    storage_cursor = storage_info_connection.cursor()
     result = execute_and_fetch_all(storage_cursor, "SHOW STORAGE INFO")
+
+    result = [x for x in result if x[0] == "unreleased_delta_objects"][0][1]
 
     return result
 
 
+def free_memory():
+    execute_and_fetch_all(connect_with_autocommit().cursor(), "FREE MEMORY")
+
+
 def test_amount_of_deltas_drops_after_commit(connection):
-    cursor = connect().cursor()
-    execute_and_fetch_all(cursor, "BEGIN")
+    cursor = connection.cursor()
     execute_and_fetch_all(cursor, "CREATE ()")
 
     current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_before_commit == 1
 
-    execute_and_fetch_all(cursor, "COMMIT")
+    connection.commit()
 
     current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_after_commit == 0
 
 
 def test_amount_of_deltas_drops_after_rollback(connection):
-    cursor = connect().cursor()
-    execute_and_fetch_all(cursor, "BEGIN")
+    cursor = connection.cursor()
     execute_and_fetch_all(cursor, "CREATE ()")
 
     current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_before_commit == 1
 
-    execute_and_fetch_all(cursor, "ROLLBACK")
+    connection.rollback()
 
     current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_after_commit == 0
 
 
-def test_amount_of_deltas_with_2_transactions(connection):
-    cursor1 = connect().cursor()
-    cursor2 = connect().cursor()
-    execute_and_fetch_all(cursor1, "BEGIN")
-    execute_and_fetch_all(cursor2, "BEGIN")
+def test_amount_of_deltas_with_2_transactions():
+    connection1 = connect()
+    connection2 = connect()
+    cursor1 = connection1.cursor()
+    cursor2 = connection2.cursor()
     execute_and_fetch_all(cursor1, "CREATE ()")
     execute_and_fetch_all(cursor2, "CREATE ()")
 
     current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_before_commit == 2
 
-    execute_and_fetch_all(cursor1, "COMMIT")
-    execute_and_fetch_all(cursor2, "COMMIT")
-    execute_and_fetch_all(cursor1, "FREE MEMORY")
+    connection1.commit()
+    connection2.commit()
+
+    free_memory()
 
     current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
     assert current_amount_of_deltas_after_commit == 0
