@@ -110,20 +110,17 @@
       :transfer (if (= (:replication-role this) :main)
                   (try
                     (let [transfer-info (:value op)]
-                      (assoc op
-                             :type (if
-                                    (transfer-money
-                                     (:conn this)
-                                     (:from transfer-info)
-                                     (:to transfer-info)
-                                     (:amount transfer-info))
-                                     :ok
-                                     :fail)))
+                      (transfer-money
+                       (:conn this)
+                       (:from transfer-info)
+                       (:to transfer-info)
+                       (:amount transfer-info)))
+                    (assoc op :type :ok)
                     (catch Exception e
                       (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                        (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
-                        (assoc op :type :fail :info (str e)))))
-                  (assoc op :type :fail :info "Not main node."))))
+                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                        (assoc op :type :fail :value (str e)))))
+                  (assoc op :type :fail :value "Not main node."))))
   ; On teardown! only main will detach-delete-all.
   (teardown! [this _test]
     (when (= (:replication-role this) :main)

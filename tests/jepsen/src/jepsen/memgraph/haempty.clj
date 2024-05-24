@@ -42,7 +42,7 @@
                     (assoc op :type :fail :value e)))
                 (assoc op :type :fail :value "Not coord"))
 
-        :register (if (= (:node this) "n4") ; Node with coordinator-id = 1
+        :initialize (if (= (:node this) "n4") ; Node with coordinator-id = 1
                     (do
                       (doseq [repl-config (filter #(contains? (val %) :replication-port)
                                                   nodes-config)]
@@ -100,8 +100,6 @@
   "From list of roles, returns those which are main."
   [roles]
   (filter #(= "main" %) roles))
-
-; TODO: (andi) Rework bank and large clients to avoid using macros.
 
 (defn less-than-three-coordinators
   "Check if there aren't exactly 3 coordinators in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
