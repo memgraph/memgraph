@@ -39,14 +39,14 @@ using memgraph::communication::bolt::Value;
 
 const int MAX_RETRIES = 50;
 
-void PrintJsonMetadata(std::ostream &os, const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintJsonMetadata(std::ostream &os, const std::vector<Value::map_t> &metadata) {
   os << "[";
   memgraph::utils::PrintIterable(os, metadata, ", ",
                                  [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
   os << "]";
 }
 
-void PrintSummary(std::ostream &os, double duration, const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintSummary(std::ostream &os, double duration, const std::vector<Value::map_t> &metadata) {
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
@@ -58,7 +58,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
 
   memgraph::utils::SpinLock spinlock;
   uint64_t last = 0;
-  std::vector<std::map<std::string, Value>> metadata;
+  std::vector<Value::map_t> metadata;
 
   metadata.resize(queries.size());
 

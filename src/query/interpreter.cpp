@@ -2298,9 +2298,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // looked up using their positions within the string that was parsed. These
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
-  ParsedQuery parsed_inner_query =
-      ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, interpreter_context->config.query);
+  auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
+  ParsedQuery parsed_inner_query = ParseQuery(inner_query, parsed_query.user_parameters,
+                                              &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3283,7 +3283,6 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, CurrentDB &current_db,
                                   InterpreterContext *interpreter_context,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   std::shared_ptr<QueryUserOrRole> user_or_role) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -3299,8 +3298,9 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   std::optional<Notification> trigger_notification;
 
-  auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba, &user_parameters,
-                               owner = std::move(user_or_role), &trigger_notification]() mutable {
+  auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba,
+                               user_parameters = parsed_query.user_parameters, owner = std::move(user_or_role),
+                               &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
@@ -4616,8 +4616,7 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 }
 #endif
 
-Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params,
+Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
@@ -4655,8 +4654,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query =
-        ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
 
     // Setup QueryExecution
@@ -4723,6 +4722,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                     utils::Downcast<CreateEnumQuery>(parsed_query.query) != nullptr ||
                     upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
+    }
+
+    if (current_db_.db_acc_) {
+      // fix parameters, enums requires storage to map to correct enum value
+      parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters);
     }
 
 #ifdef MG_ENTERPRISE
@@ -4808,7 +4813,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                              current_db_, interpreter_context_, params, user_or_role_);
+                              current_db_, interpreter_context_, user_or_role_);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query =
           PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,

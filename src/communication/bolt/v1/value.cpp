@@ -45,7 +45,7 @@ DEF_GETTER_BY_VAL(Double, double, double_v)
 
 DEF_GETTER_BY_REF(String, std::string, string_v)
 DEF_GETTER_BY_REF(List, std::vector<Value>, list_v)
-using map_t = std::map<std::string, Value>;
+using map_t = Value::map_t;
 DEF_GETTER_BY_REF(Map, map_t, map_v)
 DEF_GETTER_BY_REF(Vertex, Vertex, vertex_v)
 DEF_GETTER_BY_REF(Edge, Edge, edge_v)
@@ -79,7 +79,7 @@ Value::Value(const Value &other) : type_(other.type_) {
       new (&list_v) std::vector<Value>(other.list_v);
       return;
     case Type::Map:
-      new (&map_v) std::map<std::string, Value>(other.map_v);
+      new (&map_v) map_t(other.map_v);
       return;
     case Type::Vertex:
       new (&vertex_v) Vertex(other.vertex_v);
@@ -136,7 +136,7 @@ Value &Value::operator=(const Value &other) {
         new (&list_v) std::vector<Value>(other.list_v);
         return *this;
       case Type::Map:
-        new (&map_v) std::map<std::string, Value>(other.map_v);
+        new (&map_v) map_t(other.map_v);
         return *this;
       case Type::Vertex:
         new (&vertex_v) Vertex(other.vertex_v);
@@ -190,7 +190,7 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       new (&list_v) std::vector<Value>(std::move(other.list_v));
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+      new (&map_v) map_t(std::move(other.map_v));
       break;
     case Type::Vertex:
       new (&vertex_v) Vertex(std::move(other.vertex_v));
@@ -251,7 +251,7 @@ Value &Value::operator=(Value &&other) noexcept {
         new (&list_v) std::vector<Value>(std::move(other.list_v));
         break;
       case Type::Map:
-        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        new (&map_v) map_t(std::move(other.map_v));
         break;
       case Type::Vertex:
         new (&vertex_v) Vertex(std::move(other.vertex_v));
@@ -312,7 +312,7 @@ Value::~Value() {
       return;
     case Type::Map:
       using namespace std;
-      map_v.~map<std::string, Value>();
+      map_v.~map_t();
       return;
     case Type::Vertex:
       vertex_v.~Vertex();

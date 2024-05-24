@@ -103,7 +103,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
       try {
         // TODO remove security issue
         spdlog::trace("Executing line: {}", line);
-        auto results = interpreter.Prepare(line, {}, {});
+        auto results = interpreter.Prepare(line, memgraph::query::no_params_fn, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
       } catch (std::exception const &e) {

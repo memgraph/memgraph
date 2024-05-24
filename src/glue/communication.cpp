@@ -26,8 +26,41 @@
 #include "utils/temporal.hpp"
 
 using memgraph::communication::bolt::Value;
+using namespace std::string_view_literals;
 
 namespace memgraph::glue {
+
+namespace {
+constexpr auto kMgTypeEnum = "mg_enum"sv;
+constexpr auto kMgTypeType = "__type"sv;
+constexpr auto kMgTypeValue = "__value"sv;
+}  // namespace
+
+auto BoltMapToMgType(Value const &value, storage::Storage const *storage) -> std::optional<storage::PropertyValue> {
+  if (!value.IsMap()) return std::nullopt;
+  auto const &valueMap = value.ValueMap();
+  auto type_selector = valueMap.find(kMgTypeType);
+  if (type_selector == valueMap.cend()) return std::nullopt;
+  auto value_selector = valueMap.find(kMgTypeValue);
+  if (value_selector == valueMap.cend()) return std::nullopt;
+  if (!type_selector->second.IsString()) return std::nullopt;
+  auto mg_type = std::string_view{type_selector->second.ValueString()};
+  auto const &value_val = value_selector->second;
+  if (!value_val.IsString()) return std::nullopt;
+  auto mg_value = std::string_view{value_val.ValueString()};
+
+  if (mg_type == kMgTypeEnum) {
+    if (!storage) return std::nullopt;
+    auto pos = mg_value.find("::");
+    if (pos == std::string_view::npos) return std::nullopt;
+    auto etype = mg_value.substr(0, pos);
+    auto evalue = mg_value.substr(pos + 2);
+    auto enum_val = storage->enum_store_.to_enum(etype, evalue);
+    if (!enum_val) return std::nullopt;
+    return storage::PropertyValue(*enum_val);
+  }
+  return std::nullopt;
+}
 
 query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
@@ -48,6 +81,9 @@ query::TypedValue ToTypedValue(const Value &value) {
       return query::TypedValue(std::move(list));
     }
     case Value::Type::Map: {
+      auto mg_type = BoltMapToMgType(value, nullptr);
+      if (mg_type) return query::TypedValue{*mg_type};
+
       std::map<std::string, query::TypedValue> map;
       for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToTypedValue(kv.second));
       return query::TypedValue(std::move(map));
@@ -111,7 +147,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 
     // Database potentially not required
     case query::TypedValue::Type::Map: {
-      std::map<std::string, Value> map;
+      Value::map_t map;
       for (const auto &kv : value.ValueMap()) {
         auto maybe_value = ToBoltValue(kv.second, db, view);
         if (maybe_value.HasError()) return maybe_value.GetError();
@@ -156,20 +192,21 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       if (maybe_graph.HasError()) return maybe_graph.GetError();
       return Value(std::move(*maybe_graph));
     }
-
-    // Unsupported conversions
-    case query::TypedValue::Type::Function: {
-      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
-    }
     case query::TypedValue::Type::Enum: {
+      check_db();
       auto maybe_enum_value_str = db->enum_store_.to_string(value.ValueEnum());
       if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
-      auto map = std::map<std::string, Value>{};
-      map.try_emplace("__type", "mg_enum");
+      auto map = Value::map_t{};
+      map.try_emplace("__type", kMgTypeEnum);
       map.try_emplace("__value", *std::move(maybe_enum_value_str));
       return Value(std::move(map));
+    }
+
+    // Unsupported conversions
+    case query::TypedValue::Type::Function: {
+      throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");
     }
   }
 }
@@ -186,7 +223,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   }
   auto maybe_properties = vertex.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
-  std::map<std::string, Value> properties;
+  Value::map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
@@ -203,7 +240,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
-  std::map<std::string, Value> properties;
+  Value::map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
@@ -234,9 +271,8 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
-storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
-                                                          storage::View view) {
-  std::map<std::string, Value> map;
+storage::Result<Value::map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
+  Value::map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
   for (const auto &v : graph.vertices()) {
@@ -258,7 +294,7 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   return std::move(map);
 }
 
-storage::PropertyValue ToPropertyValue(const Value &value) {
+storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
       return storage::PropertyValue();
@@ -273,12 +309,17 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
     case Value::Type::List: {
       std::vector<storage::PropertyValue> vec;
       vec.reserve(value.ValueList().size());
-      for (const auto &value : value.ValueList()) vec.emplace_back(ToPropertyValue(value));
+      for (const auto &value : value.ValueList()) vec.emplace_back(ToPropertyValue(value, storage));
       return storage::PropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
+      auto mg_type = BoltMapToMgType(value, storage);
+      if (mg_type) return *mg_type;
+
       std::map<std::string, storage::PropertyValue> map;
-      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToPropertyValue(kv.second));
+      for (const auto &[k, v] : value.ValueMap()) {
+        map.try_emplace(k, ToPropertyValue(v, storage));
+      }
       return storage::PropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
@@ -306,7 +347,7 @@ storage::PropertyValue ToPropertyValue(const Value &value) {
   }
 }
 
-Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &db) {
+Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       return Value();
@@ -324,15 +365,15 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &d
       std::vector<Value> vec;
       vec.reserve(values.size());
       for (const auto &v : values) {
-        vec.push_back(ToBoltValue(v, db));
+        vec.push_back(ToBoltValue(v, storage));
       }
       return Value(std::move(vec));
     }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
-      std::map<std::string, Value> dv_map;
+      Value::map_t dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToBoltValue(kv.second, db));
+        dv_map.emplace(kv.first, ToBoltValue(kv.second, storage));
       }
       return Value(std::move(dv_map));
     }
@@ -357,14 +398,15 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &d
       }
     }
     case storage::PropertyValue::Type::Enum: {
-      auto maybe_enum_value_str = db.enum_store_.to_string(value.ValueEnum());
+      auto maybe_enum_value_str = storage.enum_store_.to_string(value.ValueEnum());
       if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
-      auto map = std::map<std::string, Value>{};
-      map.try_emplace("__type", "mg_enum");
-      map.try_emplace("__value", *std::move(maybe_enum_value_str));
-      return Value(std::move(map));
+      // Bolt does not know about enums, encode as map type instead
+      auto map = Value::map_t{};
+      map.emplace(kMgTypeType, kMgTypeEnum);
+      map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
+      return {std::move(map)};
     }
   }
 }

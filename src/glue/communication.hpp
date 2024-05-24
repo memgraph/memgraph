@@ -56,9 +56,8 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
 /// @param storage::View for ToBoltVertex and ToBoltEdge.
 ///
 /// @throw std::bad_alloc
-storage::Result<std::map<std::string, communication::bolt::Value>> ToBoltGraph(const query::Graph &graph,
-                                                                               const storage::Storage &db,
-                                                                               storage::View view);
+storage::Result<communication::bolt::Value::map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
+                                                               storage::View view);
 
 /// @param query::TypedValue for converting to communication::bolt::Value.
 /// @param storage::Storage for ToBoltVertex and ToBoltEdge.
@@ -70,8 +69,8 @@ storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue 
 
 query::TypedValue ToTypedValue(const communication::bolt::Value &value);
 
-communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &db);
+communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage);
 
-storage::PropertyValue ToPropertyValue(const communication::bolt::Value &value);
+storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, storage::Storage const *storage);
 
 }  // namespace memgraph::glue

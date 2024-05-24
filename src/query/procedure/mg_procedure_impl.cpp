@@ -4297,9 +4297,8 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
 
-        const auto query_params = CreateQueryParams(params);
-
-        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params, {});
+        auto query_params_func = [&](memgraph::storage::Storage const *) { return CreateQueryParams(params); };
+        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
         for (const auto &header : prepare_query_result.headers) {

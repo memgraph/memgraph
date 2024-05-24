@@ -40,33 +40,32 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
-  void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) override;
+  void Configure(const memgraph::communication::bolt::Value::map_t &run_time_info) override;
 
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
-  void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) override;
+  void BeginTransaction(const memgraph::communication::bolt::Value::map_t &extra) override;
 
   void CommitTransaction() override;
 
   void RollbackTransaction() override;
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &extra) override;
+      const std::string &query, const memgraph::communication::bolt::Value::map_t &params,
+      const memgraph::communication::bolt::Value::map_t &extra) override;
 
 #ifdef MG_ENTERPRISE
-  auto Route(std::map<std::string, memgraph::communication::bolt::Value> const &routing,
+  auto Route(memgraph::communication::bolt::Value::map_t const &routing,
              std::vector<memgraph::communication::bolt::Value> const &bookmarks,
-             std::map<std::string, memgraph::communication::bolt::Value> const &extra)
-      -> std::map<std::string, memgraph::communication::bolt::Value> override;
+             memgraph::communication::bolt::Value::map_t const &extra)
+      -> memgraph::communication::bolt::Value::map_t override;
 #endif
 
-  std::map<std::string, memgraph::communication::bolt::Value> Pull(TEncoder *encoder, std::optional<int> n,
-                                                                   std::optional<int> qid) override;
+  memgraph::communication::bolt::Value::map_t Pull(TEncoder *encoder, std::optional<int> n,
+                                                   std::optional<int> qid) override;
 
-  std::map<std::string, memgraph::communication::bolt::Value> Discard(std::optional<int> n,
-                                                                      std::optional<int> qid) override;
+  memgraph::communication::bolt::Value::map_t Discard(std::optional<int> n, std::optional<int> qid) override;
 
   void Abort() override;
 
@@ -78,7 +77,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::string GetCurrentDB() const override;
 
  private:
-  std::map<std::string, memgraph::communication::bolt::Value> DecodeSummary(
+  memgraph::communication::bolt::Value::map_t DecodeSummary(
       const std::map<std::string, memgraph::query::TypedValue> &summary);
 
   /**

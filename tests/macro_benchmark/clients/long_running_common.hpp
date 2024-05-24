@@ -82,8 +82,7 @@ class TestClient {
  protected:
   virtual void Step() = 0;
 
-  std::optional<memgraph::communication::bolt::QueryData> Execute(const std::string &query,
-                                                                  const std::map<std::string, Value> &params,
+  std::optional<memgraph::communication::bolt::QueryData> Execute(const std::string &query, const Value::map_t &params,
                                                                   const std::string &query_name = "") {
     memgraph::communication::bolt::QueryData result;
     int retries;
@@ -111,7 +110,7 @@ class TestClient {
   }
 
   memgraph::utils::SpinLock lock_;
-  std::unordered_map<std::string, std::vector<std::map<std::string, Value>>> stats_;
+  std::unordered_map<std::string, std::vector<Value::map_t>> stats_;
 
   std::atomic<bool> keep_running_{true};
   std::thread runner_thread_;
@@ -141,10 +140,10 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
   }
   spdlog::info("Starting test with {} workers", clients.size());
   while (timer.Elapsed().count() < FLAGS_duration) {
-    std::unordered_map<std::string, std::map<std::string, Value>> aggregated_stats;
+    std::unordered_map<std::string, Value::map_t> aggregated_stats;
 
     using namespace std::chrono_literals;
-    std::unordered_map<std::string, std::vector<std::map<std::string, Value>>> stats;
+    std::unordered_map<std::string, std::vector<Value::map_t>> stats;
     for (const auto &client : clients) {
       auto client_stats = client->ConsumeStats();
       for (const auto &client_query_stats : client_stats) {

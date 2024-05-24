@@ -126,8 +126,8 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n)-[e]->(m) RETURN n, n.s, e, e.s, m
             """
         Then the result should be:
-            | n                             | n.s            | e                           | e.s           | m                            |
-            | (:Person {s: 'Status::Good'}) | 'Status::Good' | [:KNOWS {s: 'Status::Bad'}] | 'Status::Bad' | (:Person {s: 'Status::Bad'}) |
+            | n                                                          | n.s                                       | e                                                        | e.s                                      | m                                                         |
+            | (:Person{s:{'__type':'mg_enum','__value':'Status::Good'}}) | {__type:'mg_enum',__value:'Status::Good'} | [:KNOWS{s:{'__type':'mg_enum','__value':'Status::Bad'}}] | {__type:'mg_enum',__value:'Status::Bad'} | (:Person{s:{'__type':'mg_enum','__value':'Status::Bad'}}) |
 
     Scenario: Filter nodes by enum property equal op:
         Given an empty graph
@@ -140,8 +140,8 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n) WHERE n.s = Status::Bad RETURN n
             """
         Then the result should be:
-            | n                            |
-            | (:Person {s: 'Status::Bad'}) |
+            | n                                                         |
+            | (:Person{s:{'__type':'mg_enum','__value':'Status::Bad'}}) |
 
     Scenario: Filter nodes by enum property comparison op:
         Given an empty graph

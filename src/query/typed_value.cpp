@@ -189,6 +189,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
           break;
         }
       }
+      break;
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
