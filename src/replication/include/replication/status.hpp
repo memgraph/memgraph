@@ -61,8 +61,8 @@ struct ReplicationRoleEntry {
 
 // from key: "__replication_replica:"
 struct ReplicationReplicaEntry {
-  DurabilityVersion version =
-      DurabilityVersion::V4;  // if not V4, no version was specified. No changes between [V1, V3]
+  // NOTE: There are multiple versions of ReplicationReplicaEntry, but we distinguish them in terms of
+  // ReplicationRoleEntry.
   ReplicationClientConfig config;
   friend bool operator==(ReplicationReplicaEntry const &, ReplicationReplicaEntry const &) = default;
 };

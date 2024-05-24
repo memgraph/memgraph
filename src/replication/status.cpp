@@ -95,8 +95,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
 }
 
 void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
-  auto common = nlohmann::json{{kVersion, p.version},
-                               {kReplicaName, p.config.name},
+  auto common = nlohmann::json{{kReplicaName, p.config.name},
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
@@ -113,8 +112,6 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
 }
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   using io::network::Endpoint;
-  // This value did not exist until DurabilityVersion::V4, hence default DurabilityVersion::V3
-  DurabilityVersion version = j.value(kVersion, DurabilityVersion::V3);
 
   const auto &key_file = j.at(kSSLKeyFile);
   const auto &cert_file = j.at(kSSLCertFile);
@@ -142,6 +139,6 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
     key_file.get_to(config.ssl->key_file);
     cert_file.get_to(config.ssl->cert_file);
   }
-  p = ReplicationReplicaEntry{.version = version, .config = std::move(config)};
+  p = ReplicationReplicaEntry{.config = std::move(config)};
 }
 }  // namespace memgraph::replication::durability

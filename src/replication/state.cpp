@@ -236,8 +236,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
           auto old_json = nlohmann::json::parse(old_data, nullptr, false);
           if (old_json.is_discarded()) return false;
           try {
-            durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
-            new_data.version = durability::DurabilityVersion::V4;
+            durability::ReplicationReplicaEntry const new_data = old_json.get<durability::ReplicationReplicaEntry>();
             to_put.emplace(old_key, nlohmann::json(new_data).dump());
           } catch (...) {
             return false;

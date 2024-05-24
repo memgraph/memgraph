@@ -177,7 +177,6 @@ TEST(ReplicationDurability, ReplicaEntryMigrationNoVersionToV4) {
   ReplicationReplicaEntry deser;
   from_json(j, deser);
   // Default version is V3
-  ASSERT_EQ(deser.version, DurabilityVersion::V3);
   ASSERT_EQ(deser.config.name, "TEST_NAME");
   ASSERT_EQ(deser.config.mode, ReplicationMode::ASYNC);
   ASSERT_EQ(deser.config.repl_server_endpoint.GetAddress(), "000.123.456.789");
