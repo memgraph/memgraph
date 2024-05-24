@@ -59,14 +59,14 @@
      (info "Adding coordinator instance" query)
      query)))
 
-(defn register-replication-instances
-  "Register all replication instances."
+(defn initialize-instances
+  "Initialize operation."
   [_ _]
-  {:type :invoke :f :register :value nil})
+  {:type :invoke :f :initialize :value nil})
 
 (defn ha-gen
   "Generator which should be used for HA tests
   as it adds register replication instance invoke."
   [generator]
-  (gen/each-thread (gen/phases (cycle [(gen/once register-replication-instances)
+  (gen/each-thread (gen/phases (cycle [(gen/once initialize-instances)
                                        (gen/time-limit 5 generator)]))))
