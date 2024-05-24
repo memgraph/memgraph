@@ -352,6 +352,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_ZONED_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_PROPERTY_VALUE:
+        case memgraph::storage::durability::Marker::TYPE_ENUM:
           valid_marker = true;
           break;
 

@@ -87,6 +87,14 @@ void Encoder::WriteString(const std::string_view value) {
   Write(reinterpret_cast<const uint8_t *>(value.data()), value.size());
 }
 
+void Encoder::WriteEnum(storage::Enum value) {
+  WriteMarker(Marker::TYPE_ENUM);
+  auto etype = utils::HostToLittleEndian(value.type_id().value_of());
+  Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
+  auto evalue = utils::HostToLittleEndian(value.value_id().value_of());
+  Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
+}
+
 void Encoder::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
@@ -149,12 +157,7 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       break;
     }
     case PropertyValue::Type::Enum: {
-      const auto &enum_val = value.ValueEnum();
-      auto etype = utils::HostToLittleEndian(enum_val.type_id().value_of());
-      auto evalue = utils::HostToLittleEndian(enum_val.value_id().value_of());
-      WriteMarker(Marker::TYPE_ENUM);
-      Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
-      Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
+      WriteEnum(value.ValueEnum());
       break;
     }
   }
@@ -273,9 +276,11 @@ std::optional<std::string> Decoder::ReadString() {
 std::optional<Enum> Decoder::ReadEnumValue() {
   auto marker = ReadMarker();
   if (!marker || *marker != Marker::TYPE_ENUM) return std::nullopt;
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   uint64_t etype;
   if (!Read(reinterpret_cast<uint8_t *>(&etype), sizeof(etype))) return std::nullopt;
   etype = utils::LittleEndianToHost(etype);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   uint64_t evalue;
   if (!Read(reinterpret_cast<uint8_t *>(&evalue), sizeof(evalue))) return std::nullopt;
   evalue = utils::LittleEndianToHost(evalue);

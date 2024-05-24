@@ -35,6 +35,11 @@ void Encoder::WriteString(const std::string_view value) {
   slk::Save(value, builder_);
 }
 
+void Encoder::WriteEnum(storage::Enum value) {
+  WriteMarker(durability::Marker::TYPE_ENUM);
+  slk::Save(value, builder_);
+}
+
 void Encoder::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
   slk::Save(value, builder_);
@@ -101,8 +106,10 @@ std::optional<std::string> Decoder::ReadString() {
 }
 
 std::optional<Enum> Decoder::ReadEnumValue() {
-  // TODO
-  return std::nullopt;
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_ENUM) return std::nullopt;
+  storage::Enum value;
+  slk::Load(&value, reader_);
+  return value;
 }
 
 std::optional<PropertyValue> Decoder::ReadPropertyValue() {

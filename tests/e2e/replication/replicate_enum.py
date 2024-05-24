@@ -48,6 +48,8 @@ def test_enum_replication(connection):
     # 0/ Setup replication
     # 1/ MAIN CREATE ENUM
     # 2/ Validate Enum has arrived at REPLICA
+    # 3/ Create Vertex with enum property on MAIN
+    # 4/ Validate enum property has arrived at REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -123,6 +125,40 @@ def test_enum_replication(connection):
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     replica_2_enums = get_enums(cursor_replica2)
     assert replica_2_enums == [("Location", ["York", "Zagreb"])]
+
+    # 3/
+    execute_and_fetch_all(cursor, "CREATE ({ prop: Location::York });")
+
+    # 4/
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 4}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "async",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 4}},
+        ),
+    ]
+
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
+
+    def get_props(cursor):
+        return execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.prop;")
+
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica_1_enums = get_props(cursor_replica)
+    assert replica_1_enums == [({"__type": "mg_enum", "__value": "Location::York"},)]
+
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    replica_2_enums = get_props(cursor_replica2)
+    assert replica_2_enums == [({"__type": "mg_enum", "__value": "Location::York"},)]
 
 
 if __name__ == "__main__":

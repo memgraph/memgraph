@@ -35,6 +35,8 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteString(std::string_view value) override;
 
+  void WriteEnum(storage::Enum value) override;
+
   void WritePropertyValue(const PropertyValue &value) override;
 
   void WriteBuffer(const uint8_t *buffer, size_t buffer_size);

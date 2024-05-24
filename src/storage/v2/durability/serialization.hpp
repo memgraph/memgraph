@@ -35,6 +35,7 @@ class BaseEncoder {
   virtual void WriteUint(uint64_t value) = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(std::string_view value) = 0;
+  virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePropertyValue(const PropertyValue &value) = 0;
 };
 
@@ -55,6 +56,7 @@ class Encoder final : public BaseEncoder {
   void WriteUint(uint64_t value) override;
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
+  void WriteEnum(storage::Enum value) override;
   void WritePropertyValue(const PropertyValue &value) override;
 
   uint64_t GetPosition();

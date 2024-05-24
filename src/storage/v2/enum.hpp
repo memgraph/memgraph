@@ -24,7 +24,7 @@ using EnumTypeId = strong::type<uint64_t, struct EnumId_, strong::regular, stron
 using EnumValueId = strong::type<uint64_t, struct EnumValueId_, strong::regular, strong::partially_ordered>;
 
 struct Enum {
-  Enum() = delete;
+  Enum() = default;  // needed for slk
 
   Enum(EnumTypeId type, EnumValueId value) : type_id_{type}, value_id_{value} {}
 
@@ -45,8 +45,8 @@ struct Enum {
   auto value_id() const -> EnumValueId const & { return value_id_; }
 
  private:
-  EnumTypeId type_id_;
-  EnumValueId value_id_;
+  EnumTypeId type_id_{};
+  EnumValueId value_id_{};
 };
 
 template <std::size_t N>
