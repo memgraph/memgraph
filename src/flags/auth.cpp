@@ -18,7 +18,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
-// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
 DEFINE_VALIDATED_string(auth_module_mappings, "",
                         "Associates auth schemas to external modules. A mapping is structured as follows: \"<scheme>: "
                         "<absolute path>\", and individual mappings are separated with \";\".",
