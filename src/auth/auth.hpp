@@ -240,9 +240,6 @@ class Auth final {
       expect(username && rolename, "When using a module, a role needs to be connected to a username.");
       const auto role = GetRole(*rolename);
       expect(role != std::nullopt, "No role named " + *rolename);
-      // External module auth: check if the username returned by the module is not duplicated in Memgraph
-      const auto user_in_storage = GetUser(*username);
-      expect(user_in_storage == std::nullopt, "User " + *username + " already exists as local user");
       return UserOrRole(auth::RoleWUsername{*username, *role});
     }
 
@@ -422,10 +419,6 @@ class Auth final {
     }
 
     return true;
-  }
-
-  void DisableIfUsingAuthModule() const {
-    if (UsingAuthModule()) throw AuthException("Operation not permited when using an authentication module.");
   }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,

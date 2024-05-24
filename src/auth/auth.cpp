@@ -18,6 +18,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/rpc.hpp"
+#include "flags/auth.hpp"
 #include "license/license.hpp"
 #include "system/transaction.hpp"
 #include "utils/flag_validation.hpp"
@@ -44,27 +45,6 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
   return module_per_scheme;
 }
 }  // namespace memgraph
-
-// NOLINTNEXTLINE(misc-unused-parameters)
-DEFINE_VALIDATED_string(auth_module_mappings, "",
-                        "Associates auth schemas to external modules. A mapping is structured as follows: \"<scheme>: "
-                        "<absolute path>\", and individual mappings are separated with \";\".",
-                        {
-                          if (value.empty()) return true;
-                          for (auto &[_, path] : memgraph::ModuleMappingsToMap(value)) {
-                            auto module_file = std::filesystem::status(path);
-                            if (!std::filesystem::is_regular_file(module_file)) {
-                              std::cerr << "The auth module path doesn't exist or isn't a file!\n";
-                              return false;
-                            }
-                          }
-                          return true;
-                        });
-
-DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
-                       "Timeout (in milliseconds) used when waiting for a "
-                       "response from the auth module.",
-                       FLAG_IN_RANGE(100, 1800000));
 
 // DEPRECATED FLAGS
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
@@ -342,14 +322,17 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   if (!is_authenticated) return std::nullopt;
   const auto &rolename = ret_role.get<std::string>();
 
-  std::optional<UserOrRole> user_or_role = std::nullopt;
-  try {
-    user_or_role = GetUserOrRole(username, rolename);
-  } catch (const AuthException &e) {
-    spdlog::warn(utils::MessageWithLink(e.what(), "https://memgr.ph/sso"));
-    return std::nullopt;
+  auto role = GetRole(rolename);
+  if (!role) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
+                                        rolename, "https://memgr.ph/auth"));
   }
-  return user_or_role;
+  auto already_existing_user = GetUser(username);
+  if (already_existing_user) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because a local user {} already exists.",
+                                        rolename, "https://memgr.ph/auth"));
+  }
+  return UserOrRole(auth::RoleWUsername{username, rolename});
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
@@ -422,14 +405,17 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   const auto &rolename = ret_role.get<std::string>();
   const auto &username = ret_username.get<std::string>();
 
-  std::optional<UserOrRole> user_or_role = std::nullopt;
-  try {
-    user_or_role = GetUserOrRole(username, rolename);
-  } catch (const AuthException &e) {
-    spdlog::warn(utils::MessageWithLink(e.what(), "https://memgr.ph/sso"));
-    return std::nullopt;
+  auto role = GetRole(rolename);
+  if (!role) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
+                                        rolename, "https://memgr.ph/auth"));
   }
-  return user_or_role;
+  auto already_existing_user = GetUser(username);
+  if (already_existing_user) {
+    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because a local user {} already exists.",
+                                        rolename, "https://memgr.ph/auth"));
+  }
+  return UserOrRole(auth::RoleWUsername{username, rolename});
 }
 
 void Auth::LinkUser(User &user) const {
@@ -443,7 +429,6 @@ void Auth::LinkUser(User &user) const {
 }
 
 std::optional<User> Auth::GetUser(const std::string &username_orig) const {
-  if (UsingAuthModule()) return std::nullopt;  // Users are not supported when using module
   auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::nullopt;
@@ -667,7 +652,6 @@ std::vector<std::string> Auth::AllRolenames() const {
 }
 
 std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) const {
-  DisableIfUsingAuthModule();
   const auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
