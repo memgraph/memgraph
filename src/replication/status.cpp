@@ -37,24 +37,15 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
     auto common = nlohmann::json{{kVersion, p.version},
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
                                  {kEpoch, main.epoch.id()}};
-    if (p.version != DurabilityVersion::V1 && p.version != DurabilityVersion::V2) {
-      MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
-      common[kMainUUID] = main.main_uuid.value();
-    }
+    MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
+    common[kMainUUID] = main.main_uuid.value();
     j = std::move(common);
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     auto common = nlohmann::json{{kVersion, p.version},
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA}};
 
-    if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 ||
-        p.version == DurabilityVersion::V3) {
-      common[kIpAddress] = replica.config.repl_server.GetAddress();  // non-resolved
-      common[kPort] = replica.config.repl_server.GetPort();
-    } else {
-      common[kReplicaServer] = replica.config.repl_server;  // non-resolved
-    }
-
+    common[kReplicaServer] = replica.config.repl_server;  // non-resolved
     if (replica.main_uuid.has_value()) {
       common[kMainUUID] = replica.main_uuid.value();
     }
@@ -109,12 +100,7 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
 
-  if (p.version == DurabilityVersion::V1 || p.version == DurabilityVersion::V2 || p.version == DurabilityVersion::V3) {
-    common[kIpAddress] = p.config.repl_server_endpoint.GetAddress();  // non-resolved
-    common[kPort] = p.config.repl_server_endpoint.GetPort();
-  } else {
-    common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
-  }
+  common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
 
   if (p.config.ssl.has_value()) {
     common[kSSLKeyFile] = p.config.ssl->key_file;

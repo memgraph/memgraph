@@ -221,36 +221,33 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V2: {
+      data.version = durability::DurabilityVersion::V3;
       if (std::holds_alternative<durability::MainRole>(data.role)) {
         auto &main = std::get<durability::MainRole>(data.role);
         main.main_uuid = utils::UUID{};
       }
-      data.version = durability::DurabilityVersion::V3;
+      if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V3: {
       std::map<std::string, std::string> to_put;
-      std::vector<std::string> to_delete;
       for (auto [old_key, old_data] : *durability_) {
-        // This is handled after for loop ends
         if (old_key == durability::kReplicationRoleName) {
-          continue;
+          data.version = durability::DurabilityVersion::V4;
+          to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
+        } else {
+          auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+          if (old_json.is_discarded()) return false;
+          try {
+            durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
+            new_data.version = durability::DurabilityVersion::V4;
+            to_put.emplace(old_key, nlohmann::json(new_data).dump());
+          } catch (...) {
+            return false;
+          }
         }
-        // Turn old data to new data
-        auto old_json = nlohmann::json::parse(old_data, nullptr, false);
-        if (old_json.is_discarded()) return false;
-        try {
-          durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
-          new_data.version = durability::DurabilityVersion::V4;
-          to_put.emplace(old_key, nlohmann::json(new_data).dump());
-        } catch (...) {
-          return false;
-        }
-        to_delete.push_back(std::move(old_key));
       }
-      data.version = durability::DurabilityVersion::V4;
-      to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
-      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
+      if (!durability_->PutMultiple(to_put)) return false;  // some reason couldn't persist
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V4: {
@@ -272,10 +269,9 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationReplicaEntr
     }
     case durability::DurabilityVersion::V3: {
       std::map<std::string, std::string> to_put;
-      std::vector<std::string> to_delete;
       for (auto [old_key, old_data] : *durability_) {
         auto old_json = nlohmann::json::parse(old_data, nullptr, false);
-        if (old_json.is_discarded()) return false;  // Can not read old_data as json
+        if (old_json.is_discarded()) return false;
 
         try {
           if (old_key == durability::kReplicationRoleName) {
@@ -288,11 +284,10 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationReplicaEntr
             to_put.emplace(old_key, nlohmann::json(new_data).dump());
           }
         } catch (...) {
-          return false;  // Can not parse as ReplicationRoleEntry
+          return false;
         }
-        to_delete.push_back(std::move(old_key));
       }
-      if (!durability_->PutAndDeleteMultiple(to_put, to_delete)) return false;  // some reason couldn't persist
+      if (!durability_->PutMultiple(to_put)) return false;  // some reason couldn't persist
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V4: {
