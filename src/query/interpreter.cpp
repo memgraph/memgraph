@@ -339,13 +339,13 @@ class ReplQueryHandler {
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_endpoint) {
-      const auto replication_config =
-          replication::ReplicationClientConfig{.name = name,
-                                               .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
-                                               .port = maybe_endpoint->GetPort(),
-                                               .replica_check_frequency = replica_check_frequency,
-                                               .ssl = std::nullopt};
+      const auto replication_config = replication::ReplicationClientConfig{
+          .name = name,
+          .mode = repl_mode,
+          .ip_address = maybe_endpoint->GetResolvedIPAddress(),  // TODO: (andi) Solve for replication
+          .port = maybe_endpoint->GetPort(),
+          .replica_check_frequency = replica_check_frequency,
+          .ssl = std::nullopt};
 
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 

@@ -40,7 +40,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
       CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
                                      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port)}};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id, 0, c2c.coordinator_server.SocketAddress(),
-                                      nlohmann::json(c2c).dump(), false);
+                                      nlohmann::json(c2c).dump(), false);  // non-resolved IP in SocketAddress
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
