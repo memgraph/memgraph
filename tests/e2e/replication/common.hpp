@@ -46,7 +46,7 @@ auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
 
 auto Connect(const memgraph::io::network::Endpoint &database_endpoint) {
   mg::Client::Params params;
-  params.host = database_endpoint.GetAddress();
+  params.host = database_endpoint.GetResolvedIPAddress();
   params.port = database_endpoint.GetPort();
   params.use_ssl = FLAGS_use_ssl;
   auto client = mg::Client::Connect(params);

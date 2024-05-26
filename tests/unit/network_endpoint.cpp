@@ -25,9 +25,6 @@ TEST(Endpoint, IPv4) {
   EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
   EXPECT_EQ(endpoint.GetPort(), 12347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
-
-  // test address invalid
-  EXPECT_THROW(endpoint_t("invalid", 12345), memgraph::io::network::NetworkError);
 }
 
 TEST(Endpoint, IPv6) {
@@ -38,9 +35,6 @@ TEST(Endpoint, IPv6) {
   EXPECT_EQ(endpoint.GetAddress(), "ab:cd:ef::3");
   EXPECT_EQ(endpoint.GetPort(), 12347);
   EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
-
-  // test address invalid
-  EXPECT_THROW(endpoint_t("::g", 12345), memgraph::io::network::NetworkError);
 }
 
 TEST(Endpoint, DNSResolution) {
@@ -49,11 +43,11 @@ TEST(Endpoint, DNSResolution) {
   // test constructor
   endpoint = endpoint_t("localhost", 12347);
   if (endpoint.GetIpFamily() == endpoint_t::IpFamily::IP4) {
-    EXPECT_EQ(endpoint.GetAddress(), "127.0.0.1");
+    EXPECT_EQ(endpoint.GetResolvedIPAddress(), "127.0.0.1");
     EXPECT_EQ(endpoint.GetPort(), 12347);
     EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP4);
   } else {
-    EXPECT_EQ(endpoint.GetAddress(), "::1");
+    EXPECT_EQ(endpoint.GetResolvedIPAddress(), "::1");
     EXPECT_EQ(endpoint.GetPort(), 12347);
     EXPECT_EQ(endpoint.GetIpFamily(), endpoint_t::IpFamily::IP6);
   }
@@ -64,10 +58,10 @@ TEST(Endpoint, DNSResolutiononParsing) {
 
   ASSERT_EQ(maybe_endpoint.has_value(), true);
   if (maybe_endpoint->GetIpFamily() == endpoint_t::IpFamily::IP4) {
-    EXPECT_EQ(maybe_endpoint->GetAddress(), "127.0.0.1");
+    EXPECT_EQ(maybe_endpoint->GetResolvedIPAddress(), "127.0.0.1");
     EXPECT_EQ(maybe_endpoint->GetPort(), 7687);
   } else {
-    EXPECT_EQ(maybe_endpoint->GetAddress(), "::1");
+    EXPECT_EQ(maybe_endpoint->GetResolvedIPAddress(), "::1");
     EXPECT_EQ(maybe_endpoint->GetPort(), 7687);
   }
 }

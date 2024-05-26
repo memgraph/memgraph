@@ -13,6 +13,7 @@
 
 #include <span>
 
+#include "absl/container/flat_hash_set.h"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
@@ -60,7 +61,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices() const override;
 
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
+                             const absl::flat_hash_set<LabelId> &labels);
 
   void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp);

@@ -8,6 +8,7 @@
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
 
+
 (defn replication-mode-str
   [node-config]
   (case (:replication-mode node-config)
