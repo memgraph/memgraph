@@ -29,3 +29,5 @@ install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.py
         DESTINATION lib/memgraph/auth_module)
 install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/ldap.example.yaml
         DESTINATION /etc/memgraph/auth_module)
+install(PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/reference_modules/oauth.py
+        DESTINATION lib/memgraph/auth_module)
