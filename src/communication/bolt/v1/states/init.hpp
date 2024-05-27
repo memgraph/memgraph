@@ -107,7 +107,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     return SSOAuthentication(session, data);
   }
 
-  spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
+  spdlog::warn(
+      "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
+      "flag or isn’t otherwise supported",
+      data["scheme"].ValueString());
+  HandleAuthFailure(session);
+
   return State::Close;
 }
 
