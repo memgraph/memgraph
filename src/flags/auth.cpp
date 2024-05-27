@@ -12,7 +12,6 @@
 #include <filesystem>
 
 #include "flags/auth.hpp"
-// #include "auth/auth.hpp"
 #include "glue/auth_global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
@@ -51,4 +50,4 @@ DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passw
 DEFINE_string(
     auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
     "The regular expression that should be used to match the entire entered password to ensure its strength.");
-// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
