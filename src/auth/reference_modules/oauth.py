@@ -83,14 +83,14 @@ def _load_config_from_env(scheme: str):
     return config
 
 
-def decode_tokens(scheme, config, tokens):
+def decode_tokens(scheme: str, config: dict, tokens: dict):
     return (
         validate_jwt_token(tokens["access_token"], scheme, config, "access"),
         validate_jwt_token(tokens["id_token"], scheme, config, "id"),
     )
 
 
-def process_tokens(tokens, config):
+def process_tokens(tokens: tuple, config: dict):
     access_token, id_token = tokens
     if "error" in access_token:
         return {"authenticated": False, "errors": access_token["error"]}
@@ -125,7 +125,7 @@ def authenticate(response: str, scheme: str):
     config = _load_config_from_env(scheme)
     tokens = _parse_response(response)
 
-    return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
+    return process_tokens(decode_tokens(scheme, config, tokens), config)
 
 
 if __name__ == "__main__":
