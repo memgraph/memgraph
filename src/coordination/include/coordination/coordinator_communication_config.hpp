@@ -52,6 +52,8 @@ struct CoordinatorInstanceInitConfig {
   }
 };
 
+// NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.
+
 struct ReplicationClientInfo {
   std::string instance_name{};
   replication_coordination_glue::ReplicationMode replication_mode{};
@@ -96,6 +98,7 @@ struct CoordinatorToCoordinatorConfig {
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
 
+// TODO : (andi) Use io::network::Endpoint here
 struct ManagementServerConfig {
   std::string ip_address;
   uint16_t port{};
