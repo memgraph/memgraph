@@ -13,17 +13,6 @@
             [jepsen.memgraph.utils :as utils]
             [clojure.core :as c]))
 
-(def account-num
-  "Number of accounts to be created"
-  5)
-
-(def starting-balance
-  "Starting balance of each account"
-  400)
-
-(def max-transfer-amount
-  20)
-
 (defn data-instance-is-main?
   "Find current main. This function shouldn't be executed on coordinator instances because you can easily check if the instance is coordinator."
   [bolt-conn]
@@ -142,8 +131,8 @@
       (info "Deleting all accounts...")
       (mgclient/detach-delete-all session)
       (info "Creating accounts...")
-      (dotimes [i account-num]
-        (mgclient/create-account session {:id i :balance starting-balance})
+      (dotimes [i utils/account-num]
+        (mgclient/create-account session {:id i :balance utils/starting-balance})
         (info "Created account:" i)))
     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
       (info "Initializing main failed because node" node "is down."))
@@ -198,7 +187,7 @@
                                       :value {:accounts accounts
                                               :node node
                                               :total total
-                                              :correct (= total (* account-num starting-balance))})))
+                                              :correct (= total (* utils/account-num utils/starting-balance))})))
                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                              (utils/process-service-unavilable-exc op node))
                            (catch Exception e
@@ -253,21 +242,6 @@
   "Create read action."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
-
-(defn transfer
-  "Transfer money from one account to another by some amount"
-  [_ _]
-  {:type :invoke
-   :f :transfer
-   :value {:from   (rand-int account-num)
-           :to     (rand-int account-num)
-           :amount (+ 1 (rand-int max-transfer-amount))}})
-
-(def valid-transfer
-  "Filter only valid transfers (where :from and :to are different)"
-  (gen/filter (fn [op] (not= (-> op :value :from)
-                             (-> op :value :to)))
-              transfer))
 
 (defn single-read-to-roles
   "Convert single read to roles. Single read is a list of instances."
@@ -380,10 +354,10 @@
                                 (filter #(= :read-balances (:f %))))
             bad-data-reads (->> ok-data-reads
                                 (map #(->> % :value))
-                                (filter #(= (count (:accounts %)) account-num))
+                                (filter #(= (count (:accounts %)) utils/account-num))
                                 (map (fn [value]
                                        (let [balances  (map :balance (:accounts value))
-                                             expected-total (* account-num starting-balance)]
+                                             expected-total (* utils/account-num utils/starting-balance)]
                                          (cond (and
                                                 (not-empty balances)
                                                 (not=
@@ -445,5 +419,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (haclient/ha-gen (gen/mix [show-instances-reads utils/read-balances valid-transfer]))
+     :generator (haclient/ha-gen (gen/mix [show-instances-reads utils/read-balances utils/valid-transfer]))
      :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))

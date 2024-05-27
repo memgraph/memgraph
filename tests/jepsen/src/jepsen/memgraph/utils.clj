@@ -1,7 +1,8 @@
 (ns jepsen.memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
-   [clojure.tools.logging :refer [info]])
+   [clojure.tools.logging :refer [info]]
+   [jepsen.generator :as gen])
   (:import (java.net URI)))
 
 (defn bolt-url
@@ -60,3 +61,28 @@
   "Read the current state of all accounts"
   [_ _]
   {:type :invoke, :f :read-balances, :value nil})
+
+(def account-num
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
+
+(def starting-balance
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
+
+(def max-transfer-amount
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))

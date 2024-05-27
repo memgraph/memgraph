@@ -20,16 +20,6 @@
             [jepsen.memgraph.client :as mgclient]
             [jepsen.memgraph.utils :as utils]))
 
-(def account-num
-  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
-
-(def starting-balance
-  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
-
-(def max-transfer-amount
-  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
-  (+ 20 (rand-int 11)))
-
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
@@ -53,9 +43,10 @@
         (utils/with-session (:conn this) session
           (do
             (mgclient/detach-delete-all session)
-            (dotimes [i account-num]
+            (info "Creating" utils/account-num "accounts")
+            (dotimes [i utils/account-num]
               (info "Creating account:" i)
-              (mgclient/create-account session {:id i :balance starting-balance}))))
+              (mgclient/create-account session {:id i :balance utils/starting-balance}))))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
           (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
@@ -73,7 +64,7 @@
                    :value {:accounts accounts
                            :node (:node this)
                            :total total
-                           :correct (= total (* account-num starting-balance))})))
+                           :correct (= total (* utils/account-num utils/starting-balance))})))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
           (utils/process-service-unavilable-exc op (:node this))))
       :register (if (= (:replication-role this) :main)
@@ -121,21 +112,6 @@
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
 
-(defn transfer
-  "Transfer money from one account to another by some amount"
-  [_ _]
-  {:type :invoke
-   :f :transfer
-   :value {:from   (rand-int account-num)
-           :to     (rand-int account-num)
-           :amount (+ 1 (rand-int max-transfer-amount))}})
-
-(def valid-transfer
-  "Filter only valid transfers (where :from and :to are different)"
-  (gen/filter (fn [op] (not= (-> op :value :from)
-                             (-> op :value :to)))
-              transfer))
-
 (defn bank-checker
   "Balances must all be non-negative and sum to the model's total
   Each node should have at least one read that returned all accounts.
@@ -146,13 +122,13 @@
     (check [_ _ history _]
       (let [ok-reads  (->> history
                            (filter #(= :ok (:type %)))
-                           (filter #(= :read (:f %))))
+                           (filter #(= :read-balances (:f %))))
             bad-reads (->> ok-reads
                            (map #(->> % :value))
-                           (filter #(= (count (:accounts %)) account-num))
+                           (filter #(= (count (:accounts %)) utils/account-num))
                            (map (fn [value]
                                   (let [balances  (map :balance (:accounts value))
-                                        expected-total (* account-num starting-balance)]
+                                        expected-total (* utils/account-num utils/starting-balance)]
                                     (cond (and
                                            (not-empty balances)
                                            (not=
@@ -192,7 +168,7 @@
   "Filters a history to just OK reads. Returns nil if there are none."
   [history]
   (let [h (filter #(and (h/ok? %)
-                        (= :read (:f %)))
+                        (= :read-balances (:f %)))
                   history)]
     (when (seq h)
       (vec h))))
@@ -247,13 +223,10 @@
 (defn workload
   "Basic test workload"
   [opts]
-  (info "Number of accounts:" account-num)
-  (info "Starting balance:" starting-balance)
-  (info "Max transfer amount:" max-transfer-amount)
   {:client    (Client. (:nodes-config opts))
    :checker   (checker/compose
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgclient/replication-gen (gen/mix [utils/read-balances valid-transfer]))
+   :generator (mgclient/replication-gen (gen/mix [utils/read-balances utils/valid-transfer]))
    :final-generator {:clients (gen/once utils/read-balances) :recovery-time 20}})
