@@ -2,7 +2,6 @@
   (:require [clojure.test :refer :all]
             [jepsen.memgraph.utils :as utils]
             [jepsen.memgraph.habank :as habank]
-            [jepsen.memgraph.haempty :as haempty]
             [jepsen.memgraph.client :as client]
             [jepsen.memgraph.large :as large]))
 
@@ -68,35 +67,35 @@
   (testing "Register replicas"
     (is (= (client/register-replicas :1 :2) {:type :invoke, :f :register, :value nil}))))
 
-(deftest haempty-test
+(deftest habank-test
   (testing "HA empty test read operation."
-    (is (= (haempty/reads :1 :2) {:type :invoke, :f :read, :value nil})))
+    (is (= (utils/read-balances :1 :2) {:type :invoke, :f :read-balances, :value nil})))
   (testing "Single read to roles."
     (let [instances (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})]
 
-      (is (= (haempty/single-read-to-roles instances) (list "coordinator" "replica" "main")))))
+      (is (= (habank/single-read-to-roles instances) (list "coordinator" "replica" "main")))))
 
   (testing "Single read to role and health."
     (let [instances (list {:id 1 :role "coordinator" :health "up"} {:id 2 :role "replica" :health "up"} {:id 3 :role "main" :health "up"})]
 
-      (is (= (haempty/single-read-to-role-and-health instances) (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})))))
+      (is (= (habank/single-read-to-role-and-health instances) (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})))))
 
   (testing "Get coordinators."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/get-coordinators instances) (list "coordinator" "coordinator")))))
+      (is (= (habank/get-coordinators instances) (list "coordinator" "coordinator")))))
 
   (testing "Less than 3 coordinators."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/less-than-three-coordinators instances) true))))
+      (is (= (habank/less-than-three-coordinators instances) true))))
 
   (testing "Get mains."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/get-mains instances) (list "main")))))
+      (is (= (habank/get-mains instances) (list "main")))))
 
   (testing "More than 1 main"
     (let [instances (list "main" "coordinator" "main")]
 
-      (is (= (haempty/more-than-one-main instances) true)))))
+      (is (= (habank/more-than-one-main instances) true)))))

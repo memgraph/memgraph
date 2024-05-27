@@ -1,6 +1,7 @@
 (ns jepsen.memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
+   [clojure.string :as string]
    [clojure.tools.logging :refer [info]]
    [jepsen.generator :as gen])
   (:import (java.net URI)))
@@ -86,3 +87,18 @@
   (gen/filter (fn [op] (not= (-> op :value :from)
                              (-> op :value :to)))
               transfer))
+
+(defn query-forbidden-on-main?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "query forbidden on the main"))
+
+(defn query-forbidden-on-replica?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "query forbidden on the replica"))
+
+(defn sync-replica-down?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))

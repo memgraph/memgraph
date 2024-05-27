@@ -177,9 +177,9 @@
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
                 (if (or
-                     (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                     (string/includes? (str e) "query forbidden on the main")
-                     (string/includes? (str e) "query forbidden on the replica"))
+                     (utils/query-forbidden-on-replica? e)
+                     (utils/query-forbidden-on-main? e)
+                     (utils/sync-replica-down? e))
                   (assoc op :type :info :value (str e))
                   (assoc op :type :fail :value (str e))))))
           (assoc op :type :info :value "Not data instance"))
@@ -228,8 +228,8 @@
               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                 (utils/process-service-unavilable-exc op node))
               (catch Exception e
-                (if (or (string/includes? (str e) "query forbidden on the replica")
-                        (string/includes? (str e) "query forbidden on the main"))
+                (if (or (utils/query-forbidden-on-replica? e)
+                        (utils/query-forbidden-on-main? e))
                   (assoc op :type :info :value (str e))
                   (assoc op :type :fail :value (str e))))))
 
