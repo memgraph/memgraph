@@ -10,16 +10,17 @@ import jwt
 import requests
 
 
-def validate_jwt_token(token: str, scheme: str, client_id, tenant_id, type="access"):
+def validate_jwt_token(token: str, scheme: str, config: dict, type="access"):
     jwks_uri = None
     if scheme == "oauth-entra-id":
-        jwks_uri = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
-    else:
-        return {"valid": False, "error": "Unsupported scheme"}
+        jwks_uri = f"https://login.microsoftonline.com/{config['tenant_id']}/discovery/v2.0/keys"
+    elif scheme == "oauth-okta":
+        jwks_uri = f"{config['id_issuer']}/v1/keys"
 
     jwks = requests.get(jwks_uri).json()
 
-    header = jwt.get_unverified_header(token)
+    # need the header to match KID with provider
+    header = jwt.get_unverified_header(token)  # NOSONAR
     if "alg" not in header or header["alg"] != "RS256":
         return {"valid": False, "error": "Invalid algorithm in header"}
 
@@ -30,20 +31,24 @@ def validate_jwt_token(token: str, scheme: str, client_id, tenant_id, type="acce
         if kid == jwk["kid"]:
             try:
                 public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-                decoded_token = jwt.decode(token, key=public_key, algorithms=["RS256"], audience=client_id)
+                if scheme == "oauth-okta" and type == "access":
+                    decoded_token = jwt.decode(
+                        token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
+                    )
+                else:
+                    decoded_token = jwt.decode(
+                        token, key=public_key, algorithms=["RS256"], audience=config["client_id"]
+                    )
             except Exception as e:
                 return {"valid": False, "error": e.args}
 
     if decoded_token is None:
         return {"valid": False, "error": "Matching kid not found"}
 
-    if "aud" not in decoded_token or decoded_token["aud"] != client_id:
-        return {"valid": False, "error": "Invalid audience"}
-
     if decoded_token.get("exp", None) < int(time.time()):
         return {"valid": False, "error": "Token expired"}
 
-    return {"valid": True, f"{type}_token": decoded_token}
+    return {"valid": True, "token": decoded_token}
 
 
 def _parse_response(response):
@@ -65,56 +70,35 @@ def _load_config_from_env(scheme: str):
     config = {}
 
     if scheme == "oauth-entra-id":
-        config["id_issuer"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_ISSUER", "")
-        config["authorization_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_AUTHORIZATION_URL", "")
-        config["token_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_TOKEN_URL", "")
-        config["user_info_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_USER_INFO_URL", "")
-        config["client_id"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CLIENT_ID", "")
-        config["client_secret"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CLIENT_SECRET", "")
-        config["callback_url"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_CALLBACK_URL", "")
-        config["scope"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_SCOPE", "")
-        config["tenant_id"] = os.environ.get("AUTH_OAUTH_ENTRA_ID_TENANT_ID", "")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("AUTH_OAUTH_ENTRA_ID_ROLE_MAPPING", ""))
+        config["client_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_CLIENT_ID", "")
+        config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_TENANT_ID", "")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_ROLE_MAPPING", ""))
 
     elif scheme == "oauth-okta":
-        config["id_issuer"] = os.environ.get("AUTH_OAUTH_OKTA_ISSUER", "")
-        config["authorization_url"] = os.environ.get("AUTH_OAUTH_OKTA_AUTHORIZATION_URL", "")
-        config["token_url"] = os.environ.get("AUTH_OAUTH_OKTA_TOKEN_URL", "")
-        config["client_id"] = os.environ.get("AUTH_OAUTH_OKTA_CLIENT_ID", "")
-        config["client_secret"] = os.environ.get("AUTH_OAUTH_OKTA_CLIENT_SECRET", "")
-        config["callback_url"] = os.environ.get("AUTH_OAUTH_OKTA_CALLBACK_URL", "")
-        config["scope"] = os.environ.get("AUTH_OAUTH_OKTA_SCOPE", "")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("AUTH_OAUTH_OKTA_ROLE_MAPPING", ""))
+        config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_CLIENT_ID", "")
+        config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_ISSUER", "")
+        config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_AUTHORIZATION_SERVER", "")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_ROLE_MAPPING", ""))
 
     return config
 
 
 def decode_tokens(scheme, config, tokens):
-    if scheme == "oauth-entra-id":
-        return validate_jwt_token(tokens["access_token"], scheme, config["client_id"], config["tenant_id"])
-    elif scheme == "oauth-okta":
-        validation_url = f"{config['id_issuer']}/oauth2/v1/introspect"
-        data = {
-            "token": tokens["access_token"],
-            "token_type_hint": "access_token",
-            "client_id": config["client_id"],
-            "client_secret": config["client_secret"],
-        }
-        res = requests.post(validation_url, data=data).json()
-        if "active" not in res or res["active"] == False:
-            return {"valid": False, "error": "Invalid access token"}
-        token = jwt.decode(tokens["access_token"], options={"verify_signature": False})
-        token["username"] = res["username"]
-        return {"valid": True, "access_token": token}
-    else:
-        return {"valid": False, "error": f"Invalid scheme {scheme}"}
+    return (
+        validate_jwt_token(tokens["access_token"], scheme, config, "access"),
+        validate_jwt_token(tokens["id_token"], scheme, config, "id"),
+    )
 
 
-def process_tokens(tokens, config, scheme):
-    if "error" in tokens:
-        return {"authenticated": False, "errors": tokens["error"]}
+def process_tokens(tokens, config):
+    access_token, id_token = tokens
+    if "error" in access_token:
+        return {"authenticated": False, "errors": access_token["error"]}
+    if "error" in id_token:
+        return {"authenticated": False, "errors": id_token["error"]}
 
-    access_token = tokens["access_token"]
+    access_token = access_token["token"]
+    id_token = id_token["token"]
     if "roles" not in access_token:
         return {
             "authenticated": False,
@@ -130,7 +114,7 @@ def process_tokens(tokens, config, scheme):
     return {
         "authenticated": True,
         "role": config["role_mapping"][role],
-        "username": access_token["preferred_username"] if "entra" in scheme else access_token["username"],
+        "username": id_token["sub"],
     }
 
 
@@ -139,12 +123,7 @@ def authenticate(response: str, scheme: str):
         return {"authenticated": False, "error": "Invalid SSO scheme"}
 
     config = _load_config_from_env(scheme)
-
-    tokens = None
-    if scheme in ["oauth-entra-id", "oauth-okta"]:
-        tokens = {"access_token": response}
-    else:
-        tokens = _parse_response(response)
+    tokens = _parse_response(response)
 
     return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
 
