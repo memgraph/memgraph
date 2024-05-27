@@ -326,13 +326,15 @@ std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const 
   if (!role) {
     spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
                                         rolename, "https://memgr.ph/auth"));
+    return std::nullopt;
   }
   auto already_existing_user = GetUser(username);
   if (already_existing_user) {
     spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because a local user {} already exists.",
                                         rolename, "https://memgr.ph/auth"));
+    return std::nullopt;
   }
-  return UserOrRole(auth::RoleWUsername{username, rolename});
+  return UserOrRole(auth::RoleWUsername{username, *role});
 }
 
 std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
@@ -409,13 +411,16 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
   if (!role) {
     spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
                                         rolename, "https://memgr.ph/auth"));
+    return std::nullopt;
   }
   auto already_existing_user = GetUser(username);
   if (already_existing_user) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because a local user {} already exists.",
-                                        rolename, "https://memgr.ph/auth"));
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate external user because a local user {} with the same name already exists.", rolename,
+        "https://memgr.ph/auth"));
+    return std::nullopt;
   }
-  return UserOrRole(auth::RoleWUsername{username, rolename});
+  return UserOrRole(auth::RoleWUsername{username, *role});
 }
 
 void Auth::LinkUser(User &user) const {
