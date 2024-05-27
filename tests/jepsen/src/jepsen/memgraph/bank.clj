@@ -21,15 +21,14 @@
             [jepsen.memgraph.utils :as utils]))
 
 (def account-num
-  "Number of accounts to be created"
-  5)
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
 
 (def starting-balance
-  "Starting balance of each account"
-  400)
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
 
 (def max-transfer-amount
-  20)
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
 
 ; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
 (dbclient/defquery create-account
@@ -68,26 +67,33 @@
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
-      (utils/with-session (:conn this) session
-        (do
-          (mgclient/detach-delete-all session)
-          (dotimes [i account-num]
-            (info "Creating account:" i)
-            (create-account session {:id i :balance starting-balance}))))))
+      (try
+        (utils/with-session (:conn this) session
+          (do
+            (mgclient/detach-delete-all session)
+            (dotimes [i account-num]
+              (info "Creating account:" i)
+              (create-account session {:id i :balance starting-balance}))))
+        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+          (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
     (case (:f op)
       ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
       ; Read always succeeds and returns all accounts.
       ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
-      :read (utils/with-session (:conn this) session
-              (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
-                    total (reduce + (map :balance accounts))]
-                (assoc op
-                       :type :ok
-                       :value {:accounts accounts
-                               :node (:node this)
-                               :total total
-                               :correct (= total (* account-num starting-balance))})))
+      :read
+      (try
+        (utils/with-session (:conn this) session
+          (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                total (reduce + (map :balance accounts))]
+            (assoc op
+                   :type :ok
+                   :value {:accounts accounts
+                           :node (:node this)
+                           :total total
+                           :correct (= total (* account-num starting-balance))})))
+        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+          (utils/process-service-unavilable-exc op (:node this))))
       :register (if (= (:replication-role this) :main)
                   (do
                     (doseq [n (filter #(= (:replication-role (val %))
@@ -100,7 +106,7 @@
                             (second n)) session))
                         (catch Exception _e)))
                     (assoc op :type :ok))
-                  (assoc op :type :fail))
+                  (assoc op :type :info :value "Not main node."))
 
       ; Transfer money from one account to another. Only executed on main.
       ; If the transferring succeeds, return :ok, otherwise return :fail.
@@ -116,11 +122,13 @@
                        (:to transfer-info)
                        (:amount transfer-info)))
                     (assoc op :type :ok)
+                    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                      (utils/process-service-unavilable-exc op (:node this)))
                     (catch Exception e
                       (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
                         (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
                         (assoc op :type :fail :value (str e)))))
-                  (assoc op :type :fail :value "Not main node."))))
+                  (assoc op :type :info :value "Not main node."))))
   ; On teardown! only main will detach-delete-all.
   (teardown! [this _test]
     (when (= (:replication-role this) :main)
@@ -164,7 +172,7 @@
                            (filter #(= :read (:f %))))
             bad-reads (->> ok-reads
                            (map #(->> % :value))
-                           (filter #(= (count (:accounts %)) 5))
+                           (filter #(= (count (:accounts %)) account-num))
                            (map (fn [value]
                                   (let [balances  (map :balance (:accounts value))
                                         expected-total (* account-num starting-balance)]
@@ -262,6 +270,9 @@
 (defn workload
   "Basic test workload"
   [opts]
+  (info "Number of accounts:" account-num)
+  (info "Starting balance:" starting-balance)
+  (info "Max transfer amount:" max-transfer-amount)
   {:client    (Client. (:nodes-config opts))
    :checker   (checker/compose
                {:bank     (bank-checker)

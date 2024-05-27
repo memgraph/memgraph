@@ -14,17 +14,6 @@
   [node]
   (dbclient/connect (URI. (bolt-url node 7687)) "" ""))
 
-(defn bolt+routing-url
-  "Get Bolt+routing server address for connecting to an instance on a particular port.
-  Bolt+routing uses neo4j scheme instead of bolt."
-  [node port]
-  (str "neo4j://" node ":" port))
-
-(defn open-bolt+routing
-  "Open Bolt+routing connection to the node. All instances use port 7687, so it is hardcoded."
-  [node]
-  (dbclient/connect (URI. (bolt+routing-url node 7687)) "" ""))
-
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
   and last 3 are coordinators. It kills a random subset of data instances and with 50% probability 1 coordinator."
@@ -56,3 +45,13 @@
   "Construct a nemesis op"
   [f]
   {:type :info :f f})
+
+(defn node-is-down
+  "Log that a node is down"
+  [node]
+  (str "Node " node " is down"))
+
+(defn process-service-unavilable-exc
+  "Return a map as the result of ServiceUnavailableException."
+  [op node]
+  (assoc op :type :info :value (node-is-down node)))

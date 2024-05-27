@@ -98,7 +98,7 @@
          (not (accounts-exist? bolt-conn)))
     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
       (do
-        (info "Node" node "is down.")
+        (info (utils/node-is-down node))
         false))
     (catch Exception e
       (do
@@ -192,7 +192,7 @@
         ((haclient/set-db-setting "enterprise.license" license) session)
         ((haclient/set-db-setting "organization.name" organization) session))
       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-        (info "Node" (:node this) "is down."))))
+        (info (utils/node-is-down (:node this))))))
 
   (invoke! [this _test op]
     (let [bolt-conn (:bolt-conn this)
@@ -207,8 +207,7 @@
                                             :type :ok
                                             :value {:instances instances :node node})))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                                   ; Even whole assoc can be returned -> so we don't forget :ok
-                                   (assoc op :type :info :value (str "Node " node " is down"))) ; TODO: (abstract this message into a function)
+                                   (utils/process-service-unavilable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coord"))
@@ -225,7 +224,7 @@
                                               :total total
                                               :correct (= total (* account-num starting-balance))})))
                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                             (assoc op :type :info :value (str "Node " node " is down")))
+                             (utils/process-service-unavilable-exc op node))
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
                          (assoc op :type :info :value "Not data instance"))
