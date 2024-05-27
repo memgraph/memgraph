@@ -161,8 +161,8 @@
         {:valid? (and
                   (empty? bad-reads)
                   (empty? empty-nodes))
-         :empty-nodes empty-nodes
-         :bad-reads bad-reads}))))
+         :empty-nodes? (empty? empty-nodes)
+         :empty-bad-reads? (empty? bad-reads)}))))
 
 (defn ok-reads
   "Filters a history to just OK reads. Returns nil if there are none."

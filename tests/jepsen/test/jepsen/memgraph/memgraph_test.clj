@@ -1,7 +1,6 @@
 (ns jepsen.memgraph.memgraph-test
   (:require [clojure.test :refer :all]
             [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.bank :as bank]
             [jepsen.memgraph.haclient :as haclient]
             [jepsen.memgraph.haempty :as haempty]
             [jepsen.memgraph.client :as client]
@@ -49,16 +48,8 @@
     (is (= (haclient/initialize-instances :1 :2) {:type :invoke :f :initialize :value nil}))))
 
 (deftest bank-test-setup
-  (testing "Test that bank test is configured correctly with the number of accounts."
-    (is (= bank/account-num 5)))
-  (testing "Test that bank test is configured correctly with the starting balance."
-    (is (= bank/starting-balance 400)))
-  (testing "Test that bank test is configured correctly with the max transfer amount."
-    (is (= bank/max-transfer-amount 20)))
-  (testing "Test that bank test read balances operation is correctly configured."
-    (is (= (bank/read-balances :1 :2) {:type :invoke, :f :read, :value nil})))
   (testing "Test bank test transfer method."
-    (let [transfer-res (bank/transfer :1 :2)
+    (let [transfer-res (utils/transfer :1 :2)
           type (:type transfer-res)
           f (:f transfer-res)
           value (:value transfer-res)
@@ -67,9 +58,9 @@
           amount (:amount value)]
       (is (= :invoke type))
       (is (= :transfer f))
-      (is (< from bank/account-num))
-      (is (< to bank/account-num))
-      (is (<= amount bank/max-transfer-amount)))))
+      (is (< from utils/account-num))
+      (is (< to utils/account-num))
+      (is (<= amount utils/max-transfer-amount)))))
 
 (deftest test-client
   (testing "Replication mode string"

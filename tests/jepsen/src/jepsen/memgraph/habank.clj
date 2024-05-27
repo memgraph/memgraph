@@ -58,6 +58,7 @@
   "Check if main needs to be initialized. Accepts the name of the node and its bolt connection."
   [bolt-conn node first-main]
   (try
+    (info "Checking if main needs to be initialized..." node)
     (and (= node first-main)
          (is-main? node bolt-conn)
          (not (accounts-exist? bolt-conn)))
@@ -90,7 +91,8 @@
       (utils/with-session bolt-conn session ; Use bolt connection for registering replication instances.
         ((haclient/register-replication-instance
           (first repl-config)
-          (second repl-config)) session))
+          (second repl-config)) session)
+        (info "Registered replication instance:" (first repl-config)))
       (info "Registered replication instance:" (first repl-config))
       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
         (info "Registering instance" (first repl-config) "failed because node" node "is down."))
@@ -106,7 +108,9 @@
     (try
       (utils/with-session bolt-conn session ; Use bolt connection for registering coordinator instances.
         ((haclient/add-coordinator-instance
-          (second coord-config)) session))
+          (second coord-config)) session)
+        (info "Added coordinator:" (first coord-config) "to node" node))
+
       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
         (info "Adding coordinator" (first coord-config) "failed because node" node "is down."))
       (catch Exception e
@@ -117,7 +121,8 @@
   [bolt-conn node first-main]
   (try
     (utils/with-session bolt-conn session ; Use bolt connection for setting instance to main.
-      ((haclient/set-instance-to-main first-main) session))
+      ((haclient/set-instance-to-main first-main) session)
+      (info "Set instance" first-main "to main."))
     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
       (info "Setting instance" first-main "to main failed because node" node "is down."))
     (catch Exception e
@@ -127,6 +132,7 @@
   "Delete existing accounts and create new ones."
   [bolt-conn node]
   (try
+    (info "Initializing main..." node)
     (utils/with-session bolt-conn session
       (info "Deleting all accounts...")
       (mgclient/detach-delete-all session)
@@ -227,7 +233,9 @@
             (register-repl-instances bolt-conn node nodes-config)
             (add-coordinator-instances bolt-conn node first-leader nodes-config)
             (set-instance-to-main bolt-conn node first-main)
-            (assoc op :type :ok)) ; NOTE: This doesn't mean all instances were successfully registered.
+            (info "Initialization finished on first leader.")
+            (assoc op :type :ok) ; NOTE: This doesn't mean all instances were successfully registered.
+            )
           (if (main-to-initialize? bolt-conn node first-main)
             (do
               (initialize-main bolt-conn node) ; NOTE: This doesn't mean that data is all set up 100%.
@@ -394,18 +402,20 @@
                       (empty? more-than-one-main)
                       (empty? bad-data-reads)
                       (empty? empty-data-nodes)
+                      (seq? full-si-reads) ; not-empty idiom
                       (empty? failed-initalizations)
                       (empty? failed-show-instances)
                       (empty? failed-read-balances))
-         :empty-si-nodes empty-si-nodes ; nodes which have all reads empty
-         :coords-missing-reads coords-missing-reads ; coordinators which have missing coordinators in their reads
-         :more-than-one-main-nodes more-than-one-main ; nodes on which more-than-one-main was detected
-         :coordinators coordinators
-         :bad-data-reads bad-data-reads
-         :failed-initalizations failed-initalizations
-         :failed-show-instances failed-show-instances
-         :failed-read-balances failed-read-balances
-         :empty-data-nodes empty-data-nodes}))))
+         :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
+         :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
+         :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
+         :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+         :empty-bad-data-reads? (empty? bad-data-reads)
+         :empty-failed-initalizations? (empty? failed-initalizations)
+         :empty-failed-show-instances? (empty? failed-show-instances)
+         :empty-failed-read-balances? (empty? failed-read-balances)
+         :full-si-reads-exist? (seq? full-si-reads)
+         :empty-data-nodes? (empty? empty-data-nodes)}))))
 
 (defn workload
   "Basic HA workload."
