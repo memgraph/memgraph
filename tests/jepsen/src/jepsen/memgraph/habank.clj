@@ -13,24 +13,14 @@
             [jepsen.memgraph.utils :as utils]
             [clojure.core :as c]))
 
-(defn data-instance-is-main?
-  "Find current main. This function shouldn't be executed on coordinator instances because you can easily check if the instance is coordinator."
-  [bolt-conn]
-  (utils/with-session bolt-conn session
-    (let [result (mgclient/show-repl-role session)
-          role (val (first (seq (first result))))
-          main? (= "main" (str role))]
-      main?)))
+(def registered-replication-instances? (atom false))
+(def added-coordinator-instances? (atom false))
+(def main-set? (atom false))
 
 (defn data-instance?
   "Is node data instances?"
   [node]
   (some #(= % node) #{"n1" "n2" "n3"}))
-
-(defn is-main?
-  "Is node main?"
-  [node bolt-conn]
-  (and (data-instance? node) (data-instance-is-main? bolt-conn)))
 
 (defn coord-instance?
   "Is node coordinator instances?"
@@ -54,96 +44,64 @@
     (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
       (not-empty accounts))))
 
-(defn main-to-initialize?
-  "Check if main needs to be initialized. Accepts the name of the node and its bolt connection."
-  [bolt-conn node first-main]
-  (try
-    (info "Checking if main needs to be initialized..." node)
-    (and (= node first-main)
-         (is-main? node bolt-conn)
-         (not (accounts-exist? bolt-conn)))
-    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-      (do
-        (info (utils/node-is-down node))
-        false))
-    (catch Exception e
-      (do
-        (info "Node" node "failed because" (str e))
-        false))))
-
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
   money."
-  [conn from to amount]
+  [conn op from to amount]
   (dbclient/with-transaction conn tx
     (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
       (mgclient/update-balance tx {:id from :amount (- amount)})
       (mgclient/update-balance tx {:id to :amount amount})))
-  (info "Transfered money from account" from "to account" to "with amount" amount))
+  (info "Transfered money from account" from "to account" to "with amount" amount)
+  (assoc op :type :ok))
 
-(defn register-repl-instances
+(defn register-replication-instances
   "Register replication instances."
-  [bolt-conn node nodes-config]
+  [session nodes-config]
   (doseq [repl-config (filter #(contains? (val %) :replication-port)
                               nodes-config)]
     (try
-      (utils/with-session bolt-conn session ; Use bolt connection for registering replication instances.
-        ((haclient/register-replication-instance
-          (first repl-config)
-          (second repl-config)) session)
-        (info "Registered replication instance:" (first repl-config)))
+      ((haclient/register-replication-instance
+        (first repl-config)
+        (second repl-config)) session)
       (info "Registered replication instance:" (first repl-config))
-      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-        (info "Registering instance" (first repl-config) "failed because node" node "is down."))
       (catch Exception e
-        (info "Registering instance" (first repl-config) "failed because" (str e))))))
+        (if (string/includes? (str e) "name already exists") ; It means already registered
+          (info "Replication instance" (first repl-config) "already registered, continuing to register other replication instances.")
+          (throw e))))))
 
 (defn add-coordinator-instances
-  "Register coordinator instances."
-  [bolt-conn node first-leader nodes-config]
+  "Add coordinator instances."
+  [session myself nodes-config]
   (doseq [coord-config (->> nodes-config
-                            (filter #(not= (key %) first-leader)) ; Don't register itself
+                            (filter #(not= (key %) myself)) ; Don't register itself
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
-      (utils/with-session bolt-conn session ; Use bolt connection for registering coordinator instances.
-        ((haclient/add-coordinator-instance
-          (second coord-config)) session)
-        (info "Added coordinator:" (first coord-config) "to node" node))
-
-      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-        (info "Adding coordinator" (first coord-config) "failed because node" node "is down."))
+      ((haclient/add-coordinator-instance
+        (second coord-config)) session)
+      (info "Added coordinator:" (first coord-config))
       (catch Exception e
-        (info "Adding coordinator" (first coord-config) "failed because" (str e))))))
+        (if (string/includes? (str e) "id already exists")
+          (info "Coordinator instance" (first coord-config) "already exists, continuing to add other coordinator instances.")
+          (throw e))))))
 
 (defn set-instance-to-main
   "Set instance to main."
-  [bolt-conn node first-main]
-  (try
-    (utils/with-session bolt-conn session ; Use bolt connection for setting instance to main.
-      ((haclient/set-instance-to-main first-main) session)
-      (info "Set instance" first-main "to main."))
-    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-      (info "Setting instance" first-main "to main failed because node" node "is down."))
-    (catch Exception e
-      (info "Setting instance" first-main "to main failed because" (str e)))))
+  [session first-main]
+  ((haclient/set-instance-to-main first-main) session)
+  (info "Set instance" first-main "to main."))
 
-(defn initialize-main
+(defn insert-data
   "Delete existing accounts and create new ones."
-  [bolt-conn node]
-  (try
-    (info "Initializing main..." node)
-    (utils/with-session bolt-conn session
-      (info "Deleting all accounts...")
-      (mgclient/detach-delete-all session)
-      (info "Creating accounts...")
-      (dotimes [i utils/account-num]
-        (mgclient/create-account session {:id i :balance utils/starting-balance})
-        (info "Created account:" i)))
-    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-      (info "Initializing main failed because node" node "is down."))
-    (catch Exception e
-      (info "Initializing main failed because" (str e)))))
+  [session op]
+  (info "Deleting all accounts...")
+  (mgclient/detach-delete-all session)
+  (info "Creating accounts...")
+  (dotimes [i utils/account-num]
+    (mgclient/create-account session {:id i :balance utils/starting-balance})
+    (info "Created account:" i))
+  (assoc op :type :ok))
 
 (defrecord Client [nodes-config first-leader first-main license organization]
   client/Client
@@ -204,52 +162,82 @@
         ; If the transferring succeeds, return :ok, otherwise return :fail.
         ; Allow the exception due to down sync replica.
         :transfer
-        (let [transfer-info (:value op)]
-          (try
-            (if (and (is-main? node bolt-conn) (accounts-exist? bolt-conn))
-              (do
+        (if (data-instance? node)
+          (let [transfer-info (:value op)]
+            (try
+              (if (accounts-exist? bolt-conn)
                 (transfer-money
                  bolt-conn
+                 op
                  (:from transfer-info)
                  (:to transfer-info)
-                 (:amount transfer-info))
-                (assoc op :type :ok))
-              (assoc op :type :info :value "Transfer allowed only on initialized main."))
-            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
-            (catch Exception e
-              (if (or
-                   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                   (string/includes? (str e) "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message."))
-                (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
-                (assoc op :type :fail :value (str e))))))
+                 (:amount transfer-info)) ; Returns op
+                (assoc op :type :info :value "Transfer allowed only when accounts exist."))
+              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
+              (catch Exception e
+                (if (or
+                     (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
+                     (string/includes? (str e) "query forbidden on the main")
+                     (string/includes? (str e) "query forbidden on the replica"))
+                  (assoc op :type :info :value (str e))
+                  (assoc op :type :fail :value (str e))))))
+          (assoc op :type :info :value "Not data instance"))
 
-        :initialize
+        :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
-        ; If leader didn't change but registration was done, all this will fail but not critically.
-        ; If leader changes, registration will fail because of `not leader` message and again all good.
-        (if (= node first-leader)
-          (do
-            (register-repl-instances bolt-conn node nodes-config)
-            (add-coordinator-instances bolt-conn node first-leader nodes-config)
-            (set-instance-to-main bolt-conn node first-main)
-            (info "Initialization finished on first leader.")
-            (assoc op :type :ok) ; NOTE: This doesn't mean all instances were successfully registered.
-            )
-          (if (main-to-initialize? bolt-conn node first-main)
-            (do
-              (initialize-main bolt-conn node) ; NOTE: This doesn't mean that data is all set up 100%.
-              (assoc op :type :ok))
-            (assoc op :type :info :value "Not registering on the 1st leader"))))))
+        ; If leader didn't change but registration was done, we won't even try to register -> all good again.
+        ; If leader changes, registration should already be done or not a leader will be printed.
+        (if (= first-leader node)
+
+          (utils/with-session bolt-conn session
+            (try
+              (when (not @registered-replication-instances?)
+                (register-replication-instances session nodes-config)
+                (reset! registered-replication-instances? true))
+
+              (when (not @added-coordinator-instances?)
+                (add-coordinator-instances session node nodes-config)
+                (reset! added-coordinator-instances? true))
+
+              (when (not @main-set?)
+                (set-instance-to-main session first-main)
+                (reset! main-set? true))
+
+              (assoc op :type :ok) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
+
+              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                (info "Registering instances failed because node" node "is down.")
+                (utils/process-service-unavilable-exc op node))
+              (catch Exception e
+                (if (string/includes? (str e) "not a leader")
+                  (assoc op :type :info :value "Not a leader")
+                  (assoc op :type :fail :value (str e))))))
+
+          (assoc op :type :info :value "Not coordinator"))
+
+        :initialize-data
+        (if (data-instance? node)
+
+          (utils/with-session bolt-conn session
+            (try
+              (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
+                (if (empty? accounts)
+                  (insert-data session op) ; Return assoc op :type :ok
+                  (assoc op :type :info :value "Accounts already exist.")))
+              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                (utils/process-service-unavilable-exc op node))
+              (catch Exception e
+                (if (or (string/includes? (str e) "query forbidden on the replica")
+                        (string/includes? (str e) "query forbidden on the main"))
+                  (assoc op :type :info :value (str e))
+                  (assoc op :type :fail :value (str e))))))
+
+          (assoc op :type :info :value "Not data instance")))))
 
   (teardown! [_this _test])
   (close! [this _test]
     (dbclient/disconnect (:bolt-conn this))))
-
-(defn show-instances-reads
-  "Create read action."
-  [_ _]
-  {:type :invoke, :f :show-instances-read, :value nil})
 
 (defn single-read-to-roles
   "Convert single read to roles. Single read is a list of instances."
@@ -301,10 +289,14 @@
   (reify checker/Checker
     (check [_checker _test history _opts]
       ; si prefix stands for show-instances
-      (let [failed-initalizations (->> history
-                                       (filter #(= :fail (:type %)))
-                                       (filter #(= :initialize (:f %)))
-                                       (map :value))
+      (let [failed-setup-cluster (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :setup-cluster (:f %)))
+                                      (map :value))
+            failed-initialize-data (->> history
+                                        (filter #(= :fail (:type %)))
+                                        (filter #(= :initialize-data (:f %)))
+                                        (map :value))
             failed-show-instances (->> history
                                        (filter #(= :fail (:type %)))
                                        (filter #(= :show-instances-read (:f %)))
@@ -403,7 +395,8 @@
                       (empty? bad-data-reads)
                       (empty? empty-data-nodes)
                       (seq? full-si-reads) ; not-empty idiom
-                      (empty? failed-initalizations)
+                      (empty? failed-setup-cluster)
+                      (empty? failed-initialize-data)
                       (empty? failed-show-instances)
                       (empty? failed-read-balances))
          :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
@@ -411,11 +404,33 @@
          :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
          :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
          :empty-bad-data-reads? (empty? bad-data-reads)
-         :empty-failed-initalizations? (empty? failed-initalizations)
+         :empty-failed-setup-cluster? (empty? failed-setup-cluster)
+         :empty-failed-initialize-data? (empty? failed-initialize-data)
          :empty-failed-show-instances? (empty? failed-show-instances)
          :empty-failed-read-balances? (empty? failed-read-balances)
          :full-si-reads-exist? (seq? full-si-reads)
          :empty-data-nodes? (empty? empty-data-nodes)}))))
+
+(defn show-instances-reads
+  "Create read action."
+  [_ _]
+  {:type :invoke, :f :show-instances-read, :value nil})
+
+(defn setup-cluster
+  "Setup cluster operation."
+  [_ _]
+  {:type :invoke :f :setup-cluster :value nil})
+
+(defn initialize-data
+  "Initialize data operation."
+  [_ _]
+  {:type :invoke :f :initialize-data :value nil})
+
+(defn ha-gen
+  "Generator which should be used for HA tests
+  as it adds register replication instance invoke."
+  [generator]
+  (gen/each-thread (gen/phases (cycle [(gen/time-limit 5 generator)]))))
 
 (defn workload
   "Basic HA workload."
@@ -429,5 +444,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (haclient/ha-gen (gen/mix [show-instances-reads utils/read-balances utils/valid-transfer]))
+     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads utils/read-balances utils/valid-transfer]))
      :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))

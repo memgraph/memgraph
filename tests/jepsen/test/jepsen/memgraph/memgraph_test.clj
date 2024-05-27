@@ -1,7 +1,7 @@
 (ns jepsen.memgraph.memgraph-test
   (:require [clojure.test :refer :all]
             [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.haclient :as haclient]
+            [jepsen.memgraph.habank :as habank]
             [jepsen.memgraph.haempty :as haempty]
             [jepsen.memgraph.client :as client]
             [jepsen.memgraph.large :as large]))
@@ -45,7 +45,7 @@
 
 (deftest initialize-instances
   (testing "Test registration replication instances op"
-    (is (= (haclient/initialize-instances :1 :2) {:type :invoke :f :initialize :value nil}))))
+    (is (= (habank/setup-cluster :1 :2) {:type :invoke :f :setup-cluster :value nil}))))
 
 (deftest bank-test-setup
   (testing "Test bank test transfer method."
