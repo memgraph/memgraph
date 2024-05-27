@@ -10,7 +10,7 @@ import jwt
 import requests
 
 
-def validate_jwt_token(token: str, scheme: str, config: dict, type="access"):
+def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
     jwks_uri = None
     if scheme == "oauth-entra-id":
         jwks_uri = f"https://login.microsoftonline.com/{config['tenant_id']}/discovery/v2.0/keys"
@@ -31,7 +31,7 @@ def validate_jwt_token(token: str, scheme: str, config: dict, type="access"):
         if kid == jwk["kid"]:
             try:
                 public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-                if scheme == "oauth-okta" and type == "access":
+                if scheme == "oauth-okta" and token_type == "access":
                     decoded_token = jwt.decode(
                         token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
                     )
