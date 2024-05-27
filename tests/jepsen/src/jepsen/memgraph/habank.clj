@@ -24,35 +24,11 @@
 (def max-transfer-amount
   20)
 
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
-(dbclient/defquery create-account
-  "CREATE (n:Account {id: $id, balance: $balance});")
-
-; Implicit 1st parameter you need to send is txn.
-(dbclient/defquery get-all-accounts
-  "MATCH (n:Account) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id.
-(dbclient/defquery get-account
-  "MATCH (n:Account {id: $id}) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
-(dbclient/defquery update-balance
-  "MATCH (n:Account {id: $id})
-   SET n.balance = n.balance + $amount
-   RETURN n")
-
-(dbclient/defquery get-all-instances
-  "SHOW INSTANCES;")
-
-(dbclient/defquery show-repl-role
-  "SHOW REPLICATION ROLE")
-
 (defn data-instance-is-main?
   "Find current main. This function shouldn't be executed on coordinator instances because you can easily check if the instance is coordinator."
   [bolt-conn]
   (utils/with-session bolt-conn session
-    (let [result (show-repl-role session)
+    (let [result (mgclient/show-repl-role session)
           role (val (first (seq (first result))))
           main? (= "main" (str role))]
       main?)))
@@ -86,7 +62,7 @@
   "Check if accounts are created."
   [conn]
   (utils/with-session conn session
-    (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))]
+    (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
       (not-empty accounts))))
 
 (defn main-to-initialize?
@@ -111,9 +87,9 @@
   money."
   [conn from to amount]
   (dbclient/with-transaction conn tx
-    (when (-> (get-account tx {:id from}) first :n :balance (>= amount))
-      (update-balance tx {:id from :amount (- amount)})
-      (update-balance tx {:id to :amount amount})))
+    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
+      (mgclient/update-balance tx {:id from :amount (- amount)})
+      (mgclient/update-balance tx {:id to :amount amount})))
   (info "Transfered money from account" from "to account" to "with amount" amount))
 
 (defn register-repl-instances
@@ -167,7 +143,7 @@
       (mgclient/detach-delete-all session)
       (info "Creating accounts...")
       (dotimes [i account-num]
-        (create-account session {:id i :balance starting-balance})
+        (mgclient/create-account session {:id i :balance starting-balance})
         (info "Created account:" i)))
     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
       (info "Initializing main failed because node" node "is down."))
@@ -202,7 +178,7 @@
         :show-instances-read (if (coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (->> (get-all-instances session) (reduce conj []))]
+                                   (let [instances (->> (mgclient/get-all-instances session) (reduce conj []))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node})))
@@ -215,7 +191,7 @@
         :read-balances (if (data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
-                             (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+                             (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
                                    total (reduce + (map :balance accounts))]
                                (assoc op
                                       :type :ok
@@ -277,11 +253,6 @@
   "Create read action."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
-
-(defn read-balances
-  "Read the current state of all accounts"
-  [_ _]
-  {:type :invoke, :f :read-balances, :value nil})
 
 (defn transfer
   "Transfer money from one account to another by some amount"
@@ -409,7 +380,7 @@
                                 (filter #(= :read-balances (:f %))))
             bad-data-reads (->> ok-data-reads
                                 (map #(->> % :value))
-                                (filter #(= (count (:accounts %)) 5))
+                                (filter #(= (count (:accounts %)) account-num))
                                 (map (fn [value]
                                        (let [balances  (map :balance (:accounts value))
                                              expected-total (* account-num starting-balance)]
@@ -474,5 +445,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (haclient/ha-gen (gen/mix [show-instances-reads read-balances valid-transfer]))
+     :generator (haclient/ha-gen (gen/mix [show-instances-reads utils/read-balances valid-transfer]))
      :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))

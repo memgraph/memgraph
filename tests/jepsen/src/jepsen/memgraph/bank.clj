@@ -30,33 +30,15 @@
   "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
   (+ 20 (rand-int 11)))
 
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
-(dbclient/defquery create-account
-  "CREATE (n:Account {id: $id, balance: $balance});")
-
-; Implicit 1st parameter you need to send is txn.
-(dbclient/defquery get-all-accounts
-  "MATCH (n:Account) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id.
-(dbclient/defquery get-account
-  "MATCH (n:Account {id: $id}) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
-(dbclient/defquery update-balance
-  "MATCH (n:Account {id: $id})
-   SET n.balance = n.balance + $amount
-   RETURN n")
-
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
   money."
   [conn from to amount]
   (dbclient/with-transaction conn tx
-    (when (-> (get-account tx {:id from}) first :n :balance (>= amount))
-      (update-balance tx {:id from :amount (- amount)})
-      (update-balance tx {:id to :amount amount}))))
+    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
+      (mgclient/update-balance tx {:id from :amount (- amount)})
+      (mgclient/update-balance tx {:id to :amount amount}))))
 
 (defrecord Client [nodes-config]
   client/Client
@@ -73,7 +55,7 @@
             (mgclient/detach-delete-all session)
             (dotimes [i account-num]
               (info "Creating account:" i)
-              (create-account session {:id i :balance starting-balance}))))
+              (mgclient/create-account session {:id i :balance starting-balance}))))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
           (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
@@ -81,10 +63,10 @@
       ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
       ; Read always succeeds and returns all accounts.
       ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
-      :read
+      :read-balances
       (try
         (utils/with-session (:conn this) session
-          (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
+          (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
                 total (reduce + (map :balance accounts))]
             (assoc op
                    :type :ok
@@ -138,11 +120,6 @@
           (catch Exception _)))))
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
-
-(defn read-balances
-  "Read the current state of all accounts"
-  [_ _]
-  {:type :invoke, :f :read, :value nil})
 
 (defn transfer
   "Transfer money from one account to another by some amount"
@@ -278,5 +255,5 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgclient/replication-gen (gen/mix [read-balances valid-transfer]))
-   :final-generator {:clients (gen/once read-balances) :recovery-time 20}})
+   :generator (mgclient/replication-gen (gen/mix [utils/read-balances valid-transfer]))
+   :final-generator {:clients (gen/once utils/read-balances) :recovery-time 20}})

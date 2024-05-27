@@ -55,3 +55,8 @@
   "Return a map as the result of ServiceUnavailableException."
   [op node]
   (assoc op :type :info :value (node-is-down node)))
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
