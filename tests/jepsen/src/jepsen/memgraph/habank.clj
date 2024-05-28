@@ -386,30 +386,53 @@
                                                     (filter #(= node (:node %)))
                                                     (map :accounts)))))
                                     (filter identity)
-                                    (into [])))]
+                                    (into [])))
 
-        {:valid? (and (empty? empty-si-nodes)
-                      (= coordinators #{"n4" "n5" "n6"})
-                      (empty? coords-missing-reads)
-                      (empty? more-than-one-main)
-                      (empty? bad-data-reads)
-                      (empty? empty-data-nodes)
-                      (seq? full-si-reads) ; not-empty idiom
-                      (empty? failed-setup-cluster)
-                      (empty? failed-initialize-data)
-                      (empty? failed-show-instances)
-                      (empty? failed-read-balances))
-         :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
-         :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
-         :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
-         :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
-         :empty-bad-data-reads? (empty? bad-data-reads)
-         :empty-failed-setup-cluster? (empty? failed-setup-cluster)
-         :empty-failed-initialize-data? (empty? failed-initialize-data)
-         :empty-failed-show-instances? (empty? failed-show-instances)
-         :empty-failed-read-balances? (empty? failed-read-balances)
-         :full-si-reads-exist? (seq? full-si-reads)
-         :empty-data-nodes? (empty? empty-data-nodes)}))))
+            result {:valid? (and (empty? empty-si-nodes)
+                                 (= coordinators #{"n4" "n5" "n6"})
+                                 (empty? coords-missing-reads)
+                                 (empty? more-than-one-main)
+                                 (empty? bad-data-reads)
+                                 (empty? empty-data-nodes)
+                                 (seq? full-si-reads) ; not-empty idiom
+                                 (empty? failed-setup-cluster)
+                                 (empty? failed-initialize-data)
+                                 (empty? failed-show-instances)
+                                 (empty? failed-read-balances))
+                    :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
+                    :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
+                    :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
+                    :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                    :empty-bad-data-reads? (empty? bad-data-reads)
+                    :empty-failed-setup-cluster? (empty? failed-setup-cluster)
+                    :empty-failed-initialize-data? (empty? failed-initialize-data)
+                    :empty-failed-show-instances? (empty? failed-show-instances)
+                    :empty-failed-read-balances? (empty? failed-read-balances)
+                    :full-si-reads-exist? (seq? full-si-reads)
+                    :empty-data-nodes? (empty? empty-data-nodes)}]
+
+        (when (not (:correct-coordinators? result))
+          (assoc result :coordinators coordinators))
+
+        (when (not (:empty-si-nodes? result))
+          (assoc result :empty-si-nodes empty-si-nodes))
+
+        (when (not (:empty-data-nodes? result))
+          (assoc result :empty-data-nodes empty-data-nodes))
+
+        (when (not (:empty-failed-setup-cluster? result))
+          (assoc result :failed-setup-cluster failed-setup-cluster))
+
+        (when (not (:empty-failed-initialize-data? result))
+          (assoc result :failed-initialize-data failed-initialize-data))
+
+        (when (not (:empty-failed-show-instances? result))
+          (assoc result :failed-show-instances failed-show-instances))
+
+        (when (not (:empty-failed-read-balances? result))
+          (assoc result :failed-read-balances failed-read-balances))
+
+        result))))
 
 (defn show-instances-reads
   "Create read action."
