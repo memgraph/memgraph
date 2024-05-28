@@ -45,7 +45,7 @@
       (not-empty accounts))))
 
 (defn transfer-money
-  "Transfer money from one account to another by some amount
+  "Transfer money from 1st account to the 2nd by some amount
   if the account you're transfering money from has enough
   money."
   [conn op from to amount]

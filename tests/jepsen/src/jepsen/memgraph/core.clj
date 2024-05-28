@@ -13,6 +13,7 @@
     [support :as support]
     [hanemesis :as hanemesis]
     [nemesis :as nemesis]
+    [utils :as utils]
     [edn :as e]]))
 
 (def workloads
@@ -44,7 +45,7 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
                                :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
@@ -75,7 +76,7 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
                                :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)

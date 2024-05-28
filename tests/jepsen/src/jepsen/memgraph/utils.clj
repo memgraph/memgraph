@@ -3,7 +3,10 @@
    [neo4j-clj.core :as dbclient]
    [clojure.string :as string]
    [clojure.tools.logging :refer [info]]
-   [jepsen.generator :as gen])
+   [jepsen.checker :as checker]
+   [jepsen.generator :as gen]
+   [jepsen.history :as h]
+   [tesser.core :as t])
   (:import (java.net URI)))
 
 (defn bolt-url
@@ -143,3 +146,33 @@
                          (map :accounts)))))
          (filter identity)
          (into []))))
+
+(defn unhandled-exceptions
+  "Wraps jepsen.checker/unhandled-exceptions in a way that if exceptions exist, valid? false is returned.
+  Returns information about unhandled exceptions: a sequence of maps sorted in
+  descending frequency order, each with:
+
+      :class    The class of the exception thrown
+      :count    How many of this exception we observed
+      :example  An example operation"
+  []
+  (reify checker/Checker
+    (check [_this _test history _opts]
+      (let [exes (->> (t/filter h/info?)
+                      (t/filter :exception)
+                      (t/group-by (comp :type first :via :exception))
+                      (t/into [])
+                      (h/tesser history)
+                      vals
+                      (sort-by count)
+                      reverse
+                      (map (fn [ops]
+                             (let [op (first ops)
+                                   e  (:exception op)]
+                               {:count (count ops)
+                                :class (-> e :via first :type)
+                                :example op}))))]
+        (if (seq exes)
+          {:valid?      false
+           :exceptions  exes}
+          {:valid? true})))))
