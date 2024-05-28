@@ -12,9 +12,9 @@ import requests
 
 def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
     jwks_uri = None
-    if scheme == "oauth-entra-id":
+    if scheme == "oidc-entra-id":
         jwks_uri = f"https://login.microsoftonline.com/{config['tenant_id']}/discovery/v2.0/keys"
-    elif scheme == "oauth-okta":
+    elif scheme == "oidc-okta":
         jwks_uri = f"{config['id_issuer']}/v1/keys"
 
     jwks = requests.get(jwks_uri).json()
@@ -31,7 +31,7 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         if kid == jwk["kid"]:
             try:
                 public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-                if scheme == "oauth-okta" and token_type == "access":
+                if scheme == "oidc-okta" and token_type == "access":
                     decoded_token = jwt.decode(
                         token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
                     )
@@ -69,16 +69,18 @@ def _load_role_mappings(raw_role_mappings: str) -> dict:
 def _load_config_from_env(scheme: str):
     config = {}
 
-    if scheme == "oauth-entra-id":
-        config["client_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_CLIENT_ID", "")
-        config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_TENANT_ID", "")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OAUTH_ROLE_MAPPING", ""))
+    if scheme == "oidc-entra-id":
+        config["client_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_CLIENT_ID", "")
+        config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_TENANT_ID", "")
+        config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
 
-    elif scheme == "oauth-okta":
-        config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_CLIENT_ID", "")
-        config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_ISSUER", "")
-        config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_AUTHORIZATION_SERVER", "")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OAUTH_ROLE_MAPPING", ""))
+    elif scheme == "oidc-okta":
+        config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
+        config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
+        config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_AUTHORIZATION_SERVER", "")
+        config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
 
     return config
 
@@ -90,7 +92,7 @@ def decode_tokens(scheme: str, config: dict, tokens: dict):
     )
 
 
-def process_tokens(tokens: tuple, config: dict):
+def process_tokens(tokens: tuple, config: dict, scheme: str):
     access_token, id_token = tokens
     if "error" in access_token:
         return {"authenticated": False, "errors": access_token["error"]}
@@ -105,27 +107,28 @@ def process_tokens(tokens: tuple, config: dict):
             "errors": "Missing roles field, roles are probably not correctly configured on the token issuer",
         }
 
-    roles = access_token["roles"]
+    roles = access_token["roles"] if scheme == "oidc-entra-id" else access_token["groups"]
     role = roles[0] if isinstance(roles, list) else roles
 
     if role not in config["role_mapping"]:
         return {"authenticated": False, "errors": f"Cannot map role {role} to Memgraph role"}
 
+    token_type, field = config["username"].split(":")
     return {
         "authenticated": True,
         "role": config["role_mapping"][role],
-        "username": id_token["sub"],
+        "username": id_token[field] if token_type == "id" else access_token[field],
     }
 
 
 def authenticate(response: str, scheme: str):
-    if scheme not in ["oauth-entra-id", "oauth-okta"]:
+    if scheme not in ["oidc-entra-id", "oidc-okta"]:
         return {"authenticated": False, "error": "Invalid SSO scheme"}
 
     config = _load_config_from_env(scheme)
     tokens = _parse_response(response)
 
-    return process_tokens(decode_tokens(scheme, config, tokens), config)
+    return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
 
 
 if __name__ == "__main__":
