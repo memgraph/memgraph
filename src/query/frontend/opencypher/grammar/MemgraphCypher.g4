@@ -108,6 +108,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -201,6 +202,7 @@ authQuery : createRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
           | showUsers
           | setRole
@@ -328,6 +330,8 @@ createUser : CREATE USER ifNotExists? user=userOrRoleName
 ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
+
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
 
 dropUser : DROP USER user=userOrRoleName ;
 

@@ -560,6 +560,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
+  antlrcpp::Any visitChangePassword(MemgraphCypher::ChangePasswordContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
   antlrcpp::Any visitDropUser(MemgraphCypher::DropUserContext *ctx) override;
 
   /**
