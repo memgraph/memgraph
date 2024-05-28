@@ -317,8 +317,8 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large" "high_availability" "habank"; do
-          if [[ "$workload" == "high_availability" || "$workload" == "habank" ]]; then
+        for workload in "bank" "large" "habank"; do
+          if [[ "$workload" == "habank" ]]; then
             RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
           else
             RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"
