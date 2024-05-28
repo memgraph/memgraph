@@ -106,6 +106,7 @@ NOTHING                 : N O T H I N G ;
 ON_DISK_TRANSACTIONAL   : O N UNDERSCORE D I S K UNDERSCORE T R A N S A C T I O N A L ;
 NULLIF                  : N U L L I F ;
 PASSWORD                : P A S S W O R D ;
+PERIODIC                : P E R I O D I C ;
 PORT                    : P O R T ;
 PRIVILEGES              : P R I V I L E G E S ;
 PULSAR                  : P U L S A R ;

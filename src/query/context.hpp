@@ -93,6 +93,7 @@ struct ExecutionContext {
   std::shared_ptr<utils::AsyncTimer> timer;
   std::shared_ptr<QueryUserOrRole> user_or_role;
   int64_t number_of_hops{0};
+  std::optional<uint64_t> periodic_commit_frequency;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif

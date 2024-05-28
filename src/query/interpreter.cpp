@@ -1924,7 +1924,8 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::optional<uint64_t> periodic_commit_frequency = std::nullopt);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1955,7 +1956,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   std::optional<uint64_t> periodic_commit_frequency)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1987,6 +1989,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
+  ctx_.periodic_commit_frequency = periodic_commit_frequency;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2025,7 +2028,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   utils::Timer timer;
 
   int i = 0;
-  int periodic_idx = 0;
+  uint64_t periodic_index = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
     // stream unsent results from previous pull
     stream_values();
@@ -2041,11 +2044,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
       stream_values();
     }
 
-    periodic_idx++;
-    if (periodic_idx == 1000) {
-      periodic_idx = 0;
+    periodic_index++;
+    if (ctx_.periodic_commit_frequency && *ctx_.periodic_commit_frequency == periodic_index) {
+      periodic_index = 0;
       ctx_.db_accessor->PeriodicCommit();
-      summary->insert_or_assign("has_periodic_executed", 1);
     }
   }
 
@@ -2231,6 +2233,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
+
+  std::optional<size_t> commit_frequency = EvaluateCommitFrequency(evaluator, cypher_query->commit_frequency_);
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2280,7 +2284,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, commit_frequency);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {

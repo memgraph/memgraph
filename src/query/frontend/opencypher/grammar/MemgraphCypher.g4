@@ -102,6 +102,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | PASSWORD
+                      | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -194,7 +195,7 @@ query : cypherQuery
       | showEnumsQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( indexHints )? ( periodicCommit )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -267,6 +268,8 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 indexHints: USING INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
+
+periodicCommit : USING PERIODIC COMMIT periodicCommitNumber=literal ;
 
 callSubquery : CALL '{' cypherQuery '}' ;
 

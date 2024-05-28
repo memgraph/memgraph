@@ -224,6 +224,19 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
   }
 
+  if (auto *periodic_commit = ctx->periodicCommit()) {
+    auto periodic_commit_number = periodic_commit->periodicCommitNumber;
+    if (!periodic_commit_number->numberLiteral()) {
+      throw SyntaxException("Periodic commit should be a number variable.");
+    }
+    if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+      throw SyntaxException("Periodic commit should be an integer.");
+    }
+
+    cypher_query->commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+    ;
+  }
+
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
     const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {

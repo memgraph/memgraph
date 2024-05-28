@@ -33,4 +33,12 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
   return limit * memory_scale;
 }
 
+std::optional<size_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *commit_frequency) {
+  if (!commit_frequency) return std::nullopt;
+  auto frequency_value = commit_frequency->Accept(eval);
+  if (!frequency_value.IsInt() || frequency_value.ValueInt() <= 0)
+    throw QueryRuntimeException("Commit frequency must be a non-negative integer.");
+  return frequency_value.ValueInt();
+}
+
 }  // namespace memgraph::query
