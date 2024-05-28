@@ -1,7 +1,9 @@
 (ns jepsen.memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
-   [clojure.tools.logging :refer [info]])
+   [clojure.string :as string]
+   [clojure.tools.logging :refer [info]]
+   [jepsen.generator :as gen])
   (:import (java.net URI)))
 
 (defn bolt-url
@@ -13,17 +15,6 @@
   "Open Bolt connection to the node. All instances use port 7687, so it is hardcoded."
   [node]
   (dbclient/connect (URI. (bolt-url node 7687)) "" ""))
-
-(defn bolt+routing-url
-  "Get Bolt+routing server address for connecting to an instance on a particular port.
-  Bolt+routing uses neo4j scheme instead of bolt."
-  [node port]
-  (str "neo4j://" node ":" port))
-
-(defn open-bolt+routing
-  "Open Bolt+routing connection to the node. All instances use port 7687, so it is hardcoded."
-  [node]
-  (dbclient/connect (URI. (bolt+routing-url node 7687)) "" ""))
 
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
@@ -56,3 +47,58 @@
   "Construct a nemesis op"
   [f]
   {:type :info :f f})
+
+(defn node-is-down
+  "Log that a node is down"
+  [node]
+  (str "Node " node " is down"))
+
+(defn process-service-unavilable-exc
+  "Return a map as the result of ServiceUnavailableException."
+  [op node]
+  (assoc op :type :info :value (node-is-down node)))
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
+
+(def account-num
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
+
+(def starting-balance
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
+
+(def max-transfer-amount
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))
+
+(defn query-forbidden-on-main?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "query forbidden on the main"))
+
+(defn query-forbidden-on-replica?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "query forbidden on the replica"))
+
+(defn sync-replica-down?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))

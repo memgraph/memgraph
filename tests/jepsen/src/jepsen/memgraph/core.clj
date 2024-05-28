@@ -9,7 +9,6 @@
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
-    [haempty :as haempty]
     [habank :as habank]
     [support :as support]
     [hanemesis :as hanemesis]
@@ -21,7 +20,6 @@
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         haempty/workload
    :habank                    habank/workload})
 
 (def nemesis-configuration

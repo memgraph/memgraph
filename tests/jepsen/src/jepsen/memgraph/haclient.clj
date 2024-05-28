@@ -1,8 +1,7 @@
 (ns jepsen.memgraph.haclient
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
-            [clojure.tools.logging :refer [info]]
-            [jepsen [generator :as gen]]))
+            [clojure.tools.logging :refer [info]]))
 
 (defn register-replication-instance
   [name node-config]
@@ -58,15 +57,3 @@
               ":" (str (:coordinator-port node-config)) "'}")]
      (info "Adding coordinator instance" query)
      query)))
-
-(defn initialize-instances
-  "Initialize operation."
-  [_ _]
-  {:type :invoke :f :initialize :value nil})
-
-(defn ha-gen
-  "Generator which should be used for HA tests
-  as it adds register replication instance invoke."
-  [generator]
-  (gen/each-thread (gen/phases (cycle [(gen/once initialize-instances)
-                                       (gen/time-limit 5 generator)]))))
