@@ -110,9 +110,6 @@ class Memgraph:
             "--auth-module-executable",
             kwargs.pop("module_executable", self._auth_module),
         ]
-        if args[-2:] == ["--auth-module-executable", ""]:
-            args.pop()
-            args.pop()
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
             if isinstance(value, bool):
@@ -120,9 +117,6 @@ class Memgraph:
             else:
                 args.append(ldap_key)
                 args.append(value)
-        if args[-2:] == ["--auth-module-executable", ""]:
-            args.pop()
-            args.pop()
         self._process = subprocess.Popen(args)
         time.sleep(0.1)
         assert self._process.poll() is None, "Memgraph process died prematurely!"
@@ -157,12 +151,12 @@ def initialize_test(memgraph, tester_binary, **kwargs):
 
 def test_module_ux(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, ["CREATE USER user1"], "root", query_should_fail=True)
+    execute_tester(tester_binary, ["CREATE USER user1"], "root", query_should_fail=False)
     execute_tester(tester_binary, ["CREATE ROLE role1"], "root", query_should_fail=False)
-    execute_tester(tester_binary, ["DROP USER user1"], "root", query_should_fail=True)
+    execute_tester(tester_binary, ["SET ROLE FOR user1 TO role1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["CLEAR ROLE FOR user1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["DROP USER user1"], "root", query_should_fail=False)
     execute_tester(tester_binary, ["DROP ROLE role1"], "root", query_should_fail=False)
-    execute_tester(tester_binary, ["SET ROLE FOR user1 TO role1"], "root", query_should_fail=True)
-    execute_tester(tester_binary, ["CLEAR ROLE FOR user1"], "root", query_should_fail=True)
     memgraph.stop()
 
 
