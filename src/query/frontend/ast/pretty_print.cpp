@@ -16,6 +16,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::query {
@@ -90,8 +91,6 @@ void PrintObject(std::ostream *out, const T &arg);
 
 void PrintObject(std::ostream *out, const std::string &str);
 
-void PrintObject(std::ostream *out, storage::Enum val);
-
 void PrintObject(std::ostream *out, Aggregation::Op op);
 
 void PrintObject(std::ostream *out, Expression *expr);
@@ -108,6 +107,8 @@ void PrintObject(std::ostream *out, const std::vector<T> &vec);
 template <typename K, typename V>
 void PrintObject(std::ostream *out, const std::map<K, V> &map);
 
+void PrintObject(std::ostream *out, EnumValueAccess op);
+
 template <typename T>
 void PrintObject(std::ostream *out, const T &arg) {
   static_assert(!std::is_convertible_v<T, Expression *>,
@@ -120,10 +121,6 @@ void PrintObject(std::ostream *out, const T &arg) {
 
 void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
 
-void PrintObject(std::ostream *out, storage::Enum /*val*/) {
-  // TODO: maybe needs to be better
-  *out << "<enum>";
-}
 void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
 
 void PrintObject(std::ostream *out, Expression *expr) {
@@ -184,8 +181,9 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
       PrintObject(out, value.ValueZonedTemporalData());
       break;
     case storage::PropertyValue::Type::Enum:
-      PrintObject(out, value.ValueEnum());
-      break;
+      // PropertyValue in AST is used just in PrimitiveLiteral, which doesn't have enum value by grammar
+      throw utils::NotYetImplemented(
+          "Enum as property value in plan print is not expected. Please contact Memgraph support team.");
   }
 }
 
@@ -206,6 +204,8 @@ void PrintObject(std::ostream *out, const std::map<K, V> &map) {
   });
   *out << "}";
 }
+
+void PrintObject(std::ostream *out, EnumValueAccess op) { *out << op.enum_name_ << "::" << op.enum_value_; }
 
 template <typename T>
 void PrintOperatorArgs(std::ostream *out, const T &arg) {
@@ -344,9 +344,7 @@ void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
   PrintOperator(out_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
 }
 
-void ExpressionPrettyPrinter::Visit(EnumValueAccess &op) {
-  PrintOperator(out_, "EnumValue", op.enum_name_, "::", op.enum_value_);
-}
+void ExpressionPrettyPrinter::Visit(EnumValueAccess &op) { PrintObject(out_, op); }
 
 }  // namespace
 
