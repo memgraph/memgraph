@@ -10,16 +10,14 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "flags/audit.hpp"
-#include "flags/auth.hpp"
-#include "flags/bolt.hpp"
-#include "flags/coordination.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+#include "gflags/gflags.h"
+
+// Auth flags.
+
+// NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(auth_module_mappings);
+DECLARE_int32(auth_module_timeout_ms);
+DECLARE_string(auth_user_or_role_name_regex);
+DECLARE_bool(auth_password_permit_null);
+DECLARE_string(auth_password_strength_regex);
+// NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)

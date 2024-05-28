@@ -151,12 +151,12 @@ def initialize_test(memgraph, tester_binary, **kwargs):
 
 def test_module_ux(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, ["CREATE USER user1"], "root", query_should_fail=True)
+    execute_tester(tester_binary, ["CREATE USER user1"], "root", query_should_fail=False)
     execute_tester(tester_binary, ["CREATE ROLE role1"], "root", query_should_fail=False)
-    execute_tester(tester_binary, ["DROP USER user1"], "root", query_should_fail=True)
+    execute_tester(tester_binary, ["SET ROLE FOR user1 TO role1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["CLEAR ROLE FOR user1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["DROP USER user1"], "root", query_should_fail=False)
     execute_tester(tester_binary, ["DROP ROLE role1"], "root", query_should_fail=False)
-    execute_tester(tester_binary, ["SET ROLE FOR user1 TO role1"], "root", query_should_fail=True)
-    execute_tester(tester_binary, ["CLEAR ROLE FOR user1"], "root", query_should_fail=True)
     memgraph.stop()
 
 

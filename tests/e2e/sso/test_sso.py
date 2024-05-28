@@ -62,7 +62,7 @@ def provide_role():
     interactive_mg_runner.stop_instance(INSTANCE_DESCRIPTION, INSTANCE_NAME)
 
 
-def test_sso_empty_module():
+def test_sso_with_no_module_provided():
     interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
     response = base64.b64encode(b"dummy_value").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")

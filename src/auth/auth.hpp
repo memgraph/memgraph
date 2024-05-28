@@ -90,7 +90,6 @@ class Auth final {
   enum class Result {
     SUCCESS,
     NO_USER_ROLE,
-    NO_ROLE,
   };
 
   explicit Auth(std::string storage_directory, Config config);
@@ -124,7 +123,7 @@ class Auth final {
   std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
 
   /**
-   * Authenticates a user using a bearer token, i.e. a identity provider response. Requires an external auth module.
+   * Authenticates a user using the identity provider response/token. Requires an external auth module.
    *
    * @param response
    *
@@ -420,10 +419,6 @@ class Auth final {
     }
 
     return true;
-  }
-
-  void DisableIfUsingAuthModule() const {
-    if (UsingAuthModule()) throw AuthException("Operation not permited when using an authentication module.");
   }
 
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,

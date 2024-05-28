@@ -21,9 +21,11 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/metrics.hpp"
+#include "flags/auth.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -87,14 +89,30 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     data["scheme"] = "none";
   }
 
+  auto scheme_in_module_mappings = [](const std::string &auth_scheme) {
+    if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
+      return false;
+    }
+    for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
+      if (auth_scheme == std::string{utils::Trim(utils::Split(mapping, ":")[0])}) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (data["scheme"].ValueString() == "basic" || data["scheme"].ValueString() == "none") {
     return BasicAuthentication(session, data);
-  } else if (std::set<std::string>{"saml-entra-id", "oauth-entra-id", "oidc-entra-id", "saml-okta", "oauth-okta"}
-                 .contains(data["scheme"].ValueString())) {
+  } else if (scheme_in_module_mappings(data["scheme"].ValueString())) {
     return SSOAuthentication(session, data);
   }
 
-  spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
+  spdlog::warn(
+      "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
+      "flag or isn’t otherwise supported",
+      data["scheme"].ValueString());
+  HandleAuthFailure(session);
+
   return State::Close;
 }
 

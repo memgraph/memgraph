@@ -18,7 +18,7 @@ startup_config_dict = {
         "",
         "",
         "Associates auth schemas to external modules. A mapping is structured as "
-        "follows: <scheme>: <absolute path>, and individual mappings are separated "
+        'follows: "<scheme>: <absolute path>", and individual mappings are separated '
         'with ";".',
     ),
     "auth_module_timeout_ms": (
