@@ -66,7 +66,10 @@
                            :total total
                            :correct (= total (* utils/account-num utils/starting-balance))})))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-          (utils/process-service-unavilable-exc op (:node this))))
+          (utils/process-service-unavilable-exc op (:node this)))
+        (catch Exception e
+          (assoc op :type :fail :value (str e))))
+
       :register (if (= (:replication-role this) :main)
                   (do
                     (doseq [n (filter #(= (:replication-role (val %))
@@ -123,17 +126,40 @@
       (let [ok-reads  (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :read-balances (:f %))))
+
             bad-reads (utils/analyze-bank-data-reads ok-reads utils/account-num utils/starting-balance)
+
             empty-nodes (utils/analyze-empty-data-nodes ok-reads)
+
+            failed-read-balances (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :read-balances (:f %)))
+                                      (map :value))
+
+            failed-transfers (->> history
+                                  (filter #(= :fail (:type %)))
+                                  (filter #(= :transfer (:f %)))
+                                  (map :value))
+
+            failed-registrations (->> history
+                                      (filter #(= :fail (:type %)))
+                                      (filter #(= :register (:f %)))
+                                      (map :value))
 
             initial-result {:valid? (and
                                      (empty? bad-reads)
                                      (empty? empty-nodes))
                             :empty-nodes? (empty? empty-nodes)
-                            :empty-bad-reads? (empty? bad-reads)}
+                            :empty-bad-reads? (empty? bad-reads)
+                            :empty-failed-read-balances? (empty? failed-read-balances)
+                            :empty-failed-transfers? (empty? failed-transfers)
+                            :empty-failed-registrations? (empty? failed-registrations)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}
-                     {:key :empty-bad-reads :condition (not (:empty-bad-reads? initial-result)) :value bad-reads}]]
+                     {:key :empty-bad-reads :condition (not (:empty-bad-reads? initial-result)) :value bad-reads}
+                     {:key :empty-failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
+                     {:key :empty-failed-transfers :condition (not (:empty-failed-transfers? initial-result)) :value failed-transfers}
+                     {:key :empty-failed-registrations :condition (not (:empty-failed-registrations? initial-result)) :value failed-registrations}]]
 
         (reduce (fn [result update]
                   (if (:condition update)
