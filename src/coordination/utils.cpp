@@ -28,15 +28,25 @@ using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::srv_config;
 using nuraft::state_machine;
+
+namespace {
+constexpr std::string_view kServers = "servers";
+constexpr std::string_view kPrevLogIdx = "prev_log_idx";
+constexpr std::string_view kLogIdx = "log_idx";
+constexpr std::string_view kAsyncReplication = "async_replication";
+constexpr std::string_view kUserCtx = "user_ctx";
+
+}  // namespace
+
 namespace memgraph::coordination {
 
 auto DeserializeClusterConfig(nlohmann::json const &json_cluster_config) -> ptr<cluster_config> {
-  auto servers = json_cluster_config.at("servers").get<std::vector<std::tuple<int, std::string, std::string>>>();
+  auto servers = json_cluster_config.at(kServers.data()).get<std::vector<std::tuple<int, std::string, std::string>>>();
 
-  auto prev_log_idx = json_cluster_config.at("prev_log_idx").get<int64_t>();
-  auto log_idx = json_cluster_config.at("log_idx").get<int64_t>();
-  auto async_replication = json_cluster_config.at("async_replication").get<bool>();
-  auto user_ctx = json_cluster_config.at("user_ctx").get<std::string>();
+  auto prev_log_idx = json_cluster_config.at(kPrevLogIdx.data()).get<int64_t>();
+  auto log_idx = json_cluster_config.at(kLogIdx.data()).get<int64_t>();
+  auto async_replication = json_cluster_config.at(kAsyncReplication.data()).get<bool>();
+  auto user_ctx = json_cluster_config.at(kUserCtx.data()).get<std::string>();
   auto new_cluster_config = cs_new<cluster_config>(log_idx, prev_log_idx, async_replication);
   new_cluster_config->set_user_ctx(user_ctx);
   for (auto &real_server : servers) {
@@ -59,11 +69,11 @@ auto SerializeClusterConfig(cluster_config const &cluster_config) -> nlohmann::j
             return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
           }) |
       ranges::to<std::vector>();
-  auto json = nlohmann::json{{"servers", servers_vec},
-                             {"prev_log_idx", cluster_config.get_prev_log_idx()},
-                             {"log_idx", cluster_config.get_log_idx()},
-                             {"async_replication", cluster_config.is_async_replication()},
-                             {"user_ctx", cluster_config.get_user_ctx()}};
+  auto json = nlohmann::json{{kServers, servers_vec},
+                             {kPrevLogIdx, cluster_config.get_prev_log_idx()},
+                             {kLogIdx, cluster_config.get_log_idx()},
+                             {kAsyncReplication, cluster_config.is_async_replication()},
+                             {kUserCtx, cluster_config.get_user_ctx()}};
   return json;
 }
 }  // namespace memgraph::coordination

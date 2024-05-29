@@ -18,6 +18,10 @@
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
+#include <spdlog/spdlog.h>
+
+#include "utils.hpp"
+
 namespace memgraph::coordination {
 
 using nuraft::cluster_config;
@@ -27,7 +31,16 @@ using nuraft::srv_state;
 using nuraft::state_mgr;
 
 namespace {
-constexpr std::string_view kServersKey = "servers";  // Key prefix for servers durability
+constexpr std::string_view kClusterConfigKey = "cluster_config";  // Key prefix for cluster_config durability
+
+constexpr std::string_view kServerStateKey = "server_state";  // Key prefix for server state durability
+constexpr std::string_view kVotedFor = "voted_for";
+constexpr std::string_view kTerm = "term";
+constexpr std::string_view kElectionTimer = "election_timer";
+
+constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
+constexpr int kActiveStateManagerDurabilityVersion = 1;
+
 }  // namespace
 
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
@@ -43,30 +56,33 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
+
+  int version{0};
+  auto maybe_version = kv_store_.Get(kStateManagerDurabilityVersionKey);
+  if (maybe_version.has_value()) {
+    version = std::stoi(maybe_version.value());
+  } else {
+    spdlog::trace("Assuming first start of state manager with durability as version is missing, storing version 1.");
+    MG_ASSERT(kv_store_.Put(kStateManagerDurabilityVersionKey, std::to_string(kActiveStateManagerDurabilityVersion)),
+              "Failed to store version to disk");
+    version = 1;
+  }
+
+  MG_ASSERT(version <= kActiveStateManagerDurabilityVersion && version > 0,
+            "Unsupported version of log store with durability");
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
-  auto const servers = kv_store_.Get(kServersKey);
-  if (!servers.has_value()) {
+  auto const maybe_cluster_config = kv_store_.Get(kClusterConfigKey);
+  if (!maybe_cluster_config.has_value()) {
     logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
   }
-  auto const json = nlohmann::json::parse(servers.value());
-  auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
-  auto new_cluster_config = cs_new<cluster_config>(cluster_config_->get_log_idx(), cluster_config_->get_prev_log_idx());
+  auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
-  for (auto &real_server : real_servers) {
-    auto &[coord_id, endpoint, aux] = real_server;
-    logger_.Log(nuraft_log_level::TRACE,
-                fmt::format("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.", coord_id,
-                            endpoint, aux));
-    auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
-    new_cluster_config->get_servers().push_back(std::move(one_server_config));
-  }
-  cluster_config_ = new_cluster_config;
+  cluster_config_ = DeserializeClusterConfig(cluster_config_json);
   logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
-  spdlog::trace("Loaded cluster config from disk.");
   return cluster_config_;
 }
 
@@ -74,30 +90,35 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   logger_.Log(nuraft_log_level::TRACE, "Saving cluster config to RocksDb");
-  auto const servers_vec =
-      ranges::views::transform(
-          cluster_config_->get_servers(),
-          [this](auto const &server) {
-            logger_.Log(nuraft_log_level::TRACE,
-                        fmt::format("Creating cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
-                                    static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()));
-            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
-          }) |
-      ranges::to<std::vector>();
-  kv_store_.Put(kServersKey, nlohmann::json(servers_vec).dump());
-  // TODO(antoniofilipovic): extend storing of everything here not just servers
+  auto json = SerializeClusterConfig(config);
+  MG_ASSERT(kv_store_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
-  // TODO(antoniofilipovic): Implement storing of server state to disk. For now
-  // as server state is just term and voted_for, we don't have to store it
   logger_.Log(nuraft_log_level::TRACE, "Saving server state in coordinator state manager.");
+
+  auto const server_state_json = nlohmann::json{{kTerm, state.get_term()},
+                                                {kVotedFor, state.get_voted_for()},
+                                                {kElectionTimer, state.is_election_timer_allowed()}};
+  MG_ASSERT(kv_store_.Put(kServerStateKey, server_state_json.dump()), "Couldn't store server state to disk.");
+
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
 }
 
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
   logger_.Log(nuraft_log_level::TRACE, "Reading server state in coordinator state manager.");
+
+  auto const maybe_server_state = kv_store_.Get(kServerStateKey);
+  if (!maybe_server_state.has_value()) {
+    spdlog::trace("Didn't find anything stored on disk for server state.");
+    return saved_state_;
+  }
+  auto server_state_json = nlohmann::json::parse(maybe_server_state.value());
+  auto const term = server_state_json.at(kTerm.data()).get<ulong>();
+  auto const voted_for = server_state_json.at(kVotedFor.data()).get<int>();
+  auto const election_timer = server_state_json.at(kElectionTimer.data()).get<bool>();
+  saved_state_ = cs_new<srv_state>(term, voted_for, election_timer);
   return saved_state_;
 }
 
