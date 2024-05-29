@@ -20,7 +20,7 @@ namespace memgraph::io::network {
 
 static_assert(std::forward_iterator<AddrInfo::Iterator> && std::equality_comparable<AddrInfo::Iterator>);
 
-AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetAddress(), endpoint.GetPort()) {}
+AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetResolvedIPAddress(), endpoint.GetPort()) {}
 
 AddrInfo::AddrInfo(const std::string &addr, uint16_t port) : info_{nullptr, nullptr} {
   addrinfo hints{
