@@ -50,11 +50,13 @@ def load_workloads(root_directory):
 
 def run(args):
     workloads = load_workloads(args.workloads_root_directory)
+    workload_time = dict()
     for workload in workloads:
         workload_name = workload["name"]
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
+        start_time = time.time()
 
         # Setup.
         @atexit.register
@@ -99,6 +101,13 @@ def run(args):
                 conn.close()
         cleanup(keep_directories=False)
         log.info("%s PASSED.", workload_name)
+        test_time = time.time() - start_time
+        log.info("%s FINISHED in %.2f seconds.", workload_name, test_time)
+        workload_time[workload_name] = test_time
+
+    sorted_workload_times = sorted(workload_time.items(), key=lambda x: x[1], reverse=True)
+    for workload_name, test_time in sorted_workload_times:
+        log.info("%s took %.2f seconds", workload_name, test_time)
 
 
 if __name__ == "__main__":
