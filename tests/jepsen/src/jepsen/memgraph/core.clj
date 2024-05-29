@@ -59,7 +59,7 @@
         gen      (->> (:generator workload)
                       (gen/nemesis (:generator nemesis))
                       (gen/time-limit (:time-limit opts)))
-        gen      (if-let [final-generator (:final-generator workload)] ; TODO (andi) Shouldn't here gen be named final-gen
+        gen      (if-let [final-generator (:final-generator workload)]
                    (gen/phases gen
                                (gen/log "Healing cluster.")
                                (gen/nemesis (:final-generator nemesis))
@@ -114,23 +114,6 @@
           ":replication-mode to be defined.")))
   nodes-config)
 
-(def cli-opts
-  "CLI options for tests."
-  [[nil "--package-url URL" "What package of Memgraph should we test?"
-    :default nil
-    :validate [nil? "Memgraph package-url setup not yet implemented."]]
-   [nil "--local-binary PATH" "Ignore package; use this local binary instead."
-    :default "/opt/memgraph/memgraph"
-    :validate [#(and (some? %) (not-empty %)) "local-binary should be defined."]]
-   ["-w" "--workload NAME" "Test workload to run"
-    :parse-fn keyword
-    :validate [workloads (cli/one-of workloads)]]
-   ["-l" "--license KEY" "Memgraph license key"
-    :default nil]
-   ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
-   [nil "--nodes-config PATH" "Path to a file containing the config for each node."
-    :parse-fn #(-> % e/load-configuration)]])
-
 (defn single-test
   "Takes base CLI options and constructs a single test."
   [opts]
@@ -159,6 +142,23 @@
     (if (or (= workload :high_availability) (= workload :habank))
       (memgraph-ha-test test-opts)
       (memgraph-test test-opts))))
+
+(def cli-opts
+  "CLI options for tests."
+  [[nil "--package-url URL" "What package of Memgraph should we test?"
+    :default nil
+    :validate [nil? "Memgraph package-url setup not yet implemented."]]
+   [nil "--local-binary PATH" "Ignore package; use this local binary instead."
+    :default "/opt/memgraph/memgraph"
+    :validate [#(and (some? %) (not-empty %)) "local-binary should be defined."]]
+   ["-w" "--workload NAME" "Test workload to run"
+    :parse-fn keyword
+    :validate [workloads (cli/one-of workloads)]]
+   ["-l" "--license KEY" "Memgraph license key"
+    :default nil]
+   ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
+   [nil "--nodes-config PATH" "Path to a file containing the config for each node."
+    :parse-fn #(-> % e/load-configuration)]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for

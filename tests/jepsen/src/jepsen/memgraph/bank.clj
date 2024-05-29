@@ -6,7 +6,6 @@
   should be consistent."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [clojure.string :as string]
             [clojure.core.reducers :as r]
             [jepsen
              [store :as store]
@@ -101,8 +100,10 @@
                     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                       (utils/process-service-unavilable-exc op (:node this)))
                     (catch Exception e
-                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                      (if (or
+                           (utils/sync-replica-down? e)
+                           (utils/conflicting-txns? e))
+                        (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
                         (assoc op :type :fail :value (str e)))))
                   (assoc op :type :info :value "Not main node."))))
   ; On teardown! only main will detach-delete-all.
@@ -148,7 +149,11 @@
 
             initial-result {:valid? (and
                                      (empty? bad-reads)
-                                     (empty? empty-nodes))
+                                     (empty? empty-nodes)
+                                     (empty? failed-read-balances)
+                                     (empty? failed-transfers)
+                                     (empty? failed-registrations))
+
                             :empty-nodes? (empty? empty-nodes)
                             :empty-bad-reads? (empty? bad-reads)
                             :empty-failed-read-balances? (empty? failed-read-balances)
