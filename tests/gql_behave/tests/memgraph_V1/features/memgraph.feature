@@ -169,3 +169,14 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n) WHERE n.s <= Status::Bad RETURN n
             """
         Then an error should be raised
+
+    Scenario: Compare enum values for inequality:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        When executing query:
+            """
+            RETURN Status::Good != Status::Good AS result1, Status::Good != Status::Bad AS result2
+            """
+        Then the result should be:
+            | result1 | result2 |
+            | false   | true    |
