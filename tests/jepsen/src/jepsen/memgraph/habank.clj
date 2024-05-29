@@ -79,7 +79,7 @@
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
       ((haclient/add-coordinator-instance
-        (second coord-config)) session)
+        (first coord-config) (second coord-config)) session)
       (info "Added coordinator:" (first coord-config))
       (catch Exception e
         (if (string/includes? (str e) "id already exists")
@@ -357,27 +357,27 @@
             empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
 
             initial-result {:valid? (and (empty? empty-si-nodes)
-                                 (= coordinators #{"n4" "n5" "n6"})
-                                 (empty? coords-missing-reads)
-                                 (empty? more-than-one-main)
-                                 (empty? bad-data-reads)
-                                 (empty? empty-data-nodes)
-                                 (seq? full-si-reads) ; not-empty idiom
-                                 (empty? failed-setup-cluster)
-                                 (empty? failed-initialize-data)
-                                 (empty? failed-show-instances)
-                                 (empty? failed-read-balances))
-                    :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
-                    :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
-                    :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
-                    :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
-                    :empty-bad-data-reads? (empty? bad-data-reads)
-                    :empty-failed-setup-cluster? (empty? failed-setup-cluster)
-                    :empty-failed-initialize-data? (empty? failed-initialize-data)
-                    :empty-failed-show-instances? (empty? failed-show-instances)
-                    :empty-failed-read-balances? (empty? failed-read-balances)
-                    :full-si-reads-exist? (seq? full-si-reads)
-                    :empty-data-nodes? (empty? empty-data-nodes)}
+                                         (= coordinators #{"n4" "n5" "n6"})
+                                         (empty? coords-missing-reads)
+                                         (empty? more-than-one-main)
+                                         (empty? bad-data-reads)
+                                         (empty? empty-data-nodes)
+                                         (seq? full-si-reads) ; not-empty idiom
+                                         (empty? failed-setup-cluster)
+                                         (empty? failed-initialize-data)
+                                         (empty? failed-show-instances)
+                                         (empty? failed-read-balances))
+                            :empty-si-nodes? (empty? empty-si-nodes) ; nodes which have all reads empty
+                            :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
+                            :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
+                            :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                            :empty-bad-data-reads? (empty? bad-data-reads)
+                            :empty-failed-setup-cluster? (empty? failed-setup-cluster)
+                            :empty-failed-initialize-data? (empty? failed-initialize-data)
+                            :empty-failed-show-instances? (empty? failed-show-instances)
+                            :empty-failed-read-balances? (empty? failed-read-balances)
+                            :full-si-reads-exist? (seq? full-si-reads)
+                            :empty-data-nodes? (empty? empty-data-nodes)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :empty-si-nodes :condition (not (:empty-si-nodes? initial-result)) :value empty-si-nodes}

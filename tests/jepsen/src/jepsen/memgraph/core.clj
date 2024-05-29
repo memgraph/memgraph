@@ -1,7 +1,6 @@
 (ns jepsen.memgraph.core
   (:gen-class)
   (:require
-   [clojure.java.shell :refer [sh]]
    [jepsen [cli :as cli]
     [checker :as checker]
     [generator :as gen]
@@ -82,27 +81,6 @@
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
 
-(defn resolve-hostname
-  "Resolve hostnames to ip address"
-  [host]
-  (first
-   (re-find
-    #"(\d{1,3}(.\d{1,3}){3})"
-    (:out (sh "getent" "hosts" host)))))
-
-(defn resolve-all-node-hostnames
-  "Resolve all hostnames in config and assign it to the node."
-  [nodes-config]
-
-  (reduce (fn [curr node]
-            (let [k (first node)
-                  v (second node)]
-              (assoc curr
-                     k (assoc v
-                              :ip (resolve-hostname k)))))
-          {}
-          nodes-config))
-
 (defn throw-if-key-missing-in-any
   [map-coll key error-msg]
   (when-not (every? #(contains? % key) map-coll)
@@ -161,8 +139,8 @@
                    (throw (Exception. "Workload undefined!")))
         nodes-config (if (:nodes-config opts)
                        (if (or (= workload :high_availability) (= workload :habank))
-                         (resolve-all-node-hostnames (:nodes-config opts))
-                         (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))) ; validate only if not HA
+                         (:nodes-config opts)
+                         (validate-nodes-configuration (:nodes-config opts))) ; validate only if not HA
                        (throw (Exception. "Nodes config flag undefined!")))
         ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
         sync-after-n-txn (if (or (= workload :bank) (= workload :habank))
