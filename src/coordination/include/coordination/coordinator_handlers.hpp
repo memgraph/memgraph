@@ -52,13 +52,10 @@ class CoordinatorHandlers {
   template <typename TResponse>
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config, slk::Builder *res_builder) -> bool {
-    auto const converter = [](const auto &repl_info_config) {
-      return replication::ReplicationClientConfig{
-          .name = repl_info_config.instance_name,
-          .mode = repl_info_config.replication_mode,
-          .ip_address = repl_info_config.replication_server.GetAddress(),
-          .port = repl_info_config.replication_server.GetPort(),
-      };
+    auto const converter = [&config](const auto &repl_info_config) {
+      return replication::ReplicationClientConfig{.name = repl_info_config.instance_name,
+                                                  .mode = repl_info_config.replication_mode,
+                                                  .repl_server_endpoint = config.replication_server};
     };
 
     auto instance_client = replication_handler.RegisterReplica(converter(config));

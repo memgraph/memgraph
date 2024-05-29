@@ -20,44 +20,15 @@
             [jepsen.memgraph.client :as mgclient]
             [jepsen.memgraph.utils :as utils]))
 
-(def account-num
-  "Number of accounts to be created"
-  5)
-
-(def starting-balance
-  "Starting balance of each account"
-  400)
-
-(def max-transfer-amount
-  20)
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
-(dbclient/defquery create-account
-  "CREATE (n:Account {id: $id, balance: $balance});")
-
-; Implicit 1st parameter you need to send is txn.
-(dbclient/defquery get-all-accounts
-  "MATCH (n:Account) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id.
-(dbclient/defquery get-account
-  "MATCH (n:Account {id: $id}) RETURN n;")
-
-; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
-(dbclient/defquery update-balance
-  "MATCH (n:Account {id: $id})
-   SET n.balance = n.balance + $amount
-   RETURN n")
-
 (defn transfer-money
   "Transfer money from one account to another by some amount
   if the account you're transfering money from has enough
   money."
   [conn from to amount]
   (dbclient/with-transaction conn tx
-    (when (-> (get-account tx {:id from}) first :n :balance (>= amount))
-      (update-balance tx {:id from :amount (- amount)})
-      (update-balance tx {:id to :amount amount}))))
+    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
+      (mgclient/update-balance tx {:id from :amount (- amount)})
+      (mgclient/update-balance tx {:id to :amount amount}))))
 
 (defrecord Client [nodes-config]
   client/Client
@@ -68,26 +39,34 @@
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
-      (utils/with-session (:conn this) session
-        (do
-          (mgclient/detach-delete-all session)
-          (dotimes [i account-num]
-            (info "Creating account:" i)
-            (create-account session {:id i :balance starting-balance}))))))
+      (try
+        (utils/with-session (:conn this) session
+          (do
+            (mgclient/detach-delete-all session)
+            (info "Creating" utils/account-num "accounts")
+            (dotimes [i utils/account-num]
+              (info "Creating account:" i)
+              (mgclient/create-account session {:id i :balance utils/starting-balance}))))
+        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+          (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
     (case (:f op)
       ; Create a map with the following structure: {:type :ok :value {:accounts [account1 account2 ...] :node node}}
       ; Read always succeeds and returns all accounts.
       ; Node is a variable, not an argument to the function. It indicated current node on which action :read is being executed.
-      :read (utils/with-session (:conn this) session
-              (let [accounts (->> (get-all-accounts session) (map :n) (reduce conj []))
-                    total (reduce + (map :balance accounts))]
-                (assoc op
-                       :type :ok
-                       :value {:accounts accounts
-                               :node (:node this)
-                               :total total
-                               :correct (= total (* account-num starting-balance))})))
+      :read-balances
+      (try
+        (utils/with-session (:conn this) session
+          (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
+                total (reduce + (map :balance accounts))]
+            (assoc op
+                   :type :ok
+                   :value {:accounts accounts
+                           :node (:node this)
+                           :total total
+                           :correct (= total (* utils/account-num utils/starting-balance))})))
+        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+          (utils/process-service-unavilable-exc op (:node this))))
       :register (if (= (:replication-role this) :main)
                   (do
                     (doseq [n (filter #(= (:replication-role (val %))
@@ -100,7 +79,7 @@
                             (second n)) session))
                         (catch Exception _e)))
                     (assoc op :type :ok))
-                  (assoc op :type :fail))
+                  (assoc op :type :info :value "Not main node."))
 
       ; Transfer money from one account to another. Only executed on main.
       ; If the transferring succeeds, return :ok, otherwise return :fail.
@@ -110,20 +89,19 @@
       :transfer (if (= (:replication-role this) :main)
                   (try
                     (let [transfer-info (:value op)]
-                      (assoc op
-                             :type (if
-                                    (transfer-money
-                                     (:conn this)
-                                     (:from transfer-info)
-                                     (:to transfer-info)
-                                     (:amount transfer-info))
-                                     :ok
-                                     :fail)))
+                      (transfer-money
+                       (:conn this)
+                       (:from transfer-info)
+                       (:to transfer-info)
+                       (:amount transfer-info)))
+                    (assoc op :type :ok)
+                    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                      (utils/process-service-unavilable-exc op (:node this)))
                     (catch Exception e
                       (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                        (assoc op :type :ok :info (str e)); Exception due to down sync replica is accepted/expected
-                        (assoc op :type :fail :info (str e)))))
-                  (assoc op :type :fail :info "Not main node."))))
+                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                        (assoc op :type :fail :value (str e)))))
+                  (assoc op :type :info :value "Not main node."))))
   ; On teardown! only main will detach-delete-all.
   (teardown! [this _test]
     (when (= (:replication-role this) :main)
@@ -133,26 +111,6 @@
           (catch Exception _)))))
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
-
-(defn read-balances
-  "Read the current state of all accounts"
-  [_ _]
-  {:type :invoke, :f :read, :value nil})
-
-(defn transfer
-  "Transfer money from one account to another by some amount"
-  [_ _]
-  {:type :invoke
-   :f :transfer
-   :value {:from   (rand-int account-num)
-           :to     (rand-int account-num)
-           :amount (+ 1 (rand-int max-transfer-amount))}})
-
-(def valid-transfer
-  "Filter only valid transfers (where :from and :to are different)"
-  (gen/filter (fn [op] (not= (-> op :value :from)
-                             (-> op :value :to)))
-              transfer))
 
 (defn bank-checker
   "Balances must all be non-negative and sum to the model's total
@@ -164,13 +122,13 @@
     (check [_ _ history _]
       (let [ok-reads  (->> history
                            (filter #(= :ok (:type %)))
-                           (filter #(= :read (:f %))))
+                           (filter #(= :read-balances (:f %))))
             bad-reads (->> ok-reads
                            (map #(->> % :value))
-                           (filter #(= (count (:accounts %)) 5))
+                           (filter #(= (count (:accounts %)) utils/account-num))
                            (map (fn [value]
                                   (let [balances  (map :balance (:accounts value))
-                                        expected-total (* account-num starting-balance)]
+                                        expected-total (* utils/account-num utils/starting-balance)]
                                     (cond (and
                                            (not-empty balances)
                                            (not=
@@ -203,14 +161,14 @@
         {:valid? (and
                   (empty? bad-reads)
                   (empty? empty-nodes))
-         :empty-nodes empty-nodes
-         :bad-reads bad-reads}))))
+         :empty-nodes? (empty? empty-nodes)
+         :empty-bad-reads? (empty? bad-reads)}))))
 
 (defn ok-reads
   "Filters a history to just OK reads. Returns nil if there are none."
   [history]
   (let [h (filter #(and (h/ok? %)
-                        (= :read (:f %)))
+                        (= :read-balances (:f %)))
                   history)]
     (when (seq h)
       (vec h))))
@@ -270,5 +228,5 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgclient/replication-gen (gen/mix [read-balances valid-transfer]))
-   :final-generator {:clients (gen/once read-balances) :recovery-time 20}})
+   :generator (mgclient/replication-gen (gen/mix [utils/read-balances utils/valid-transfer]))
+   :final-generator {:clients (gen/once utils/read-balances) :recovery-time 20}})
