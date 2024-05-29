@@ -153,7 +153,7 @@ def authenticate(scheme: str, response: str):
         username = get_username(
             auth,
             attributes,
-            use_nameid=str_to_bool(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_USE_NAME_ID", "")),
+            use_nameid=str_to_bool(os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_USE_NAME_ID", "true")),
             username_attribute=os.environ.get(f"MEMGRAPH_SSO_{scheme_env}_SAML_USERNAME_ATTRIBUTE", ""),
         )
     except Exception as e:
