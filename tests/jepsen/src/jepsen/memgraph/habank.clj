@@ -348,10 +348,27 @@
                                 (filter (fn [[_ reads]]
                                           (every? empty? reads)))
                                 (keys))
-            coordinators (set (keys coord->reads)) ; Only coordinators should run SHOW INSTANCES
+            coordinators (set (keys coord->full-reads)) ; Only coordinators should run SHOW INSTANCES. Test that all 3 coordinators returned
+            ; at least once correct SHOW INSTANCES' response.
+
             ok-data-reads  (->> history
                                 (filter #(= :ok (:type %)))
                                 (filter #(= :read-balances (:f %))))
+
+            ok-setup-cluster (->> history
+                                  (filter #(= :ok (:type %)))
+                                  (filter #(= :setup-cluster (:f %))))
+
+            ok-initialize-data (->> history
+                                    (filter #(= :ok (:type %)))
+                                    (filter #(= :initialize-data (:f %))))
+
+            correct-data-reads (->> ok-data-reads
+                                    (map :value)
+                                    (filter :correct)
+                                    (map :node)
+                                    (into #{}))
+
             bad-data-reads (utils/analyze-bank-data-reads ok-data-reads utils/account-num utils/starting-balance)
 
             empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
@@ -362,7 +379,11 @@
                                          (empty? more-than-one-main)
                                          (empty? bad-data-reads)
                                          (empty? empty-data-nodes)
-                                         (seq? full-si-reads) ; not-empty idiom
+                                         (boolean (not-empty ok-data-reads))
+                                         (boolean (not-empty full-si-reads))
+                                         (= correct-data-reads #{"n1" "n2" "n3"})
+                                         (boolean (not-empty ok-setup-cluster))
+                                         (= (count ok-initialize-data) 1)
                                          (empty? failed-setup-cluster)
                                          (empty? failed-initialize-data)
                                          (empty? failed-show-instances)
@@ -371,12 +392,16 @@
                             :empty-coords-missing-reads? (empty? coords-missing-reads) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                            :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3"})
                             :empty-bad-data-reads? (empty? bad-data-reads)
+                            :ok-setup-cluster-exist? (boolean (not-empty ok-setup-cluster))
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster)
+                            :ok-initialize-data-once? (= (count ok-initialize-data) 1)
                             :empty-failed-initialize-data? (empty? failed-initialize-data)
                             :empty-failed-show-instances? (empty? failed-show-instances)
                             :empty-failed-read-balances? (empty? failed-read-balances)
-                            :full-si-reads-exist? (seq? full-si-reads)
+                            :ok-data-reads-exist? (boolean (not-empty ok-data-reads))
+                            :full-si-reads-exist? (boolean (not-empty full-si-reads))
                             :empty-data-nodes? (empty? empty-data-nodes)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
@@ -385,7 +410,9 @@
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-initialize-data :condition (not (:empty-failed-initialize-data? initial-result)) :value failed-initialize-data}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
-                     {:key :failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}]]
+                     {:key :failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
+                     {:key :correct-data-reads-on-nodes :condition (not (:correct-data-reads-exist-on-all-nodes? initial-result)) :value correct-data-reads}
+                     {:key :num-ok-initialize-data :condition (not (:ok-initialize-data-once? initial-result)) :value (count ok-initialize-data)}]]
 
         (reduce (fn [result update]
                   (if (:condition update)

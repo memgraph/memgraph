@@ -128,6 +128,12 @@
                            (filter #(= :ok (:type %)))
                            (filter #(= :read-balances (:f %))))
 
+            correct-data-reads (->> ok-reads
+                                    (map :value)
+                                    (filter :correct)
+                                    (map :node)
+                                    (into #{}))
+
             bad-reads (utils/analyze-bank-data-reads ok-reads utils/account-num utils/starting-balance)
 
             empty-nodes (utils/analyze-empty-data-nodes ok-reads)
@@ -137,10 +143,18 @@
                                       (filter #(= :read-balances (:f %)))
                                       (map :value))
 
+            ok-transfers  (->> history
+                               (filter #(= :ok (:type %)))
+                               (filter #(= :transfer (:f %))))
+
             failed-transfers (->> history
                                   (filter #(= :fail (:type %)))
                                   (filter #(= :transfer (:f %)))
                                   (map :value))
+
+            ok-registrations (->> history
+                                  (filter #(= :ok (:type %)))
+                                  (filter #(= :register (:f %))))
 
             failed-registrations (->> history
                                       (filter #(= :fail (:type %)))
@@ -150,21 +164,30 @@
             initial-result {:valid? (and
                                      (empty? bad-reads)
                                      (empty? empty-nodes)
+                                     (boolean (not-empty ok-reads))
                                      (empty? failed-read-balances)
-                                     (empty? failed-transfers)
-                                     (empty? failed-registrations))
+                                     (boolean (not-empty ok-registrations))
+                                     (empty? failed-registrations)
+                                     (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
+                                     (boolean (not-empty ok-transfers))
+                                     (empty? failed-transfers))
 
-                            :empty-nodes? (empty? empty-nodes)
                             :empty-bad-reads? (empty? bad-reads)
+                            :empty-nodes? (empty? empty-nodes)
+                            :ok-reads-exist? (boolean (not-empty ok-reads))
                             :empty-failed-read-balances? (empty? failed-read-balances)
-                            :empty-failed-transfers? (empty? failed-transfers)
-                            :empty-failed-registrations? (empty? failed-registrations)}
+                            :ok-registrations-exist? (boolean (not-empty ok-registrations))
+                            :empty-failed-registrations? (empty? failed-registrations)
+                            :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
+                            :ok-transfers-exist? (boolean (not-empty ok-transfers))
+                            :empty-failed-transfers? (empty? failed-transfers)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}
                      {:key :empty-bad-reads :condition (not (:empty-bad-reads? initial-result)) :value bad-reads}
                      {:key :empty-failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
                      {:key :empty-failed-transfers :condition (not (:empty-failed-transfers? initial-result)) :value failed-transfers}
-                     {:key :empty-failed-registrations :condition (not (:empty-failed-registrations? initial-result)) :value failed-registrations}]]
+                     {:key :empty-failed-registrations :condition (not (:empty-failed-registrations? initial-result)) :value failed-registrations}
+                     {:key :correct-data-reads-on-nodes :condition (not (:correct-data-reads-exist-on-all-nodes? initial-result)) :value correct-data-reads}]]
 
         (reduce (fn [result update]
                   (if (:condition update)

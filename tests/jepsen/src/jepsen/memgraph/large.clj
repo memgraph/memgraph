@@ -12,7 +12,7 @@
 
 ; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
 ; enough time to apply all deltas.
-(def node-num 500)
+(def node-num 5000)
 
 (dbclient/defquery get-node-count
   "MATCH (n:Node) RETURN count(n) as c;")
@@ -111,6 +111,10 @@
                          (filter #(= :ok (:type %)))
                          (filter #(= :add (:f %))))
 
+            ok-registrations (->> history
+                                 (filter #(= :ok (:type %)))
+                                 (filter #(= :register (:f %))))
+
             ; Read is considered bad if count is not divisible with node-num.
             bad-reads (->> ok-reads
                            (map (fn [op]
@@ -161,14 +165,15 @@
                                      (empty? failed-adds)
                                      (empty? failed-reads)
                                      (boolean (not-empty ok-reads))
-                                     (boolean (not-empty ok-reads)))
+                                     (boolean (not-empty ok-adds)))
 
                             :empty-nodes? (empty? empty-nodes)
-                            :ok-reads-exist? (boolean (not-empty ok-reads))
-                            :ok-adds-exist? (boolean (not-empty ok-adds))
                             :empty-bad-reads? (empty? bad-reads)
+                            :ok-reads-exist? (boolean (not-empty ok-reads))
                             :empty-failed-reads? (empty? failed-reads)
+                            :ok-adds-exist? (boolean (not-empty ok-adds))
                             :empty-failed-adds? (empty? failed-adds)
+                            :ok-registrations-exist? (boolean (not-empty ok-registrations))
                             :empty-failed-registrations? (empty? failed-registrations)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}
