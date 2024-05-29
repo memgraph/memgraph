@@ -1,15 +1,13 @@
 (ns jepsen.memgraph.memgraph-test
   (:require [clojure.test :refer :all]
             [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.bank :as bank]
-            [jepsen.memgraph.haclient :as haclient]
-            [jepsen.memgraph.haempty :as haempty]
+            [jepsen.memgraph.habank :as habank]
             [jepsen.memgraph.client :as client]
             [jepsen.memgraph.large :as large]))
 
 (deftest get-instance-url
   (testing "Get instance URL."
-    (is (= (utils/get-instance-url "node" 7687) "bolt://node:7687"))))
+    (is (= (utils/bolt-url "node" 7687) "bolt://node:7687"))))
 
 (deftest random-non-empty-subset
   (testing "Random, non-empty subset func from utils."
@@ -44,21 +42,13 @@
   (testing "Test read operation of large test."
     (is (= (large/read-nodes :1 :2) {:type :invoke :f :read :value nil}))))
 
-(deftest register-repl-instances
+(deftest initialize-instances
   (testing "Test registration replication instances op"
-    (is (= (haclient/register-replication-instances :1 :2) {:type :invoke :f :register :value nil}))))
+    (is (= (habank/setup-cluster :1 :2) {:type :invoke :f :setup-cluster :value nil}))))
 
 (deftest bank-test-setup
-  (testing "Test that bank test is configured correctly with the number of accounts."
-    (is (= bank/account-num 5)))
-  (testing "Test that bank test is configured correctly with the starting balance."
-    (is (= bank/starting-balance 400)))
-  (testing "Test that bank test is configured correctly with the max transfer amount."
-    (is (= bank/max-transfer-amount 20)))
-  (testing "Test that bank test read balances operation is correctly configured."
-    (is (= (bank/read-balances :1 :2) {:type :invoke, :f :read, :value nil})))
   (testing "Test bank test transfer method."
-    (let [transfer-res (bank/transfer :1 :2)
+    (let [transfer-res (utils/transfer :1 :2)
           type (:type transfer-res)
           f (:f transfer-res)
           value (:value transfer-res)
@@ -67,9 +57,9 @@
           amount (:amount value)]
       (is (= :invoke type))
       (is (= :transfer f))
-      (is (< from bank/account-num))
-      (is (< to bank/account-num))
-      (is (<= amount bank/max-transfer-amount)))))
+      (is (< from utils/account-num))
+      (is (< to utils/account-num))
+      (is (<= amount utils/max-transfer-amount)))))
 
 (deftest test-client
   (testing "Replication mode string"
@@ -77,35 +67,35 @@
   (testing "Register replicas"
     (is (= (client/register-replicas :1 :2) {:type :invoke, :f :register, :value nil}))))
 
-(deftest haempty-test
+(deftest habank-test
   (testing "HA empty test read operation."
-    (is (= (haempty/reads :1 :2) {:type :invoke, :f :read, :value nil})))
+    (is (= (utils/read-balances :1 :2) {:type :invoke, :f :read-balances, :value nil})))
   (testing "Single read to roles."
     (let [instances (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})]
 
-      (is (= (haempty/single-read-to-roles instances) (list "coordinator" "replica" "main")))))
+      (is (= (habank/single-read-to-roles instances) (list "coordinator" "replica" "main")))))
 
   (testing "Single read to role and health."
     (let [instances (list {:id 1 :role "coordinator" :health "up"} {:id 2 :role "replica" :health "up"} {:id 3 :role "main" :health "up"})]
 
-      (is (= (haempty/single-read-to-role-and-health instances) (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})))))
+      (is (= (habank/single-read-to-role-and-health instances) (list {:role "coordinator" :health "up"} {:role "replica" :health "up"} {:role "main" :health "up"})))))
 
   (testing "Get coordinators."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/get-coordinators instances) (list "coordinator" "coordinator")))))
+      (is (= (habank/get-coordinators instances) (list "coordinator" "coordinator")))))
 
   (testing "Less than 3 coordinators."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/less-than-three-coordinators instances) true))))
+      (is (= (habank/less-than-three-coordinators instances) true))))
 
   (testing "Get mains."
     (let [instances (list "coordinator" "coordinator" "main")]
 
-      (is (= (haempty/get-mains instances) (list "main")))))
+      (is (= (habank/get-mains instances) (list "main")))))
 
   (testing "More than 1 main"
     (let [instances (list "main" "coordinator" "main")]
 
-      (is (= (haempty/more-than-one-main instances) true)))))
+      (is (= (habank/more-than-one-main instances) true)))))

@@ -83,6 +83,7 @@ add_subdirectory(concurrency)
 add_subdirectory(execution_query_modules)
 add_subdirectory(index_auto_creation)
 add_subdirectory(text_search_modules)
+add_subdirectory(authentication_if_not_exists)
 add_subdirectory(hops_limit)
 add_subdirectory(show_metrics)
 

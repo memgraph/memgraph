@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
+
 #include <chrono>
 #include <cstdint>
 #include <optional>
 #include <string>
-#include "replication_coordination_glue/mode.hpp"
 
 namespace memgraph::replication {
 
@@ -25,8 +27,7 @@ inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 struct ReplicationClientConfig {
   std::string name;
   replication_coordination_glue::ReplicationMode mode{};
-  std::string ip_address;
-  uint16_t port{};
+  io::network::Endpoint repl_server_endpoint;  // could be IP or domain name
 
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
@@ -46,8 +47,7 @@ struct ReplicationClientConfig {
 };
 
 struct ReplicationServerConfig {
-  std::string ip_address;
-  uint16_t port{};
+  io::network::Endpoint repl_server;  // could be IP or domain name
   struct SSL {
     std::string key_file;
     std::string cert_file;

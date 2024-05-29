@@ -303,9 +303,8 @@ class ReplQueryHandler {
       ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
-          .ip_address = memgraph::replication::kDefaultReplicationServerIp,
-          .port = static_cast<uint16_t>(*port),
-      };
+          .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
+                                                         static_cast<uint16_t>(*port))};
 
       if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -339,13 +338,12 @@ class ReplQueryHandler {
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_endpoint) {
-      const auto replication_config =
-          replication::ReplicationClientConfig{.name = name,
-                                               .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
-                                               .port = maybe_endpoint->GetPort(),
-                                               .replica_check_frequency = replica_check_frequency,
-                                               .ssl = std::nullopt};
+      const auto replication_config = replication::ReplicationClientConfig{
+          .name = name,
+          .mode = repl_mode,
+          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+          .replica_check_frequency = replica_check_frequency,
+          .ssl = std::nullopt};
 
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
@@ -709,6 +707,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
+  const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
@@ -765,8 +764,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       forbid_on_replica();
-      callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError(),
-                     interpreter = &interpreter] {
+      callback.fn = [auth, username, password, if_not_exists,
+                     valid_enterprise_license = !license_check_result.HasError(), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -775,7 +774,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         if (!auth->CreateUser(
                 username, password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                 &*interpreter->system_transaction_)) {
-          throw UserAlreadyExistsException("User '{}' already exists.", username);
+          if (!if_not_exists) {
+            throw UserAlreadyExistsException("User '{}' already exists.", username);
+          }
+          spdlog::warn("User '{}' already exists.", username);
         }
 
         // If the license is not valid we create users with admin access
@@ -830,13 +832,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, rolename, if_not_exists, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          if (!if_not_exists) {
+            throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          }
+          spdlog::warn("Role '{}' already exists.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -4849,6 +4854,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw DropGraphInMulticommandTxException();
       }
       prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw CreateEnumInMulticommandTxException();
+      }
+      throw utils::NotYetImplemented("enums.");
+    } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("enums.");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

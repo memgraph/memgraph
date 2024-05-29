@@ -40,14 +40,20 @@ class Server final {
 
   void Start();
 
-  void Shutdown() { ioc_.stop(); }
+  void Shutdown() {
+    if (ioc_.stopped()) {
+      spdlog::trace("HTTP server is already stopped!");
+      return;
+    }
+    ioc_.stop();
+  }
 
   void AwaitShutdown() {
     if (background_thread_ && background_thread_->joinable()) {
       background_thread_->join();
     }
   }
-  bool IsRunning() const { return background_thread_ && !ioc_.stopped(); }
+  bool IsRunning() const { return !listener_->HasErrorHappened() && background_thread_ && !ioc_.stopped(); }
   tcp::endpoint GetEndpoint() const;
 
  private:
@@ -61,11 +67,15 @@ Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint,
                                                  ServerContext *context)
     : listener_{Listener<TRequestHandler, TSessionContext>::Create(
           ioc_, session_context, context,
-          tcp::endpoint{boost::asio::ip::make_address(endpoint.GetAddress()), endpoint.GetPort()})} {}
+          tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()})} {}
 
 template <class TRequestHandler, typename TSessionContext>
 void Server<TRequestHandler, TSessionContext>::Start() {
   MG_ASSERT(!background_thread_, "The server was already started!");
+  if (listener_->HasErrorHappened()) {
+    spdlog::error("We have error on http listener already! Aborting server start.");
+    return;
+  }
   listener_->Run();
   background_thread_.emplace([this] { ioc_.run(); });
 }

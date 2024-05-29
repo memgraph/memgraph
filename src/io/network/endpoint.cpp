@@ -41,28 +41,28 @@ constexpr std::string_view delimiter = ":";
 
 namespace memgraph::io::network {
 
-Endpoint::Endpoint(std::string const &ip_address, uint16_t port) {
-  auto result = TryResolveAddress(ip_address, port);
+Endpoint::Endpoint(std::string address, uint16_t port) : address_(std::move(address)), port_(port) {}
+
+std::string Endpoint::SocketAddress() const { return fmt::format("{}{}{}", address_, delimiter, port_); }
+
+std::string Endpoint::GetResolvedSocketAddress() const {
+  auto const result = TryResolveAddress(address_, port_);
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
-  address_ = std::get<0>(*result);
-  port_ = std::get<1>(*result);
-  ip_family_ = std::get<2>(*result);
-  spdlog::trace("Endpoint created, from {}:{} to {}:{}", ip_address, port, address_, port_);
+  return fmt::format("{}{}{}", std::get<0>(*result), delimiter, std::get<1>(*result));
 }
 
-std::string Endpoint::SocketAddress() const { return fmt::format("{}:{}", address_, port_); }
+std::string Endpoint::GetResolvedIPAddress() const {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result.has_value()) {
+    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
+  }
+  return std::get<0>(*result);
+}
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  // no need to cover the IpFamily::NONE case, as you can't even construct an
-  // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
-  // unless you use DNS hostname
-  if (endpoint.ip_family_ == Endpoint::IpFamily::IP6) {
-    return os << "[" << endpoint.address_ << "]"
-              << ":" << endpoint.port_;
-  }
-  return os << endpoint.address_ << ":" << endpoint.port_;
+  return os << endpoint.address_ << delimiter << endpoint.port_;
 }
 
 std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::TryResolveAddress(
@@ -156,25 +156,29 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 }
 
 [[nodiscard]] auto Endpoint::GetAddress() const -> std::string const & { return address_; }
-
-[[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
-
-[[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily const & { return ip_family_; }
-
 [[nodiscard]] auto Endpoint::GetAddress() -> std::string & { return address_; }
 
+[[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
 [[nodiscard]] auto Endpoint::GetPort() -> uint16_t & { return port_; }
 
-[[nodiscard]] auto Endpoint::GetIpFamily() -> IpFamily & { return ip_family_; }
+[[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result.has_value()) {
+    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
+  }
+  return std::get<2>(*result);
+}
+
+void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
+void Endpoint::SetPort(uint16_t port) { port_ = port; }
 
 void to_json(nlohmann::json &j, Endpoint const &config) {
-  j = nlohmann::json{{"address", config.GetAddress()}, {"port", config.GetPort()}, {"family", config.GetIpFamily()}};
+  j = nlohmann::json{{"address", config.GetAddress()}, {"port", config.GetPort()}};
 }
 
 void from_json(nlohmann::json const &j, Endpoint &config) {
-  config.GetAddress() = j.at("address").get<std::string>();
-  config.GetPort() = j.at("port").get<uint16_t>();
-  config.GetIpFamily() = j.at("family").get<Endpoint::IpFamily>();
+  config.SetAddress(j.at("address").get<std::string>());
+  config.SetPort(j.at("port").get<uint16_t>());
 }
 
 }  // namespace memgraph::io::network

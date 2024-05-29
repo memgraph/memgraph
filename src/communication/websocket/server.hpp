@@ -29,8 +29,8 @@ class Server final {
  public:
   explicit Server(io::network::Endpoint endpoint, ServerContext *context, AuthenticationInterface &auth)
       : listener_{Listener::Create(
-            ioc_, context, tcp::endpoint{boost::asio::ip::make_address(endpoint.GetAddress()), endpoint.GetPort()},
-            auth)} {}
+            ioc_, context,
+            tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()}, auth)} {}
 
   Server(const Server &) = delete;
   Server(Server &&) = delete;
@@ -42,8 +42,10 @@ class Server final {
   void Start();
   void Shutdown();
   void AwaitShutdown();
-  bool IsRunning() const;
-  tcp::endpoint GetEndpoint() const;
+  [[nodiscard]] bool IsRunning() const;
+  [[nodiscard]] tcp::endpoint GetEndpoint() const;
+
+  bool HasErrorHappened() const;
 
   class LoggingSink : public spdlog::sinks::base_sink<std::mutex> {
    public:

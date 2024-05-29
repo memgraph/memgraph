@@ -134,7 +134,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());
+  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
                                 bool reconnect, replication::ReplicationClient &client) mutable {
     if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
@@ -224,6 +224,10 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
   dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
     storage->repl_storage_state_.epoch_ = epoch;
+
+    // Durability is tracking last commit timestamp from MAIN, whereas timestamp_ is dependent on MVCC
+    // We need to take bigger timestamp not to lose durability ordering
+    storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_commit_timestamp_.load());
   });
 
   return true;

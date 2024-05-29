@@ -40,7 +40,7 @@ def load_args():
 def load_workloads(root_directory):
     workloads = []
     for file in Path(root_directory).rglob("*.yaml"):
-        # 8.03.2024. - Skip streams e2e tests 
+        # 8.03.2024. - Skip streams e2e tests
         if str(file).endswith("/streams/workloads.yaml"):
             continue
         with open(file, "r") as f:
