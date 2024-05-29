@@ -88,6 +88,10 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
+  auto SerializeJson() const -> nlohmann::json;
+
+  static auto DeserializeJson(nlohmann::json const &data) -> CoordinatorClusterState;
+
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
   auto GetCurrentMainUUID() const -> utils::UUID;

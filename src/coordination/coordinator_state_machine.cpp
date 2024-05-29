@@ -12,16 +12,106 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_machine.hpp"
+#include "utils.hpp"
+#include "utils/logging.hpp"
+
+#include <regex>
 
 namespace {
+constexpr std::string_view kCoordClusterState = "coord_cluster_state";
+constexpr std::string_view kLastLogIdx = "last_log_idx";
+constexpr std::string_view kLastLogTerm = "last_log_term";
+constexpr std::string_view kSize = "size";
+constexpr std::string_view kLastConfig = "last_config";
+constexpr std::string_view kType = "type";
+constexpr std::string_view kSnapshotIdPrefix = "snapshot_id_";
 constexpr int MAX_SNAPSHOTS = 3;
+
+nuraft::snapshot::type GetSnapshotType(int val_type) {
+  switch (val_type) {
+    case 1:
+      return nuraft::snapshot::raw_binary;
+    case 2:
+      return nuraft::snapshot::logical_object;
+  }
+  LOG_FATAL("Val type unknown");
+}
+
+int FromSnapshotType(nuraft::snapshot::type val_type) {
+  switch (val_type) {
+    case nuraft::snapshot::raw_binary:
+      return 1;
+    case nuraft::snapshot::logical_object:
+      return 2;
+  }
+  LOG_FATAL("Unknown snapshot type");
+}
+
 }  // namespace
 
 namespace memgraph::coordination {
 
+auto CoordinatorStateMachine::DeserializeSnapshotCtxFromDisk(const std::string &snapshot_id,
+                                                             memgraph::kvstore::KVStore &kv_store) -> ptr<SnapshotCtx> {
+  // Retrieve the JSON string from the key-value store
+  auto snapshot_ctx_str = kv_store.Get(snapshot_id);
+  if (!snapshot_ctx_str.has_value()) {
+    throw std::runtime_error("Failed to retrieve snapshot context from disk");
+  }
+
+  // Parse the JSON string into a JSON object
+  auto snapshot_ctx_json = nlohmann::json::parse(snapshot_ctx_str.value());
+
+  // Extract each field from the JSON object
+  auto data_str = snapshot_ctx_json.at(kCoordClusterState.data()).get<std::string>();
+  spdlog::trace("parsed data_str {}", data_str);
+  auto last_log_idx = snapshot_ctx_json.at(kLastLogIdx.data()).get<uint64_t>();
+  spdlog::trace("parsed last_log_idx: {}", last_log_idx);
+  auto last_log_term = snapshot_ctx_json.at(kLastLogTerm.data()).get<uint64_t>();
+  spdlog::trace("parsed last_log_term: {}", last_log_term);
+  auto size = snapshot_ctx_json.at(kSize.data()).get<uint64_t>();
+  spdlog::trace("parsed size: {}", size);
+  auto last_config_json = snapshot_ctx_json.at(kLastConfig.data()).get<std::string>();
+  spdlog::trace("parsed last_config_json: {}", last_config_json);
+  auto type = GetSnapshotType(snapshot_ctx_json.at(kType.data()).get<int>());
+  spdlog::trace("parsed type");
+
+  // Deserialize the last_config and data
+  auto last_config = memgraph::coordination::DeserializeClusterConfig(nlohmann::json::parse(last_config_json));
+  spdlog::trace("deserialized cluster config");
+  ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + data_str.size());
+  buffer_serializer bs(data);
+  bs.put_str(data_str);
+  // Create and return the snapshot context
+  auto deserialized_snapshot = cs_new<snapshot>(last_log_idx, last_log_term, last_config, size, type);
+
+  auto cluster_state = CoordinatorClusterState::Deserialize(*data);
+  spdlog::trace("Deserialized cluster state from disk");
+  return cs_new<SnapshotCtx>(deserialized_snapshot, cluster_state);
+}
+
+
 CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir): logger_(logger) {
   if (durability_dir) {
     kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
+  }
+
+  if (kv_store_) {
+    for (auto kv_store_snapshot_it = kv_store_->begin(std::string{kSnapshotIdPrefix});
+         kv_store_snapshot_it != kv_store_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
+      auto &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
+      try {
+        auto parsed_snapshot_id =
+            std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
+        snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *kv_store_);
+        MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
+                  "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
+                  snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
+      } catch (std::exception &e) {
+        LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+      }
+      spdlog::trace("Deserialized snapshot with id: {}", snapshot_key_id);
+    }
   }
 }
 
@@ -192,6 +282,9 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
 
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
+  if (kv_store_) {
+    MG_ASSERT(kv_store_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())));
+  }
 
   cluster_state_ = entry->second->cluster_state_;
   return true;
@@ -236,15 +329,27 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   snapshots_[snapshot->get_last_log_idx()] = ctx;
   if (kv_store_) {
-    ptr<buffer> data;
-    cluster_state_.Serialize(data);
-    // TODO serialize snapshot also
-    kv_store_->Put("snapshot_id_" + std::to_string(snapshot->get_last_log_idx()), data->get_str());
+    auto json_cluster_state = cluster_state_.SerializeJson();
+    nlohmann::json snapshot_ctx_to_disk = {{kCoordClusterState, json_cluster_state.dump()},  // json as str
+                                           {kLastLogTerm, snapshot->get_last_log_term()},
+                                           {kLastLogIdx, snapshot->get_last_log_idx()},
+                                           {kSize, snapshot->size()},
+                                           {kLastConfig, SerializeClusterConfig(*snapshot->get_last_config())},
+                                           {kType, FromSnapshotType(snapshot->get_type())}};
+    spdlog::trace("!!!!SERIALIZED coord cluster state");
+    kv_store_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()),
+                   snapshot_ctx_to_disk.dump());
   }
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
+    auto snapshot_current = snapshots_.begin()->first;
+    if (kv_store_) {
+      MG_ASSERT(kv_store_->Delete("snapshot_id_" + std::to_string(snapshot_current)),
+                "Failed to delete snapshot from disk");
+    }
     snapshots_.erase(snapshots_.begin());
   }
+  spdlog::trace("!!!DONE CREATING SNAPSHOT INTERNAL");
 }
 
 auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {

@@ -82,7 +82,7 @@ ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
 }
 
 bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_last_slot, kvstore::KVStore &kv_store) {
-  buffer_serializer bs(clone->get_buf());  // data buff
+  buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
   auto data_str = bs.get_str();
   spdlog::trace("Serializing log entry with id {}", std::to_string(clone->get_term()));
   spdlog::trace("Serializing log entry with id {}", data_str);

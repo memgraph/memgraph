@@ -66,6 +66,7 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   }
   cluster_config_ = new_cluster_config;
   logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
+  spdlog::trace("Loaded cluster config from disk.");
   return cluster_config_;
 }
 
@@ -84,6 +85,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
           }) |
       ranges::to<std::vector>();
   kv_store_.Put(kServersKey, nlohmann::json(servers_vec).dump());
+  // TODO(antoniofilipovic): extend storing of everything here not just servers
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {

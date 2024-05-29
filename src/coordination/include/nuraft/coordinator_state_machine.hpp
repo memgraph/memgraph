@@ -106,6 +106,9 @@ class CoordinatorStateMachine : public state_machine {
     CoordinatorClusterState cluster_state_;
   };
 
+  auto DeserializeSnapshotCtxFromDisk(const std::string &snapshot_id, memgraph::kvstore::KVStore &kv_store)
+      -> ptr<SnapshotCtx>;
+
   auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;

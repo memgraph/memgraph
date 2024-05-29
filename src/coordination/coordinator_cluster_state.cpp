@@ -168,7 +168,7 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
                       {"is_lock_opened", is_lock_opened_},
                       {"current_main_uuid", current_main_uuid_}};
   auto const log = j.dump();
-
+  spdlog::trace("!!!!Serializing cluster state to log: {}", log);
   data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
   bs.put_str(log);
@@ -177,6 +177,24 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
 auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {
   buffer_serializer bs(data);
   auto const j = nlohmann::json::parse(bs.get_str());
+
+  auto repl_instances = j.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
+  auto current_main_uuid = j.at("current_main_uuid").get<utils::UUID>();
+  bool is_lock_opened = j.at("is_lock_opened").get<int>();
+
+  return CoordinatorClusterState{std::move(repl_instances), current_main_uuid, is_lock_opened};
+}
+
+auto CoordinatorClusterState::SerializeJson() const -> nlohmann::json {
+  auto lock = std::shared_lock{log_lock_};
+  nlohmann::json j = {{"repl_instances", repl_instances_},
+                      {"is_lock_opened", is_lock_opened_},
+                      {"current_main_uuid", current_main_uuid_}};
+  return j;
+}
+
+auto CoordinatorClusterState::DeserializeJson(nlohmann::json const &data) -> CoordinatorClusterState {
+  auto j = data;
 
   auto repl_instances = j.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
   auto current_main_uuid = j.at("current_main_uuid").get<utils::UUID>();
