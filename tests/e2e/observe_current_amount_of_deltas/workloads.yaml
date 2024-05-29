@@ -1,0 +1,14 @@
+observe_current_amount_of_deltas_cluster: &observe_current_amount_of_deltas_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "observe_current_amount_of_deltas.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Observe current amount of deltas"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["observe_current_amount_of_deltas/observe_current_amount_of_deltas.py"]
+    <<: *observe_current_amount_of_deltas_cluster
