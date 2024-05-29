@@ -170,7 +170,7 @@ void Initialize() {
    * Register hops limit partial results
    */
   register_flag(
-      kHopsLimitPartialResultsGFlagsKey, kHopsLimitPartialResultsSettingKey, !kRestore,
+      kHopsLimitPartialResultsGFlagsKey, kHopsLimitPartialResultsSettingKey, kRestore,
       [](const std::string &val) { hops_limit_partial_results = val == "true"; }, ValidBoolStr);
 
   /*

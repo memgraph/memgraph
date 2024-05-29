@@ -35,6 +35,13 @@ class VertexAccessor final {
  private:
   friend class Storage;
 
+  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &edges, query::HopsLimit *hops_limit,
+                                           EdgeDirection direction) const;
+
+  int64_t HandleExpansionsWithEdgeTypes(small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &result_edges,
+                                        const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *destination,
+                                        query::HopsLimit *hops_limit, EdgeDirection direction) const;
+
  public:
   VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
       : vertex_(vertex), storage_(storage), transaction_(transaction), for_deleted_(for_deleted) {}
