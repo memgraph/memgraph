@@ -36,6 +36,14 @@ using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
 
+struct SnapshotCtx {
+  SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
+      : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+  ptr<snapshot> snapshot_;
+  CoordinatorClusterState cluster_state_;
+};
+
 class CoordinatorStateMachine : public state_machine {
  public:
   explicit CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir);
@@ -98,17 +106,6 @@ class CoordinatorStateMachine : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
-  struct SnapshotCtx {
-    SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
-        : snapshot_(snapshot), cluster_state_(cluster_state) {}
-
-    ptr<snapshot> snapshot_;
-    CoordinatorClusterState cluster_state_;
-  };
-
-  auto DeserializeSnapshotCtxFromDisk(const std::string &snapshot_id, memgraph::kvstore::KVStore &kv_store)
-      -> ptr<SnapshotCtx>;
-
   auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;

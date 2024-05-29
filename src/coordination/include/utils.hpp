@@ -30,6 +30,6 @@ using nuraft::state_machine;
 namespace memgraph::coordination {
 
 auto DeserializeClusterConfig(nlohmann::json const &json_cluster_config) -> ptr<cluster_config>;
-auto SerializeClusterConfig(cluster_config const &config) -> std::string;
+auto SerializeClusterConfig(cluster_config const &config) -> nlohmann::json;
 
 }  // namespace memgraph::coordination

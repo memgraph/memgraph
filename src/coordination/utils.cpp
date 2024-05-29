@@ -31,8 +31,6 @@ using nuraft::state_machine;
 namespace memgraph::coordination {
 
 auto DeserializeClusterConfig(nlohmann::json const &json_cluster_config) -> ptr<cluster_config> {
-  spdlog::trace("Loading cluster config from disk.");
-  spdlog::trace("Json cluster config: {}", json_cluster_config.dump());
   auto servers = json_cluster_config.at("servers").get<std::vector<std::tuple<int, std::string, std::string>>>();
 
   auto prev_log_idx = json_cluster_config.at("prev_log_idx").get<int64_t>();
@@ -48,17 +46,13 @@ auto DeserializeClusterConfig(nlohmann::json const &json_cluster_config) -> ptr<
     auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
     new_cluster_config->get_servers().push_back(std::move(one_server_config));
   }
-  spdlog::trace("Deserialized cluster config from disk.");
   return new_cluster_config;
 }
 
-auto SerializeClusterConfig(cluster_config const &config) -> std::string {
-  ptr<buffer> buf = config.serialize();
-  auto cluster_config = cluster_config::deserialize(*buf);
-  spdlog::info("Saving cluster config to disk.");
+auto SerializeClusterConfig(cluster_config const &cluster_config) -> nlohmann::json {
   auto const servers_vec =
       ranges::views::transform(
-          cluster_config->get_servers(),
+          cluster_config.get_servers(),
           [](auto const &server) {
             spdlog::trace("Created cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
                           static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
@@ -66,12 +60,10 @@ auto SerializeClusterConfig(cluster_config const &config) -> std::string {
           }) |
       ranges::to<std::vector>();
   auto json = nlohmann::json{{"servers", servers_vec},
-                             {"prev_log_idx", cluster_config->get_prev_log_idx()},
-                             {"log_idx", cluster_config->get_log_idx()},
-                             {"async_replication", cluster_config->is_async_replication()},
-                             {"user_ctx", cluster_config->get_user_ctx()}};
-
-  spdlog::trace("!!!!MY JSON CLUSTER CONFIG: {}", json.dump());
-  return json.dump();
+                             {"prev_log_idx", cluster_config.get_prev_log_idx()},
+                             {"log_idx", cluster_config.get_log_idx()},
+                             {"async_replication", cluster_config.is_async_replication()},
+                             {"user_ctx", cluster_config.get_user_ctx()}};
+  return json;
 }
 }  // namespace memgraph::coordination

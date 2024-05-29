@@ -187,18 +187,15 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
 
 auto CoordinatorClusterState::SerializeJson() const -> nlohmann::json {
   auto lock = std::shared_lock{log_lock_};
-  nlohmann::json j = {{"repl_instances", repl_instances_},
-                      {"is_lock_opened", is_lock_opened_},
-                      {"current_main_uuid", current_main_uuid_}};
-  return j;
+  return {{"repl_instances", repl_instances_},
+          {"is_lock_opened", is_lock_opened_},
+          {"current_main_uuid", current_main_uuid_}};
 }
 
 auto CoordinatorClusterState::DeserializeJson(nlohmann::json const &data) -> CoordinatorClusterState {
-  auto j = data;
-
-  auto repl_instances = j.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
-  auto current_main_uuid = j.at("current_main_uuid").get<utils::UUID>();
-  bool is_lock_opened = j.at("is_lock_opened").get<int>();
+  auto repl_instances = data.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
+  auto current_main_uuid = data.at("current_main_uuid").get<utils::UUID>();
+  bool is_lock_opened = data.at("is_lock_opened").get<int>();
 
   return CoordinatorClusterState{std::move(repl_instances), current_main_uuid, is_lock_opened};
 }

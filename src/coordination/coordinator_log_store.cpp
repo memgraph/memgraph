@@ -32,7 +32,8 @@ constexpr std::string_view kLogEntryPrefix = "log_entry_";
 constexpr std::string_view kLastLogEntry = "last_log_entry";
 constexpr std::string_view kStartIdx = "start_idx";
 
-constexpr std::string_view kVersion = "v1";
+constexpr std::string_view kLogStoreDurabilityVersion = "log_store_durability_version";
+constexpr int kActiveVersion = 1;
 
 const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
@@ -118,16 +119,17 @@ CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> du
   }
 
   int version{0};
-  auto maybe_version = kv_store_->Get(kVersion);
+  auto maybe_version = kv_store_->Get(kLogStoreDurabilityVersion);
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
     spdlog::trace("Assuming first start of log store with durability as version is missing, storing version 1.");
-    MG_ASSERT(kv_store_->Put(kVersion, "1"), "Failed to store version to disk");
+    MG_ASSERT(kv_store_->Put(kLogStoreDurabilityVersion, std::to_string(kActiveVersion)),
+              "Failed to store version to disk");
     version = 1;
   }
 
-  MG_ASSERT(version == 1, "Unsupported version of log store with durability");  // Update on next changes
+  MG_ASSERT(version <= kActiveVersion && version > 0, "Unsupported version of log store with durability");
 
   auto const maybe_last_log_entry = kv_store_->Get(kLastLogEntry);
   auto const maybe_start_idx = kv_store_->Get(kStartIdx);
