@@ -33,6 +33,7 @@ enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
   V2,  // epoch, replica prefix introduced
   V3,  // this version, main uuid introduced
+  V4   // addresses as provided by users are saved to disk instead of eager evaluation
 };
 
 // fragment of key: "__replication_role"
@@ -52,7 +53,7 @@ struct ReplicaRole {
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V3;  // if not latest then migration required for kReplicationReplicaPrefix
+      DurabilityVersion::V4;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
@@ -60,6 +61,8 @@ struct ReplicationRoleEntry {
 
 // from key: "__replication_replica:"
 struct ReplicationReplicaEntry {
+  // NOTE: There are multiple versions of ReplicationReplicaEntry, but we distinguish them in terms of
+  // ReplicationRoleEntry.
   ReplicationClientConfig config;
   friend bool operator==(ReplicationReplicaEntry const &, ReplicationReplicaEntry const &) = default;
 };
