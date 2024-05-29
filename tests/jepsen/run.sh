@@ -58,7 +58,10 @@ fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
     # TODO(deda): install apt get docker-compose-plugin on all build machines.
-    git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+   echo "Cloning Jepsen ..."
+    git clone http://mgdeps-cache:8000/git/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen" &> /dev/null \
+    || git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+
 fi
 
 PROCESS_ARGS() {
@@ -314,8 +317,8 @@ case $1 in
         COPY_BINARIES
         start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large" "high_availability"; do
-          if [ "$workload" == "high_availability" ]; then
+        for workload in "bank" "large" "habank"; do
+          if [[ "$workload" == "habank" ]]; then
             RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
           else
             RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"

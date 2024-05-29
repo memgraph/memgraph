@@ -134,7 +134,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());
+  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
                                 bool reconnect, replication::ReplicationClient &client) mutable {
     if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {

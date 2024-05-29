@@ -303,9 +303,8 @@ class ReplQueryHandler {
       ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
-          .ip_address = memgraph::replication::kDefaultReplicationServerIp,
-          .port = static_cast<uint16_t>(*port),
-      };
+          .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
+                                                         static_cast<uint16_t>(*port))};
 
       if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -339,13 +338,12 @@ class ReplQueryHandler {
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_endpoint) {
-      const auto replication_config =
-          replication::ReplicationClientConfig{.name = name,
-                                               .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
-                                               .port = maybe_endpoint->GetPort(),
-                                               .replica_check_frequency = replica_check_frequency,
-                                               .ssl = std::nullopt};
+      const auto replication_config = replication::ReplicationClientConfig{
+          .name = name,
+          .mode = repl_mode,
+          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+          .replica_check_frequency = replica_check_frequency,
+          .ssl = std::nullopt};
 
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
@@ -3958,6 +3956,55 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
+    case DatabaseInfoQuery::InfoType::METRICS: {
+#ifdef MG_ENTERPRISE
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+      }
+#else
+      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+#endif
+      header = {"name", "type", "metric type", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto info = storage->GetBaseInfo();
+        auto metrics_info = storage->GetMetrics();
+        std::vector<std::vector<TypedValue>> results;
+        results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.vertex_count))});
+        results.push_back({TypedValue("EdgeCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.edge_count))});
+        results.push_back(
+            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
+        results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.memory_res))});
+        results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.disk_usage))});
+        for (const auto &metric : metrics_info) {
+          results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
+                             TypedValue(static_cast<int64_t>(metric.value))});
+        }
+        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
+          const auto type_1 = record_1[1].ValueString();
+          const auto type_2 = record_2[1].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          const auto event_type_1 = record_1[2].ValueString();
+          const auto event_type_2 = record_2[2].ValueString();
+
+          if (event_type_1 != event_type_2) {
+            return event_type_1 < event_type_2;
+          }
+
+          return record_1[0].ValueString() < record_2[0].ValueString();
+        });
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -4006,6 +4053,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
             {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+            {TypedValue("peak_memory_res"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
+            {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
@@ -4739,7 +4789,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "set.");
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,

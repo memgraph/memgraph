@@ -86,7 +86,8 @@
   M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
   M(ActiveGCProcesses, Memory, "Number of active GC processes. Should be not higher than 1.")                        \
   M(ActiveSnapshotCreationProcesses, Snapshot,                                                                       \
-    "Number of active snapshot creation processes. Should be not higher than 1.")
+    "Number of active snapshot creation processes. Should be not higher than 1.")                                    \
+  M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
@@ -117,6 +118,7 @@ void EventCounters::Decrement(const Event event, Count amount) {
 
 void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
 void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
+Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {
   static const char *strings[] = {

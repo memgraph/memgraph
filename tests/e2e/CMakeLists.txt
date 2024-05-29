@@ -85,6 +85,8 @@ add_subdirectory(index_auto_creation)
 add_subdirectory(text_search_modules)
 add_subdirectory(authentication_if_not_exists)
 add_subdirectory(hops_limit)
+add_subdirectory(show_metrics)
+add_subdirectory(observe_current_amount_of_deltas)
 
 add_subdirectory(replication_experimental)
 
