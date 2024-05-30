@@ -8,15 +8,13 @@
 
 #include "audit/log.hpp"
 
-#include <chrono>
 #include <sstream>
 
 #include <fmt/format.h>
 #include <json/json.hpp>
 #include <utility>
 
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/temporal.hpp"
+#include "communication/bolt/v1/mg_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -25,7 +23,7 @@
 
 namespace memgraph::audit {
 
-// Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
+// Helper function that converts a `communication::bolt::Value` to `nlohmann::json`.
 inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
   nlohmann::json ret;
   switch (value.type()) {
@@ -52,9 +50,20 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
       break;
     }
     case Map: {
-      ret = nlohmann::json::object();
-      for (const auto &[map_k, map_v] : value.ValueMap()) {
-        ret.push_back(nlohmann::json::object_t::value_type(map_k, BoltValueToJson(map_v)));
+      auto const &bolt_value_map = value.ValueMap();
+      auto const info = memgraph::communication::bolt::BoltMapToMgTypeInfo(bolt_value_map);
+      if (info) {
+        switch (info->type) {
+          case communication::bolt::MgType::Enum: {
+            ret = info->value_str;
+            break;
+          }
+        }
+      } else {
+        ret = nlohmann::json::object();
+        for (const auto &[map_k, map_v] : bolt_value_map) {
+          ret.push_back(nlohmann::json::object_t::value_type(map_k, BoltValueToJson(map_v)));
+        }
       }
       break;
     }
@@ -150,8 +159,7 @@ void Log::Flush() {
     auto item = buffer_->pop();
     if (!item) break;
 
-    nlohmann::json params_json;
-    params_json = nlohmann::json::object();
+    auto params_json = nlohmann::json::object();
     for (const auto &[k, v] : item->params) {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }

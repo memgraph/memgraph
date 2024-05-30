@@ -7,6 +7,7 @@ set(communication_src_files
     websocket/listener.cpp
     websocket/session.cpp
     bolt/v1/value.cpp
+    bolt/v1/mg_types.cpp
     bolt/client.cpp
     buffer.cpp
     client.cpp

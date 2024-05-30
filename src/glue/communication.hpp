@@ -67,7 +67,7 @@ storage::Result<communication::bolt::Value::map_t> ToBoltGraph(const query::Grap
 storage::Result<communication::bolt::Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db,
                                                         storage::View view);
 
-query::TypedValue ToTypedValue(const communication::bolt::Value &value);
+query::TypedValue ToTypedValue(const communication::bolt::Value &value, storage::Storage const *storage);
 
 communication::bolt::Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage);
 

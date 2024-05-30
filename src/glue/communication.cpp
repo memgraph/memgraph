@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/mg_types.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -25,44 +26,37 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
+using memgraph::communication::bolt::kMgTypeEnum;
+using memgraph::communication::bolt::kMgTypeType;
+using memgraph::communication::bolt::kMgTypeValue;
+using memgraph::communication::bolt::MgType;
 using memgraph::communication::bolt::Value;
 using namespace std::string_view_literals;
 
 namespace memgraph::glue {
 
-namespace {
-constexpr auto kMgTypeEnum = "mg_enum"sv;
-constexpr auto kMgTypeType = "__type"sv;
-constexpr auto kMgTypeValue = "__value"sv;
-}  // namespace
+auto BoltMapToMgType(Value::map_t const &value, storage::Storage const *storage)
+    -> std::optional<storage::PropertyValue> {
+  auto info = BoltMapToMgTypeInfo(value);
+  if (!info) return std::nullopt;
 
-auto BoltMapToMgType(Value const &value, storage::Storage const *storage) -> std::optional<storage::PropertyValue> {
-  if (!value.IsMap()) return std::nullopt;
-  auto const &valueMap = value.ValueMap();
-  auto type_selector = valueMap.find(kMgTypeType);
-  if (type_selector == valueMap.cend()) return std::nullopt;
-  auto value_selector = valueMap.find(kMgTypeValue);
-  if (value_selector == valueMap.cend()) return std::nullopt;
-  if (!type_selector->second.IsString()) return std::nullopt;
-  auto mg_type = std::string_view{type_selector->second.ValueString()};
-  auto const &value_val = value_selector->second;
-  if (!value_val.IsString()) return std::nullopt;
-  auto mg_value = std::string_view{value_val.ValueString()};
-
-  if (mg_type == kMgTypeEnum) {
-    if (!storage) return std::nullopt;
-    auto pos = mg_value.find("::");
-    if (pos == std::string_view::npos) return std::nullopt;
-    auto etype = mg_value.substr(0, pos);
-    auto evalue = mg_value.substr(pos + 2);
-    auto enum_val = storage->enum_store_.to_enum(etype, evalue);
-    if (!enum_val) return std::nullopt;
-    return storage::PropertyValue(*enum_val);
+  auto const &[type, _, mg_value] = *info;
+  switch (type) {
+    case MgType::Enum: {
+      if (!storage) return std::nullopt;
+      auto pos = mg_value.find("::");
+      if (pos == std::string_view::npos) return std::nullopt;
+      auto etype = mg_value.substr(0, pos);
+      auto evalue = mg_value.substr(pos + 2);
+      auto enum_val = storage->enum_store_.to_enum(etype, evalue);
+      if (!enum_val) return std::nullopt;
+      return storage::PropertyValue(*enum_val);
+    }
   }
   return std::nullopt;
 }
 
-query::TypedValue ToTypedValue(const Value &value) {
+query::TypedValue ToTypedValue(const Value &value, storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
       return {};
@@ -77,15 +71,16 @@ query::TypedValue ToTypedValue(const Value &value) {
     case Value::Type::List: {
       std::vector<query::TypedValue> list;
       list.reserve(value.ValueList().size());
-      for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v));
+      for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v, storage));
       return query::TypedValue(std::move(list));
     }
     case Value::Type::Map: {
-      auto mg_type = BoltMapToMgType(value, nullptr);
+      auto const &valueMap = value.ValueMap();
+      auto mg_type = BoltMapToMgType(valueMap, storage);
       if (mg_type) return query::TypedValue{*mg_type};
 
       std::map<std::string, query::TypedValue> map;
-      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToTypedValue(kv.second));
+      for (const auto &kv : valueMap) map.emplace(kv.first, ToTypedValue(kv.second, storage));
       return query::TypedValue(std::move(map));
     }
     case Value::Type::Vertex:
@@ -199,8 +194,8 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       auto map = Value::map_t{};
-      map.try_emplace("__type", kMgTypeEnum);
-      map.try_emplace("__value", *std::move(maybe_enum_value_str));
+      map.emplace(kMgTypeType, memgraph::communication::bolt::kMgTypeEnum);
+      map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
       return Value(std::move(map));
     }
 
@@ -313,11 +308,12 @@ storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, 
       return storage::PropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
-      auto mg_type = BoltMapToMgType(value, storage);
+      auto const &valueMap = value.ValueMap();
+      auto mg_type = BoltMapToMgType(valueMap, storage);
       if (mg_type) return *mg_type;
 
       std::map<std::string, storage::PropertyValue> map;
-      for (const auto &[k, v] : value.ValueMap()) {
+      for (const auto &[k, v] : valueMap) {
         map.try_emplace(k, ToPropertyValue(v, storage));
       }
       return storage::PropertyValue(std::move(map));

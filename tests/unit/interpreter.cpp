@@ -252,7 +252,8 @@ TYPED_TEST(InterpreterTest, Parameters) {
                                              memgraph::storage::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result =
+        memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0], nullptr));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
