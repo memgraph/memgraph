@@ -18,10 +18,16 @@
 namespace {
 
 void CheckPeriodic() {
-  auto storage = memgraph::storage::InMemoryStorage();
+  using namespace std::chrono_literals;
   int called_cnt = 0;
-  storage.SetFreeMemoryFuncPtr([&called_cnt](std::unique_lock<memgraph::utils::ResourceLock>, bool) { called_cnt++; });
-  sleep(5);
+  auto gc_call_counter = [&called_cnt](auto...) { called_cnt++; };
+
+  auto periodic_config = memgraph::storage::Config{};
+  periodic_config.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
+  periodic_config.gc.interval = 1s;
+
+  auto storage = memgraph::storage::InMemoryStorage(periodic_config, gc_call_counter);
+  sleep(3);
   MG_ASSERT(called_cnt > 0, "Periodic gc never got called");
 }
 

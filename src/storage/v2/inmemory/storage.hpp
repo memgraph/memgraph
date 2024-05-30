@@ -59,11 +59,12 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
 
  public:
+  using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit InMemoryStorage(Config config = Config());
+  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -369,8 +370,6 @@ class InMemoryStorage final : public Storage {
   std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
                                          std::optional<IsolationLevel> override_isolation_level) override;
 
-  void SetFreeMemoryFuncPtr(std::function<void(std::unique_lock<utils::ResourceLock>, bool)> free_memory_func);
-
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
   utils::FileRetainer::FileLockerAccessor::ret_type IsPathLocked();
@@ -506,7 +505,7 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
-  std::atomic<std::shared_ptr<std::function<void(std::unique_lock<utils::ResourceLock>, bool)>>> free_memory_func_ptr_;
+  free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
