@@ -782,6 +782,10 @@ class DbAccessor final {
   std::optional<storage::Enum> GetEnumValue(const std::string &name, const std::string &value) {
     return accessor_->GetEnumValue(name, value);
   }
+
+  auto EnumToName(storage::Enum value) const -> std::optional<std::string> {
+    return accessor_->GetEnumStoreShared().to_string(value);
+  }
 };
 
 class SubgraphDbAccessor final {
