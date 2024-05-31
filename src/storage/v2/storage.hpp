@@ -353,7 +353,7 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.all_registered(); }
 
-    std::optional<Enum> GetEnumValue(const std::string &name, const std::string &value) {
+    auto GetEnumValue(std::string_view name, std::string_view value) -> std::optional<Enum> {
       return storage_->enum_store_.to_enum(name, value);
     }
 

@@ -779,7 +779,7 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  std::optional<storage::Enum> GetEnumValue(const std::string &name, const std::string &value) {
+  auto GetEnumValue(std::string_view name, std::string_view value) -> std::optional<storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
 
