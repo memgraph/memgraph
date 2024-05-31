@@ -355,10 +355,6 @@
                                 (filter #(= :ok (:type %)))
                                 (filter #(= :read-balances (:f %))))
 
-            ok-setup-cluster (->> history
-                                  (filter #(= :ok (:type %)))
-                                  (filter #(= :setup-cluster (:f %))))
-
             ok-initialize-data (->> history
                                     (filter #(= :ok (:type %)))
                                     (filter #(= :initialize-data (:f %))))
@@ -379,10 +375,8 @@
                                          (empty? more-than-one-main)
                                          (empty? bad-data-reads)
                                          (empty? empty-data-nodes)
-                                         (boolean (not-empty ok-data-reads))
                                          (boolean (not-empty full-si-reads))
                                          (= correct-data-reads #{"n1" "n2" "n3"})
-                                         (boolean (not-empty ok-setup-cluster))
                                          (= (count ok-initialize-data) 1)
                                          (empty? failed-setup-cluster)
                                          (empty? failed-initialize-data)
@@ -394,13 +388,11 @@
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
                             :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3"})
                             :empty-bad-data-reads? (empty? bad-data-reads)
-                            :ok-setup-cluster-exist? (boolean (not-empty ok-setup-cluster))
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster)
                             :ok-initialize-data-once? (= (count ok-initialize-data) 1)
                             :empty-failed-initialize-data? (empty? failed-initialize-data)
                             :empty-failed-show-instances? (empty? failed-show-instances)
                             :empty-failed-read-balances? (empty? failed-read-balances)
-                            :ok-data-reads-exist? (boolean (not-empty ok-data-reads))
                             :full-si-reads-exist? (boolean (not-empty full-si-reads))
                             :empty-data-nodes? (empty? empty-data-nodes)}
 

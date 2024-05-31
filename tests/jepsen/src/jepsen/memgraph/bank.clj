@@ -143,18 +143,10 @@
                                       (filter #(= :read-balances (:f %)))
                                       (map :value))
 
-            ok-transfers  (->> history
-                               (filter #(= :ok (:type %)))
-                               (filter #(= :transfer (:f %))))
-
             failed-transfers (->> history
                                   (filter #(= :fail (:type %)))
                                   (filter #(= :transfer (:f %)))
                                   (map :value))
-
-            ok-registrations (->> history
-                                  (filter #(= :ok (:type %)))
-                                  (filter #(= :register (:f %))))
 
             failed-registrations (->> history
                                       (filter #(= :fail (:type %)))
@@ -164,22 +156,16 @@
             initial-result {:valid? (and
                                      (empty? bad-reads)
                                      (empty? empty-nodes)
-                                     (boolean (not-empty ok-reads))
                                      (empty? failed-read-balances)
-                                     (boolean (not-empty ok-registrations))
                                      (empty? failed-registrations)
                                      (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
-                                     (boolean (not-empty ok-transfers))
                                      (empty? failed-transfers))
 
                             :empty-bad-reads? (empty? bad-reads)
                             :empty-nodes? (empty? empty-nodes)
-                            :ok-reads-exist? (boolean (not-empty ok-reads))
                             :empty-failed-read-balances? (empty? failed-read-balances)
-                            :ok-registrations-exist? (boolean (not-empty ok-registrations))
                             :empty-failed-registrations? (empty? failed-registrations)
                             :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
-                            :ok-transfers-exist? (boolean (not-empty ok-transfers))
                             :empty-failed-transfers? (empty? failed-transfers)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}

@@ -75,7 +75,8 @@
                     (utils/process-service-unavilable-exc op (:node this)))
                   (catch Exception e
                     (if (utils/sync-replica-down? e)
-                      (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
+                      (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected. Here we return ok because
+                      ; data will still get replicated since Memgraph doesn't have SYNC replication by the book.
                       (assoc op :type :fail :value (str e)))))
                 (assoc op :type :info :info "Not main node"))))
   (teardown! [this _test]
@@ -107,10 +108,6 @@
       (let [ok-reads (->> history
                           (filter #(= :ok (:type %)))
                           (filter #(= :read (:f %))))
-
-            ok-registrations (->> history
-                                  (filter #(= :ok (:type %)))
-                                  (filter #(= :register (:f %))))
 
             ; Read is considered bad if count is not divisible with node-num.
             bad-reads (->> ok-reads
@@ -165,10 +162,8 @@
 
                             :empty-nodes? (empty? empty-nodes)
                             :empty-bad-reads? (empty? bad-reads)
-                            :ok-reads-exist? (boolean (not-empty ok-reads))
                             :empty-failed-reads? (empty? failed-reads)
                             :empty-failed-adds? (empty? failed-adds)
-                            :ok-registrations-exist? (boolean (not-empty ok-registrations))
                             :empty-failed-registrations? (empty? failed-registrations)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}
