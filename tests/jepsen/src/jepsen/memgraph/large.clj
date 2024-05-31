@@ -107,13 +107,10 @@
       (let [ok-reads (->> history
                           (filter #(= :ok (:type %)))
                           (filter #(= :read (:f %))))
-            ok-adds (->> history
-                         (filter #(= :ok (:type %)))
-                         (filter #(= :add (:f %))))
 
             ok-registrations (->> history
-                                 (filter #(= :ok (:type %)))
-                                 (filter #(= :register (:f %))))
+                                  (filter #(= :ok (:type %)))
+                                  (filter #(= :register (:f %))))
 
             ; Read is considered bad if count is not divisible with node-num.
             bad-reads (->> ok-reads
@@ -164,14 +161,12 @@
                                      (empty? failed-registrations)
                                      (empty? failed-adds)
                                      (empty? failed-reads)
-                                     (boolean (not-empty ok-reads))
-                                     (boolean (not-empty ok-adds)))
+                                     (boolean (not-empty ok-reads)))
 
                             :empty-nodes? (empty? empty-nodes)
                             :empty-bad-reads? (empty? bad-reads)
                             :ok-reads-exist? (boolean (not-empty ok-reads))
                             :empty-failed-reads? (empty? failed-reads)
-                            :ok-adds-exist? (boolean (not-empty ok-adds))
                             :empty-failed-adds? (empty? failed-adds)
                             :ok-registrations-exist? (boolean (not-empty ok-registrations))
                             :empty-failed-registrations? (empty? failed-registrations)}
