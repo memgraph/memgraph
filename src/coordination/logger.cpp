@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/logger.hpp"
@@ -23,15 +21,18 @@ constexpr int log_retention_count = 35;
 namespace memgraph::coordination {
 
 Logger::Logger(std::string log_file) {
-  time_t current_time{0};
-  struct tm *local_time{nullptr};
+  std::vector<spdlog::sink_ptr> sinks;
+  if (!log_file.empty()) {
+    time_t current_time{0};
+    struct tm *local_time{nullptr};
 
-  // TODO: (andi) I think not needed
-  time(&current_time);  // NOLINT
-  local_time = localtime(&current_time);
+    time(&current_time);  // NOLINT
+    local_time = localtime(&current_time);
 
-  auto const sinks = {std::make_shared<spdlog::sinks::daily_file_sink_mt>(
-      std::move(log_file), local_time->tm_hour, local_time->tm_min, false, log_retention_count)};
+    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+        std::move(log_file), local_time->tm_hour, local_time->tm_min, false, log_retention_count));
+  }
+  // If log file is empty, logger can be used but without sinks = no logging.
   logger_ = std::make_shared<spdlog::logger>("NuRaft", sinks.begin(), sinks.end());
   logger_->set_level(spdlog::level::trace);
   logger_->flush_on(spdlog::level::trace);

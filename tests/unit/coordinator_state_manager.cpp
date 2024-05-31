@@ -10,10 +10,11 @@
 // licenses/APL.txt.
 
 #include "nuraft/coordinator_state_manager.hpp"
-#include <gtest/gtest.h>
 #include "coordination/coordinator_communication_config.hpp"
-#include "libnuraft/nuraft.hxx"
+#include "nuraft/logger.hpp"
 
+#include <gtest/gtest.h>
+#include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
 
 using memgraph::coordination::CoordinatorInstanceInitConfig;
@@ -51,14 +52,19 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
   CoordinatorInstanceInitConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
+  using memgraph::coordination::Logger;
+  using nuraft::logger;
+
+  ptr<logger> my_logger = cs_new<Logger>("");
+
   ptr<cluster_config> old_config;
   {
-    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config);
+    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     state_manager_->save_config(*old_config);
   }
 
-  ptr<CoordinatorStateManager> state_manager_copy = cs_new<CoordinatorStateManager>(config);
+  ptr<CoordinatorStateManager> state_manager_copy = cs_new<CoordinatorStateManager>(config, my_logger);
   auto loaded_config = state_manager_copy->load_config();
 
   ASSERT_EQ(old_config->get_servers().size(), loaded_config->get_servers().size());
@@ -73,8 +79,13 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   // 1st coord stored here
   ptr<cluster_config> old_config;
   CoordinatorInstanceInitConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
+
+  using memgraph::coordination::Logger;
+  using nuraft::logger;
+  ptr<logger> my_logger = cs_new<Logger>("");
+
   {
-    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config);
+    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
         CoordinatorToCoordinatorConfig{config.coordinator_id, memgraph::io::network::Endpoint("0.0.0.0", 9091),
@@ -87,7 +98,7 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
     ASSERT_EQ(old_config->get_servers().size(), 2);
   }
 
-  ptr<CoordinatorStateManager> state_manager_copy = cs_new<CoordinatorStateManager>(config);
+  ptr<CoordinatorStateManager> state_manager_copy = cs_new<CoordinatorStateManager>(config, my_logger);
   auto loaded_config = state_manager_copy->load_config();
 
   ASSERT_EQ(old_config->get_servers().size(), loaded_config->get_servers().size());
