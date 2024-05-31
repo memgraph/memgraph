@@ -54,8 +54,8 @@ uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
 ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
 
-  uint64_t const last_idx = start_idx_ + logs_.size() - 1;
-  auto const last_src = FindOrDefault_(last_idx - 1);
+  uint64_t const next_slot = start_idx_ + logs_.size() - 1;
+  auto const last_src = FindOrDefault_(next_slot - 1);
 
   return MakeClone(last_src);
 }

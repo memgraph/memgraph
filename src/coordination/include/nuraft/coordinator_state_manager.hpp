@@ -18,19 +18,24 @@
 #include "nuraft/coordinator_log_store.hpp"
 
 #include <spdlog/spdlog.h>
+// clang-format off
+// First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
 #include <libnuraft/nuraft.hxx>
+#include <libnuraft/logger.hxx>
+// clang-format on
 
 namespace memgraph::coordination {
 
 using nuraft::cluster_config;
 using nuraft::cs_new;
+using nuraft::logger;
 using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, ptr<logger> logger);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -58,6 +63,7 @@ class CoordinatorStateManager : public state_mgr {
  private:
   int my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;
+  ptr<logger> logger_;
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;

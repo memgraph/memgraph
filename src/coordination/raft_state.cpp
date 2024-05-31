@@ -44,9 +44,9 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(cs_new<CoordinatorStateManager>(config)),
-      logger_(nullptr),
+      logger_(cs_new<Logger>(fmt::format("/home/andi/Memgraph/logs/nuraft/coordinator_{}.log", coordinator_id_))),
+      state_machine_(cs_new<CoordinatorStateMachine>(logger_)),
+      state_manager_(cs_new<CoordinatorStateManager>(config, logger_)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 

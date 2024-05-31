@@ -18,7 +18,11 @@
 #include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
+// clang-format off
+// First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
 #include <libnuraft/nuraft.hxx>
+#include <libnuraft/logger.hxx>
+// clang-format on
 
 #include <variant>
 
@@ -29,13 +33,14 @@ using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::cluster_config;
 using nuraft::int32;
+using nuraft::logger;
 using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine() = default;
+  explicit CoordinatorStateMachine(ptr<logger> logger);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -111,6 +116,7 @@ class CoordinatorStateMachine : public state_machine {
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
 
+  ptr<logger> logger_;
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 };

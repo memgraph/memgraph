@@ -18,8 +18,6 @@
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace memgraph::coordination {
 
 using nuraft::cluster_config;
@@ -32,9 +30,10 @@ namespace {
 constexpr std::string_view kServersKey = "servers";  // Key prefix for servers durability
 }  // namespace
 
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config)
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, ptr<logger> logger)
     : my_id_(static_cast<int>(config.coordinator_id)),
       cur_log_store_(cs_new<CoordinatorLogStore>()),
+      logger_(std::move(logger)),
       kv_store_(config.durability_dir) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id, io::network::Endpoint("0.0.0.0", config.bolt_port),
@@ -47,39 +46,42 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorInstanceInitConfig c
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
-  spdlog::trace("Loading cluster config from RocksDb");
+  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Loading cluster config from RocksDb");
   auto const servers = kv_store_.Get(kServersKey);
   if (!servers.has_value()) {
-    spdlog::trace("Didn't find anything stored on disk for cluster config.");
+    logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
+                         "Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
   }
-  spdlog::trace("Loading cluster config from disk.");
   auto const json = nlohmann::json::parse(servers.value());
   auto real_servers = json.get<std::vector<std::tuple<int, std::string, std::string>>>();
   auto new_cluster_config = cs_new<cluster_config>(cluster_config_->get_log_idx(), cluster_config_->get_prev_log_idx());
 
   for (auto &real_server : real_servers) {
     auto &[coord_id, endpoint, aux] = real_server;
-    spdlog::trace("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.", coord_id, endpoint,
-                  aux);
+    logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
+                         fmt::format("Recreating cluster config with id: {}, endpoint: {} and aux data: {} from disk.",
+                                     coord_id, endpoint, aux));
     auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
     new_cluster_config->get_servers().push_back(std::move(one_server_config));
   }
   cluster_config_ = new_cluster_config;
-  spdlog::trace("Loaded all cluster configs from disk.");
+  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Loaded all cluster configs from RocksDb");
   return cluster_config_;
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
-  spdlog::info("Saving cluster config to disk.");
+  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Saving cluster config to RocksDb");
   auto const servers_vec =
       ranges::views::transform(
           cluster_config_->get_servers(),
-          [](auto const &server) {
-            spdlog::trace("Created cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
-                          static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux());
+          [this](auto const &server) {
+            logger_->put_details(
+                6, __FILE__, "CoordinatorStateManager::save_config", __LINE__,
+                fmt::format("Creating cluster config with id: {}, endpoint: {} and aux data: {} to disk.",
+                            static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()));
             return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
           }) |
       ranges::to<std::vector>();
@@ -89,13 +91,13 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   // TODO(antoniofilipovic): Implement storing of server state to disk. For now
   // as server state is just term and voted_for, we don't have to store it
-  spdlog::trace("Saving server state in coordinator state manager.");
+  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Saving server state in coordinator state manager.");
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
 }
 
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
-  spdlog::trace("Reading server state in coordinator state manager.");
+  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Reading server state in coordinator state manager.");
   return saved_state_;
 }
 

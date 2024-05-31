@@ -19,7 +19,9 @@
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
+#include "nuraft/logger.hpp"
 
+#include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
@@ -101,12 +103,12 @@ class RaftState {
   int coordinator_port_;
   uint32_t coordinator_id_;
 
-  ptr<CoordinatorStateMachine> state_machine_;
-  ptr<CoordinatorStateManager> state_manager_;
   ptr<logger> logger_;
   ptr<raft_server> raft_server_;
   ptr<asio_service> asio_service_;
   ptr<rpc_listener> asio_listener_;
+  ptr<CoordinatorStateMachine> state_machine_;
+  ptr<CoordinatorStateManager> state_manager_;
 
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
