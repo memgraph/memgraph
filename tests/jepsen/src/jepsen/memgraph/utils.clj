@@ -3,7 +3,10 @@
    [neo4j-clj.core :as dbclient]
    [clojure.string :as string]
    [clojure.tools.logging :refer [info]]
-   [jepsen.generator :as gen])
+   [jepsen.checker :as checker]
+   [jepsen.generator :as gen]
+   [jepsen.history :as h]
+   [tesser.core :as t])
   (:import (java.net URI)))
 
 (defn bolt-url
@@ -102,3 +105,74 @@
   "Accepts exception e as argument."
   [e]
   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
+
+(defn analyze-bank-data-reads
+  "Checks whether balances always sum to the correctnumber"
+  [ok-data-reads account-num starting-balance]
+  (->> ok-data-reads
+       (map #(-> % :value))  ; Extract the :value from each map
+       (filter #(= (count (:accounts %)) account-num))  ; Check the number of accounts
+       (map (fn [value]  ; Process each value
+              (let [balances (map :balance (:accounts value))  ; Get the balances from the accounts
+                    expected-total (* account-num starting-balance)]  ; Calculate the expected total balance
+                (cond
+                  (and (not-empty balances)  ; Ensure balances are not empty
+                       (not= expected-total (reduce + balances)))  ; Check if the total balance is incorrect
+                  {:type :wrong-total
+                   :expected expected-total
+                   :found (reduce + balances)
+                   :value value}
+
+                  (some neg? balances)  ; Check for negative balances
+                  {:type :negative-value
+                   :found balances
+                   :op value}))))
+       (filter identity)  ; Remove nil entries
+       (into [])))
+
+(defn analyze-empty-data-nodes
+  "Checks whether there is any node that has empty reads."
+  [ok-data-reads]
+  (let [all-nodes (->> ok-data-reads
+                       (map #(-> % :value :node))
+                       (reduce conj #{}))]
+    (->> all-nodes
+         (filter (fn [node]
+                   (every?
+                    empty?
+                    (->> ok-data-reads
+                         (map :value)
+                         (filter #(= node (:node %)))
+                         (map :accounts)))))
+         (filter identity)
+         (into []))))
+
+(defn unhandled-exceptions
+  "Wraps jepsen.checker/unhandled-exceptions in a way that if exceptions exist, valid? false is returned.
+  Returns information about unhandled exceptions: a sequence of maps sorted in
+  descending frequency order, each with:
+
+      :class    The class of the exception thrown
+      :count    How many of this exception we observed
+      :example  An example operation"
+  []
+  (reify checker/Checker
+    (check [_this _test history _opts]
+      (let [exes (->> (t/filter h/info?)
+                      (t/filter :exception)
+                      (t/group-by (comp :type first :via :exception))
+                      (t/into [])
+                      (h/tesser history)
+                      vals
+                      (sort-by count)
+                      reverse
+                      (map (fn [ops]
+                             (let [op (first ops)
+                                   e  (:exception op)]
+                               {:count (count ops)
+                                :class (-> e :via first :type)
+                                :example op}))))]
+        (if (seq exes)
+          {:valid?      false
+           :exceptions  exes}
+          {:valid? true})))))

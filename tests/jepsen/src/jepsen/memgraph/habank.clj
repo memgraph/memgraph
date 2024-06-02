@@ -45,7 +45,7 @@
       (not-empty accounts))))
 
 (defn transfer-money
-  "Transfer money from one account to another by some amount
+  "Transfer money from 1st account to the 2nd by some amount
   if the account you're transfering money from has enough
   money."
   [conn op from to amount]
@@ -352,43 +352,11 @@
             ok-data-reads  (->> history
                                 (filter #(= :ok (:type %)))
                                 (filter #(= :read-balances (:f %))))
-            bad-data-reads (->> ok-data-reads
-                                (map #(->> % :value))
-                                (filter #(= (count (:accounts %)) utils/account-num))
-                                (map (fn [value]
-                                       (let [balances  (map :balance (:accounts value))
-                                             expected-total (* utils/account-num utils/starting-balance)]
-                                         (cond (and
-                                                (not-empty balances)
-                                                (not=
-                                                 expected-total
-                                                 (reduce + balances)))
-                                               {:type :wrong-total
-                                                :expected expected-total
-                                                :found (reduce + balances)
-                                                :value value}
+            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads utils/account-num utils/starting-balance)
 
-                                               (some neg? balances)
-                                               {:type :negative-value
-                                                :found balances
-                                                :op value}))))
-                                (filter identity)
-                                (into []))
-            empty-data-nodes (let [all-nodes (->> ok-data-reads
-                                                  (map #(-> % :value :node))
-                                                  (reduce conj #{}))]
-                               (->> all-nodes
-                                    (filter (fn [node]
-                                              (every?
-                                               empty?
-                                               (->> ok-data-reads
-                                                    (map :value)
-                                                    (filter #(= node (:node %)))
-                                                    (map :accounts)))))
-                                    (filter identity)
-                                    (into [])))
+            empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
 
-            result {:valid? (and (empty? empty-si-nodes)
+            initial-result {:valid? (and (empty? empty-si-nodes)
                                  (= coordinators #{"n4" "n5" "n6"})
                                  (empty? coords-missing-reads)
                                  (empty? more-than-one-main)
@@ -409,30 +377,22 @@
                     :empty-failed-show-instances? (empty? failed-show-instances)
                     :empty-failed-read-balances? (empty? failed-read-balances)
                     :full-si-reads-exist? (seq? full-si-reads)
-                    :empty-data-nodes? (empty? empty-data-nodes)}]
+                    :empty-data-nodes? (empty? empty-data-nodes)}
 
-        (when (not (:correct-coordinators? result))
-          (assoc result :coordinators coordinators))
+            updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
+                     {:key :empty-si-nodes :condition (not (:empty-si-nodes? initial-result)) :value empty-si-nodes}
+                     {:key :empty-data-nodes :condition (not (:empty-data-nodes? initial-result)) :value empty-data-nodes}
+                     {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
+                     {:key :failed-initialize-data :condition (not (:empty-failed-initialize-data? initial-result)) :value failed-initialize-data}
+                     {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}
+                     {:key :failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}]]
 
-        (when (not (:empty-si-nodes? result))
-          (assoc result :empty-si-nodes empty-si-nodes))
-
-        (when (not (:empty-data-nodes? result))
-          (assoc result :empty-data-nodes empty-data-nodes))
-
-        (when (not (:empty-failed-setup-cluster? result))
-          (assoc result :failed-setup-cluster failed-setup-cluster))
-
-        (when (not (:empty-failed-initialize-data? result))
-          (assoc result :failed-initialize-data failed-initialize-data))
-
-        (when (not (:empty-failed-show-instances? result))
-          (assoc result :failed-show-instances failed-show-instances))
-
-        (when (not (:empty-failed-read-balances? result))
-          (assoc result :failed-read-balances failed-read-balances))
-
-        result))))
+        (reduce (fn [result update]
+                  (if (:condition update)
+                    (assoc result (:key update) (:value update))
+                    result))
+                initial-result
+                updates)))))
 
 (defn show-instances-reads
   "Create read action."
