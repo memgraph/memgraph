@@ -3882,4 +3882,52 @@ class EnumValueAccess : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+class AlterEnumAddValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumAddValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string enum_value_;
+
+  AlterEnumAddValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumAddValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumUpdateValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumUpdateValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string old_enum_value_;
+  std::string new_enum_value_;
+
+  AlterEnumUpdateValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumUpdateValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->old_enum_value_ = old_enum_value_;
+    object->new_enum_value_ = new_enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query

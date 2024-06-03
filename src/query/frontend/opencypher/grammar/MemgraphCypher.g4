@@ -151,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
                       | VALUES
                       | VERSION
                       | WEBSOCKET
@@ -192,6 +193,8 @@ query : cypherQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -582,3 +585,7 @@ enumValue : symbolicName ;
 createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;

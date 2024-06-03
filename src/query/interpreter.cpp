@@ -4861,11 +4861,21 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
-        throw CreateEnumInMulticommandTxException();
+        throw EnumModificationInMulticommandTxException();
       }
       prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowEnumsQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw EnumModificationInMulticommandTxException();
+      }
+      throw utils::NotYetImplemented("Alter Enum Add Value Query");
+    } else if (utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw EnumModificationInMulticommandTxException();
+      }
+      throw utils::NotYetImplemented("Alter Enum Update Value Query");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

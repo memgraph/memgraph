@@ -96,6 +96,22 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | Enum Name | Enum Values     |
             | 'Status'  | ['Good', 'Bad'] |
 
+    Scenario: Add value to enum:
+        Given an empty graph
+        When executing query:
+            """
+            ALTER ENUM Status ADD VALUE Medium;
+            """
+        Then an error should be raised
+
+    Scenario: Update value in enum:
+        Given an empty graph
+        When executing query:
+            """
+            ALTER ENUM Status UPDATE VALUE Medium TO Average;
+            """
+        Then an error should be raised
+
     Scenario: Compare enum values for equality:
         Given an empty graph
         # Values will be used from the previous scenario
