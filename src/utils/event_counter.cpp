@@ -84,6 +84,9 @@
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
   M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
+  M(ActiveGCProcesses, Memory, "Number of active GC processes. Should be not higher than 1.")                        \
+  M(ActiveSnapshotCreationProcesses, Snapshot,                                                                       \
+    "Number of active snapshot creation processes. Should be not higher than 1.")                                    \
   M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")
 
 namespace memgraph::metrics {

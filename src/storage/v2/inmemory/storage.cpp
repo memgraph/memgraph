@@ -31,6 +31,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
@@ -40,6 +41,9 @@
 #include <unordered_set>
 
 namespace memgraph::metrics {
+extern const Event ActiveSnapshotCreationProcesses;
+extern const Event ActiveGCProcesses;
+extern const Event GCLatency_us;
 extern const Event PeakMemoryRes;
 extern const Event UnreleasedDeltaObjects;
 }  // namespace memgraph::metrics
@@ -2399,6 +2403,10 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 
   std::lock_guard snapshot_guard(snapshot_lock_);
 
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSnapshotCreationProcesses);
+  memgraph::utils::OnScopeExit no_active_snapshot_processed(
+      [] { memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSnapshotCreationProcesses); });
+
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other txn can be in play
@@ -2420,6 +2428,14 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveGCProcesses);
+  utils::Timer timer;
+  memgraph::utils::OnScopeExit no_active_gc_processes([&timer] {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveGCProcesses);
+    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us,
+                               std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  });
+
   CollectGarbage(std::move(main_guard), periodic);
 
   static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
