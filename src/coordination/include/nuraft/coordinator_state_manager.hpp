@@ -16,13 +16,9 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_log_store.hpp"
+#include "nuraft/logger_wrapper.hpp"
 
 #include <spdlog/spdlog.h>
-// clang-format off
-// First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
-#include <libnuraft/nuraft.hxx>
-#include <libnuraft/logger.hxx>
-// clang-format on
 
 namespace memgraph::coordination {
 
@@ -35,7 +31,7 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, ptr<logger> logger);
+  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, LoggerWrapper logger);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -63,7 +59,7 @@ class CoordinatorStateManager : public state_mgr {
  private:
   int my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;
-  ptr<logger> logger_;
+  LoggerWrapper logger_;
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;

@@ -15,14 +15,10 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
-// clang-format off
-// First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
-#include <libnuraft/nuraft.hxx>
-#include <libnuraft/logger.hxx>
-// clang-format on
 
 #include <variant>
 
@@ -40,7 +36,7 @@ using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(ptr<logger> logger);
+  explicit CoordinatorStateMachine(LoggerWrapper logger);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -116,7 +112,7 @@ class CoordinatorStateMachine : public state_machine {
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
 
-  ptr<logger> logger_;
+  LoggerWrapper logger_;
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 };

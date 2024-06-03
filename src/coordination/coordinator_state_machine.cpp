@@ -19,7 +19,7 @@ constexpr int MAX_SNAPSHOTS = 3;
 
 namespace memgraph::coordination {
 
-CoordinatorStateMachine::CoordinatorStateMachine(ptr<logger> logger) : logger_(std::move(logger)) {}
+CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger) : logger_(logger) {}
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
 
@@ -108,8 +108,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   auto const [parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
   last_committed_idx_ = log_idx;
@@ -122,20 +121,18 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 }
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, fmt::format("Commit config: log_idx={}", log_idx));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
   last_committed_idx_ = log_idx;
 }
 
 auto CoordinatorStateMachine::rollback(ulong const log_idx, buffer &data) -> void {
   // NOTE: Nothing since we don't do anything in pre_commit
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Rollback: log_idx={}, data.size()={}", log_idx, data.size()));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Rollback: log_idx={}, data.size()={}", log_idx, data.size()));
 }
 
 auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /*user_snp_ctx*/, ulong obj_id,
                                                    ptr<buffer> &data_out, bool &is_last_obj) -> int {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Read logical snapshot object, obj_id: {}", obj_id));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Read logical snapshot object, obj_id={}", obj_id));
 
   ptr<SnapshotCtx> ctx = nullptr;
   {
@@ -166,9 +163,9 @@ auto CoordinatorStateMachine::read_logical_snp_obj(snapshot &snapshot, void *& /
 
 auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &obj_id, buffer &data, bool is_first_obj,
                                                    bool is_last_obj) -> void {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Save logical snapshot object, obj_id: {}, is_first_obj: {}, is_last_obj: {}",
-                                   obj_id, is_first_obj, is_last_obj));
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Save logical snapshot object, obj_id={}, is_first_obj={}, is_last_obj={}", obj_id,
+                          is_first_obj, is_last_obj));
 
   if (obj_id == 0) {
     ptr<buffer> snp_buf = snapshot.serialize();
@@ -187,8 +184,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
 
 auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   auto ll = std::lock_guard{snapshots_lock_};
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Apply snapshot, last_log_idx: {}", s.get_last_log_idx()));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Apply snapshot, last_log_idx={}", s.get_last_log_idx()));
 
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
@@ -201,10 +197,10 @@ auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Getting last snapshot from state machine.");
+  logger_.Log(nuraft_log_level::TRACE, "Getting last snapshot from state machine.");
   auto entry = snapshots_.rbegin();
   if (entry == snapshots_.rend()) {
-    logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "There is no snapshot.");
+    logger_.Log(nuraft_log_level::TRACE, "There is no snapshot.");
     return nullptr;
   }
 
@@ -213,13 +209,12 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
 }
 
 auto CoordinatorStateMachine::last_commit_index() -> ulong {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__, "Getting last committed index from state machine.");
+  logger_.Log(nuraft_log_level::TRACE, "Getting last committed index from state machine.");
   return last_committed_idx_;
 }
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Create snapshot, last_log_idx: {}", s.get_last_log_idx()));
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Create snapshot, last_log_idx={}", s.get_last_log_idx()));
   ptr<buffer> snp_buf = s.serialize();
   ptr<snapshot> ss = snapshot::deserialize(*snp_buf);
   create_snapshot_internal(ss);
@@ -231,8 +226,8 @@ auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::h
 
 auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -> void {
   auto ll = std::lock_guard{snapshots_lock_};
-  logger_->put_details(6, __FILE__, __FUNCTION__, __LINE__,
-                       fmt::format("Create snapshot internal, last_log_idx: {}", snapshot->get_last_log_idx()));
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Create snapshot internal, last_log_idx={}", snapshot->get_last_log_idx()));
 
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   snapshots_[snapshot->get_last_log_idx()] = ctx;

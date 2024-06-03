@@ -53,9 +53,10 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
   CoordinatorInstanceInitConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
   using memgraph::coordination::Logger;
-  using nuraft::logger;
+  using memgraph::coordination::LoggerWrapper;
 
-  ptr<logger> my_logger = cs_new<Logger>("");
+  Logger logger("");
+  LoggerWrapper my_logger(&logger);
 
   ptr<cluster_config> old_config;
   {
@@ -81,8 +82,10 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   CoordinatorInstanceInitConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
 
   using memgraph::coordination::Logger;
-  using nuraft::logger;
-  ptr<logger> my_logger = cs_new<Logger>("");
+  using memgraph::coordination::LoggerWrapper;
+
+  Logger logger("");
+  LoggerWrapper my_logger(&logger);
 
   {
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);

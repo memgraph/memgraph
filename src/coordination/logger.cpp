@@ -36,6 +36,7 @@ Logger::Logger(std::string log_file) {
   logger_ = std::make_shared<spdlog::logger>("NuRaft", sinks.begin(), sinks.end());
   logger_->set_level(spdlog::level::trace);
   logger_->flush_on(spdlog::level::trace);
+  set_level(static_cast<int>(nuraft_log_level::TRACE));
 }
 
 Logger::~Logger() {
@@ -58,45 +59,47 @@ void Logger::put_details(int level, const char *source_file, const char *func_na
 void Logger::set_level(int l) { logger_->set_level(GetSpdlogLevel(l)); }
 
 int Logger::get_level() {
-  auto const level = logger_->level();
-  if (level == spdlog::level::trace) {
-    return 6;
-  }
-  if (level == spdlog::level::debug) {
-    return 5;
-  }
-  if (level == spdlog::level::info) {
-    return 4;
-  }
-  if (level == spdlog::level::warn) {
-    return 3;
-  }
-  if (level == spdlog::level::err) {
-    return 2;
-  }
-  if (level == spdlog::level::critical) {  // critical=fatal
-    return 1;
-  }
-
-  return 0;
+  auto const nuraft_log_level = GetNuRaftLevel(logger_->level());
+  return static_cast<int>(nuraft_log_level);
 }
 
 spdlog::level::level_enum Logger::GetSpdlogLevel(int nuraft_log_level) {
-  switch (nuraft_log_level) {
-    case 6:
+  auto const nuraft_level = static_cast<enum nuraft_log_level>(nuraft_log_level);
+
+  switch (nuraft_level) {
+    case nuraft_log_level::TRACE:
       return spdlog::level::trace;
-    case 5:
+    case nuraft_log_level::DEBUG:
       return spdlog::level::debug;
-    case 4:
+    case nuraft_log_level::INFO:
       return spdlog::level::info;
-    case 3:
+    case nuraft_log_level::WARNING:
       return spdlog::level::warn;
-    case 2:
+    case nuraft_log_level::ERROR:
       return spdlog::level::err;
-    case 1:
+    case nuraft_log_level::FATAL:
       return spdlog::level::critical;  // critical=fatal
     default:
       return spdlog::level::trace;
+  }
+}
+
+nuraft_log_level Logger::GetNuRaftLevel(spdlog::level::level_enum spdlog_level) {
+  switch (spdlog_level) {
+    case spdlog::level::trace:
+      return nuraft_log_level::TRACE;
+    case spdlog::level::debug:
+      return nuraft_log_level::DEBUG;
+    case spdlog::level::info:
+      return nuraft_log_level::INFO;
+    case spdlog::level::warn:
+      return nuraft_log_level::WARNING;
+    case spdlog::level::err:
+      return nuraft_log_level::ERROR;
+    case spdlog::level::critical:  // critical=fatal
+      return nuraft_log_level::FATAL;
+    default:
+      return nuraft_log_level::TRACE;
   }
 }
 

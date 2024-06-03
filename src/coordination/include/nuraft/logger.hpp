@@ -13,11 +13,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <string>
+#include "nuraft/log_level.hpp"
 
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
+#include <string>
 // clang-format off
 // First import nuraft.hxx then logger.hxx to avoid problem with __interface_body__
 #include <libnuraft/nuraft.hxx>
@@ -28,6 +29,10 @@ namespace memgraph::coordination {
 
 using nuraft::logger;
 
+/**
+ * Logger class that wraps the spdlog logger. NuRaft uses directly this object. However, devs should use @LoggerWrapper
+ * to log messages.
+ */
 class Logger final : public logger {
  public:
   explicit Logger(std::string log_file);
@@ -55,22 +60,16 @@ class Logger final : public logger {
                    const std::string &log_line) override;
 
   // Map from NuRaft log level to Spdlog log level.
+  // Not intended to be used, implementation provided if necessary
   void set_level(int l) override;
 
   // Map from spdlog log level to NuRaft log level.
+  // Not intended to be used, implementation provided if necessary
   int get_level() override;
 
  private:
-  /**
-   NuRaft log level:
-   *    Trace:    6
-   *    Debug:    5
-   *    Info:     4
-   *    Warning:  3
-   *    Error:    2
-   *    Fatal:    1
-   */
   static spdlog::level::level_enum GetSpdlogLevel(int nuraft_log_level);
+  static nuraft_log_level GetNuRaftLevel(spdlog::level::level_enum spdlog_level);
 
   std::shared_ptr<spdlog::logger> logger_;
 };

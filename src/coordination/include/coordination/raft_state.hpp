@@ -19,7 +19,6 @@
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
-#include "nuraft/logger.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
