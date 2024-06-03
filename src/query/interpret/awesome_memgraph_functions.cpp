@@ -1419,6 +1419,21 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
   };
 }
 
+TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Optional<String>>("toEnum", args, nargs);
+
+  auto const &s1 = args[0].ValueString();
+  if (nargs == 1) {
+    auto enum_val = ctx.db_accessor->GetEnumValue(s1);
+    if (!enum_val) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    return TypedValue(*enum_val, ctx.memory);
+  }
+  auto const &s2 = args[1].ValueString();
+  auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
+  if (!enum_val) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  return TypedValue(*enum_val, ctx.memory);
+}
+
 }  // namespace
 
 std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
@@ -1507,6 +1522,9 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   if (function_name == "LOCALDATETIME") return LocalDateTime;
   if (function_name == "DATETIME") return DateTime;
   if (function_name == "DURATION") return Duration;
+
+  // Functions for enum types
+  if (function_name == "TOENUM") return ToEnum;
 
   const auto &maybe_found =
       procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
