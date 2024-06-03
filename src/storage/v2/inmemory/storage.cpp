@@ -73,7 +73,7 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config)
+InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override)
     : Storage(config, config.salient.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
@@ -147,6 +147,22 @@ InMemoryStorage::InMemoryStorage(Config config)
           "be overridden. To prevent important data loss, Memgraph has stored "
           "those files into a .backup directory inside the storage directory.");
     }
+  }
+
+  if (free_mem_fn_override) {
+    free_memory_func_ = *std::move(free_mem_fn_override);
+  } else {
+    free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+      CollectGarbage<true>(std::move(main_guard), periodic);
+
+      static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
+      static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+      static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
+
+      // SkipList is already threadsafe
+      vertices_.run_gc();
+      edges_.run_gc();
+    };
   }
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -2398,15 +2414,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  CollectGarbage(std::move(main_guard), periodic);
-
-  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
-  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
-  static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
-
-  // SkipList is already threadsafe
-  vertices_.run_gc();
-  edges_.run_gc();
+  std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
