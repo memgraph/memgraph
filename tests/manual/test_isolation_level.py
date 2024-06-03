@@ -20,7 +20,14 @@ and then assert various transactional correctness properties.
 """
 
 import argparse
+import typing
+
 import mgclient
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()
 
 
 def setup(conn):
@@ -31,7 +38,7 @@ def setup(conn):
     conn.autocommit = False
 
     cursor = conn.cursor()
-    cursor.execute("MATCH (kv:Kv) DETACH DELETE kv;")
+    cursor.execute("MATCH (kv) DETACH DELETE kv;")
     conn.commit()
 
     update(cursor, 1, 10, "instantiate key 1")
@@ -175,7 +182,7 @@ def g1a(c1, c2):
 """
 
 
-def g1b(c1, c2):
+def g1b(c1, c2, global_isolation_level):
     cursor_1 = c1.cursor()
     cursor_2 = c2.cursor()
 
@@ -184,7 +191,11 @@ def g1b(c1, c2):
     update(cursor_1, 1, 11)
     c1.commit()
 
-    select(cursor_2, 1, [10])
+    if global_isolation_level == "READ_COMMITTED":
+        select(cursor_2, 1, [11])
+    else:
+        select(cursor_2, 1, [10])  # For SI should pass, for READ_UNCOMMITTED, it should fail
+
     c2.commit()
 
     print("✓ g1b test passed")
@@ -210,6 +221,67 @@ def g1c(c1, c2):
     c2.commit()
 
     print("✓ g1c test passed")
+    return True
+
+
+"""
+    G1-predA: Non-atomic Predicate-based Reads.
+
+"""
+
+
+def g1_predA(c1, c2, global_isolation_level):
+    cursor_1 = c1.cursor()
+    cursor_2 = c2.cursor()
+
+    select_all(cursor_1, [10, 20])
+
+    update(cursor_2, 1, 100)
+    update(cursor_2, 2, 200)
+    c2.commit()
+
+    if global_isolation_level == "READ_COMMITTED":
+        select_all(cursor_1, [100, 200])
+    else:
+        select_all(cursor_1, [10, 20])
+
+    c1.commit()
+
+    print("✓ g1_predA test passed")
+    return True
+
+
+"""
+    G1-predA: Non-atomic Predicate-based Reads.
+
+"""
+
+
+def g1_predB(c1, c2, global_isolation_level):
+    cursor_1 = c1.cursor()
+    cursor_2 = c2.cursor()
+
+    execute_and_fetch_all(cursor_1, "CREATE (n:Node {value: 30})")
+    c1.commit()
+    select_all(cursor_1, [10, 20])
+
+    assert_eq(execute_and_fetch_all(cursor_1, "MATCH (n:Node) RETURN n")[0][0].properties["value"], 30)
+
+    update(cursor_2, 1, 100)
+    update(cursor_2, 2, 200)
+    execute_and_fetch_all(cursor_2, "MATCH (n:Node) SET n.value = 300 RETURN n")
+    c2.commit()
+
+    if global_isolation_level == "READ_COMMITTED":
+        select_all(cursor_1, [100, 200])
+        assert_eq(execute_and_fetch_all(cursor_1, "MATCH (n:Node) RETURN n")[0][0].properties["value"], 300)
+    else:
+        select_all(cursor_1, [10, 20])
+        assert_eq(execute_and_fetch_all(cursor_1, "MATCH (n:Node) RETURN n")[0][0].properties["value"], 30)
+
+    c1.commit()
+
+    print("✓ g1_predB test passed")
     return True
 
 
@@ -533,6 +605,15 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--port", default=7687)
     args = parser.parse_args()
 
+    info_conn = mgclient.connect(host=args.host, port=args.port)
+    info_conn.autocommit = True
+    info_cursor = info_conn.cursor()
+    # execute_and_fetch_all(info_cursor, "MATCH (n) DETACH DELETE n")
+    res = execute_and_fetch_all(info_cursor, "show storage info")
+    res = {r[0]: r[1] for r in res}
+    global_isolation_level = res["global_isolation_level"]
+    print(f"global isolation level: {global_isolation_level}")
+
     c1 = mgclient.connect(host=args.host, port=args.port)
     c1.autocommit = False
     c2 = mgclient.connect(host=args.host, port=args.port)
@@ -547,10 +628,16 @@ if __name__ == "__main__":
     g1a = g1a(c1, c2)
 
     setup(c1)
-    g1b = g1b(c1, c2)
+    g1b = g1b(c1, c2, global_isolation_level)
 
     setup(c1)
     g1c = g1c(c1, c2)
+
+    setup(c1)
+    g1_predA = g1_predA(c1, c2, global_isolation_level)
+
+    setup(c1)
+    g1_predB = g1_predB(c1, c2, global_isolation_level)
 
     setup(c1)
     otv = otv(c1, c2, c3)
@@ -595,6 +682,9 @@ if __name__ == "__main__":
     print("")
 
     print("results:")
+    print(f"PL-2: {g1}")
+    print(f"PL-2': {g1 and g1_predA}")
+    print(f"PL-2'': {g1 and g1_predB}")
     print("consistent view (PL-2+):", g1 and g_single)
     print("snapshot isolation (PL-SI):", snapshot_isolation)
     print("repeatable read (PL-2.99):", repeatable_read)
