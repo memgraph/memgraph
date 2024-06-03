@@ -611,11 +611,11 @@ Feature: Aggregations
         Given an empty graph
         When executing query:
             """
-            MATCH (n) RETURN count(*) AS node_count
+            MATCH (n) RETURN count(*) > 0 AS exists
             """
         Then the result should be:
-            | node_count |
-            | 0          |
+            | exists |
+            | 0      |
 
     Scenario: Empty aggregation without grouping keys 02:
         Given an empty graph
