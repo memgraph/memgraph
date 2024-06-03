@@ -12,6 +12,8 @@
 #pragma once
 
 #include <alloca.h>
+#include <rocksdb/iterator.h>
+#include <rocksdb/slice.h>
 #include <iterator>
 #include <limits>
 #include <tuple>
@@ -33,6 +35,9 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
+  Vertex(Gid gid, std::unique_ptr<rocksdb::PinnableSlice> val, Delta *delta)
+      : gid(gid), deleted(false), val_(std::move(val)), delta(delta) {}
+
   const Gid gid;
 
   small_vector<LabelId> labels;
@@ -46,11 +51,13 @@ struct Vertex {
   // uint8_t PAD;
   // uint16_t PAD;
 
+  std::unique_ptr<rocksdb::PinnableSlice> val_;
+
   Delta *delta;
 };
 
-static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
-static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
+// static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
+// static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
 inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }

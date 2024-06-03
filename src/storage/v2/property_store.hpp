@@ -24,9 +24,9 @@ class PropertyStore {
                 "PropertyStore supports only architectures using little-endian.");
 
  public:
-  static PropertyStore CreateFromBuffer(std::string_view buffer) {
+  static PropertyStore CreateFromBuffer(std::string_view buffer, bool handle = true) {
     PropertyStore store;
-    store.SetBuffer(buffer);
+    store.SetBuffer(buffer, handle);
     return store;
   }
 
@@ -113,7 +113,7 @@ class PropertyStore {
   std::string StringBuffer() const;
 
   /// Sets buffer
-  void SetBuffer(std::string_view buffer);
+  void SetBuffer(std::string_view buffer, bool handle = true);
 
  private:
   template <typename TContainer>

@@ -26,3 +26,6 @@ add_subdirectory(e2e)
 
 # mgbench benchmark test binaries
 add_subdirectory(mgbench)
+
+
+add_subdirectory(gbench)

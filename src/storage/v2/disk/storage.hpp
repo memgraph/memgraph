@@ -281,8 +281,8 @@ class DiskStorage final : public Storage {
                                       storage::Gid gid, storage::small_vector<LabelId> label_ids,
                                       PropertyStore properties, Delta *delta);
 
-  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
-                                                                     const std::string &value, std::string &&ts);
+  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, std::string_view key,
+                                                                     std::string_view value, std::string &&ts);
 
   std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
 

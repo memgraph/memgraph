@@ -114,7 +114,8 @@ bool DiskLabelPropertyIndex::ClearDeletedVertex(std::string_view gid, uint64_t t
   ro.timestamp = &ts;
   auto it = std::unique_ptr<rocksdb::Iterator>(disk_transaction->GetIterator(ro));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    if (std::string key = it->key().ToString(); gid == utils::ExtractGidFromLabelPropertyIndexStorage(key)) {
+    if (std::string key = it->key().ToString();
+        storage::Gid::FromString(gid) == utils::ExtractGidFromLabelPropertyIndexStorage(0, key)) {
       if (!disk_transaction->Delete(key).ok()) {
         return false;
       }

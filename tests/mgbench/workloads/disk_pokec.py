@@ -115,7 +115,7 @@ class Pokec(Workload):
 
     # OK
     def benchmark__arango__aggregate(self):
-        return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+        return ("MATCH (n) RETURN n.age, COUNT(*)", {})
 
     # OK
     def benchmark__arango__aggregate_with_distinct(self):

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <rocksdb/iterator.h>
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -19,6 +20,7 @@ namespace memgraph::storage {
 class Storage;
 
 class AllVerticesIterable final {
+  std::unique_ptr<rocksdb::Iterator> itr;
   utils::SkipList<Vertex>::Accessor vertices_accessor_;
   Storage *storage_;
   Transaction *transaction_;
@@ -29,15 +31,19 @@ class AllVerticesIterable final {
   class Iterator final {
     AllVerticesIterable *self_;
     utils::SkipList<Vertex>::Iterator it_;
+    bool last;
 
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
+    Iterator(AllVerticesIterable *self, bool last);
 
-    VertexAccessor const &operator*() const;
+    VertexAccessor const operator*() const;
 
     Iterator &operator++();
 
-    bool operator==(const Iterator &other) const { return self_ == other.self_ && it_ == other.it_; }
+    bool operator==(const Iterator &other) const {
+      return self_ == other.self_ && last == other.last;
+    }  // it_ == other.it_; }
 
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
@@ -46,8 +52,19 @@ class AllVerticesIterable final {
                       View view)
       : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
 
-  Iterator begin() { return {this, vertices_accessor_.begin()}; }
-  Iterator end() { return {this, vertices_accessor_.end()}; }
+  AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
+                      View view, std::unique_ptr<rocksdb::Iterator> itr)
+      : itr{std::move(itr)},
+        vertices_accessor_(std::move(vertices_accessor)),
+        storage_(storage),
+        transaction_(transaction),
+        view_(view) {}
+
+  Iterator begin() {
+    itr->SeekToFirst();
+    return {this, !itr->Valid()};
+  }
+  Iterator end() { return {this, true}; }
 };
 
 }  // namespace memgraph::storage

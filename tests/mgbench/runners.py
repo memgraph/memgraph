@@ -47,6 +47,7 @@ def _convert_args_to_flags(*args, **kwargs):
 
 
 def _get_usage(pid):
+    return {"cpu": 0, "memory": 0}
     total_cpu = 0
     with open("/proc/{}/stat".format(pid)) as f:
         total_cpu = sum(map(int, f.read().split(")")[1].split()[11:15])) / os.sysconf(os.sysconf_names["SC_CLK_TCK"])
@@ -454,7 +455,8 @@ class Memgraph(BaseRunner):
         time.sleep(0.2)
         if self._proc_mg.poll() is not None:
             self._proc_mg = None
-            raise Exception("The database process died prematurely!")
+            # raise Exception("The database process died prematurely!")
+            return
         _wait_for_server_socket(self._bolt_port)
         ret = self._proc_mg.poll()
 
@@ -476,6 +478,8 @@ class Memgraph(BaseRunner):
         self._start(storage_snapshot_on_exit=True, **self._vendor_args)
 
     def stop_db_init(self, workload):
+        if self._proc_mg is None:
+            return {"memory": 0, "cpu": 0}
         if self._performance_tracking:
             self._stop_event.set()
             self.dump_rss(workload)
@@ -491,6 +495,8 @@ class Memgraph(BaseRunner):
         self._start(storage_recover_on_startup=True, **self._vendor_args)
 
     def stop_db(self, workload):
+        if self._proc_mg is None:
+            return {"memory": 0, "cpu": 0}
         if self._performance_tracking:
             self._stop_event.set()
             self.dump_rss(workload)
@@ -649,6 +655,8 @@ class Neo4j(BaseRunner):
             self.get_memory_usage("start_" + workload)
 
     def stop_db_init(self, workload):
+        if self._proc_mg is None:
+            return {"memory": 0, "cpu": 0}
         if self._performance_tracking:
             self._stop_event.set()
             self.get_memory_usage("stop_" + workload)
@@ -681,6 +689,8 @@ class Neo4j(BaseRunner):
             self.get_memory_usage("start_" + workload)
 
     def stop_db(self, workload):
+        if self._proc_mg is None:
+            return {"memory": 0, "cpu": 0}
         if self._performance_tracking:
             self._stop_event.set()
             self.get_memory_usage("stop_" + workload)

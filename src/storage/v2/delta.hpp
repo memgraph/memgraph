@@ -125,8 +125,11 @@ inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
 
 struct opt_str {
   opt_str(std::optional<std::string> const &other) : str_{other ? new_cstr(*other) : nullptr} {}
+  opt_str(char *const &other) : str_{other}, no{true} {}
 
-  ~opt_str() { delete[] str_; }
+  ~opt_str() {
+    if (!no) delete[] str_;
+  }
 
   auto as_opt_str() const -> std::optional<std::string> {
     if (!str_) return std::nullopt;
@@ -141,6 +144,7 @@ struct opt_str {
   }
 
   char const *str_ = nullptr;
+  bool no{false};
 };
 
 struct Delta {
@@ -180,6 +184,8 @@ struct Delta {
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
   Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
+      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, char *old_disk_key)
       : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)

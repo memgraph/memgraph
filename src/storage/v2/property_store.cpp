@@ -1348,7 +1348,7 @@ BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
   return {size, non_const_data, in_local_buffer};
 }
 
-void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
+void SetSizeData(uint8_t *buffer, uint32_t size, const uint8_t *data) {
   memcpy(buffer, &size, sizeof(uint32_t));
   memcpy(buffer + sizeof(uint32_t), &data, sizeof(uint8_t *));
 }
@@ -1702,14 +1702,12 @@ bool PropertyStore::ClearProperties() {
 std::string PropertyStore::StringBuffer() const {
   BufferInfo buffer_info = GetBufferInfo(buffer_);
 
-  std::string arr(buffer_info.size, ' ');
-  for (uint i = 0; i < buffer_info.size; ++i) {
-    arr[i] = static_cast<char>(buffer_info.data[i]);
-  }
+  std::string arr(buffer_info.size, '\0');
+  memcpy(arr.data(), &buffer_info.data[0], buffer_info.size);
   return arr;
 }
 
-void PropertyStore::SetBuffer(const std::string_view buffer) {
+void PropertyStore::SetBuffer(std::string_view buffer, bool handle) {
   if (buffer.empty()) {
     return;
   }
@@ -1720,13 +1718,16 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
     buffer_[0] = kUseLocalBuffer;
     data = &buffer_[1];
+    memcpy(data, buffer.data(), size);
   } else {
-    data = new uint8_t[size];
-    SetSizeData(buffer_, size, data);
-  }
-
-  for (uint i = 0; i < size; ++i) {
-    data[i] = static_cast<uint8_t>(buffer[i]);
+    if (handle) {
+      data = new uint8_t[size];
+      SetSizeData(buffer_, size, data);
+      memcpy(data, buffer.data(), size);
+    } else {
+      // Use the sv as the memory
+      SetSizeData(buffer_, size, (uint8_t *)buffer.data());
+    }
   }
 }
 

@@ -674,7 +674,8 @@ class SkipList final : detail::SkipListNode_base {
   };
 
   class Accessor final {
-   private:
+    //  private:
+   public:
     friend class SkipList;
 
     explicit Accessor(SkipList *skiplist) : skiplist_(skiplist), id_(skiplist->gc_.AllocateId()) {}
