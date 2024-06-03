@@ -111,6 +111,7 @@ struct LocalDateTime {};
 struct Duration {};
 struct ZonedDateTime {};
 struct Graph {};
+struct Enum {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -154,6 +155,8 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsZonedDateTime();
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return arg.IsGraph();
+  } else if constexpr (std::is_same_v<ArgType, Enum>) {
+    return arg.IsEnum();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -208,6 +211,8 @@ constexpr const char *ArgTypeName() {
     return "ZonedDateTime";
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
     return "graph";
+  } else if constexpr (std::is_same_v<ArgType, Enum>) {
+    return "Enum";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -993,8 +998,8 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool>>("toString", args,
-                                                                                                 nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
+                                                                                                       nargs);
   const auto &arg = args[0];
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
@@ -1024,6 +1029,12 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   }
   if (arg.IsZonedDateTime()) {
     return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+  }
+
+  if (arg.IsEnum()) {
+    auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+    if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+    return TypedValue(*opt_str, ctx.memory);
   }
 
   return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
