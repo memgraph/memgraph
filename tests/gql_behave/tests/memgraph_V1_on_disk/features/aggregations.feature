@@ -615,7 +615,7 @@ Feature: Aggregations
             """
         Then the result should be:
             | exists |
-            | 0      |
+            | false  |
 
     Scenario: Empty aggregation without grouping keys 02:
         Given an empty graph
