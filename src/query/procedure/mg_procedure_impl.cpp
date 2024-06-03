@@ -710,8 +710,9 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
-      // TODO: extend mgp_value
-      throw std::logic_error{"mgp_value for PropertyValue::Type::Enum doesn't exist."};
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Enum doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }
   }
