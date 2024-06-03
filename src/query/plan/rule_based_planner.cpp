@@ -30,6 +30,10 @@ namespace memgraph::query::plan {
 
 namespace {
 
+bool IsConstantLiteral(const Expression *expression) {
+  return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
+}
+
 // Ast tree visitor which collects the context for a return body.
 // The return body of WITH and RETURN clauses consists of:
 //
@@ -341,14 +345,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     bool has_aggr = aggr1 || aggr2;                                                          \
     if (has_aggr && !(aggr1 && aggr2)) {                                                     \
       /* Group by the expression which does not contain aggregation. */                      \
-      /* Possible optimization is to ignore constant value expressions */                    \
-      group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);                     \
+      /*group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);    */             \
+                                                                                             \
+      if (aggr1 && !IsConstantLiteral(op.expression2_)) {                                    \
+        group_by_.emplace_back(op.expression2_);                                             \
+      }                                                                                      \
+      if (aggr2 && !IsConstantLiteral(op.expression1_)) {                                    \
+        group_by_.emplace_back(op.expression1_);                                             \
+      }                                                                                      \
     }                                                                                        \
     /* Propagate that this whole expression may contain an aggregation. */                   \
     has_aggregation_.emplace_back(has_aggr);                                                 \
     return true;                                                                             \
   }
-
   VISIT_BINARY_OPERATOR(OrOperator)
   VISIT_BINARY_OPERATOR(XorOperator)
   VISIT_BINARY_OPERATOR(AndOperator)
@@ -367,6 +376,35 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(SubscriptOperator)
 
 #undef VISIT_BINARY_OPERATOR
+
+  // bool PostVisit(LessOperator &op) override {
+  //   MG_ASSERT(has_aggregation_.size() >= 2U, "Expected at least 2 has_aggregation_ flags.");
+  //   /* has_aggregation_ stack is reversed, last result is from the 2nd */
+  //   /* expression. */
+  //   bool aggr2 = has_aggregation_.back();
+  //   has_aggregation_.pop_back();
+  //   bool aggr1 = has_aggregation_.back();
+  //   has_aggregation_.pop_back();
+  //   bool has_aggr = aggr1 || aggr2;
+  //   if (has_aggr &&
+  //       !(aggr1 && aggr2)) { /* Group by the expression which does not contain aggregation. */ /* Possible
+  //       optimization
+  //                                                                                                 is to ignore
+  //                                                                                                 constant value
+  //                                                                                                 expressions */
+  //     // group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);
+
+  //     if (aggr1 && !IsConstantLiteral(op.expression2_)) {
+  //       group_by_.emplace_back(op.expression2_);
+  //     }
+  //     if (aggr2 && !IsConstantLiteral(op.expression1_)) {
+  //       group_by_.emplace_back(op.expression1_);
+  //     }
+
+  //   } /* Propagate that this whole expression may contain an aggregation. */
+  //   has_aggregation_.emplace_back(has_aggr);
+  //   return true;
+  // }
 
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
