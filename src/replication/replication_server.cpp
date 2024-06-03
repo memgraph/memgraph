@@ -32,8 +32,7 @@ constexpr auto kReplicationServerThreads = 1;
 
 ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
-                  kReplicationServerThreads} {
+      rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc");
     replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
