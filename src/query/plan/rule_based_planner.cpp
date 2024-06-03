@@ -377,35 +377,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 #undef VISIT_BINARY_OPERATOR
 
-  // bool PostVisit(LessOperator &op) override {
-  //   MG_ASSERT(has_aggregation_.size() >= 2U, "Expected at least 2 has_aggregation_ flags.");
-  //   /* has_aggregation_ stack is reversed, last result is from the 2nd */
-  //   /* expression. */
-  //   bool aggr2 = has_aggregation_.back();
-  //   has_aggregation_.pop_back();
-  //   bool aggr1 = has_aggregation_.back();
-  //   has_aggregation_.pop_back();
-  //   bool has_aggr = aggr1 || aggr2;
-  //   if (has_aggr &&
-  //       !(aggr1 && aggr2)) { /* Group by the expression which does not contain aggregation. */ /* Possible
-  //       optimization
-  //                                                                                                 is to ignore
-  //                                                                                                 constant value
-  //                                                                                                 expressions */
-  //     // group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);
-
-  //     if (aggr1 && !IsConstantLiteral(op.expression2_)) {
-  //       group_by_.emplace_back(op.expression2_);
-  //     }
-  //     if (aggr2 && !IsConstantLiteral(op.expression1_)) {
-  //       group_by_.emplace_back(op.expression1_);
-  //     }
-
-  //   } /* Propagate that this whole expression may contain an aggregation. */
-  //   has_aggregation_.emplace_back(has_aggr);
-  //   return true;
-  // }
-
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.
     const auto &symbol = symbol_table_.at(aggr);
