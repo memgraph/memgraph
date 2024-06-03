@@ -288,7 +288,8 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
       spdlog::warn(invalid_state_message);
       continue;
     }
-    const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"]);
+    const auto user_parameters =
+        serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"], db_accessor);
 
     // TODO: Migration
     const auto owner_json = json_trigger_data["owner"];
@@ -358,7 +359,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
-  data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters);
+  data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters, db_accessor);
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;

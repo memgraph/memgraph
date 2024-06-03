@@ -782,6 +782,9 @@ class DbAccessor final {
   auto GetEnumValue(std::string_view name, std::string_view value) -> std::optional<storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
+  auto GetEnumValue(std::string_view enum_str) -> std::optional<storage::Enum> {
+    return accessor_->GetEnumValue(enum_str);
+  }
 
   auto EnumToName(storage::Enum value) const -> std::optional<std::string> {
     return accessor_->GetEnumStoreShared().to_string(value);

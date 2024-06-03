@@ -357,6 +357,10 @@ class Storage {
       return storage_->enum_store_.to_enum(name, value);
     }
 
+    auto GetEnumValue(std::string_view enum_str) -> std::optional<Enum> {
+      return storage_->enum_store_.to_enum(enum_str);
+    }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;

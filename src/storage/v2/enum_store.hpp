@@ -96,6 +96,14 @@ struct EnumStore {
     return it->second;
   }
 
+  auto to_enum(std::string_view enum_str) const -> std::optional<Enum> {
+    auto pos = enum_str.find("::");
+    if (pos == std::string_view::npos) return std::nullopt;
+    auto etype = enum_str.substr(0, pos);
+    auto evalue = enum_str.substr(pos + 2);
+    return to_enum(etype, evalue);
+  }
+
   auto to_enum(std::string_view type_str, std::string_view value_str) const -> std::optional<Enum> {
     auto e_type = to_enum_type(type_str);
     if (!e_type) return std::nullopt;

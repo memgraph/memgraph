@@ -45,11 +45,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
   switch (type) {
     case MgType::Enum: {
       if (!storage) return std::nullopt;
-      auto pos = mg_value.find("::");
-      if (pos == std::string_view::npos) return std::nullopt;
-      auto etype = mg_value.substr(0, pos);
-      auto evalue = mg_value.substr(pos + 2);
-      auto enum_val = storage->enum_store_.to_enum(etype, evalue);
+      auto enum_val = storage->enum_store_.to_enum(mg_value);
       if (!enum_val) return std::nullopt;
       return storage::PropertyValue(*enum_val);
     }
