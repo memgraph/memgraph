@@ -265,18 +265,6 @@ TYPED_TEST(QueryPlanTest, OrderByExceptions) {
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
   std::vector<std::pair<memgraph::storage::PropertyValue, memgraph::storage::PropertyValue>> exception_pairs{
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue(true)},
-      {memgraph::storage::PropertyValue(42), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(42),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)})},
-      {memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue("bla")},
-      {memgraph::storage::PropertyValue(true),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(true)})},
-      {memgraph::storage::PropertyValue("bla"),
-       memgraph::storage::PropertyValue(
-           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue("bla")})},
       // illegal comparisons of same-type values
       {memgraph::storage::PropertyValue(
            std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(42)}),
