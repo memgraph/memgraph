@@ -9,11 +9,11 @@
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
-    [haempty :as haempty]
     [habank :as habank]
     [support :as support]
     [hanemesis :as hanemesis]
     [nemesis :as nemesis]
+    [utils :as utils]
     [edn :as e]]))
 
 (def workloads
@@ -21,7 +21,6 @@
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         haempty/workload
    :habank                    habank/workload})
 
 (def nemesis-configuration
@@ -46,7 +45,8 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis        (:nemesis nemesis)
@@ -76,7 +76,8 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))

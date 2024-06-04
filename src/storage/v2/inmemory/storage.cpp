@@ -31,12 +31,18 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
 #include <mutex>
 #include <ranges>
 #include <unordered_set>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+extern const Event UnreleasedDeltaObjects;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -73,7 +79,7 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config)
+InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override)
     : Storage(config, config.salient.storage_mode),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
@@ -147,6 +153,22 @@ InMemoryStorage::InMemoryStorage(Config config)
           "be overridden. To prevent important data loss, Memgraph has stored "
           "those files into a .backup directory inside the storage directory.");
     }
+  }
+
+  if (free_mem_fn_override) {
+    free_memory_func_ = *std::move(free_mem_fn_override);
+  } else {
+    free_memory_func_ = [this](std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
+      CollectGarbage<true>(std::move(main_guard), periodic);
+
+      static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
+      static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
+      static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
+
+      // SkipList is already threadsafe
+      vertices_.run_gc();
+      edges_.run_gc();
+    };
   }
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -1152,6 +1174,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+    auto delta_size = deltas.size();
     for (auto &delta : deltas) {
       if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
         modified_labels.insert(delta.label.value);
@@ -1184,8 +1207,10 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         }
       }
     }
+
     // delete deltas
     deltas.clear();
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
   };
 
   // STEP 1) ensure everything in GC is gone
@@ -1278,6 +1303,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
 
+    auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1445,6 +1471,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           break;
       }
     }
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
@@ -2089,7 +2116,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
+
+      size_t total_delta_size = 0;
+      for (const auto &gc_deltas : unlinked_undo_buffers) {
+        total_delta_size += gc_deltas.deltas_.size();
+      }
+      // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
+      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, total_delta_size);
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
@@ -2166,6 +2200,10 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
+  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
+
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
 #ifdef MG_ENTERPRISE
@@ -2575,15 +2613,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
-  CollectGarbage(std::move(main_guard), periodic);
-
-  static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
-  static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
-  static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
-
-  // SkipList is already threadsafe
-  vertices_.run_gc();
-  edges_.run_gc();
+  std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }

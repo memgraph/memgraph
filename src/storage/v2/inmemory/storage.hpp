@@ -59,11 +59,12 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryEdgeTypeIndex;
 
  public:
+  using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit InMemoryStorage(Config config = Config());
+  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -506,6 +507,8 @@ class InMemoryStorage final : public Storage {
   // Flags to inform CollectGarbage that it needs to do the more expensive full scans
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
+
+  free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};

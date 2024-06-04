@@ -94,6 +94,7 @@ LEVEL                   : L E V E L ;
 LOAD                    : L O A D ;
 LOCK                    : L O C K ;
 MAIN                    : M A I N ;
+METRICS                 : M E T R I C S ;
 MODE                    : M O D E ;
 MODULE_READ             : M O D U L E UNDERSCORE R E A D ;
 MODULE_WRITE            : M O D U L E UNDERSCORE W R I T E ;

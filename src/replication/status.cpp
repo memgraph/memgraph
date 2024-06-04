@@ -8,7 +8,10 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #include "replication/status.hpp"
+
+#include "io/network/endpoint.hpp"
 
 #include "fmt/format.h"
 #include "utils/logging.hpp"
@@ -18,6 +21,7 @@ namespace memgraph::replication::durability {
 
 constexpr auto *kReplicaName = "replica_name";
 constexpr auto *kIpAddress = "replica_ip_address";
+constexpr auto *kReplicaServer = "replica_server";
 constexpr auto *kPort = "replica_port";
 constexpr auto *kSyncMode = "replica_sync_mode";
 constexpr auto *kCheckFrequency = "replica_check_frequency";
@@ -33,17 +37,15 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
     auto common = nlohmann::json{{kVersion, p.version},
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
                                  {kEpoch, main.epoch.id()}};
-    if (p.version != DurabilityVersion::V1 && p.version != DurabilityVersion::V2) {
-      MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
-      common[kMainUUID] = main.main_uuid.value();
-    }
+    MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
+    common[kMainUUID] = main.main_uuid.value();
     j = std::move(common);
   };
   auto processREPLICA = [&](ReplicaRole const &replica) {
     auto common = nlohmann::json{{kVersion, p.version},
-                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA},
-                                 {kIpAddress, replica.config.ip_address},
-                                 {kPort, replica.config.port}};
+                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA}};
+
+    common[kReplicaServer] = replica.config.repl_server;  // non-resolved
     if (replica.main_uuid.has_value()) {
       common[kMainUUID] = replica.main_uuid.value();
     }
@@ -72,19 +74,21 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       break;
     }
     case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
-      std::string ip_address;
-      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-      uint16_t port;
-      j.at(kIpAddress).get_to(ip_address);
-      j.at(kPort).get_to(port);
-      auto config = ReplicationServerConfig{.ip_address = std::move(ip_address), .port = port};
+      using io::network::Endpoint;
+      // In V4 we renamed key `replica_ip_address` to `replica_server`
+      auto repl_server = [j]() -> Endpoint {
+        if (j.contains(kReplicaServer)) {
+          return j.at(kReplicaServer).get<Endpoint>();
+        }
+        return {j.at(kIpAddress).get<std::string>(), j.at(kPort).get<uint16_t>()};
+      }();
+
+      auto config = ReplicationServerConfig{.repl_server = std::move(repl_server)};
       auto replica_role = ReplicaRole{.config = std::move(config)};
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
       }
-
       p = ReplicationRoleEntry{.version = version, .role = std::move(replica_role)};
-
       break;
     }
   }
@@ -92,10 +96,10 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
 
 void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   auto common = nlohmann::json{{kReplicaName, p.config.name},
-                               {kIpAddress, p.config.ip_address},
-                               {kPort, p.config.port},
                                {kSyncMode, p.config.mode},
                                {kCheckFrequency, p.config.replica_check_frequency.count()}};
+
+  common[kReplicaServer] = p.config.repl_server_endpoint;  // non-resolved
 
   if (p.config.ssl.has_value()) {
     common[kSSLKeyFile] = p.config.ssl->key_file;
@@ -107,6 +111,8 @@ void to_json(nlohmann::json &j, const ReplicationReplicaEntry &p) {
   j = std::move(common);
 }
 void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
+  using io::network::Endpoint;
+
   const auto &key_file = j.at(kSSLKeyFile);
   const auto &cert_file = j.at(kSSLCertFile);
 
@@ -116,10 +122,18 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
-      .ip_address = j.at(kIpAddress).get<std::string>(),
-      .port = j.at(kPort).get<uint16_t>(),
       .replica_check_frequency = std::chrono::seconds{seconds},
   };
+
+  auto repl_server_endpoint = [j]() -> Endpoint {
+    if (j.contains(kReplicaServer)) {
+      return j.at(kReplicaServer).get<Endpoint>();
+    }
+    return {j.at(kIpAddress).get<std::string>(), j.at(kPort).get<uint16_t>()};
+  }();
+
+  config.repl_server_endpoint = std::move(repl_server_endpoint);
+
   if (!key_file.is_null()) {
     config.ssl = ReplicationClientConfig::SSL{};
     key_file.get_to(config.ssl->key_file);

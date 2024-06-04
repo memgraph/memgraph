@@ -16,7 +16,6 @@
 
 (defn start-node!
   [test _]
-  (info "Sync after" @sync-after-n-txn)
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
