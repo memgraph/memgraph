@@ -148,7 +148,7 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAc
                                      utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
     case ObjectType::ENUM: {
       auto enum_val = db_accessor->GetEnumValue(data["value"].get<std::string>());
-      MG_ASSERT(enum_val.has_value(), "Unknown enum found in the trigger storage");
+      MG_ASSERT(enum_val.HasValue(), "Unknown enum found in the trigger storage");
       return storage::PropertyValue(*enum_val);
     }
   }

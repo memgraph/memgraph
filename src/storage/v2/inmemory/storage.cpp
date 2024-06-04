@@ -2322,8 +2322,12 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
                                   info.properties, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::ENUM_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_CREATE, md_delta.enum_info.etype,
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_CREATE, md_delta.enum_create_info.etype,
                                   durability_commit_timestamp, streams);
+      } break;
+      case MetadataDelta::Action::ENUM_ALTER_ADD: {
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_ALTER_ADD,
+                                  md_delta.enum_alter_add_info.value, durability_commit_timestamp, streams);
       } break;
     }
   }
@@ -2394,6 +2398,13 @@ void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOpera
                                                 std::span<std::optional<ReplicaStream>> replica_streams) {
   wal_file_->AppendOperation(operation, etype, final_commit_timestamp);
   repl_storage_state_.AppendOperation(replica_streams, operation, etype, final_commit_timestamp);
+}
+
+void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, Enum value,
+                                                uint64_t final_commit_timestamp,
+                                                std::span<std::optional<ReplicaStream>> replica_streams) {
+  wal_file_->AppendOperation(operation, value, final_commit_timestamp);
+  repl_storage_state_.AppendOperation(replica_streams, operation, value, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

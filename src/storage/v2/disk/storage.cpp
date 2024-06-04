@@ -1720,6 +1720,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
           break;
         }
+        case MetadataDelta::Action::ENUM_ALTER_ADD: {
+          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
+          break;
+        }
       }
     }
   } else if (transaction_.deltas.empty() ||

@@ -27,7 +27,7 @@
 
 namespace memgraph::storage {
 
-enum struct EnumStorageError : uint8_t { EnumExists, InvalidValues };
+enum struct EnumStorageError : uint8_t { EnumExists, InvalidValue, UnknownEnumType, UnknownEnumValue, ParseError };
 
 struct EnumStore {
   auto register_enum(std::string type_str, std::vector<std::string> enum_value_strs)
@@ -47,7 +47,7 @@ struct EnumStore {
       auto [it_values, inserted] = values_lookup.try_emplace(value, EnumValueId{pos});
       if (!inserted) [[unlikely]] {
         etype_lookup_.erase(it_type);
-        return EnumStorageError::InvalidValues;
+        return EnumStorageError::InvalidValue;
       }
     }
     try {
@@ -68,6 +68,36 @@ struct EnumStore {
     return {new_id};
   }
 
+  auto add_value(std::string_view e_type, std::string_view new_value)
+      -> memgraph::utils::BasicResult<EnumStorageError, Enum> {
+    auto etype = to_enum_type(e_type);
+    if (etype.HasError()) return etype.GetError();
+    return add_value(*etype, new_value);
+  }
+
+  auto add_value(EnumTypeId e_type, std::string_view new_value)
+      -> memgraph::utils::BasicResult<EnumStorageError, Enum> {
+    namespace rv = ranges::views;
+
+    if (evalue_lookups_.size() <= e_type.value_of()) return EnumStorageError::UnknownEnumType;
+
+    auto &lookup = evalue_lookups_[e_type.value_of()];
+    auto &strings = evalue_strs_[e_type.value_of()];
+
+    if (lookup.contains(new_value)) return EnumStorageError::InvalidValue;
+
+    auto e_value = EnumValueId{strings.size()};
+    strings.emplace_back(new_value);
+    try {
+      lookup.try_emplace(new_value, e_value);
+    } catch (...) {
+      strings.pop_back();
+      throw;
+    }
+    MG_ASSERT(strings.size() == lookup.size());
+    return Enum{e_type, e_value};
+  }
+
   // used by recovery in the event of failure
   void clear() {
     etype_strs_.clear();
@@ -76,15 +106,16 @@ struct EnumStore {
     evalue_lookups_.clear();
   }
 
-  auto to_enum_type(std::string_view type_str) const -> std::optional<EnumTypeId> {
+  auto to_enum_type(std::string_view type_str) const -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
     auto it = etype_lookup_.find(type_str);
-    if (it == etype_lookup_.cend()) return std::nullopt;
+    if (it == etype_lookup_.cend()) return EnumStorageError::UnknownEnumType;
     return it->second;
   }
 
-  auto to_enum_value(std::string_view type_str, std::string_view value_str) const -> std::optional<EnumValueId> {
+  auto to_enum_value(std::string_view type_str, std::string_view value_str) const
+      -> memgraph::utils::BasicResult<EnumStorageError, std::optional<EnumValueId>> {
     auto e_type = to_enum_type(type_str);
-    if (!e_type) return std::nullopt;
+    if (e_type.HasError()) return e_type.GetError();
     return to_enum_value(*e_type, value_str);
   }
 
@@ -96,19 +127,20 @@ struct EnumStore {
     return it->second;
   }
 
-  auto to_enum(std::string_view enum_str) const -> std::optional<Enum> {
+  auto to_enum(std::string_view enum_str) const -> memgraph::utils::BasicResult<EnumStorageError, Enum> {
     auto pos = enum_str.find("::");
-    if (pos == std::string_view::npos) return std::nullopt;
+    if (pos == std::string_view::npos) return EnumStorageError::ParseError;
     auto etype = enum_str.substr(0, pos);
     auto evalue = enum_str.substr(pos + 2);
     return to_enum(etype, evalue);
   }
 
-  auto to_enum(std::string_view type_str, std::string_view value_str) const -> std::optional<Enum> {
+  auto to_enum(std::string_view type_str, std::string_view value_str) const
+      -> memgraph::utils::BasicResult<EnumStorageError, Enum> {
     auto e_type = to_enum_type(type_str);
-    if (!e_type) return std::nullopt;
+    if (e_type.HasError()) return e_type.GetError();
     auto e_value = to_enum_value(*e_type, value_str);
-    if (!e_value) return std::nullopt;
+    if (!e_value) return EnumStorageError::UnknownEnumValue;
     return Enum{*e_type, *e_value};
   }
 

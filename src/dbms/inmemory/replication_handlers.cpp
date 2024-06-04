@@ -926,10 +926,21 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       }
       case WalDeltaData::Type::ENUM_CREATE: {
         std::stringstream ss;
-        utils::PrintIterable(ss, delta.operation_enum.evalues);
-        spdlog::trace("       Create enum {} with values {}", delta.operation_enum.etype, ss.str());
+        utils::PrintIterable(ss, delta.operation_enum_create.evalues);
+        spdlog::trace("       Create enum {} with values {}", delta.operation_enum_create.etype, ss.str());
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
-        auto res = transaction->CreateEnum(delta.operation_enum.etype, delta.operation_enum.evalues);
+        auto res = transaction->CreateEnum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::ENUM_ALTER_ADD: {
+        spdlog::trace("       Alter enum {} with values {}", delta.operation_enum_alter_add.etype,
+                      delta.operation_enum_alter_add.evalue);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res =
+            transaction->EnumAlterAdd(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
         if (res.HasError()) {
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }

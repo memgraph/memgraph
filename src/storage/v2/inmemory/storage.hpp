@@ -435,6 +435,9 @@ class InMemoryStorage final : public Storage {
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EnumTypeId etype,
                                  uint64_t final_commit_timestamp,
                                  std::span<std::optional<ReplicaStream>> replica_streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, Enum value,
+                                 uint64_t final_commit_timestamp,
+                                 std::span<std::optional<ReplicaStream>> replica_streams);
 
   uint64_t GetCommitTimestamp();
 

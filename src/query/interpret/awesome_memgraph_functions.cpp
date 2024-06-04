@@ -1436,12 +1436,12 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
   auto const &s1 = args[0].ValueString();
   if (nargs == 1) {
     auto enum_val = ctx.db_accessor->GetEnumValue(s1);
-    if (!enum_val) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}'", s1);
     return TypedValue(*enum_val, ctx.memory);
   }
   auto const &s2 = args[1].ValueString();
   auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
-  if (!enum_val) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
   return TypedValue(*enum_val, ctx.memory);
 }
 

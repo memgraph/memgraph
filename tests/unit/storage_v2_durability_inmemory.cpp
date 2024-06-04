@@ -99,6 +99,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
+      // alter enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
       // Create label index.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
@@ -305,10 +311,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
-    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v1").has_value());
-    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v2").has_value());
-    ASSERT_FALSE(store->enum_store_.to_enum("enum1", "v3").has_value());
-    ASSERT_FALSE(store->enum_store_.to_enum("enum2", "v1").has_value());
+    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v2").HasValue());
+    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v3").HasValue());
+    ASSERT_FALSE(store->enum_store_.to_enum("enum1", "v4").HasValue());
+    ASSERT_FALSE(store->enum_store_.to_enum("enum2", "v1").HasValue());
 
     // Create storage accessor.
     auto acc = store->Access(ReplicationRole::MAIN);

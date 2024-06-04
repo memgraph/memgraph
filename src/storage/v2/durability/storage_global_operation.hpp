@@ -32,6 +32,7 @@ enum class StorageMetadataOperation {
   UNIQUE_CONSTRAINT_CREATE,
   UNIQUE_CONSTRAINT_DROP,
   ENUM_CREATE,
+  ENUM_ALTER_ADD,
 };
 
 }  // namespace memgraph::storage::durability

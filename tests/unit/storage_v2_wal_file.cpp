@@ -67,6 +67,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
       return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
     case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
       return memgraph::storage::durability::WalDeltaData::Type::ENUM_CREATE;
+    case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
+      return memgraph::storage::durability::WalDeltaData::Type::ENUM_ALTER_ADD;
   }
 }
 
@@ -296,6 +298,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
           MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);
@@ -330,6 +333,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
           MG_ASSERT(false, "Invalid function call!");
       }
       data_.emplace_back(timestamp_, data);

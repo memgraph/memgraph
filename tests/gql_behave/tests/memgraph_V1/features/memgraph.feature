@@ -102,7 +102,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
             ALTER ENUM Status ADD VALUE Medium;
             """
-        Then an error should be raised
+        Then the result should be empty
 
     Scenario: Update value in enum:
         Given an empty graph

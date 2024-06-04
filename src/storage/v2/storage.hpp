@@ -351,13 +351,22 @@ class Storage {
       return res;
     }
 
+    auto EnumAlterAdd(std::string_view name, std::string_view value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+      auto res = storage_->enum_store_.add_value(name, value);
+      if (res.HasValue()) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
+      }
+      return res;
+    }
+
     auto ShowEnums() { return storage_->enum_store_.all_registered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) -> std::optional<Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.to_enum(name, value);
     }
 
-    auto GetEnumValue(std::string_view enum_str) -> std::optional<Enum> {
+    auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.to_enum(enum_str);
     }
 

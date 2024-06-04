@@ -32,8 +32,8 @@ TEST(EnumStore, BasicTests) {
   ASSERT_FALSE(result.HasError());
 
   auto enum_id = sut.to_enum_type("Location");
-  ASSERT_TRUE(enum_id.has_value());
-  ASSERT_EQ(enum_id, EnumTypeId{0});
+  ASSERT_TRUE(enum_id.HasValue());
+  ASSERT_EQ(*enum_id, EnumTypeId{0});
 
   {
     auto enum_value_id = sut.to_enum_value(*enum_id, "Zagreb");

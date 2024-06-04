@@ -76,6 +76,7 @@ struct WalDeltaData {
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
     ENUM_CREATE,
+    ENUM_ALTER_ADD,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -140,7 +141,12 @@ struct WalDeltaData {
   struct {
     std::string etype;
     std::vector<std::string> evalues;
-  } operation_enum;
+  } operation_enum_create;
+
+  struct {
+    std::string etype;
+    std::string evalue;
+  } operation_enum_alter_add;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -184,6 +190,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
     case WalDeltaData::Type::ENUM_CREATE:
+    case WalDeltaData::Type::ENUM_ALTER_ADD:
       return true;  // TODO: Still true?
   }
 }
@@ -240,6 +247,9 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
 void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
                      EnumTypeId etype, uint64_t timestamp);
 
+void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
+                     Enum enum_val, uint64_t timestamp);
+
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
 RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
@@ -276,6 +286,7 @@ class WalFile {
   void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, EnumTypeId etype, uint64_t timestamp);
+  void AppendOperation(StorageMetadataOperation operation, Enum value, uint64_t timestamp);
 
   void Sync();
 

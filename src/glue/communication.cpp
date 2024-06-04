@@ -46,7 +46,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
     case MgType::Enum: {
       if (!storage) return std::nullopt;
       auto enum_val = storage->enum_store_.to_enum(mg_value);
-      if (!enum_val) return std::nullopt;
+      if (enum_val.HasError()) return std::nullopt;
       return storage::PropertyValue(*enum_val);
     }
   }

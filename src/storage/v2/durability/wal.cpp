@@ -114,6 +114,8 @@ Marker OperationToMarker(StorageMetadataOperation operation) {
       return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
     case StorageMetadataOperation::ENUM_CREATE:
       return Marker::DELTA_ENUM_CREATE;
+    case StorageMetadataOperation::ENUM_ALTER_ADD:
+      return Marker::DELTA_ENUM_ALTER_ADD;
   }
 }
 
@@ -201,6 +203,8 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
       return WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
     case Marker::DELTA_ENUM_CREATE:
       return WalDeltaData::Type::ENUM_CREATE;
+    case Marker::DELTA_ENUM_ALTER_ADD:
+      return WalDeltaData::Type::ENUM_ALTER_ADD;
 
     case Marker::TYPE_NULL:
     case Marker::TYPE_BOOL:
@@ -418,7 +422,7 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
         if (!etype) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_enum.etype = *etype;
+        delta.operation_enum_create.etype = *etype;
 
         auto evalues_count = decoder->ReadUint();
         if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
@@ -429,7 +433,7 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
           if (!evalue) throw RecoveryFailure("Invalid WAL data!");
           evalues.emplace_back(*std::move(evalue));
         }
-        delta.operation_enum.evalues = std::move(evalues);
+        delta.operation_enum_create.evalues = std::move(evalues);
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
 
@@ -441,6 +445,20 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       }
       break;
     }
+    case WalDeltaData::Type::ENUM_ALTER_ADD:
+      if constexpr (read_data) {
+        auto etype = decoder->ReadString();
+        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_add.etype = *etype;
+
+        auto evalue = decoder->ReadString();
+        if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_add.evalue = *evalue;
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
   }
 
   return delta;
@@ -611,8 +629,12 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::EDGE_INDEX_DROP:
       return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
     case WalDeltaData::Type::ENUM_CREATE: {
-      return std::tie(a.operation_enum.etype, a.operation_enum.evalues) ==
-             std::tie(b.operation_enum.etype, b.operation_enum.evalues);
+      return std::tie(a.operation_enum_create.etype, a.operation_enum_create.evalues) ==
+             std::tie(b.operation_enum_create.etype, b.operation_enum_create.evalues);
+    }
+    case WalDeltaData::Type::ENUM_ALTER_ADD: {
+      return std::tie(a.operation_enum_alter_add.etype, a.operation_enum_alter_add.evalue) ==
+             std::tie(b.operation_enum_alter_add.etype, b.operation_enum_alter_add.evalue);
     }
   }
 }
@@ -797,6 +819,7 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
       break;
     }
     case StorageMetadataOperation::ENUM_CREATE:
+    case StorageMetadataOperation::ENUM_ALTER_ADD:
     case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
     case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
       MG_ASSERT(false, "Invalid function  call!");
@@ -837,7 +860,8 @@ void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, Storage
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
     case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::ENUM_ALTER_ADD: {
       MG_ASSERT(false, "Invalid function call!");
       break;
     }
@@ -877,7 +901,46 @@ void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageM
     case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
     case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
     case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::ENUM_ALTER_ADD: {
+      MG_ASSERT(false, "Invalid function call!");
+      break;
+    }
+  }
+}
+
+void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
+                     Enum enum_val, uint64_t timestamp) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  switch (operation) {
+    case StorageMetadataOperation::ENUM_ALTER_ADD: {
+      encoder->WriteMarker(OperationToMarker(operation));
+      auto etype_str = enum_store->to_type_string(enum_val.type_id());
+      DMG_ASSERT(etype_str.has_value());
+      encoder->WriteString(*etype_str);
+      auto value_str = enum_store->to_value_string(enum_val.type_id(), enum_val.value_id());
+      DMG_ASSERT(value_str.has_value());
+      encoder->WriteString(*value_str);
+      break;
+    }
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
+    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_INDEX_DROP:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+    case StorageMetadataOperation::TEXT_INDEX_CREATE:
+    case StorageMetadataOperation::TEXT_INDEX_DROP:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
+    case StorageMetadataOperation::ENUM_CREATE: {
       MG_ASSERT(false, "Invalid function call!");
       break;
     }
@@ -1173,13 +1236,31 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::ENUM_CREATE: {
-          auto res = enum_store->register_enum(delta.operation_enum.etype, delta.operation_enum.evalues);
+          auto res = enum_store->register_enum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
           if (res.HasError()) {
             switch (res.GetError()) {
               case EnumStorageError::EnumExists:
                 throw RecoveryFailure("The enum already exist!");
-              case EnumStorageError::InvalidValues:
+              case EnumStorageError::InvalidValue:
                 throw RecoveryFailure("The enum has invalid values!");
+              default:
+                // Should not happen
+                throw RecoveryFailure("The enum could not be registered!");
+            }
+          }
+          break;
+        }
+        case WalDeltaData::Type::ENUM_ALTER_ADD: {
+          auto res = enum_store->add_value(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::EnumStorageError::InvalidValue:
+                throw RecoveryFailure("Enum value already exists.");
+              case storage::EnumStorageError::UnknownEnumType:
+                throw RecoveryFailure("Unknown Enum type.");
+              default:
+                // Should not happen
+                throw RecoveryFailure("Enum could not be altered.");
             }
           }
           break;
@@ -1315,6 +1396,10 @@ void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edg
 
 void WalFile::AppendOperation(StorageMetadataOperation operation, EnumTypeId etype, uint64_t timestamp) {
   EncodeOperation(&wal_, enum_store_, operation, etype, timestamp);
+  UpdateStats(timestamp);
+}
+void WalFile::AppendOperation(StorageMetadataOperation operation, Enum value, uint64_t timestamp) {
+  EncodeOperation(&wal_, enum_store_, operation, value, timestamp);
   UpdateStats(timestamp);
 }
 

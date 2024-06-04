@@ -72,6 +72,9 @@ class ReplicaStream {
   void AppendOperation(durability::StorageMetadataOperation operation, EnumTypeId etype, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
+  void AppendOperation(durability::StorageMetadataOperation operation, Enum enum_val, uint64_t timestamp);
+
+  /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }

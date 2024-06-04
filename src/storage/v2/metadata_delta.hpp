@@ -44,6 +44,7 @@ struct MetadataDelta {
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
     ENUM_CREATE,
+    ENUM_ALTER_ADD,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -80,6 +81,8 @@ struct MetadataDelta {
   } unique_constraint_drop;
   static constexpr struct EnumCreate {
   } enum_create;
+  static constexpr struct EnumAlterAdd {
+  } enum_alter_add;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -126,7 +129,10 @@ struct MetadataDelta {
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
       : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
 
-  MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_info{.etype = etype} {}
+  MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
+
+  MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
+      : action(Action::ENUM_ALTER_ADD), enum_alter_add_info{.value = value} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
@@ -149,6 +155,7 @@ struct MetadataDelta {
       case EXISTENCE_CONSTRAINT_CREATE:
       case EXISTENCE_CONSTRAINT_DROP:
       case ENUM_CREATE:
+      case ENUM_ALTER_ADD:
         break;
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
@@ -198,7 +205,11 @@ struct MetadataDelta {
 
     struct {
       EnumTypeId etype;
-    } enum_info;
+    } enum_create_info;
+
+    struct {
+      Enum value;
+    } enum_alter_add_info;
   };
 };
 

@@ -4530,8 +4530,11 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
               switch (res.GetError()) {
                 case storage::EnumStorageError::EnumExists:
                   throw QueryRuntimeException("Enum already exists.");
-                case storage::EnumStorageError::InvalidValues:
-                  throw QueryRuntimeException("Enum values are invalid.");
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value has duplicate.");
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be created.");
               }
             }
             return QueryHandlerResult::COMMIT;
@@ -4559,6 +4562,34 @@ PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current
       RWType::NONE,
       ""  // No target DB
   };
+}
+
+PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+
+  auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
+  MG_ASSERT(alter_enum_add_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_add_query->enum_name_),
+           enum_value = std::move(alter_enum_add_query->enum_value_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.EnumAlterAdd(enum_name, enum_value);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value already exists.");
+                case storage::EnumStorageError::UnknownEnumType:
+                  throw QueryRuntimeException("Unknown Enum type.");
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be altered.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
@@ -4702,25 +4733,24 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool requires_db_transaction =
-        utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
-        utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-        utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+    bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-        utils::Downcast<CreateEnumQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query);
+        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
+        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+
+    bool const requires_db_transaction =
+        unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
+        utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query) ||
+        utils::Downcast<DumpQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query) ||
+        utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<CreateEnumQuery>(parsed_query.query) != nullptr ||
-                    upper_case_query.find(kSchemaAssert) != std::string::npos;
+      bool const unique = unique_db_transaction || upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
     }
 
@@ -4870,7 +4900,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (in_explicit_transaction_) {
         throw EnumModificationInMulticommandTxException();
       }
-      throw utils::NotYetImplemented("Alter Enum Add Value Query");
+      prepared_query = PrepareEnumAlterAddQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw EnumModificationInMulticommandTxException();
