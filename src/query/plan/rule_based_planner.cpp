@@ -345,8 +345,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     bool has_aggr = aggr1 || aggr2;                                                          \
     if (has_aggr && !(aggr1 && aggr2)) {                                                     \
       /* Group by the expression which does not contain aggregation. */                      \
-      /*group_by_.emplace_back(aggr1 ? op.expression2_ : op.expression1_);    */             \
-                                                                                             \
       if (aggr1 && !IsConstantLiteral(op.expression2_)) {                                    \
         group_by_.emplace_back(op.expression2_);                                             \
       }                                                                                      \
