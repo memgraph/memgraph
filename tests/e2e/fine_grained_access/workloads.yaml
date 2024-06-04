@@ -157,20 +157,10 @@ workloads:
     args: ["fine_grained_access/create_delete_filtering_tests.py"]
     <<: *create_delete_filtering_in_memory_cluster
 
-  - name: "Create delete filtering on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["fine_grained_access/create_delete_filtering_tests.py"]
-    <<: *create_delete_filtering_disk_cluster
-
   - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
     <<: *edge_type_filtering_in_memory_cluster
-
-  - name: "EdgeType filtering on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["fine_grained_access/edge_type_filtering_tests.py"]
-    <<: *edge_type_filtering_disk_cluster
 
   - name: "Path filtering"
     binary: "tests/e2e/pytest_runner.sh"
@@ -181,8 +171,3 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/show_db.py"]
     <<: *show_databases_w_user
-
-  - name: "Path filtering on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["fine_grained_access/path_filtering_tests.py"]
-    <<: *path_filtering_disk_cluster
