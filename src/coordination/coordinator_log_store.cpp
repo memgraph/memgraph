@@ -160,7 +160,8 @@ CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> du
     buffer_serializer bs{log_term_buffer};
     bs.put_str(data);
     logs_[id] = cs_new<log_entry>(term, log_term_buffer, GetLogValType(value_type));
-    spdlog::trace("Logging entry {} with id {}, data:{}, ", std::string{j.dump()}, std::to_string(id), data);
+    spdlog::trace("Logging entry with id {}, \n entry {} ,\n data:{}, ", std::string{j.dump()}, std::to_string(id),
+                  data);
   }
 }
 
@@ -174,9 +175,27 @@ auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry>
   return entry->second;
 }
 
+void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
+  for (uint64_t i = start; i <= end; i++) {
+    auto const entry = logs_.find(i);
+    if (entry == logs_.end()) {
+      continue;
+    }
+    logs_.erase(entry);
+    if (kv_store_) {
+      MG_ASSERT(kv_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(i)),
+                "Failed to delete log entry from disk");
+    }
+  }
+  return;
+}
+
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
   spdlog::trace("Start idx: {}, logs size: {}", start_idx_, logs_.size());
+  for (auto const &[key, value] : logs_) {
+    spdlog::trace("  Key: {}", key);
+  }
   return start_idx_ + logs_.size() - 1;
 }
 
@@ -186,6 +205,7 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
 
   uint64_t const next_slot = start_idx_ + logs_.size() - 1;
+  spdlog::trace("Last entry {}", next_slot - 1);
   auto const last_src = FindOrDefault_(next_slot - 1);
 
   return MakeClone(last_src);
@@ -193,7 +213,7 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   ptr<log_entry> clone = MakeClone(entry);
-
+  spdlog::trace("append");
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
 
@@ -321,6 +341,7 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
+  spdlog::trace("Compacting logs up to {}", last_log_index);
   auto lock = std::lock_guard{logs_lock_};
   for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);

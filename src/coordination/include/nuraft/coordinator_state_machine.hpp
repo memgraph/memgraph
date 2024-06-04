@@ -16,6 +16,7 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
 
@@ -46,7 +47,7 @@ struct SnapshotCtx {
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir);
+  explicit CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir, ptr<CoordinatorLogStore> log_store);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -119,6 +120,7 @@ class CoordinatorStateMachine : public state_machine {
   std::mutex last_snapshot_lock_;
 
   std::unique_ptr<kvstore::KVStore> kv_store_;
+  ptr<CoordinatorLogStore> log_store_;
 };
 
 }  // namespace memgraph::coordination

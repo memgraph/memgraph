@@ -67,6 +67,8 @@ class CoordinatorLogStore : public log_store {
 
   bool flush() override;
 
+  void DeleteLogs(uint64_t start, uint64_t end);
+
  private:
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 

@@ -89,7 +89,7 @@ auto SerializeSnapshotCtxToJson(memgraph::coordination::SnapshotCtx const &snaps
 namespace memgraph::coordination {
 
 
-CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir): logger_(logger) {
+CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir, ptr<CoordinatorLogStore> log_store): logger_(logger), log_store_(std::move(log_store))  {
   if (durability_dir) {
     kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
   }
@@ -119,6 +119,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::opti
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
+      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
       snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *kv_store_);
       MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
                 "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
@@ -128,6 +129,14 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::opti
     }
     spdlog::trace("Deserialized snapshot with id: {}", snapshot_key_id);
   }
+
+  if (last_committed_idx_ == 0) {
+    return;
+  }
+  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+  // no need for log store, only get last commited index
+  last_committed_idx_ = last_committed_idx_.load();
+  spdlog::trace("Last committed index: {}", last_committed_idx_);
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }

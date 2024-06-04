@@ -45,13 +45,27 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &instance_init_config,
                      CoordinatorStateMachineConfig const &state_machine_config,
                      CoordinatorStateManagerConfig const &state_manager_config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb)
-    : coordinator_port_(config.coordinator_port),
-      coordinator_id_(config.coordinator_id),
-      logger_(cs_new<Logger>(config.nuraft_log_file)),
+    : coordinator_port_(instance_init_config.coordinator_port),
+      coordinator_id_(instance_init_config.coordinator_id),
+      log_store_(cs_new<CoordinatorLogStore>(state_manager_config.log_store_durability_dir_)),
       state_machine_(cs_new<CoordinatorStateMachine>(LoggerWrapper(static_cast<Logger *>(logger_.get())), state_machine_config.state_machine_durability_dir_)),
       state_manager_(cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
+      logger_(cs_new<Logger>(instance_init_config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {}
+      become_follower_cb_(std::move(become_follower_cb)) {
+  auto last_commit_index_snapshot = state_machine_->last_commit_index();
+  auto const last_commit_index_logs = log_store_->next_slot();
+  spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
+                last_commit_index_logs);
+  auto cntr = last_commit_index_snapshot + 1;
+  auto log_entries = log_store_->log_entries(cntr, last_commit_index_logs);
+  log_store_->DeleteLogs(cntr, last_commit_index_logs);
+  for (auto &log_entry : *log_entries) {
+    spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    state_machine_->commit(cntr, log_entry->get_buf());
+    cntr++;
+  }
+}
 
 // Call to this function results in call to
 // coordinator instance, make sure everything is initialized in coordinator instance
@@ -82,6 +96,7 @@ auto RaftState::InitRaftServer() -> void {
 
   init_opts.start_server_in_constructor_ = false;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
+    spdlog::trace("Got event type: {}", (int)event_type);
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
@@ -149,8 +164,12 @@ RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
   state_machine_.reset();
   state_manager_.reset();
+  log_store_.reset();
+
   logger_.reset();
 
+  // TODO(antoniofilipovic): Should we first shut down raft server and then only stop state machine, state manager,
+  //  log store and logger?
   if (!raft_server_) {
     spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
     return;

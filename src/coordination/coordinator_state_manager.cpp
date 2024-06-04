@@ -11,10 +11,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <utility>
-
-#include <range/v3/view.hpp>
-#include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
@@ -43,9 +39,10 @@ constexpr int kActiveStateManagerDurabilityVersion = 1;
 
 }  // namespace
 
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config,
+                                                 ptr<CoordinatorLogStore> log_store, LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
-      cur_log_store_(cs_new<CoordinatorLogStore>(config.log_store_durability_dir_)),
+      cur_log_store_(std::move(log_store)),
       logger_(logger),
       kv_store_(config.state_manager_durability_dir_) {
   auto const c2c =
@@ -100,6 +97,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   auto const server_state_json = nlohmann::json{{kTerm, state.get_term()},
                                                 {kVotedFor, state.get_voted_for()},
                                                 {kElectionTimer, state.is_election_timer_allowed()}};
+  spdlog::trace("!!!!STORED SERVER STATE TO DISK {}!!!!", server_state_json.dump());
   MG_ASSERT(kv_store_.Put(kServerStateKey, server_state_json.dump()), "Couldn't store server state to disk.");
 
   ptr<buffer> buf = state.serialize();
