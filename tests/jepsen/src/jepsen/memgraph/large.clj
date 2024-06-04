@@ -2,7 +2,6 @@
   "Large write test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [clojure.string :as string]
             [jepsen
              [checker :as checker]
              [client :as client]
@@ -18,12 +17,8 @@
 (dbclient/defquery get-node-count
   "MATCH (n:Node) RETURN count(n) as c;")
 
-(defn create-nodes-builder
-  []
-  (dbclient/create-query
-   (str "UNWIND range(1, " node-num ") AS i CREATE (n:Node {id: i, property1: 0, property2: 1, property3: 2});")))
-
-(def create-nodes (create-nodes-builder))
+(dbclient/defquery create-nodes
+  (str "UNWIND range(1, " node-num ") AS i CREATE (n:Node {id: i, property1: 0, property2: 1, property3: 2});"))
 
 (defrecord Client [nodes-config]
   client/Client
@@ -72,16 +67,17 @@
 
       ; When executed on main, create nodes.
       :add    (if (= (:replication-role this) :main)
-                (utils/with-session (:conn this) session
-                  (try
-                    ((create-nodes session)
-                     (assoc op :type :ok :value "Nodes created."))
-                    (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                      (assoc op :type :info :value (utils/node-is-down (:node this))))
-                    (catch Exception e
-                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
-                        (assoc op :type :fail :value (str e))))))
+                (try
+                  (utils/with-session (:conn this) session
+                    (create-nodes session)
+                    (assoc op :type :ok :value "Nodes created."))
+                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                    (utils/process-service-unavilable-exc op (:node this)))
+                  (catch Exception e
+                    (if (utils/sync-replica-down? e)
+                      (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected. Here we return ok because
+                      ; data will still get replicated since Memgraph doesn't have SYNC replication by the book.
+                      (assoc op :type :fail :value (str e)))))
                 (assoc op :type :info :info "Not main node"))))
   (teardown! [this _test]
     (when (= (:replication-role this) :main)
@@ -112,6 +108,7 @@
       (let [ok-reads (->> history
                           (filter #(= :ok (:type %)))
                           (filter #(= :read (:f %))))
+
             ; Read is considered bad if count is not divisible with node-num.
             bad-reads (->> ok-reads
                            (map (fn [op]
@@ -157,7 +154,12 @@
 
             initial-result {:valid? (and
                                      (empty? bad-reads)
-                                     (empty? empty-nodes))
+                                     (empty? empty-nodes)
+                                     (empty? failed-registrations)
+                                     (empty? failed-adds)
+                                     (empty? failed-reads)
+                                     (boolean (not-empty ok-reads)))
+
                             :empty-nodes? (empty? empty-nodes)
                             :empty-bad-reads? (empty? bad-reads)
                             :empty-failed-reads? (empty? failed-reads)
