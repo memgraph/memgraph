@@ -720,8 +720,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
-  auto oldPassword = EvaluateOptionalExpression(auth_query->password_, evaluator);
-  auto newPassword = EvaluateOptionalExpression(auth_query->password_, evaluator);
+  auto oldPassword = EvaluateOptionalExpression(auth_query->old_password_, evaluator);
+  auto newPassword = EvaluateOptionalExpression(auth_query->new_password_, evaluator);
 
   Callback callback;
 
@@ -847,6 +847,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
         MG_ASSERT(newPassword.IsString() || newPassword.IsNull());
+        MG_ASSERT(oldPassword.IsString() || oldPassword.IsNull());
         auth->ChangePassword(
             *username,
             oldPassword.IsString() ? std::make_optional(std::string(oldPassword.ValueString())) : std::nullopt,

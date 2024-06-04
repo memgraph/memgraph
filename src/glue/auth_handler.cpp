@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "auth/auth.hpp"
+#include "auth/crypto.hpp"
 #include "auth/models.hpp"
 #include "dbms/constants.hpp"
 #include "glue/auth.hpp"
@@ -362,8 +363,12 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    locked_auth->UpdatePassword(*user, newPassword);
-    locked_auth->SaveUser(*user, system_tx);
+    if (user->CheckPassword(*oldPassword)) {
+      locked_auth->UpdatePassword(*user, newPassword);
+      locked_auth->SaveUser(*user, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("Old password is not corrrect.");
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
