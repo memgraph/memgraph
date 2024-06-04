@@ -6,7 +6,6 @@
   should be consistent."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
-            [clojure.string :as string]
             [clojure.core.reducers :as r]
             [jepsen
              [store :as store]
@@ -101,8 +100,10 @@
                     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                       (utils/process-service-unavilable-exc op (:node this)))
                     (catch Exception e
-                      (if (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction.")
-                        (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected
+                      (if (or
+                           (utils/sync-replica-down? e)
+                           (utils/conflicting-txns? e))
+                        (assoc op :type :info :value (str e)); Exception due to down sync replica is accepted/expected
                         (assoc op :type :fail :value (str e)))))
                   (assoc op :type :info :value "Not main node."))))
   ; On teardown! only main will detach-delete-all.
@@ -127,6 +128,12 @@
                            (filter #(= :ok (:type %)))
                            (filter #(= :read-balances (:f %))))
 
+            correct-data-reads (->> ok-reads
+                                    (map :value)
+                                    (filter :correct)
+                                    (map :node)
+                                    (into #{}))
+
             bad-reads (utils/analyze-bank-data-reads ok-reads utils/account-num utils/starting-balance)
 
             empty-nodes (utils/analyze-empty-data-nodes ok-reads)
@@ -148,18 +155,25 @@
 
             initial-result {:valid? (and
                                      (empty? bad-reads)
-                                     (empty? empty-nodes))
-                            :empty-nodes? (empty? empty-nodes)
+                                     (empty? empty-nodes)
+                                     (empty? failed-read-balances)
+                                     (empty? failed-registrations)
+                                     (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
+                                     (empty? failed-transfers))
+
                             :empty-bad-reads? (empty? bad-reads)
+                            :empty-nodes? (empty? empty-nodes)
                             :empty-failed-read-balances? (empty? failed-read-balances)
-                            :empty-failed-transfers? (empty? failed-transfers)
-                            :empty-failed-registrations? (empty? failed-registrations)}
+                            :empty-failed-registrations? (empty? failed-registrations)
+                            :correct-data-reads-exist-on-all-nodes? (= correct-data-reads #{"n1" "n2" "n3" "n4" "n5"})
+                            :empty-failed-transfers? (empty? failed-transfers)}
 
             updates [{:key :empty-nodes :condition (not (:empty-nodes? initial-result)) :value empty-nodes}
                      {:key :empty-bad-reads :condition (not (:empty-bad-reads? initial-result)) :value bad-reads}
                      {:key :empty-failed-read-balances :condition (not (:empty-failed-read-balances? initial-result)) :value failed-read-balances}
                      {:key :empty-failed-transfers :condition (not (:empty-failed-transfers? initial-result)) :value failed-transfers}
-                     {:key :empty-failed-registrations :condition (not (:empty-failed-registrations? initial-result)) :value failed-registrations}]]
+                     {:key :empty-failed-registrations :condition (not (:empty-failed-registrations? initial-result)) :value failed-registrations}
+                     {:key :correct-data-reads-on-nodes :condition (not (:correct-data-reads-exist-on-all-nodes? initial-result)) :value correct-data-reads}]]
 
         (reduce (fn [result update]
                   (if (:condition update)
