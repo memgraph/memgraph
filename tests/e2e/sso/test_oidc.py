@@ -76,3 +76,7 @@ def test_invalid_tokens(scheme):
         "role": "admin",
         "username": "username",
     }
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-rA"]))
