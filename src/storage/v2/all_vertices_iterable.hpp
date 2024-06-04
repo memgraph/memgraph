@@ -32,6 +32,8 @@ class AllVerticesIterable final {
     AllVerticesIterable *self_;
     utils::SkipList<Vertex>::Iterator it_;
     bool last;
+    uint8_t *chunk_ptr{};
+    Gid gid;
 
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);

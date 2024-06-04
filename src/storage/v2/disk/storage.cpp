@@ -1272,6 +1272,11 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  std::string chunk(4096, '\0');
+  uint32_t chunk_pos = 0;
+  uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
+  uint64_t id_end = -1;
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   for (const Vertex &vertex : vertex_acc) {
     if (!VertexNeedsToBeSerialized(vertex)) {
@@ -1292,13 +1297,55 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       }
     }
 
-    if (!WriteVertexToVertexColumnFamily(transaction, vertex)) {
+    // if (!WriteVertexToVertexColumnFamily(transaction, vertex)) {
+    //   return StorageManipulationError{SerializationError{}};
+    // }
+    rocksdb::Status status;
+    auto val = utils::SerializeProperties(vertex.properties);
+
+    std::cout << "chunk.size() - 4 <= chunk_pos + val.size() <=> " << chunk.size() << " - " << 4 << " <= " << chunk_pos
+              << " + " << val.size() << " == " << (chunk.size() - 4 <= chunk_pos + val.size()) << std::endl;
+
+    if (chunk.size() - 4 <= chunk_pos + val.size()) {  // leave last 4 to be 0 always (chunk size = 0 == end)
+      // Flush
+      std::string key =
+          utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
+      *(uint32_t *)&chunk[chunk_pos] = 0;
+      chunk_pos += 4;
+      status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, chunk.substr(0, chunk_pos));
+      // Reset
+      id_begin = vertex.gid.AsUint();
+      chunk_pos = 0;
+    }
+
+    // Append
+    id_end = vertex.gid.AsUint();
+    *(uint32_t *)&chunk[chunk_pos] = val.size();
+    chunk_pos += sizeof(uint32_t);
+    memcpy(&chunk[chunk_pos], val.data(), val.size());
+    chunk_pos += val.size();
+
+    if (!status.ok()) {
+      spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
       return StorageManipulationError{SerializationError{}};
     }
 
     if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
         !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
         !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
+      return StorageManipulationError{SerializationError{}};
+    }
+  }
+
+  // Flush
+  if (chunk_pos != 0) {
+    std::string key =
+        utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
+    *(uint32_t *)&chunk[chunk_pos] = 0;
+    chunk_pos += 4;
+    auto status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, chunk.substr(0, chunk_pos));
+    if (!status.ok()) {
+      spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
       return StorageManipulationError{SerializationError{}};
     }
   }

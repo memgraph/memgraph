@@ -711,6 +711,281 @@ static void RocksDBReadSeqBig(benchmark::State &state) {
   delete db;
 }
 
+static void RocksDBReadJustNext(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto itr = db->NewIterator(ro);
+    itr->SeekToFirst();
+    while (itr->Valid()) {
+      state.ResumeTiming();
+
+      itr->Next();
+
+      state.PauseTiming();
+      auto res = itr->value();
+      benchmark::DoNotOptimize(res);
+    }
+    state.ResumeTiming();
+  }
+
+  db->Close();
+  delete db;
+}
+
+static void RocksDBReadJustNext2(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  ro.adaptive_readahead = true;
+  ro.readahead_size = 16 << 10;
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto itr = db->NewIterator(ro);
+    itr->SeekToFirst();
+    while (itr->Valid()) {
+      state.ResumeTiming();
+
+      itr->Next();
+
+      state.PauseTiming();
+      auto res = itr->value();
+      benchmark::DoNotOptimize(res);
+    }
+    state.ResumeTiming();
+  }
+
+  db->Close();
+  delete db;
+}
+
+static void RocksDBReadJustNext3(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  ro.async_io = true;
+  ro.background_purge_on_iterator_cleanup = true;
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto itr = db->NewIterator(ro);
+    itr->SeekToFirst();
+    while (itr->Valid()) {
+      state.ResumeTiming();
+
+      itr->Next();
+
+      state.PauseTiming();
+      auto res = itr->value();
+      benchmark::DoNotOptimize(res);
+    }
+    state.ResumeTiming();
+  }
+
+  db->Close();
+  delete db;
+}
+
+static void RocksDBReadJustNext4(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  ro.verify_checksums = false;
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto itr = db->NewIterator(ro);
+    itr->SeekToFirst();
+    while (itr->Valid()) {
+      state.ResumeTiming();
+
+      itr->Next();
+
+      state.PauseTiming();
+      auto res = itr->value();
+      benchmark::DoNotOptimize(res);
+    }
+    state.ResumeTiming();
+  }
+
+  db->Close();
+  delete db;
+}
+
+static void RocksDBReadJustNext5(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  ro.optimize_multiget_for_io = true;
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    auto itr = db->NewIterator(ro);
+    itr->SeekToFirst();
+    while (itr->Valid()) {
+      state.ResumeTiming();
+
+      itr->Next();
+
+      state.PauseTiming();
+      auto res = itr->value();
+      benchmark::DoNotOptimize(res);
+    }
+    state.ResumeTiming();
+  }
+
+  db->Close();
+  delete db;
+}
+
+static void RocksDBReadMultiGet(benchmark::State &state) {
+  utils::DeleteDir(dir);
+  utils::EnsureDir(dir);
+
+  rocksdb::Options options;
+  options.max_background_jobs = 12;
+  options.create_if_missing = true;
+  rocksdb::DB *db = nullptr;
+  auto s = rocksdb::DB::Open(options, dir.data(), &db);
+  if (!s.ok() || db == nullptr) throw std::runtime_error("RocksDB couldn't be initialized");
+
+  // Just focus on the key size
+  std::string val = "temp valtemp valtemp valtemp valtemp valtemp valtemp valtemp val";
+  rocksdb::WriteOptions wo;
+
+  unsigned long i = 0;
+  std::vector<rocksdb::Slice> keys;
+  std::vector<std::string> strs;
+  keys.reserve(10000);
+  for (int j = 0; j < 10000; ++j) {
+    std::ostringstream oss;
+    oss << std::setw(state.range()) << std::setfill('0') << i++;
+    auto res = db->Put(wo, oss.str().substr(0, state.range()), val);
+    strs.push_back(oss.str().substr(0, state.range()));
+    keys.push_back(strs.back());
+  }
+
+  i = 0;
+  rocksdb::ReadOptions ro;
+  ro.async_io = true;
+  ro.optimize_multiget_for_io = true;
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    std::vector<std::string> vals;
+    vals.reserve(10000);
+    state.ResumeTiming();
+    auto sts = db->MultiGet(ro, keys, &vals);
+    benchmark::DoNotOptimize(sts);
+  }
+
+  db->Close();
+  delete db;
+}
+
 // Register the function as a benchmark
 // BENCHMARK(TransformIDsToString)->Unit(benchmark::kNanosecond)->Args({1});
 // BENCHMARK(TransformIDsToString)->Unit(benchmark::kNanosecond)->Args({10});
@@ -759,5 +1034,12 @@ static void RocksDBReadSeqBig(benchmark::State &state) {
 
 // BENCHMARK(RocksDBReadSeqSmall)->Unit(benchmark::kNanosecond)->Args({16});
 // BENCHMARK(RocksDBReadSeqBig)->Unit(benchmark::kNanosecond)->Args({16});
+
+// BENCHMARK(RocksDBReadJustNext)->Unit(benchmark::kNanosecond)->Args({16});
+// BENCHMARK(RocksDBReadJustNext2)->Unit(benchmark::kNanosecond)->Args({16});
+// BENCHMARK(RocksDBReadJustNext3)->Unit(benchmark::kNanosecond)->Args({16});
+// BENCHMARK(RocksDBReadJustNext4)->Unit(benchmark::kNanosecond)->Args({16});
+// BENCHMARK(RocksDBReadJustNext5)->Unit(benchmark::kNanosecond)->Args({16});
+// BENCHMARK(RocksDBReadMultiGet)->Unit(benchmark::kNanosecond)->Args({16});
 
 BENCHMARK_MAIN();

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/all_vertices_iterable.hpp"
+#include <cstdint>
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
@@ -32,15 +33,25 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
       it_(AdvanceToVisibleVertex(it, self->vertices_accessor_.end(), &self->vertex_, self->storage_, self->transaction_,
                                  self->view_)) {}
 
-AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, bool last) : self_(self), last(last) {}
+AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, bool last) : self_(self), last(last) {
+  if (!last) {
+    chunk_ptr = (uint8_t *)self_->itr->value().ToStringView().data();
+    gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
+  }
+}
 
 VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
   //
   // return *self_->vertex_;
 
-  const auto gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
-  auto labels_id = utils::DeserializeLabelsFromMainDiskStorage(self_->itr->key().ToStringView());
-  auto properties = utils::DeserializePropertiesFromMainDiskStorage(self_->itr->value().ToStringView());
+  // const auto gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
+  // auto labels_id = utils::DeserializeLabelsFromMainDiskStorage(self_->itr->key().ToStringView());
+  // auto properties = utils::DeserializePropertiesFromMainDiskStorage(self_->itr->value().ToStringView());
+
+  storage::small_vector<storage::LabelId> labels_id{};  // Not supported at the moment
+  auto val_size = *(uint32_t *)chunk_ptr;
+  auto properties =
+      utils::DeserializePropertiesFromMainDiskStorage(std::string_view((char *)chunk_ptr + sizeof(uint32_t), val_size));
 
   Delta *delta{};
   self_->transaction_->EnsureCommitTimestampExists();
@@ -65,8 +76,21 @@ VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
 }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
-  self_->itr->Next();
-  last = !self_->itr->Valid();
+  auto val_size = *(uint32_t *)chunk_ptr;
+  chunk_ptr += sizeof(uint32_t) + val_size;
+  val_size = *(uint32_t *)chunk_ptr;
+  bool last_chunk = val_size == 0;
+  gid = memgraph::storage::Gid::FromUint(gid.AsUint() + 1);  // Fake for now
+
+  if (last_chunk) {
+    self_->itr->Next();
+    last = !self_->itr->Valid();
+    if (!last) {
+      chunk_ptr = (uint8_t *)self_->itr->value().data();
+      gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
+    }
+  }
+
   return *this;
   // ++it_;
   // it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
