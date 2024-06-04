@@ -47,7 +47,7 @@
         " "
         (replication-mode-str node-config)
         " TO '"
-        (:ip node-config)
+        name
         ":"
         (:port node-config)
         "'")))
