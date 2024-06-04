@@ -23,6 +23,7 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
+#include "nuraft/logger_wrapper.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
@@ -44,9 +45,9 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(cs_new<CoordinatorStateManager>(config)),
-      logger_(nullptr),
+      logger_(cs_new<Logger>(config.nuraft_log_file)),
+      state_machine_(cs_new<CoordinatorStateMachine>(LoggerWrapper(static_cast<Logger *>(logger_.get())))),
+      state_manager_(cs_new<CoordinatorStateManager>(config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {}
 
