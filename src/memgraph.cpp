@@ -665,16 +665,18 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket");
   }
 
-  // TODO: Make multi-tenant
+// TODO: Make multi-tenant
+#ifdef MG_ENTERPRISE
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+#endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &coordinator_state,
+                      &coordinator_state, &metrics_server,
 #endif
-                      &metrics_server, &websocket_server, &server, &interpreter_context_] {
+                      &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
@@ -683,8 +685,8 @@ int main(int argc, char **argv) {
     // queries.
     interpreter_context_.Shutdown();
     websocket_server.Shutdown();
-    metrics_server.Shutdown();
 #ifdef MG_ENTERPRISE
+    metrics_server.Shutdown();
     if (coordinator_state.has_value() && coordinator_state->IsCoordinator()) {
       coordinator_state->ShutDownCoordinator();
     }
@@ -699,7 +701,10 @@ int main(int argc, char **argv) {
   // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+
+#ifdef MG_ENTERPRISE
   metrics_server.Start();
+#endif
 
   if (!FLAGS_init_data_file.empty()) {
     spdlog::info("Running init data file.");
@@ -719,8 +724,9 @@ int main(int argc, char **argv) {
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
+#ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
-
+#endif
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
   python_gc_scheduler.Stop();
