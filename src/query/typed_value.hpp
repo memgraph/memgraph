@@ -68,25 +68,27 @@ class TypedValue {
     size_t operator()(const TypedValue &value) const;
   };
 
-  /** A value type. Each type corresponds to exactly one C++ type */
+  /** A value type. Each type corresponds to exactly one C++ type.
+   *  The ORDER BY clause, when processing values of multiple distinct types, sorts them using the below ordering:
+   */
   enum class Type : unsigned {
-    Null,
-    Bool,
-    Int,
-    Double,
-    String,
-    List,
     Map,
     Vertex,
     Edge,
+    List,
     Path,
+    ZonedDateTime,
+    LocalDateTime,
     Date,
     LocalTime,
-    LocalDateTime,
-    ZonedDateTime,
     Duration,
+    String,
+    Bool,
+    Int,
+    Double,
     Graph,
-    Function
+    Function,
+    Null,
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
