@@ -98,11 +98,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
 
     Scenario: Add value to enum:
         Given an empty graph
-        When executing query:
+        And having executed
             """
             ALTER ENUM Status ADD VALUE Medium;
             """
-        Then the result should be empty
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad', 'Medium'] |
 
     Scenario: Update value in enum:
         Given an empty graph
