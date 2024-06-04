@@ -41,13 +41,17 @@ struct CoordinatorInstanceInitConfig {
   int coordinator_port{0};
   int bolt_port{0};
   std::filesystem::path durability_dir;
+  std::string nuraft_log_file;
 
+  // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but withot sinks effectively
+  // then being a no-op logger.
   explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
-                                         std::filesystem::path durability_dir)
+                                         std::filesystem::path durability_dir, std::string nuraft_log_file = "")
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
         bolt_port(bolt_port),
-        durability_dir(std::move(durability_dir)) {
+        durability_dir(std::move(durability_dir)),
+        nuraft_log_file(std::move(nuraft_log_file)) {
     MG_ASSERT(!this->durability_dir.empty(), "Path empty");
   }
 };
