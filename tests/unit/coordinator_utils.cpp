@@ -20,9 +20,16 @@ using memgraph::coordination::CoordinatorInstanceInitConfig;
 
 class CoordinationUtils : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) {
+      std::filesystem::create_directories(test_folder_);
+    }
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_coordination"};
 
