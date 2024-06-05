@@ -654,7 +654,7 @@ and it should have failed to commit if we want to be serializable""",
     return True, "✓ g2_two_edges test passed"
 
 
-def two_conn_phenomenon(phen_func, global_isolation_level):
+def two_txns_phenomenon(phen_func, global_isolation_level):
     c1 = mgclient.connect(host=args.host, port=args.port)
     c1.autocommit = False
     c2 = mgclient.connect(host=args.host, port=args.port)
@@ -670,7 +670,7 @@ def two_conn_phenomenon(phen_func, global_isolation_level):
     return res
 
 
-def three_conn_phenomenon(phen_func):
+def three_txns_phenomenon(phen_func):
     c1 = mgclient.connect(host=args.host, port=args.port)
     c1.autocommit = False
     c2 = mgclient.connect(host=args.host, port=args.port)
@@ -704,23 +704,23 @@ if __name__ == "__main__":
     print(f"Database started with global isolation level set to: {global_isolation_level}")
     info_conn.close()
 
-    g0 = two_conn_phenomenon(g0, global_isolation_level)
-    g1a = two_conn_phenomenon(g1a, global_isolation_level)
-    g1b = two_conn_phenomenon(g1b, global_isolation_level)
-    g1c = two_conn_phenomenon(g1c, global_isolation_level)
-    g1_predA = two_conn_phenomenon(g1_predA, global_isolation_level)
-    g1_predB = two_conn_phenomenon(g1_predB, global_isolation_level)
-    otv = three_conn_phenomenon(otv)
-    pmp = two_conn_phenomenon(pmp, global_isolation_level)
-    pmp_write = two_conn_phenomenon(pmp_write, global_isolation_level)
-    p4 = two_conn_phenomenon(p4, global_isolation_level)
-    g_single = two_conn_phenomenon(g_single, global_isolation_level)
-    g_single_dependencies = two_conn_phenomenon(g_single_dependencies, global_isolation_level)
-    g_single_write_1 = two_conn_phenomenon(g_single_write_1, global_isolation_level)
-    g_single_write_2 = two_conn_phenomenon(g_single_write_2, global_isolation_level)
-    g2_item = two_conn_phenomenon(g2_item, global_isolation_level)
-    g2 = two_conn_phenomenon(g2, global_isolation_level)
-    g2_two_edges = three_conn_phenomenon(g2_two_edges)
+    g0 = two_txns_phenomenon(g0, global_isolation_level)
+    g1a = two_txns_phenomenon(g1a, global_isolation_level)
+    g1b = two_txns_phenomenon(g1b, global_isolation_level)
+    g1c = two_txns_phenomenon(g1c, global_isolation_level)
+    g1_predA = two_txns_phenomenon(g1_predA, global_isolation_level)
+    g1_predB = two_txns_phenomenon(g1_predB, global_isolation_level)
+    otv = three_txns_phenomenon(otv)
+    pmp = two_txns_phenomenon(pmp, global_isolation_level)
+    pmp_write = two_txns_phenomenon(pmp_write, global_isolation_level)
+    p4 = two_txns_phenomenon(p4, global_isolation_level)
+    g_single = two_txns_phenomenon(g_single, global_isolation_level)
+    g_single_dependencies = two_txns_phenomenon(g_single_dependencies, global_isolation_level)
+    g_single_write_1 = two_txns_phenomenon(g_single_write_1, global_isolation_level)
+    g_single_write_2 = two_txns_phenomenon(g_single_write_2, global_isolation_level)
+    g2_item = two_txns_phenomenon(g2_item, global_isolation_level)
+    g2 = two_txns_phenomenon(g2, global_isolation_level)
+    g2_two_edges = three_txns_phenomenon(g2_two_edges)
 
     # Check Isolation Levels
     g1 = all([g1a, g1b, g1c])
