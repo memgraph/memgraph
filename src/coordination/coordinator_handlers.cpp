@@ -101,7 +101,7 @@ void CoordinatorHandlers::DemoteMainToReplicaHandler(replication::ReplicationHan
 
   // Use localhost as ip for creating ReplicationServer
   const replication::ReplicationServerConfig clients_config{
-      .ip_address = "0.0.0.0", .port = req.replication_client_info.replication_server.GetPort()};
+      .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info.replication_server.GetPort())};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
     spdlog::error("Demoting main to replica failed!");

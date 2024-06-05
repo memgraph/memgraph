@@ -1,19 +1,18 @@
 (ns jepsen.memgraph.core
   (:gen-class)
   (:require
-   [clojure.java.shell :refer [sh]]
    [jepsen [cli :as cli]
     [checker :as checker]
     [generator :as gen]
-    [tests :as tests]
-    ]
+    [tests :as tests]]
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
-    [haempty :as haempty]
+    [habank :as habank]
     [support :as support]
     [hanemesis :as hanemesis]
     [nemesis :as nemesis]
+    [utils :as utils]
     [edn :as e]]))
 
 (def workloads
@@ -21,7 +20,7 @@
    workloads."
   {:bank                      bank/workload
    :large                     large/workload
-   :high_availability         haempty/workload})
+   :habank                    habank/workload})
 
 (def nemesis-configuration
   "Nemesis configuration"
@@ -45,7 +44,8 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis        (:nemesis nemesis)
@@ -59,7 +59,7 @@
         gen      (->> (:generator workload)
                       (gen/nemesis (:generator nemesis))
                       (gen/time-limit (:time-limit opts)))
-        gen      (if-let [final-generator (:final-generator workload)] ; TODO (andi) Shouldn't here gen be named final-gen
+        gen      (if-let [final-generator (:final-generator workload)]
                    (gen/phases gen
                                (gen/log "Healing cluster.")
                                (gen/nemesis (:final-generator nemesis))
@@ -75,31 +75,11 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (checker/unhandled-exceptions)
+                               :exceptions (utils/unhandled-exceptions)
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
-
-(defn resolve-hostname
-  "Resolve hostnames to ip address"
-  [host]
-  (first
-   (re-find
-    #"(\d{1,3}(.\d{1,3}){3})"
-    (:out (sh "getent" "hosts" host)))))
-
-(defn resolve-all-node-hostnames
-  "Resolve all hostnames in config and assign it to the node."
-  [nodes-config]
-
-  (reduce (fn [curr node]
-            (let [k (first node)
-                  v (second node)]
-              (assoc curr
-                     k (assoc v
-                              :ip (resolve-hostname k)))))
-          {}
-          nodes-config))
 
 (defn throw-if-key-missing-in-any
   [map-coll key error-msg]
@@ -134,6 +114,35 @@
           ":replication-mode to be defined.")))
   nodes-config)
 
+(defn single-test
+  "Takes base CLI options and constructs a single test."
+  [opts]
+  (let [workload (if (:workload opts)
+                   (:workload opts)
+                   (throw (Exception. "Workload undefined!")))
+        nodes-config (if (:nodes-config opts)
+                       (if (or (= workload :high_availability) (= workload :habank))
+                         (:nodes-config opts)
+                         (validate-nodes-configuration (:nodes-config opts))) ; validate only if not HA
+                       (throw (Exception. "Nodes config flag undefined!")))
+        ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
+        sync-after-n-txn (if (or (= workload :bank) (= workload :habank))
+                           1
+                           100000)
+        licence (when (:license opts)
+                  (:license opts))
+        organization (when (:organization opts)
+                       (:organization opts))
+        test-opts (merge opts
+                         {:workload workload
+                          :nodes-config nodes-config
+                          :sync-after-n-txn sync-after-n-txn
+                          :license licence
+                          :organization organization})]
+    (if (or (= workload :high_availability) (= workload :habank))
+      (memgraph-ha-test test-opts)
+      (memgraph-test test-opts))))
+
 (def cli-opts
   "CLI options for tests."
   [[nil "--package-url URL" "What package of Memgraph should we test?"
@@ -150,35 +159,6 @@
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
     :parse-fn #(-> % e/load-configuration)]])
-
-(defn single-test
-  "Takes base CLI options and constructs a single test."
-  [opts]
-  (let [workload (if (:workload opts)
-                   (:workload opts)
-                   (throw (Exception. "Workload undefined!")))
-        nodes-config (if (:nodes-config opts)
-                       (if (= workload :high_availability)
-                         (resolve-all-node-hostnames (:nodes-config opts))
-                         (resolve-all-node-hostnames (validate-nodes-configuration (:nodes-config opts)))) ; validate only if not HA
-                       (throw (Exception. "Nodes config flag undefined!")))
-        ; Bank test relies on 100% durable Memgraph, fsyncing after every txn.
-        sync-after-n-txn (if (= workload :bank)
-                           1
-                           100000)
-        licence (when (:license opts)
-                  (:license opts))
-        organization (when (:organization opts)
-                       (:organization opts))
-        test-opts (merge opts
-                         {:workload workload
-                          :nodes-config nodes-config
-                          :sync-after-n-txn sync-after-n-txn
-                          :license licence
-                          :organization organization})]
-    (if (= workload :high_availability)
-      (memgraph-ha-test test-opts)
-      (memgraph-test test-opts))))
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for

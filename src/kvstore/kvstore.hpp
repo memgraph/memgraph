@@ -118,7 +118,8 @@ class KVStore final {
   bool DeletePrefix(const std::string &prefix = "");
 
   /**
-   * Store values under the given keys and delete the keys.
+   * Store values under the given keys and delete the keys. If keys in delete are the same as in put you could end
+   * without any keys.
    *
    * @param items
    * @param keys

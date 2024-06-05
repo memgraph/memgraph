@@ -170,7 +170,6 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 }
 
 void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
-
 void Endpoint::SetPort(uint16_t port) { port_ = port; }
 
 void to_json(nlohmann::json &j, Endpoint const &config) {

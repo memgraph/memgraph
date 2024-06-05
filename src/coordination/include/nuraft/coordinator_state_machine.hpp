@@ -15,10 +15,10 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
 
 #include <spdlog/spdlog.h>
-#include <libnuraft/nuraft.hxx>
 
 #include <variant>
 
@@ -29,13 +29,14 @@ using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::cluster_config;
 using nuraft::int32;
+using nuraft::logger;
 using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine() = default;
+  explicit CoordinatorStateMachine(LoggerWrapper logger);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -111,6 +112,7 @@ class CoordinatorStateMachine : public state_machine {
   std::map<uint64_t, ptr<SnapshotCtx>> snapshots_;
   std::mutex snapshots_lock_;
 
+  LoggerWrapper logger_;
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 };

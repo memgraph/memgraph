@@ -51,7 +51,6 @@ class Endpoint {
   void SetAddress(std::string address);
   void SetPort(uint16_t port);
 
-  // Returns hostname:port as specified by user. Could be FQDN (IP address) or DNS name.
   [[nodiscard]] std::string SocketAddress() const;
 
   // Returns IP address:port, after resolving the hostname.
