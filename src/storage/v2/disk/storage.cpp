@@ -1470,7 +1470,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   auto out_edges = utils::Split(out_edges_str, ",");
   for (const std::string &edge_gid_str : out_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount();
+      hops_limit->IncrementHopsCount(1);
       if (hops_limit->IsLimitReached()) break;
     }
     std::string edge_val_str;
@@ -1538,7 +1538,7 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   std::vector<EdgeAccessor> result;
   for (const std::string &edge_gid_str : in_edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount();
+      hops_limit->IncrementHopsCount(1);
       if (hops_limit->IsLimitReached()) break;
     }
     std::string edge_val_str;

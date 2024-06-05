@@ -194,7 +194,7 @@ query : cypherQuery
       | showEnumsQuery
       ;
 
-cypherQuery : ( usingStatement )* singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -264,7 +264,7 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-usingStatement: USING usingStatementItem ;
+usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
 
 usingStatementItem: hopsLimit | indexHints ;
 

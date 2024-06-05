@@ -890,14 +890,15 @@ int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edge
   return expanded_count;
 }
 
-int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(
-    small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &result_edges, const std::vector<EdgeTypeId> &edge_types,
-    const VertexAccessor *destination, query::HopsLimit *hops_limit, EdgeDirection direction) const {
+int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
+                                                      const std::vector<EdgeTypeId> &edge_types,
+                                                      const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                                      EdgeDirection direction) const {
   int64_t expanded_count = 0;
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
   for (const auto &[edge_type, to_vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount();
+      hops_limit->IncrementHopsCount(1);
       if (hops_limit->IsLimitReached()) break;
     }
     expanded_count++;

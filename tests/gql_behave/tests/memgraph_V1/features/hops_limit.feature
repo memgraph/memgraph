@@ -11,7 +11,7 @@
 
 Feature: Hops Limit
 
-    Scenario: Test hops limit DFS test01
+    Scenario: Test hops limit DFS test01 - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -26,38 +26,11 @@ Feature: Hops Limit
             | <(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'E'})>                                                |
 
 
-    Scenario: Test hops limit DFS test02
+    Scenario: Test hops limit DFS test02 - partial results
         Given graph "simple_binary_tree"
         And having executed:
             """
             CREATE INDEX ON :Node(name)
-            """
-        And having executed:
-            """
-            CREATE (a:Node {name: 'A'}),
-            (b:Node {name: 'B'}),
-            (c:Node {name: 'C'}),
-            (d:Node {name: 'D'}),
-            (e:Node {name: 'E'}),
-            (f:Node {name: 'F'}),
-            (g:Node {name: 'G'}),
-            (h:Node {name: 'H'}),
-            (i:Node {name: 'I'}),
-            (j:Node {name: 'J'}),
-            (k:Node {name: 'K'}),
-            (l:Node {name: 'L'})
-
-            CREATE (a)-[:CONNECTED]->(b),
-            (a)-[:CONNECTED]->(c),
-            (b)-[:CONNECTED]->(d),
-            (b)-[:CONNECTED]->(e),
-            (c)-[:CONNECTED]->(f),
-            (c)-[:CONNECTED]->(g),
-            (d)-[:CONNECTED]->(h),
-            (d)-[:CONNECTED]->(i),
-            (e)-[:CONNECTED]->(j),
-            (e)-[:CONNECTED]->(k),
-            (f)-[:CONNECTED]->(l);
             """
         When executing query:
             """
@@ -68,7 +41,7 @@ Feature: Hops Limit
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>    |
 
 
-    Scenario: Test hops limit DFS test03
+    Scenario: Test hops limit DFS test03 - partial results
         Given graph "simple_binary_tree"
         And having executed:
             """
@@ -83,7 +56,7 @@ Feature: Hops Limit
 
 
 
-    Scenario: Test hops limit DFS both directions
+    Scenario: Test hops limit DFS both directions - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -96,7 +69,7 @@ Feature: Hops Limit
             | <(:Node {name: 'E'})<-[:CONNECTED]-(:Node {name: 'B'})<-[:CONNECTED]-(:Node {name: 'A'})> |
             | <(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'A'})>                                   |
 
-    Scenario: Test hops limit BFS test01
+    Scenario: Test hops limit BFS test01 - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -111,38 +84,11 @@ Feature: Hops Limit
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})-[:CONNECTED]->(:Node {name: 'F'})> |
 
 
-    Scenario: Test hops limit BFS test02
+    Scenario: Test hops limit BFS test02 - partial results
         Given graph "simple_binary_tree"
         And having executed:
             """
             CREATE INDEX ON :Node(name)
-            """
-        And having executed:
-            """
-            CREATE (a:Node {name: 'A'}),
-            (b:Node {name: 'B'}),
-            (c:Node {name: 'C'}),
-            (d:Node {name: 'D'}),
-            (e:Node {name: 'E'}),
-            (f:Node {name: 'F'}),
-            (g:Node {name: 'G'}),
-            (h:Node {name: 'H'}),
-            (i:Node {name: 'I'}),
-            (j:Node {name: 'J'}),
-            (k:Node {name: 'K'}),
-            (l:Node {name: 'L'})
-
-            CREATE (a)-[:CONNECTED]->(b),
-            (a)-[:CONNECTED]->(c),
-            (b)-[:CONNECTED]->(d),
-            (b)-[:CONNECTED]->(e),
-            (c)-[:CONNECTED]->(f),
-            (c)-[:CONNECTED]->(g),
-            (d)-[:CONNECTED]->(h),
-            (d)-[:CONNECTED]->(i),
-            (e)-[:CONNECTED]->(j),
-            (e)-[:CONNECTED]->(k),
-            (f)-[:CONNECTED]->(l);
             """
         When executing query:
             """
@@ -153,7 +99,7 @@ Feature: Hops Limit
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>              |
 
 
-    Scenario: Test hops limit BFS test03
+    Scenario: Test hops limit BFS test03 - partial results
         Given graph "simple_binary_tree"
         And having executed:
             """
@@ -167,7 +113,7 @@ Feature: Hops Limit
         Then the result should be empty
 
 
-    Scenario: Test hops limit BFS both directions
+    Scenario: Test hops limit BFS both directions - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -181,7 +127,7 @@ Feature: Hops Limit
             | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})-[:CONNECTED]->(:Node {name: 'F'})> |
 
 
-    Scenario: Test simple expand
+    Scenario: Test simple expand - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -196,7 +142,7 @@ Feature: Hops Limit
             | <(:Node {name: 'C'})-[:CONNECTED]->(:Node {name: 'F'})> |
 
 
-    Scenario: Test simple expand both directions
+    Scenario: Test simple expand both directions - partial results
         Given graph "simple_binary_tree"
         When executing query:
             """
@@ -236,20 +182,27 @@ Feature: Hops Limit
         Given an empty graph
         And having executed:
             """
-            CREATE (a)-[:CONNECTED]->(b)
-            CREATE (a)-[:CONNECTED]->(c)
-            CREATE (a)-[:CONNECTED]->(d)
-            CREATE (a)-[:CONNECTED]->(e)
-            CREATE (a)-[:CONNECTED]->(f)
+            CREATE  (a:Node {name: 'A'}),
+                    (b:Node {name: 'B'}),
+                    (c:Node {name: 'C'}),
+                    (d:Node {name: 'D'}),
+                    (e:Node {name: 'E'}),
+                    (f:Node {name: 'F'})
+
+            CREATE  (a)-[:CONNECTED]->(b),
+                    (a)-[:CONNECTED]->(c),
+                    (a)-[:CONNECTED]->(d),
+                    (a)-[:CONNECTED]->(e),
+                    (a)-[:CONNECTED]->(f)
             """
         When executing query:
             """
             USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]->(e) RETURN p
             """
         Then the result should be:
-            | p                     |
-            | <()-[:CONNECTED]->()> |
-            | <()-[:CONNECTED]->()> |
-            | <()-[:CONNECTED]->()> |
-            | <()-[:CONNECTED]->()> |
-            | <()-[:CONNECTED]->()> |
+            | p                                                       |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'D'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'E'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'F'})> |
