@@ -5927,7 +5927,7 @@ UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
 }
 
-PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, uint64_t commit_frequency)
+PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
     : input_(std::move(input)), commit_frequency_(commit_frequency) {}
 
 std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
@@ -5949,6 +5949,16 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
+    if (!max_number_of_commits_.has_value()) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto commit_value = self_.commit_frequency_->Accept(evaluator);
+      if (commit_value.IsInt()) {
+        max_number_of_commits_.emplace(commit_value.ValueInt());
+      } else {
+        throw QueryRuntimeException("Commit value must be an int!");
+      }
+    }
+
     if (!input_cursor_->Pull(frame, context)) {
       context.db_accessor->PeriodicCommit();
       current_number_of_commits_ = 0;
@@ -5956,7 +5966,7 @@ class PeriodicCommitCursor : public Cursor {
     }
 
     current_number_of_commits_++;
-    if (current_number_of_commits_ >= self_.commit_frequency_) {
+    if (current_number_of_commits_ >= *max_number_of_commits_) {
       context.db_accessor->PeriodicCommit();
       current_number_of_commits_ = 0;
     }
@@ -5974,6 +5984,7 @@ class PeriodicCommitCursor : public Cursor {
  private:
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<int64_t> max_number_of_commits_;
   uint64_t current_number_of_commits_{0};
 };
 }  // namespace

@@ -270,7 +270,7 @@ class RuleBasedPlanner {
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-            input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
+            input_op = HandleSubquery(call_sub, std::move(input_op), single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -888,7 +888,8 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
-  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
+  std::unique_ptr<LogicalOperator> HandleSubquery(query::CallSubquery *call_subquery,
+                                                  std::unique_ptr<LogicalOperator> last_op,
                                                   std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
                                                   AstStorage &storage, PatternComprehensionDataMap &pc_ops) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
@@ -912,7 +913,11 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
 
     if (context_->is_write_query) {
-      last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
+      if (call_subquery->cypher_query_->commit_frequency_) {
+        last_op = std::make_unique<PeriodicCommit>(std::move(last_op), call_subquery->cypher_query_->commit_frequency_);
+      } else {
+        last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
+      }
     }
 
     return last_op;

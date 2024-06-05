@@ -2736,7 +2736,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   PeriodicCommit() = default;
-  PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, uint64_t commit_frequency);
+  PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency);
 
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2754,7 +2754,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  uint64_t commit_frequency_;
+  Expression *commit_frequency_;
 };
 
 }  // namespace plan
