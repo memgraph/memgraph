@@ -195,7 +195,7 @@ auto CoordinatorClusterState::SerializeJson() const -> nlohmann::json {
 auto CoordinatorClusterState::DeserializeJson(nlohmann::json const &data) -> CoordinatorClusterState {
   auto repl_instances = data.at("repl_instances").get<std::map<std::string, ReplicationInstanceState, std::less<>>>();
   auto current_main_uuid = data.at("current_main_uuid").get<utils::UUID>();
-  bool is_lock_opened = data.at("is_lock_opened").get<int>();
+  bool const is_lock_opened = data.at("is_lock_opened").get<int>();
 
   return CoordinatorClusterState{std::move(repl_instances), current_main_uuid, is_lock_opened};
 }

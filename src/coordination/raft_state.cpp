@@ -166,7 +166,7 @@ auto RaftState::InitRaftServer() -> void {
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
 
-  utils::OnScopeExit reset_shared_ptrs{[this]() {
+  utils::OnScopeExit const reset_shared_ptrs{[this]() {
     state_machine_.reset();
     state_manager_.reset();
     logger_.reset();

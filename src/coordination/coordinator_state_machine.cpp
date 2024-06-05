@@ -30,6 +30,7 @@ constexpr int kActiveVersion = 1;
 constexpr int MAX_SNAPSHOTS = 3;
 
 nuraft::snapshot::type GetSnapshotType(int val_type) {
+  // NOLINTNEXTLINE
   switch (val_type) {
     case 1:
       return nuraft::snapshot::raw_binary;
@@ -117,7 +118,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
 
   for (auto kv_store_snapshot_it = durability_store_->begin(std::string{kSnapshotIdPrefix});
        kv_store_snapshot_it != durability_store_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
-    auto &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
+    auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));

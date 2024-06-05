@@ -82,8 +82,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
 
   if (FLAGS_coordinator_use_durability) {
     memgraph::utils::EnsureDirOrDie(config.durability_dir / "durability");
-    std::shared_ptr<kvstore::KVStore> durability_store =
-        std::make_shared<kvstore::KVStore>(config.durability_dir / "durability");
+    auto const durability_store = std::make_shared<kvstore::KVStore>(config.durability_dir / "durability");
     state_machine_config.durability_store_ = durability_store;
     state_manager_config.durability_store_ = durability_store;
   }

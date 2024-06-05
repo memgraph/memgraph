@@ -141,7 +141,7 @@ CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durab
     return;
   }
 
-  uint64_t last_log_entry = std::stoull(maybe_last_log_entry.value());
+  uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
   start_idx_ = std::stoull(maybe_start_idx.value());
 
   // Compaction might have happened so we might be missing some logs.

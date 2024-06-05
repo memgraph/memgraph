@@ -19,15 +19,11 @@
 #include "utils.hpp"
 
 using nuraft::async_result;
-using nuraft::buffer;
-using nuraft::buffer_serializer;
 using nuraft::cluster_config;
 using nuraft::cs_new;
 using nuraft::int32;
 using nuraft::ptr;
-using nuraft::snapshot;
 using nuraft::srv_config;
-using nuraft::state_machine;
 
 namespace {
 constexpr std::string_view kServers = "servers";
