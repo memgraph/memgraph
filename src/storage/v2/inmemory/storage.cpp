@@ -1004,10 +1004,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
-    mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+    // mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   } else {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
+    // transaction_.EnsureCommitTimestampExists();
 
     if (transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
@@ -1068,7 +1068,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
-      commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+      // commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
       if (transaction_.constraint_verification_info &&
           transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
@@ -1112,38 +1112,38 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // modifications before they are written to disk.
         // Replica can log only the write transaction received from Main
         // so the Wal files are consistent
-        auto const durability_commit_timestamp =
-            reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
-        if (is_main_or_replica_write) {
-          could_replicate_all_sync_replicas =
-              mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
+        // auto const durability_commit_timestamp =
+        //     reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
+        // if (is_main_or_replica_write) {
+        //   could_replicate_all_sync_replicas =
+        //       mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
-          MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
-          transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
-          // the commits received from main.
-          // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
-        }
+        //   // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
+        //   MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
+        //   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+        //   // Replica can only update the last commit timestamp with
+        //   // the commits received from main.
+        //   // Update the last commit timestamp
+        //   mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
+        // }
 
-        // TODO: can and should this be moved earlier?
-        mem_storage->commit_log_->MarkFinished(start_timestamp);
+        // // TODO: can and should this be moved earlier?
+        // mem_storage->commit_log_->MarkFinished(start_timestamp);
 
         // while still holding engine lock
         // and after durability + replication
         // check if we can fast discard deltas (ie. do not hand over to GC)
-        bool no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
-        bool no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-        if (no_older_transactions && no_newer_transactions) [[unlikely]] {
-          // STEP 0) Can only do fast discard if GC is not running
-          //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
-          //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
-          auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
-          if (gc_guard.try_lock()) {
-            FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
-          }
+        // bool no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
+        // bool no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
+        // if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+        // STEP 0) Can only do fast discard if GC is not running
+        //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
+        //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
+        auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
+        if (gc_guard.try_lock()) {
+          FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
         }
+        // }
       }
     }  // Release engine lock because we don't have to hold it anymore
 

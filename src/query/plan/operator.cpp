@@ -5966,6 +5966,7 @@ class PeriodicCommitCursor : public Cursor {
     }
 
     current_number_of_commits_++;
+    total_number_of_commits_++;
     if (current_number_of_commits_ >= *max_number_of_commits_) {
       context.db_accessor->PeriodicCommit();
       current_number_of_commits_ = 0;
@@ -5986,6 +5987,7 @@ class PeriodicCommitCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   std::optional<int64_t> max_number_of_commits_;
   uint64_t current_number_of_commits_{0};
+  uint64_t total_number_of_commits_{0};
 };
 }  // namespace
 
