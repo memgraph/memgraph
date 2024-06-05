@@ -238,7 +238,6 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
 
     cypher_query->commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
-    ;
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -3065,6 +3064,18 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+
+  if (auto *periodic_commit = ctx->periodicSubquery()) {
+    auto periodic_commit_number = periodic_commit->periodicCommitNumber;
+    if (!periodic_commit_number->numberLiteral()) {
+      throw SyntaxException("Periodic commit should be a number variable.");
+    }
+    if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+      throw SyntaxException("Periodic commit should be an integer.");
+    }
+
+    call_subquery->cypher_query_->commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+  }
 
   return call_subquery;
 }

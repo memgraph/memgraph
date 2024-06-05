@@ -99,6 +99,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | OF
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | PASSWORD
@@ -116,6 +117,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROWS
                       | QUOTE
                       | SERVER
                       | SERVICE_URL
@@ -271,7 +273,9 @@ indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
 periodicCommit : USING PERIODIC COMMIT periodicCommitNumber=literal ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicSubquery : IN TRANSACTIONS OF periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
