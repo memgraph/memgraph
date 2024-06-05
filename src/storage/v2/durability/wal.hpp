@@ -67,8 +67,8 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_DROP,
     LABEL_PROPERTY_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
-    EDGE_INDEX_CREATE,
-    EDGE_INDEX_DROP,
+    EDGE_TYPE_INDEX_CREATE,
+    EDGE_TYPE_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -181,8 +181,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::EDGE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_INDEX_DROP:
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
     case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
@@ -235,20 +235,21 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
-/// Function used to encode non-transactional operation.
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     const std::optional<std::string> text_index_name, LabelId label,
-                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+// Common to WAL & replication
+void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
+void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
+void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
+void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::set<PropertyId> const &properties);
+void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
+                              LabelPropertyIndexStats const &stats);
+void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
+                     LabelId label);
 
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     EdgeTypeId edge_type, uint64_t timestamp);
-
-void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
-                     EnumTypeId etype, uint64_t timestamp);
-
-void EncodeOperation(BaseEncoder *encoder, EnumStore const *enum_store, StorageMetadataOperation operation,
-                     Enum enum_val, uint64_t timestamp);
+void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
@@ -262,10 +263,10 @@ class WalFile {
  public:
   WalFile(const std::filesystem::path &wal_directory, const std::string_view uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
-          utils::FileRetainer *file_retainer, EnumStore *enum_store);
+          utils::FileRetainer *file_retainer);
   WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
           uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
-          utils::FileRetainer *file_retainer, EnumStore *enum_store);
+          utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
   WalFile(WalFile &&) = delete;
@@ -278,15 +279,6 @@ class WalFile {
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   void AppendTransactionEnd(uint64_t timestamp);
-
-  void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
-                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
-
-  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
-
-  void AppendOperation(StorageMetadataOperation operation, EnumTypeId etype, uint64_t timestamp);
-  void AppendOperation(StorageMetadataOperation operation, Enum value, uint64_t timestamp);
 
   void Sync();
 
@@ -315,12 +307,13 @@ class WalFile {
   void FinalizeWal();
   void DeleteWal();
 
- private:
+  auto encoder() -> BaseEncoder & { return wal_; }
+
   void UpdateStats(uint64_t timestamp);
 
+ private:
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
-  EnumStore *enum_store_;
   Encoder wal_;
   std::filesystem::path path_;
   uint64_t from_timestamp_;

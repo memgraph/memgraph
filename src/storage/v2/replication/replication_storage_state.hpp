@@ -56,11 +56,16 @@ struct ReplicationStorageState {
     });
   }
 
-  template <typename... Args>
-  void AppendOperation(std::span<std::optional<ReplicaStream>> replica_streams, Args &&...args) {
+  template <typename Func>
+  void EncodeToReplicas(std::span<std::optional<ReplicaStream>> replica_streams, Func &&func) {
     replication_clients_.WithLock([&](auto &clients) {
       for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
-        client->IfStreamingTransaction([&](auto &stream) { stream.AppendOperation(args...); }, replica_stream);
+        client->IfStreamingTransaction(
+            [&](auto &stream) {
+              auto encoder = stream.encoder();
+              func(encoder);
+            },
+            replica_stream);
       }
     });
   }

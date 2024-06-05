@@ -412,32 +412,6 @@ class InMemoryStorage final : public Storage {
   /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
-                                 std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
-                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                 const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
-                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                 const std::optional<std::string> text_index_name, LabelId label,
-                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
-                                 LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
-                                 std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                 const std::optional<std::string> text_index_name, LabelId label,
-                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EnumTypeId etype,
-                                 uint64_t final_commit_timestamp,
-                                 std::span<std::optional<ReplicaStream>> replica_streams);
-  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, Enum value,
-                                 uint64_t final_commit_timestamp,
-                                 std::span<std::optional<ReplicaStream>> replica_streams);
 
   uint64_t GetCommitTimestamp();
 

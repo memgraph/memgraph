@@ -42,6 +42,34 @@ namespace memgraph::storage {
 
 namespace {
 
+constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define add_case(E)              \
+  case MetadataDelta::Action::E: \
+    return durability::StorageMetadataOperation::E
+  switch (action) {
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(EDGE_TYPE_INDEX_CREATE);
+    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(ENUM_CREATE);
+    add_case(ENUM_ALTER_ADD);
+  }
+#undef add_case
+}
+
 auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
     -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
@@ -2050,7 +2078,7 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
     return false;
   if (!wal_file_) {
     wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
-                      wal_seq_num_++, &file_retainer_, &enum_store_);
+                      wal_seq_num_++, &file_retainer_);
   }
   return true;
 }
@@ -2240,95 +2268,93 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     });
   }
 
+  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
+    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
+      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+      encode_operation(encoder);
+    };
+
+    // durability
+    full_encode_operation(wal_file_->encoder());
+    wal_file_->UpdateStats(durability_commit_timestamp);
+    // replication
+    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+  };
+
   // Handle metadata deltas
   for (const auto &md_delta : transaction.md_deltas) {
+    auto const op = ActionToStorageOperation(md_delta.action);
     switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_INDEX_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
+      case MetadataDelta::Action::LABEL_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_INDEX_DROP: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET, info.label, info.stats,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op,
+                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+        });
+        break;
+      }
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-        const auto &info = md_delta.label_property_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET, info.label,
-                                  {info.property}, info.stats, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: /* Special case we clear all label/property
-                                                                       pairs with the defined label */
-      {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-        const auto &info = md_delta.text_index;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        const auto &info = md_delta.text_index;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
+                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
-        const auto &info = md_delta.label_properties;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE, info.label,
-                                  info.properties, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+                              md_delta.label_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_CREATE:
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        const auto &info = md_delta.label_properties;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, info.label,
-                                  info.properties, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
+                                md_delta.label_properties.properties);
+        });
+        break;
+      }
       case MetadataDelta::Action::ENUM_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_CREATE, md_delta.enum_create_info.etype,
-                                  durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
+        });
+        break;
+      }
       case MetadataDelta::Action::ENUM_ALTER_ADD: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::ENUM_ALTER_ADD,
-                                  md_delta.enum_alter_add_info.value, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+        });
+        break;
+      }
     }
   }
 
@@ -2338,73 +2364,6 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   return repl_storage_state_.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc),
                                                  std::move(streams));
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::optional<std::string> text_index_name, LabelId label,
-                                                const std::set<PropertyId> &properties, LabelIndexStats stats,
-                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
-                             final_commit_timestamp);
-  repl_storage_state_.AppendOperation(replica_streams, operation, label, properties, stats, property_stats,
-                                      final_commit_timestamp);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, edge_type, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(replica_streams, operation, edge_type, final_commit_timestamp);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties,
-                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
-                                   final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                LabelIndexStats stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp,
-                                   replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, label, properties, {}, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::optional<std::string> text_index_name, LabelId label,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp,
-                                   replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EnumTypeId etype,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, etype, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(replica_streams, operation, etype, final_commit_timestamp);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, Enum value,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, value, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(replica_streams, operation, value, final_commit_timestamp);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

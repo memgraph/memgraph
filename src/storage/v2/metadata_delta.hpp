@@ -35,8 +35,8 @@ struct MetadataDelta {
     LABEL_PROPERTY_INDEX_DROP,
     LABEL_PROPERTY_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
-    EDGE_INDEX_CREATE,
-    EDGE_INDEX_DROP,
+    EDGE_TYPE_INDEX_CREATE,
+    EDGE_TYPE_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -107,9 +107,10 @@ struct MetadataDelta {
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
-      : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
+      : action(Action::EDGE_TYPE_INDEX_CREATE), edge_type(edge_type) {}
 
-  MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
+  MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type)
+      : action(Action::EDGE_TYPE_INDEX_DROP), edge_type(edge_type) {}
 
   MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
       : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label} {}
@@ -150,8 +151,8 @@ struct MetadataDelta {
       case LABEL_PROPERTY_INDEX_DROP:
       case LABEL_PROPERTY_INDEX_STATS_SET:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      case EDGE_INDEX_CREATE:
-      case EDGE_INDEX_DROP:
+      case EDGE_TYPE_INDEX_CREATE:
+      case EDGE_TYPE_INDEX_DROP:
       case EXISTENCE_CONSTRAINT_CREATE:
       case EXISTENCE_CONSTRAINT_DROP:
       case ENUM_CREATE:
