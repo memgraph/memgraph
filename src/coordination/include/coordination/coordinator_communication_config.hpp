@@ -44,7 +44,7 @@ struct CoordinatorInstanceInitConfig {
   std::filesystem::path durability_dir;
   std::string nuraft_log_file;
 
-  // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but withot sinks effectively
+  // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
   explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
                                          std::filesystem::path durability_dir, std::string nuraft_log_file = "")

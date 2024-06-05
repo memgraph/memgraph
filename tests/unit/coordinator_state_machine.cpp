@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "nuraft/coordinator_state_machine.hpp"
+#include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
@@ -154,12 +155,19 @@ TEST_F(CoordinatorStateMachineTest, SerializeUpdateUUID) {
 
 TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
   ptr<cluster_config> old_config;
+  using memgraph::coordination::Logger;
+  using memgraph::coordination::LoggerWrapper;
 
+  Logger logger("");
+  LoggerWrapper my_logger(&logger);
+  auto const path = test_folder_ / "serialize_deserialize_snapshot" / "state_machine";
   {
-    CoordinatorStateMachine state_machine{test_folder_ / "serialize_deserialize_snapshot" / "state_machine"};
-    CoordinatorStateManagerConfig config{0, 12345, 9090,
-                                         test_folder_ / "high_availability" / "coordination" / "state_manager"};
-    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config);
+    auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
+
+    CoordinatorStateMachine state_machine{kv_store_, my_logger};
+    CoordinatorStateManagerConfig config{
+        0, 12345, 9090, test_folder_ / "high_availability" / "coordination" / "state_manager", kv_store_};
+    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
         CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
@@ -177,7 +185,8 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
   }
 
   {
-    CoordinatorStateMachine state_machine{test_folder_ / "serialize_deserialize_snapshot" / "state_machine"};
+    auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
+    CoordinatorStateMachine state_machine{kv_store_, my_logger};
     auto last_snapshot = state_machine.last_snapshot();
     ASSERT_EQ(last_snapshot->get_last_log_idx(), 1);
     auto zipped_view = ranges::views::zip(old_config->get_servers(), last_snapshot->get_last_config()->get_servers());

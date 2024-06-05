@@ -51,8 +51,7 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
-  CoordinatorStateManagerConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination",
-                                       std::nullopt};
+  CoordinatorStateManagerConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination", nullptr};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
@@ -79,7 +78,7 @@ TEST_F(CoordinatorStateManagerTest, SingleCoord) {
 TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   // 1st coord stored here
   ptr<cluster_config> old_config;
-  CoordinatorStateManagerConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
+  CoordinatorStateManagerConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination", nullptr};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 

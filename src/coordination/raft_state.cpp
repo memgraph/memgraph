@@ -41,15 +41,16 @@ using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
 
-RaftState::RaftState(CoordinatorInstanceInitConfig const &instance_init_config,
-                     CoordinatorStateMachineConfig const &state_machine_config,
-                     CoordinatorStateManagerConfig const &state_manager_config, BecomeLeaderCb become_leader_cb,
-                     BecomeFollowerCb become_follower_cb)
-    : coordinator_port_(instance_init_config.coordinator_port),
-      coordinator_id_(instance_init_config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>(state_machine_config.durability_store_, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
-      state_manager_(cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
-      logger_(cs_new<Logger>(instance_init_config.nuraft_log_file)),
+RaftState::RaftState(CoordinatorStateMachineConfig const &state_machine_config,
+                     CoordinatorStateManagerConfig const &state_manager_config, std::string nuraft_log_file,
+                     BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
+    : coordinator_port_(state_manager_config.coordinator_port_),
+      coordinator_id_(state_manager_config.coordinator_id_),
+      logger_(cs_new<Logger>(nuraft_log_file)),
+      state_machine_(cs_new<CoordinatorStateMachine>(state_machine_config.durability_store_,
+                                                     LoggerWrapper(static_cast<Logger *>(logger_.get())))),
+      state_manager_(
+          cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
   auto last_commit_index_snapshot = state_machine_->last_commit_index();

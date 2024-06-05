@@ -129,7 +129,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-def get_instances_description_no_setup(use_durability: bool = False):
+def get_instances_description_no_setup(use_durability: bool = True):
     return {
         "instance_1": {
             "args": [

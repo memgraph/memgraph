@@ -88,11 +88,10 @@ auto SerializeSnapshotCtxToJson(memgraph::coordination::SnapshotCtx const &snaps
 
 namespace memgraph::coordination {
 
-CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability,
-                                                 LoggerWrapper logger)
-    : kv_store_(std::move(durability)){
+CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability, LoggerWrapper logger)
+    : logger_(logger), durability_store_(std::move(durability)) {
   spdlog::trace("Restoring coordinator state machine with durability.");
-  if (!kv_store_) {
+  if (!durability_store_) {
     spdlog::info("Storing snapshots only in memory");
     return;
   }
@@ -100,7 +99,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
   spdlog::trace("Restoring coordinator state machine with durability.");
 
   int version{0};
-  auto maybe_version = kv_store_->Get(kSnapshotVersion);
+  auto maybe_version = durability_store_->Get(kSnapshotVersion);
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
@@ -108,20 +107,21 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
         "Assuming first start of coordinator state machine using durability as version is missing, storing current "
         "active version {}.",
         kActiveVersion);
-    MG_ASSERT(kv_store_->Put(kSnapshotVersion, std::to_string(kActiveVersion)), "Failed to store version to disk");
+    MG_ASSERT(durability_store_->Put(kSnapshotVersion, std::to_string(kActiveVersion)),
+              "Failed to store version to disk");
     version = 1;
   }
 
   MG_ASSERT(version <= kActiveVersion && version > 0, "Unsupported version of log store with durability");
 
-  for (auto kv_store_snapshot_it = kv_store_->begin(std::string{kSnapshotIdPrefix});
-       kv_store_snapshot_it != kv_store_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
+  for (auto kv_store_snapshot_it = durability_store_->begin(std::string{kSnapshotIdPrefix});
+       kv_store_snapshot_it != durability_store_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
     auto &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
       last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
-      snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *kv_store_);
+      snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *durability_store_);
       MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
                 "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
                 snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
@@ -297,10 +297,10 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
     auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
     MG_ASSERT(entry != snapshots_.end());
-    if (kv_store_) {
+    if (durability_store_) {
       auto snapshot_ptr = entry->second->snapshot_;
-      MG_ASSERT(kv_store_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot.get_last_log_idx()),
-                               SerializeSnapshotCtxToJson(SnapshotCtx{snapshot_ptr, cluster_state}).dump()),
+      MG_ASSERT(durability_store_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot.get_last_log_idx()),
+                                       SerializeSnapshotCtxToJson(SnapshotCtx{snapshot_ptr, cluster_state}).dump()),
                 "Failed to store snapshot to disk.");
     }
     // TODO(antoniofilipovic): Check with Andi S. why we are not updating here also snapshot ptr
@@ -315,8 +315,8 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
 
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
-  if (kv_store_) {
-    MG_ASSERT(kv_store_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())));
+  if (durability_store_) {
+    MG_ASSERT(durability_store_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())));
   }
 
   cluster_state_ = entry->second->cluster_state_;
@@ -360,17 +360,17 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
               fmt::format("Create snapshot internal, last_log_idx={}", snapshot->get_last_log_idx()));
 
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
-  if (kv_store_) {
-    MG_ASSERT(kv_store_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()),
-                             SerializeSnapshotCtxToJson(*ctx).dump()),
+  if (durability_store_) {
+    MG_ASSERT(durability_store_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()),
+                                     SerializeSnapshotCtxToJson(*ctx).dump()),
               "Failed to store snapshot to disk.");
   }
   snapshots_[snapshot->get_last_log_idx()] = ctx;
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
-    if (kv_store_) {
-      MG_ASSERT(kv_store_->Delete("snapshot_id_" + std::to_string(snapshot_current)),
+    if (durability_store_) {
+      MG_ASSERT(durability_store_->Delete("snapshot_id_" + std::to_string(snapshot_current)),
                 "Failed to delete snapshot from disk");
     }
     snapshots_.erase(snapshots_.begin());

@@ -33,5 +33,5 @@ DEFINE_uint32(instance_get_uuid_frequency_sec, 10, "The time duration between tw
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(nuraft_log_file, "", "Path to the file where NuRaft logs are saved.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(coordinator_use_durability, false, "Whether to use durability for coordinator logs and snapshots.");
+DEFINE_bool(coordinator_use_durability, true, "Whether to use durability for coordinator logs and snapshots.");
 #endif

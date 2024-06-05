@@ -91,8 +91,8 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(state_machine_config, state_manager_config, GetBecomeLeaderCallback(),
-                                            GetBecomeFollowerCallback());
+  raft_state_ = std::make_unique<RaftState>(state_machine_config, state_manager_config, config.nuraft_log_file,
+                                            GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
   raft_state_->InitRaftServer();
 }
 
