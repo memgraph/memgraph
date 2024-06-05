@@ -90,23 +90,24 @@ namespace memgraph::coordination {
 
 CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability, LoggerWrapper logger)
     : logger_(logger), durability_store_(std::move(durability)) {
-  spdlog::trace("Restoring coordinator state machine with durability.");
   if (!durability_store_) {
-    spdlog::info("Storing snapshots only in memory");
+    logger_.Log(nuraft_log_level::INFO, "Coordinator state machine stores snapshots only in memory from now on.");
     return;
   }
 
-  spdlog::trace("Restoring coordinator state machine with durability.");
+  logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
 
   int version{0};
   auto maybe_version = durability_store_->Get(kSnapshotVersion);
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
-    spdlog::trace(
-        "Assuming first start of coordinator state machine using durability as version is missing, storing current "
-        "active version {}.",
-        kActiveVersion);
+    logger_.Log(
+        nuraft_log_level::TRACE,
+        fmt::format(
+            "Assuming first start of coordinator state machine using durability as version is missing, storing current "
+            "active version {}.",
+            kActiveVersion));
     MG_ASSERT(durability_store_->Put(kSnapshotVersion, std::to_string(kActiveVersion)),
               "Failed to store version to disk");
     version = 1;
@@ -128,7 +129,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
     } catch (std::exception &e) {
       LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
     }
-    spdlog::trace("Deserialized snapshot with id: {}", snapshot_key_id);
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
   }
 
   if (last_committed_idx_ == 0) {
@@ -137,8 +138,8 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
   cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
   // no need for log store, only get last commited index
   last_committed_idx_ = last_committed_idx_.load();
-  // TODO(antoniofilipovic): Remove
-  spdlog::trace("Last committed index from coordinator state machine: {}", last_committed_idx_);
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }

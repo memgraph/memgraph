@@ -39,10 +39,9 @@ constexpr int kActiveStateManagerDurabilityVersion = 1;
 
 }  // namespace
 
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config,
-                                                 LoggerWrapper logger)
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
-      cur_log_store_(cs_new<CoordinatorLogStore>(config.durability_store_)),
+      cur_log_store_(cs_new<CoordinatorLogStore>(config.durability_store_, logger)),
       logger_(logger),
       state_manager_durability_(config.state_manager_durability_dir_) {
   auto const c2c =
@@ -59,11 +58,14 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
-    spdlog::trace("Assuming first start of state manager with durability as version is missing, storing version 1.");
+    logger_.Log(
+        nuraft_log_level::INFO,
+        fmt::format("Assuming first start of state manager with durability as version is missing, storing version {}.",
+                    kActiveStateManagerDurabilityVersion));
     MG_ASSERT(state_manager_durability_.Put(kStateManagerDurabilityVersionKey,
                                             std::to_string(kActiveStateManagerDurabilityVersion)),
               "Failed to store version to disk");
-    version = 1;
+    version = kActiveStateManagerDurabilityVersion;
   }
 
   MG_ASSERT(version <= kActiveStateManagerDurabilityVersion && version > 0,
@@ -98,7 +100,6 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   auto const server_state_json = nlohmann::json{{kTerm, state.get_term()},
                                                 {kVotedFor, state.get_voted_for()},
                                                 {kElectionTimer, state.is_election_timer_allowed()}};
-  spdlog::trace("!!!!STORED SERVER STATE TO DISK {}!!!!", server_state_json.dump());
   MG_ASSERT(state_manager_durability_.Put(kServerStateKey, server_state_json.dump()),
             "Couldn't store server state to disk.");
 
@@ -111,7 +112,7 @@ auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
 
   auto const maybe_server_state = state_manager_durability_.Get(kServerStateKey);
   if (!maybe_server_state.has_value()) {
-    spdlog::trace("Didn't find anything stored on disk for server state.");
+    logger_.Log(nuraft_log_level::INFO, "Didn't find anything stored on disk for server state.");
     return saved_state_;
   }
   auto server_state_json = nlohmann::json::parse(maybe_server_state.value());

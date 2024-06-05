@@ -12,7 +12,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_log_store.hpp"
-
 #include "coordination/coordinator_exceptions.hpp"
 #include "utils/logging.hpp"
 
@@ -104,8 +103,8 @@ bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_l
 
 }  // namespace
 
-CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store)
-    : durability_store_(std::move(durability_store)) {
+CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store, LoggerWrapper logger)
+    : durability_store_(std::move(durability_store)), logger_(logger) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
 
@@ -120,7 +119,8 @@ CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durab
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
-    spdlog::trace("Assuming first start of log store with durability as version is missing, storing version 1.");
+    logger_.Log(nuraft_log_level::INFO,
+                "Assuming first start of log store with durability as version is missing, storing version 1.");
     MG_ASSERT(durability_store_->Put(kLogStoreDurabilityVersion, std::to_string(kActiveVersion)),
               "Failed to store version to disk");
     version = 1;
@@ -131,7 +131,8 @@ CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durab
   auto const maybe_last_log_entry = durability_store_->Get(kLastLogEntry);
   auto const maybe_start_idx = durability_store_->Get(kStartIdx);
   if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
-    spdlog::trace("No last log entry or start index found on disk, assuming first start of log store with durability");
+    logger_.Log(nuraft_log_level::INFO,
+                "No last log entry or start index found on disk, assuming first start of log store with durability");
     start_idx_ = 1;
     MG_ASSERT(durability_store_->Put(kStartIdx, std::to_string(start_idx_.load())),
               "Failed to store start index to disk");
@@ -158,8 +159,8 @@ CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durab
     buffer_serializer bs{log_term_buffer};
     bs.put_str(data);
     logs_[id] = cs_new<log_entry>(term, log_term_buffer, GetLogValType(value_type));
-    spdlog::trace("Logging entry with id {}, \n entry {} ,\n data:{}, ", std::string{j.dump()}, std::to_string(id),
-                  data);
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ",
+                                                     std::string{j.dump()}, std::to_string(id), data));
   }
 }
 
@@ -189,10 +190,6 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
-  spdlog::trace("Start idx: {}, logs size: {}", start_idx_, logs_.size());
-  for (auto const &[key, value] : logs_) {
-    spdlog::trace("  Key: {}", key);
-  }
   return start_idx_ + logs_.size() - 1;
 }
 
@@ -200,9 +197,7 @@ uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
 
 ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
-
   uint64_t const next_slot = start_idx_ + logs_.size() - 1;
-  spdlog::trace("Last entry {}", next_slot - 1);
   auto const last_src = FindOrDefault_(next_slot - 1);
 
   return MakeClone(last_src);
@@ -210,7 +205,6 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   ptr<log_entry> clone = MakeClone(entry);
-  spdlog::trace("append");
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
 
@@ -275,7 +269,7 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
 
   size_t size_total = 0;
   uint64_t const end_index = index + cnt;
-  spdlog::trace("Doing pack from {} to {}", index, end_index);
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Packing logs from {} to {}", index, end_index));
   for (uint64_t i = index; i < end_index; ++i) {
     ptr<log_entry> le = nullptr;
     {
@@ -296,14 +290,13 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
     buf_out->put(static_cast<int32>(entry->size()));
     buf_out->put(*entry);
   }
-  spdlog::trace("Packed logs from {} to {} with size {}", index, end_index, buf_out->size());
   return buf_out;
 }
 
 void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
   pack.pos(0);
   int32 const num_logs = pack.get_int();
-
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Applying pack for logs from {} to {}", index, index + num_logs));
   for (int32 i = 0; i < num_logs; ++i) {
     uint64_t cur_idx = index + i;
     int32 buf_size = pack.get_int();
@@ -315,7 +308,6 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     {
       auto lock = std::lock_guard{logs_lock_};
       logs_[cur_idx] = le;
-      spdlog::trace("Applying pack to log entry with id {}", std::to_string(cur_idx));
       if (durability_store_) {
         StoreToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1, *durability_store_);
       }
@@ -339,7 +331,7 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
-  spdlog::trace("Compacting logs up to {}", last_log_index);
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
   for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);

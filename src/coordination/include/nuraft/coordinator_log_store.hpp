@@ -14,8 +14,8 @@
 #ifdef MG_ENTERPRISE
 
 #include <libnuraft/nuraft.hxx>
-
 #include "kvstore/kvstore.hpp"
+#include "nuraft/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
 
@@ -36,7 +36,7 @@ using nuraft::raft_server;
  */
 class CoordinatorLogStore : public log_store {
  public:
-  CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store);
+  CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store, LoggerWrapper logger);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -78,6 +78,7 @@ class CoordinatorLogStore : public log_store {
   std::atomic<ulong> start_idx_;
   std::atomic<ulong> next_idx_;
   std::shared_ptr<kvstore::KVStore> durability_store_;
+  LoggerWrapper logger_;
 };
 
 }  // namespace memgraph::coordination
