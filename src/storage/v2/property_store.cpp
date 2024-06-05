@@ -1358,8 +1358,18 @@ void SetSizeData(uint8_t *buffer, uint32_t size, const uint8_t *data) {
 PropertyStore::PropertyStore() { memset(buffer_, 0, sizeof(buffer_)); }
 
 PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
+  uint32_t size = 0;
+  uint8_t *data;
+  std::tie(size, data) = GetSizeData(buffer_);
+  if (size % 8 == 0) {
+    // We are storing the data in an external buffer.
+    if (handle_) delete[] data;
+  }
+
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
   memset(other.buffer_, 0, sizeof(other.buffer_));
+  handle_ = other.handle_;
+  other.handle_ = false;
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
@@ -1368,11 +1378,14 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
     // We are storing the data in an external buffer.
-    delete[] data;
+    if (handle_) delete[] data;
   }
 
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
   memset(other.buffer_, 0, sizeof(other.buffer_));
+
+  handle_ = other.handle_;
+  other.handle_ = false;
 
   return *this;
 }
@@ -1383,7 +1396,7 @@ PropertyStore::~PropertyStore() {
   std::tie(size, data) = GetSizeData(buffer_);
   if (size % 8 == 0) {
     // We are storing the data in an external buffer.
-    delete[] data;
+    if (handle_) delete[] data;
   }
 }
 
@@ -1711,6 +1724,8 @@ void PropertyStore::SetBuffer(std::string_view buffer, bool handle) {
   if (buffer.empty()) {
     return;
   }
+
+  handle_ = handle;
 
   uint32_t size = 0;
   uint8_t *data = nullptr;

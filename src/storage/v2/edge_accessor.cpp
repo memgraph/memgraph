@@ -45,6 +45,8 @@ bool EdgeAccessor::IsDeleted() const {
 }
 
 bool EdgeAccessor::IsVisible(const View view) const {
+  if (from_disk_vertex_) return !IsDeleted();
+
   bool exists = true;
   bool deleted = true;
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
@@ -117,19 +119,28 @@ bool EdgeAccessor::IsVisible(const View view) const {
   return exists && (for_deleted_ || !deleted);
 }
 
-VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_vertex_, storage_, transaction_}; }
+VertexAccessor EdgeAccessor::FromVertex() const {
+  if (from_disk_vertex_) return VertexAccessor{from_disk_vertex_, storage_};
+  return VertexAccessor{from_vertex_, storage_, transaction_};
+}
 
-VertexAccessor EdgeAccessor::ToVertex() const { return VertexAccessor{to_vertex_, storage_, transaction_}; }
+VertexAccessor EdgeAccessor::ToVertex() const {
+  if (to_disk_vertex_) return VertexAccessor{to_disk_vertex_, storage_};
+  return VertexAccessor{to_vertex_, storage_, transaction_};
+}
 
 VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
+  if (from_disk_vertex_) return VertexAccessor{from_disk_vertex_, storage_};  // For now working only on reads
   return VertexAccessor{from_vertex_, storage_, transaction_, for_deleted_ && from_vertex_->deleted};
 }
 
 VertexAccessor EdgeAccessor::DeletedEdgeToVertex() const {
+  if (to_disk_vertex_) return VertexAccessor{to_disk_vertex_, storage_};  // For now working only on reads
   return VertexAccessor{to_vertex_, storage_, transaction_, for_deleted_ && to_vertex_->deleted};
 }
 
 Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  if (from_disk_vertex_) return storage::PropertyValue{};  // For now working only on reads
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -166,6 +177,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 }
 
 Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (from_disk_vertex_) return true;  // For now working only on reads
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -187,6 +199,8 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  if (from_disk_vertex_)
+    return std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>{};  // For now working only on reads
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
@@ -212,6 +226,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 }
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
+  if (from_disk_vertex_) return std::map<PropertyId, PropertyValue>{};  // For now working only on reads
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   auto guard = std::unique_lock{edge_.ptr->lock};
@@ -235,6 +250,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 }
 
 Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) const {
+  if (from_disk_vertex_) return PropertyValue{};  // TODO
   if (!storage_->config_.salient.items.properties_on_edges) return PropertyValue();
   bool exists = true;
   bool deleted = false;
@@ -278,6 +294,7 @@ Result<PropertyValue> EdgeAccessor::GetProperty(PropertyId property, View view) 
 }
 
 Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) const {
+  if (from_disk_vertex_) return 0;  // TODO
   if (!storage_->config_.salient.items.properties_on_edges) return 0;
 
   auto guard = std::shared_lock{edge_.ptr->lock};
@@ -299,6 +316,7 @@ Result<uint64_t> EdgeAccessor::GetPropertySize(PropertyId property, View view) c
 };
 
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) const {
+  if (from_disk_vertex_) return std::map<PropertyId, PropertyValue>{};  // TODO
   if (!storage_->config_.salient.items.properties_on_edges) return std::map<PropertyId, PropertyValue>{};
   bool exists = true;
   bool deleted = false;

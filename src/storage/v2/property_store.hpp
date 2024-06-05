@@ -119,6 +119,7 @@ class PropertyStore {
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
+  bool handle_{true};
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 };
 

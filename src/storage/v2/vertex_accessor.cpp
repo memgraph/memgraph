@@ -11,7 +11,9 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
+#include <algorithm>
 #include <memory>
+#include <optional>
 #include <tuple>
 #include <utility>
 
@@ -20,6 +22,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/small_vector.hpp"
@@ -94,11 +97,13 @@ bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transact
 }
 
 bool VertexAccessor::IsVisible(View view) const {
+  if (disk_vertex_) return !disk_vertex_->deleted();
   const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
 }
 
 Result<bool> VertexAccessor::AddLabel(LabelId label) {
+  if (disk_vertex_) return true;  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -144,6 +149,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
 
 /// TODO: move to after update and change naming to vertex after update
 Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
+  if (disk_vertex_) return true;  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -170,6 +176,12 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
 }
 
 Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
+  if (disk_vertex_)
+    return !disk_vertex_->deleted() && std::invoke([&] {
+      return std::find(disk_vertex_->labels()->begin(), disk_vertex_->labels()->end(), label.AsUint()) !=
+             disk_vertex_->labels()->end();
+    });
+
   bool exists = true;
   bool deleted = false;
   bool has_label = false;
@@ -217,6 +229,13 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
 }
 
 Result<small_vector<LabelId>> VertexAccessor::Labels(View view) const {
+  if (disk_vertex_) {
+    small_vector<LabelId> res;
+    res.reserve(disk_vertex_->labels()->size());
+    std::for_each(disk_vertex_->labels()->begin(), disk_vertex_->labels()->end(),
+                  [&](const auto &in) { res.push_back(LabelId::FromUint(in)); });
+    return res;
+  }
   bool exists = true;
   bool deleted = false;
   small_vector<LabelId> labels;
@@ -264,6 +283,7 @@ Result<small_vector<LabelId>> VertexAccessor::Labels(View view) const {
 }
 
 Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+  if (disk_vertex_) return PropertyValue{};  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -315,6 +335,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+  if (disk_vertex_) return true;  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -351,6 +372,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
+  if (disk_vertex_)
+    return std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>{};  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -390,6 +413,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
+  if (disk_vertex_) return std::map<PropertyId, PropertyValue>{};  // For now support only reads
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -421,6 +445,13 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
+  if (disk_vertex_) {
+    // This is inefficient
+    return PropertyStore::CreateFromBuffer(
+               std::string_view{(char *)disk_vertex_->properties()->data(), disk_vertex_->properties()->size()}, false)
+        .GetProperty(property);
+  }
+
   bool exists = true;
   bool deleted = false;
   PropertyValue value;
@@ -469,6 +500,13 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 }
 
 Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view) const {
+  if (disk_vertex_) {
+    // This is inefficient
+    return PropertyStore::CreateFromBuffer(
+               std::string_view{(char *)disk_vertex_->properties()->data(), disk_vertex_->properties()->size()}, false)
+        .PropertySize(property);
+  }
+
   {
     auto guard = std::shared_lock{vertex_->lock};
     Delta *delta = vertex_->delta;
@@ -489,6 +527,13 @@ Result<uint64_t> VertexAccessor::GetPropertySize(PropertyId property, View view)
 };
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view) const {
+  if (disk_vertex_) {
+    // This is inefficient
+    return PropertyStore::CreateFromBuffer(
+               std::string_view{(char *)disk_vertex_->properties()->data(), disk_vertex_->properties()->size()}, false)
+        .Properties();
+  }
+
   bool exists = true;
   bool deleted = false;
   std::map<PropertyId, PropertyValue> properties;
@@ -538,6 +583,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 
 auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {
   auto ret = std::vector<EdgeAccessor>{};
+  if (disk_vertex_) return ret;  // TODO...
   ret.reserve(out_edges.size());
   for (const auto &[edge_type, to_vertex, edge] : out_edges) {
     ret.emplace_back(edge, edge_type, vertex_, to_vertex, storage_, transaction_);
@@ -547,6 +593,7 @@ auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {
 
 auto VertexAccessor::BuildResultInEdges(edge_store const &out_edges) const {
   auto ret = std::vector<EdgeAccessor>{};
+  if (disk_vertex_) return ret;  // TODO...
   ret.reserve(out_edges.size());
   for (const auto &[edge_type, from_vertex, edge] : out_edges) {
     ret.emplace_back(edge, edge_type, from_vertex, vertex_, storage_, transaction_);
@@ -563,6 +610,7 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
     }
     return BuildResultInEdges(in_memory_edges);
   });
+  if (disk_vertex_) return ret;  // TODO...
   /// TODO: (andi) Maybe this check can be done in build_result without damaging anything else.
   std::erase_if(ret, [transaction = this->transaction_, view](const EdgeAccessor &edge_acc) {
     return !edge_acc.IsVisible(view) || !edge_acc.FromVertex().IsVisible(view) ||
@@ -587,6 +635,22 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                           const VertexAccessor *destination) const {
+  if (disk_vertex_) {
+    if (disk_vertex_->deleted()) return EdgesVertexAccessorResult{};
+    std::vector<EdgeAccessor> disk_edges;
+    disk_edges.reserve(disk_vertex_->in_edges()->size());
+    std::for_each(disk_vertex_->in_edges()->begin(), disk_vertex_->in_edges()->end(), [&](const auto &in) {
+      auto *disk = static_cast<storage::DiskStorage *>(storage_);
+      disk_edges.emplace_back(
+          EdgeRef{Gid::FromUint(in->gid())}, EdgeTypeId::FromUint(in->type()),
+          destination ? destination->disk_vertex_
+                      : disk->FindVertex(Gid::FromUint(in->vertex_gid()), transaction_, View::NEW)->disk_vertex_,
+          disk_vertex_, storage_);
+    });
+    return EdgesVertexAccessorResult{.edges = std::move(disk_edges),
+                                     .expanded_count = disk_vertex_->in_edges()->size()};
+  }
+
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -677,6 +741,22 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
                                                            const VertexAccessor *destination) const {
+  if (disk_vertex_) {
+    if (disk_vertex_->deleted()) return EdgesVertexAccessorResult{};
+    std::vector<EdgeAccessor> disk_edges;
+    disk_edges.reserve(disk_vertex_->out_edges()->size());
+    std::for_each(disk_vertex_->out_edges()->begin(), disk_vertex_->out_edges()->end(), [&](const auto &in) {
+      auto *disk = static_cast<storage::DiskStorage *>(storage_);
+      disk_edges.emplace_back(
+          EdgeRef{Gid::FromUint(in->gid())}, EdgeTypeId::FromUint(in->type()), disk_vertex_,
+          destination ? destination->disk_vertex_
+                      : disk->FindVertex(Gid::FromUint(in->vertex_gid()), transaction_, View::NEW)->disk_vertex_,
+          storage_);
+    });
+    return EdgesVertexAccessorResult{.edges = std::move(disk_edges),
+                                     .expanded_count = disk_vertex_->out_edges()->size()};
+  }
+
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -764,6 +844,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
 }
 
 Result<size_t> VertexAccessor::InDegree(View view) const {
+  if (disk_vertex_) {
+    if (disk_vertex_->deleted()) return 0;
+    return disk_vertex_->in_edges()->size();
+  }
+
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto res = InEdges(view);
@@ -821,6 +906,11 @@ Result<size_t> VertexAccessor::InDegree(View view) const {
 }
 
 Result<size_t> VertexAccessor::OutDegree(View view) const {
+  if (disk_vertex_) {
+    if (disk_vertex_->deleted()) return 0;
+    return disk_vertex_->out_edges()->size();
+  }
+
   if (transaction_->IsDiskStorage()) {
     auto res = OutEdges(view);
     if (res.HasValue()) {

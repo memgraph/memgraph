@@ -35,9 +35,6 @@ struct Vertex {
               "Vertex must be created with an initial DELETE_OBJECT delta!");
   }
 
-  Vertex(Gid gid, std::unique_ptr<rocksdb::PinnableSlice> val, Delta *delta)
-      : gid(gid), deleted(false), val_(std::move(val)), delta(delta) {}
-
   const Gid gid;
 
   small_vector<LabelId> labels;
@@ -50,8 +47,6 @@ struct Vertex {
   bool deleted;
   // uint8_t PAD;
   // uint16_t PAD;
-
-  std::unique_ptr<rocksdb::PinnableSlice> val_;
 
   Delta *delta;
 };

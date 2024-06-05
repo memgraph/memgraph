@@ -43,6 +43,7 @@
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
+#include "storage/v2/disk/vertex_generated.h"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -1301,10 +1302,44 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     //   return StorageManipulationError{SerializationError{}};
     // }
     rocksdb::Status status;
-    auto val = utils::SerializeProperties(vertex.properties);
+    // auto val = utils::SerializeProperties(vertex.properties);
 
-    std::cout << "chunk.size() - 4 <= chunk_pos + val.size() <=> " << chunk.size() << " - " << 4 << " <= " << chunk_pos
-              << " + " << val.size() << " == " << (chunk.size() - 4 <= chunk_pos + val.size()) << std::endl;
+    // Flatbuffer....very inefficient for now (a lot of copies)
+    flatbuffers::FlatBufferBuilder builder;
+
+    std::vector<uint32_t> labels;
+    labels.reserve(vertex.labels.size());
+    std::for_each(vertex.labels.begin(), vertex.labels.end(), [&](const auto &in) { labels.push_back(in.AsUint()); });
+
+    auto props = utils::SerializeProperties(vertex.properties);
+    std::vector<uint8_t> properties{props.begin(), props.end()};
+
+    std::vector<::flatbuffers::Offset<disk_exp::Edge>> in_edges;
+    std::vector<::flatbuffers::Offset<disk_exp::Edge>> out_edges;
+
+    std::for_each(vertex.in_edges.begin(), vertex.in_edges.end(), [&](const auto &in) {
+      const auto &[edge_type, opposing_vertex, edge] = in;
+      auto const edge_gid = config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
+      auto const edge_deleted = config_.salient.items.properties_on_edges ? edge.ptr->deleted : false;
+      auto disk_edge = disk_exp::CreateEdge(builder, edge_gid.AsUint(), edge_type.AsUint(),
+                                            opposing_vertex->gid.AsUint(), {}, edge_deleted);
+      in_edges.push_back(disk_edge);
+    });
+
+    std::for_each(vertex.out_edges.begin(), vertex.out_edges.end(), [&](const auto &in) {
+      const auto &[edge_type, opposing_vertex, edge] = in;
+      auto const edge_gid = config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
+      auto const edge_deleted = config_.salient.items.properties_on_edges ? edge.ptr->deleted : false;
+      auto disk_edge = disk_exp::CreateEdge(builder, edge_gid.AsUint(), edge_type.AsUint(),
+                                            opposing_vertex->gid.AsUint(), {}, edge_deleted);
+      out_edges.push_back(disk_edge);
+    });
+
+    auto orc = disk_exp::CreateVertexDirect(builder, vertex.gid.AsUint(), &labels, &in_edges, &out_edges, &properties,
+                                            vertex.deleted);
+
+    builder.Finish(orc);  // Serialize the root of the object.
+    auto val = std::string_view{(char *)builder.GetBufferPointer(), builder.GetSize()};
 
     if (chunk.size() - 4 <= chunk_pos + val.size()) {  // leave last 4 to be 0 always (chunk size = 0 == end)
       // Flush
@@ -1493,33 +1528,51 @@ VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils
 }
 
 std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transaction *transaction, View view) {
-  auto acc = edge_import_status_ == EdgeImportMode::ACTIVE ? edge_import_mode_cache_->AccessToVertices()
-                                                           : transaction->vertices_->access();
-  auto vertex_it = acc.find(gid);
-  if (vertex_it != acc.end()) {
-    return VertexAccessor::Create(&*vertex_it, this, transaction, view);
-  }
-  for (const auto &vec : transaction->index_storage_) {
-    acc = vec->access();
-    auto index_it = acc.find(gid);
-    if (index_it != acc.end()) {
-      return VertexAccessor::Create(&*index_it, this, transaction, view);
-    }
-  }
+  // auto acc = edge_import_status_ == EdgeImportMode::ACTIVE ? edge_import_mode_cache_->AccessToVertices()
+  //                                                          : transaction->vertices_->access();
+  // auto vertex_it = acc.find(gid);
+  // if (vertex_it != acc.end()) {
+  //   return VertexAccessor::Create(&*vertex_it, this, transaction, view);
+  // }
+  // for (const auto &vec : transaction->index_storage_) {
+  //   acc = vec->access();
+  //   auto index_it = acc.find(gid);
+  //   if (index_it != acc.end()) {
+  //     return VertexAccessor::Create(&*index_it, this, transaction, view);
+  //   }
+  // }
 
   rocksdb::ReadOptions read_opts = GenRoOptions();
-  auto strTs = utils::StringTimestamp(transaction->start_timestamp);
-  rocksdb::Slice ts(strTs);
-  read_opts.timestamp = &ts;
+  read_opts.pin_data = true;  // Should be pined by the scan all (maybe....)
+
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     auto key = it->key().ToStringView();
-    if (utils::ExtractGidFromKey(0, key) == gid) {
-      // We should pass it->timestamp().ToString() instead of "0"
-      // This is hack until RocksDB will support timestamp() in WBWI iterator
-      return LoadVertexToMainMemoryCache(transaction, key, it->value().ToStringView(), kDeserializeTimestamp);
-    }
+    // TODO: Have a bloom filter or index
+    // key == begin_gid end_gid
+    utils::StringifyInt<uint64_t, uint32_t>(0);
+    uint64_t begin_gid{};
+    key = utils::DestringifyInt<uint64_t, uint32_t>(key, begin_gid);
+    uint64_t end_gid{};
+    key = utils::DestringifyInt<uint64_t, uint32_t>(key, end_gid);
+    uint8_t *chunk_ptr = (uint8_t *)it->value().data();
+    if (begin_gid <= gid.AsUint() <= end_gid) {
+      // Find in the chunks
+      auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
+      chunk_ptr += sizeof(uint32_t);           // point to the value itself
+      while (val_size != 0) {
+        const auto *vertex = disk_exp::GetVertex(chunk_ptr);
+        if (vertex->gid() == gid.AsUint()) {
+          return VertexAccessor{vertex, this};
+        }
+        // Next chunk
+        chunk_ptr += val_size;              // move past the current value (to the next header)
+        val_size = *(uint32_t *)chunk_ptr;  // read header
+        chunk_ptr += sizeof(uint32_t);      // increment past the header (point to the value)
+      }
+    }  // Depends how we organize the chunks; could break here if begin_gid > gid
   }
+  // Not found
   return std::nullopt;
 }
 

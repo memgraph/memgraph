@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "storage/v2/disk/vertex_generated.h"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
 
@@ -43,6 +44,14 @@ class EdgeAccessor final {
         storage_(storage),
         transaction_(transaction),
         for_deleted_(for_deleted) {}
+
+  EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, disk_exp::Vertex *from_vertex, disk_exp::Vertex *to_vertex,
+               Storage *storage)
+      : edge_(edge),
+        edge_type_(edge_type),
+        storage_(storage),
+        from_disk_vertex_(from_vertex),
+        to_disk_vertex_(to_vertex) {}
 
   static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
                                             Storage *storage, Transaction *transaction, View view,
@@ -96,7 +105,10 @@ class EdgeAccessor final {
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
   Gid Gid() const noexcept;
 
-  bool IsCycle() const { return from_vertex_ == to_vertex_; }
+  bool IsCycle() const {
+    if (from_disk_vertex_) return from_disk_vertex_ == to_disk_vertex_;
+    return from_vertex_ == to_vertex_;
+  }
 
   bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
@@ -109,6 +121,8 @@ class EdgeAccessor final {
   Vertex *to_vertex_;
   Storage *storage_;
   Transaction *transaction_;
+  disk_exp::Vertex *from_disk_vertex_{};
+  disk_exp::Vertex *to_disk_vertex_{};
 
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this

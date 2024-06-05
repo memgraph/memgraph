@@ -10,7 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/all_vertices_iterable.hpp"
+
 #include <cstdint>
+
+#include "storage/v2/all_vertices_iterable.hpp"
+#include "storage/v2/disk/vertex_generated.h"
 #include "utils/rocksdb_serialization.hpp"
 
 namespace memgraph::storage {
@@ -48,19 +52,19 @@ VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
   // auto labels_id = utils::DeserializeLabelsFromMainDiskStorage(self_->itr->key().ToStringView());
   // auto properties = utils::DeserializePropertiesFromMainDiskStorage(self_->itr->value().ToStringView());
 
-  storage::small_vector<storage::LabelId> labels_id{};  // Not supported at the moment
+  // storage::small_vector<storage::LabelId> labels_id{};  // Not supported at the moment
   auto val_size = *(uint32_t *)chunk_ptr;
-  auto properties =
-      utils::DeserializePropertiesFromMainDiskStorage(std::string_view((char *)chunk_ptr + sizeof(uint32_t), val_size));
+  auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+  // auto properties = utils::DeserializePropertiesFromMainDiskStorage(std::string_view((char *)val_ptr, val_size));
 
-  Delta *delta{};
-  self_->transaction_->EnsureCommitTimestampExists();
-  if (self_->transaction_->deltas.empty()) {
-    delta = &self_->transaction_->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), 0,
-                                                      self_->itr->key().ToStringView().data());
-  } else {
-    delta = &self_->transaction_->deltas.front();
-  }
+  // Delta *delta{};
+  // self_->transaction_->EnsureCommitTimestampExists();
+  // if (self_->transaction_->deltas.empty()) {
+  //   delta = &self_->transaction_->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), 0,
+  //                                                     self_->itr->key().ToStringView().data());
+  // } else {
+  //   delta = &self_->transaction_->deltas.front();
+  // }
 
   // auto [it, inserted] = self_->vertices_accessor_.insert(Vertex{gid, delta});
   // MG_ASSERT(inserted, "The vertex must be inserted here!");
@@ -68,11 +72,18 @@ VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
   // it->labels = std::move(labels_id);
   // it->properties = std::move(properties);
   // delta->prev.Set(&*it);
-  auto *v = new Vertex{gid, delta};
-  v->labels = std::move(labels_id);
-  v->properties = std::move(properties);
-  delta->prev.Set(&*v);
-  return {&*v, self_->storage_, self_->transaction_};
+
+  // auto *dv = new VertexAccessor::DiskVertex{};
+  // dv->gid = gid;
+  // dv->ps = std::move(properties);
+
+  // auto *v = new Vertex{gid, delta};
+  // v->labels = std::move(labels_id);
+  // v->properties = std::move(properties);
+  // delta->prev.Set(&*v);
+
+  auto *vertex = disk_exp::GetVertex(val_ptr);
+  return {vertex, self_->storage_};
 }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
@@ -80,14 +91,14 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   chunk_ptr += sizeof(uint32_t) + val_size;
   val_size = *(uint32_t *)chunk_ptr;
   bool last_chunk = val_size == 0;
-  gid = memgraph::storage::Gid::FromUint(gid.AsUint() + 1);  // Fake for now
+  // gid = memgraph::storage::Gid::FromUint(gid.AsUint() + 1);  // Fake for now
 
   if (last_chunk) {
     self_->itr->Next();
     last = !self_->itr->Valid();
     if (!last) {
       chunk_ptr = (uint8_t *)self_->itr->value().data();
-      gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
+      // gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
     }
   }
 

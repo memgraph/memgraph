@@ -13,6 +13,7 @@
 
 #include <optional>
 
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
@@ -20,6 +21,8 @@
 #include "storage/v2/small_vector.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
+
+#include "storage/v2/disk/vertex_generated.h"
 
 namespace memgraph::storage {
 
@@ -37,6 +40,9 @@ class VertexAccessor final {
  public:
   VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
       : vertex_(vertex), storage_(storage), transaction_(transaction), for_deleted_(for_deleted) {}
+
+  VertexAccessor(const disk_exp::Vertex *dv, Storage *storage)
+      : storage_(storage), disk_vertex_(const_cast<disk_exp::Vertex *>(dv)) {}
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction, View view);
 
@@ -110,9 +116,13 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const noexcept { return vertex_->gid; }
+  Gid Gid() const noexcept {
+    if (disk_vertex_) return Gid::FromUint(disk_vertex_->gid());
+    return vertex_->gid;
+  }
 
   bool operator==(const VertexAccessor &other) const noexcept {
+    if (disk_vertex_) return disk_vertex_ == other.disk_vertex_;
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
@@ -120,6 +130,7 @@ class VertexAccessor final {
   Vertex *vertex_;
   Storage *storage_;
   Transaction *transaction_;
+  disk_exp::Vertex *disk_vertex_{};
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this
