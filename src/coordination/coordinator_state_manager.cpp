@@ -40,11 +40,11 @@ constexpr int kActiveStateManagerDurabilityVersion = 1;
 }  // namespace
 
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config,
-                                                 ptr<CoordinatorLogStore> log_store, LoggerWrapper logger)
+                                                 LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
-      cur_log_store_(std::move(log_store)),
+      cur_log_store_(cs_new<CoordinatorLogStore>(config.durability_store_)),
       logger_(logger),
-      kv_store_(config.state_manager_durability_dir_) {
+      state_manager_durability_(config.state_manager_durability_dir_) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
                                      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}};
@@ -55,12 +55,13 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_->get_servers().push_back(my_srv_config_);
 
   int version{0};
-  auto maybe_version = kv_store_.Get(kStateManagerDurabilityVersionKey);
+  auto maybe_version = state_manager_durability_.Get(kStateManagerDurabilityVersionKey);
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
     spdlog::trace("Assuming first start of state manager with durability as version is missing, storing version 1.");
-    MG_ASSERT(kv_store_.Put(kStateManagerDurabilityVersionKey, std::to_string(kActiveStateManagerDurabilityVersion)),
+    MG_ASSERT(state_manager_durability_.Put(kStateManagerDurabilityVersionKey,
+                                            std::to_string(kActiveStateManagerDurabilityVersion)),
               "Failed to store version to disk");
     version = 1;
   }
@@ -71,7 +72,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
-  auto const maybe_cluster_config = kv_store_.Get(kClusterConfigKey);
+  auto const maybe_cluster_config = state_manager_durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
     logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
@@ -88,7 +89,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   cluster_config_ = cluster_config::deserialize(*buf);
   logger_.Log(nuraft_log_level::TRACE, "Saving cluster config to RocksDb");
   auto json = SerializeClusterConfig(config);
-  MG_ASSERT(kv_store_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
+  MG_ASSERT(state_manager_durability_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
@@ -98,7 +99,8 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
                                                 {kVotedFor, state.get_voted_for()},
                                                 {kElectionTimer, state.is_election_timer_allowed()}};
   spdlog::trace("!!!!STORED SERVER STATE TO DISK {}!!!!", server_state_json.dump());
-  MG_ASSERT(kv_store_.Put(kServerStateKey, server_state_json.dump()), "Couldn't store server state to disk.");
+  MG_ASSERT(state_manager_durability_.Put(kServerStateKey, server_state_json.dump()),
+            "Couldn't store server state to disk.");
 
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
@@ -107,7 +109,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
   logger_.Log(nuraft_log_level::TRACE, "Reading server state in coordinator state manager.");
 
-  auto const maybe_server_state = kv_store_.Get(kServerStateKey);
+  auto const maybe_server_state = state_manager_durability_.Get(kServerStateKey);
   if (!maybe_server_state.has_value()) {
     spdlog::trace("Didn't find anything stored on disk for server state.");
     return saved_state_;

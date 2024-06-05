@@ -129,7 +129,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
-# TEMP_DIR = "/home/antonio/work/memgraph/github-repos/core/memgraph/build/data/"
 def get_instances_description_no_setup(use_durability: bool = False):
     return {
         "instance_1": {
@@ -3322,4 +3321,4 @@ def test_one_coord_down_with_durability_resume():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k test_all_coords_down_resume", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))

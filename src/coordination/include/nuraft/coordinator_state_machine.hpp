@@ -47,7 +47,8 @@ struct SnapshotCtx {
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir, ptr<CoordinatorLogStore> log_store);
+  CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability,
+                          LoggerWrapper logger);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -119,8 +120,7 @@ class CoordinatorStateMachine : public state_machine {
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 
-  std::unique_ptr<kvstore::KVStore> kv_store_;
-  ptr<CoordinatorLogStore> log_store_;
+  std::shared_ptr<kvstore::KVStore> kv_store_;
 };
 
 }  // namespace memgraph::coordination

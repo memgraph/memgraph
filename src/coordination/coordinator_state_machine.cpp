@@ -88,15 +88,16 @@ auto SerializeSnapshotCtxToJson(memgraph::coordination::SnapshotCtx const &snaps
 
 namespace memgraph::coordination {
 
-
-CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::optional<std::filesystem::path> durability_dir, ptr<CoordinatorLogStore> log_store): logger_(logger), log_store_(std::move(log_store))  {
-  if (durability_dir) {
-    kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
-  }
+CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability,
+                                                 LoggerWrapper logger)
+    : kv_store_(std::move(durability)){
+  spdlog::trace("Restoring coordinator state machine with durability.");
   if (!kv_store_) {
     spdlog::info("Storing snapshots only in memory");
     return;
   }
+
+  spdlog::trace("Restoring coordinator state machine with durability.");
 
   int version{0};
   auto maybe_version = kv_store_->Get(kSnapshotVersion);
@@ -136,7 +137,8 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger, std::opti
   cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
   // no need for log store, only get last commited index
   last_committed_idx_ = last_committed_idx_.load();
-  spdlog::trace("Last committed index: {}", last_committed_idx_);
+  // TODO(antoniofilipovic): Remove
+  spdlog::trace("Last committed index from coordinator state machine: {}", last_committed_idx_);
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }

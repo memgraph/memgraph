@@ -31,7 +31,7 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, ptr<CoordinatorLogStore> log_store, LoggerWrapper logger);
+  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config,  LoggerWrapper logger);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -63,7 +63,7 @@ class CoordinatorStateManager : public state_mgr {
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
-  kvstore::KVStore kv_store_;
+  kvstore::KVStore state_manager_durability_;
 };
 
 }  // namespace memgraph::coordination

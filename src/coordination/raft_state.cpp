@@ -47,19 +47,24 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &instance_init_config,
                      BecomeFollowerCb become_follower_cb)
     : coordinator_port_(instance_init_config.coordinator_port),
       coordinator_id_(instance_init_config.coordinator_id),
-      log_store_(cs_new<CoordinatorLogStore>(state_manager_config.log_store_durability_dir_)),
-      state_machine_(cs_new<CoordinatorStateMachine>(LoggerWrapper(static_cast<Logger *>(logger_.get())), state_machine_config.state_machine_durability_dir_)),
+      state_machine_(cs_new<CoordinatorStateMachine>(state_machine_config.durability_store_, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
       state_manager_(cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
       logger_(cs_new<Logger>(instance_init_config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
   auto last_commit_index_snapshot = state_machine_->last_commit_index();
-  auto const last_commit_index_logs = log_store_->next_slot();
+  auto log_store = state_manager_->load_log_store();
+
+  if (!log_store) {
+    return;
+  }
+
+  auto const last_commit_index_logs = log_store->next_slot();
   spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
                 last_commit_index_logs);
   auto cntr = last_commit_index_snapshot + 1;
-  auto log_entries = log_store_->log_entries(cntr, last_commit_index_logs);
-  log_store_->DeleteLogs(cntr, last_commit_index_logs);
+
+  auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
   for (auto &log_entry : *log_entries) {
     spdlog::trace("Applying log entry from snapshot with index {}", cntr);
     state_machine_->commit(cntr, log_entry->get_buf());
@@ -101,9 +106,6 @@ auto RaftState::InitRaftServer() -> void {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
-      // TODO(antoniofilipovic) Check what happens when becoming follower while doing failover
-      // There is no way to stop becoming a follower:
-      // https://github.com/eBay/NuRaft/blob/188947bcc73ce38ab1c3cf9d01015ca8a29decd9/src/raft_server.cxx#L1334-L1335
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
@@ -162,14 +164,13 @@ auto RaftState::InitRaftServer() -> void {
 
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
-  state_machine_.reset();
-  state_manager_.reset();
-  log_store_.reset();
 
-  logger_.reset();
+  utils::OnScopeExit reset_shared_ptrs{[this]() {
+    state_machine_.reset();
+    state_manager_.reset();
+    logger_.reset();
+  }};
 
-  // TODO(antoniofilipovic): Should we first shut down raft server and then only stop state machine, state manager,
-  //  log store and logger?
   if (!raft_server_) {
     spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
     return;

@@ -36,7 +36,7 @@ using nuraft::raft_server;
  */
 class CoordinatorLogStore : public log_store {
  public:
-  CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir);
+  CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -77,7 +77,7 @@ class CoordinatorLogStore : public log_store {
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_;
   std::atomic<ulong> next_idx_;
-  std::unique_ptr<kvstore::KVStore> kv_store_;
+  std::shared_ptr<kvstore::KVStore> durability_store_;
 };
 
 }  // namespace memgraph::coordination

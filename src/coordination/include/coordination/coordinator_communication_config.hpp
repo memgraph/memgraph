@@ -24,6 +24,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include "kvstore/kvstore.hpp"
 
 #include <fmt/format.h>
 #include "json/json.hpp"
@@ -61,30 +62,26 @@ struct CoordinatorStateManagerConfig {
   int coordinator_port_{0};
   int bolt_port_{0};
   std::filesystem::path state_manager_durability_dir_;
-  std::optional<std::filesystem::path> log_store_durability_dir_;
+  std::shared_ptr<kvstore::KVStore> durability_store_;
 
   CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
                                 std::filesystem::path state_manager_durability_dir,
-                                std::optional<std::filesystem::path> log_store_durability_dir = std::nullopt)
+                                std::shared_ptr<kvstore::KVStore> durability_store)
       : coordinator_id_(coordinator_id),
         coordinator_port_(coordinator_port),
         bolt_port_(bolt_port),
         state_manager_durability_dir_(std::move(state_manager_durability_dir)),
-        log_store_durability_dir_(std::move(log_store_durability_dir)) {
+        durability_store_(std::move(durability_store)) {
     MG_ASSERT(!this->state_manager_durability_dir_.empty(), "State manager durability dir path is empty");
   }
 };
 
 struct CoordinatorStateMachineConfig {
   uint32_t coordinator_id_{0};
-  std::optional<std::filesystem::path> state_machine_durability_dir_;
+  std::shared_ptr<kvstore::KVStore> durability_store_;
 
-  explicit CoordinatorStateMachineConfig(
-      uint32_t coordinator_id, std::optional<std::filesystem::path> state_machine_durability_dir = std::nullopt)
-      : coordinator_id_(coordinator_id), state_machine_durability_dir_(std::move(state_machine_durability_dir)) {
-    MG_ASSERT(!this->state_machine_durability_dir_.has_value() || !this->state_machine_durability_dir_.value().empty(),
-              "State machine durability dir path is empty");
-  }
+  explicit CoordinatorStateMachineConfig(uint32_t coordinator_id, std::shared_ptr<kvstore::KVStore> durability_store)
+      : coordinator_id_(coordinator_id), durability_store_(std::move(durability_store)) {}
 };
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.

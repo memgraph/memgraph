@@ -110,10 +110,9 @@ class RaftState {
   ptr<raft_server> raft_server_;
   ptr<asio_service> asio_service_;
   ptr<rpc_listener> asio_listener_;
-  ptr<CoordinatorLogStore> log_store_;
+
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;
-
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
 };

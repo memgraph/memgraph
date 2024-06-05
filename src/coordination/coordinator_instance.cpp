@@ -74,20 +74,18 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                   repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
-  auto const coordinator_state_manager_durability_dir = config.durability_dir / "coordinator" / "state_manager";
+  auto const coordinator_state_manager_durability_dir = config.durability_dir / "state_manager";
   memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
-  CoordinatorStateMachineConfig state_machine_config{config.coordinator_id};
+  CoordinatorStateMachineConfig state_machine_config{config.coordinator_id, nullptr};
   CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
-                                                     coordinator_state_manager_durability_dir};
+                                                     coordinator_state_manager_durability_dir, nullptr};
 
   if (FLAGS_coordinator_use_durability) {
-    auto const log_store_durability_dir = config.durability_dir / "coordinator" / "log_store";
-    auto const state_machine_durability_dir = config.durability_dir / "coordinator" / "state_machine";
-    memgraph::utils::EnsureDirOrDie(log_store_durability_dir);
-    memgraph::utils::EnsureDirOrDie(state_machine_durability_dir);
-
-    state_manager_config.log_store_durability_dir_ = log_store_durability_dir;
-    state_machine_config.state_machine_durability_dir_ = state_machine_durability_dir;
+    memgraph::utils::EnsureDirOrDie(config.durability_dir / "durability");
+    std::shared_ptr<kvstore::KVStore> durability_store =
+        std::make_shared<kvstore::KVStore>(config.durability_dir / "durability");
+    state_machine_config.durability_store_ = durability_store;
+    state_manager_config.durability_store_ = durability_store;
   }
 
   // Delay constructing of Raft state until everything is constructed in coordinator instance

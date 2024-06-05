@@ -104,40 +104,38 @@ bool StoreToDisk(const ptr<log_entry> &clone, const uint64_t slot, bool is_new_l
 
 }  // namespace
 
-CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> durability_dir) {
+CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store)
+    : durability_store_(std::move(durability_store)) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
 
-  if (durability_dir) {
-    kv_store_ = std::make_unique<kvstore::KVStore>(durability_dir.value());
-  }
-
-  if (!kv_store_) {
+  if (!durability_store_) {
     spdlog::warn("No durability directory provided, logs will not be persisted to disk");
     start_idx_ = 1;
     return;
   }
 
   int version{0};
-  auto maybe_version = kv_store_->Get(kLogStoreDurabilityVersion);
+  auto maybe_version = durability_store_->Get(kLogStoreDurabilityVersion);
   if (maybe_version.has_value()) {
     version = std::stoi(maybe_version.value());
   } else {
     spdlog::trace("Assuming first start of log store with durability as version is missing, storing version 1.");
-    MG_ASSERT(kv_store_->Put(kLogStoreDurabilityVersion, std::to_string(kActiveVersion)),
+    MG_ASSERT(durability_store_->Put(kLogStoreDurabilityVersion, std::to_string(kActiveVersion)),
               "Failed to store version to disk");
     version = 1;
   }
 
   MG_ASSERT(version <= kActiveVersion && version > 0, "Unsupported version of log store with durability");
 
-  auto const maybe_last_log_entry = kv_store_->Get(kLastLogEntry);
-  auto const maybe_start_idx = kv_store_->Get(kStartIdx);
+  auto const maybe_last_log_entry = durability_store_->Get(kLastLogEntry);
+  auto const maybe_start_idx = durability_store_->Get(kStartIdx);
   if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
     spdlog::trace("No last log entry or start index found on disk, assuming first start of log store with durability");
     start_idx_ = 1;
-    MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
-    MG_ASSERT(kv_store_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
+    MG_ASSERT(durability_store_->Put(kStartIdx, std::to_string(start_idx_.load())),
+              "Failed to store start index to disk");
+    MG_ASSERT(durability_store_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
               "Failed to store last log entry to disk");
     return;
   }
@@ -147,7 +145,7 @@ CoordinatorLogStore::CoordinatorLogStore(std::optional<std::filesystem::path> du
 
   // Compaction might have happened so we might be missing some logs.
   for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
-    auto const entry = kv_store_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
+    auto const entry = durability_store_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
 
     MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}>", id, start_idx_.load(),
               last_log_entry + 1);
@@ -182,12 +180,11 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
       continue;
     }
     logs_.erase(entry);
-    if (kv_store_) {
-      MG_ASSERT(kv_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(i)),
+    if (durability_store_) {
+      MG_ASSERT(durability_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(i)),
                 "Failed to delete log entry from disk");
     }
   }
-  return;
 }
 
 uint64_t CoordinatorLogStore::next_slot() const {
@@ -217,8 +214,8 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
 
-  if (kv_store_) {
-    StoreToDisk(clone, next_slot, next_slot == start_idx_ + logs_.size() - 1, *kv_store_);
+  if (durability_store_) {
+    StoreToDisk(clone, next_slot, next_slot == start_idx_ + logs_.size() - 1, *durability_store_);
   }
 
   logs_[next_slot] = clone;
@@ -237,8 +234,8 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   }
   logs_[index] = clone;
 
-  if (kv_store_) {
-    StoreToDisk(clone, index, index >= start_idx_ - logs_.size() - 1, *kv_store_);
+  if (durability_store_) {
+    StoreToDisk(clone, index, index >= start_idx_ - logs_.size() - 1, *durability_store_);
   }
 }
 
@@ -319,8 +316,8 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
       auto lock = std::lock_guard{logs_lock_};
       logs_[cur_idx] = le;
       spdlog::trace("Applying pack to log entry with id {}", std::to_string(cur_idx));
-      if (kv_store_) {
-        StoreToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1, *kv_store_);
+      if (durability_store_) {
+        StoreToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1, *durability_store_);
       }
     }
   }
@@ -330,8 +327,9 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     auto const entry = logs_.upper_bound(0);
     if (entry != logs_.end()) {
       start_idx_ = entry->first;
-      if (kv_store_) {
-        MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+      if (durability_store_) {
+        MG_ASSERT(durability_store_->Put(kStartIdx, std::to_string(start_idx_.load())),
+                  "Failed to store start index to disk");
       }
     } else {
       start_idx_ = 1;
@@ -349,24 +347,25 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
       continue;
     }
     logs_.erase(entry);
-    if (kv_store_) {
-      MG_ASSERT(kv_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii)),
+    if (durability_store_) {
+      MG_ASSERT(durability_store_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii)),
                 "Failed to delete log entry from disk");
     }
   }
 
   if (start_idx_ <= last_log_index) {
     start_idx_ = last_log_index + 1;
-    if (kv_store_) {
-      MG_ASSERT(kv_store_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+    if (durability_store_) {
+      MG_ASSERT(durability_store_->Put(kStartIdx, std::to_string(start_idx_.load())),
+                "Failed to store start index to disk");
     }
   }
   return true;
 }
 
 bool CoordinatorLogStore::flush() {
-  if (kv_store_) {
-    return kv_store_->SyncWal();
+  if (durability_store_) {
+    return durability_store_->SyncWal();
   }
   return true;
 }
