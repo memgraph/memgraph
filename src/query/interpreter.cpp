@@ -4592,6 +4592,37 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
           RWType::W};
 }
 
+PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+
+  auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+  MG_ASSERT(alter_enum_update_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_update_query->enum_name_),
+           enum_value_old = std::move(alter_enum_update_query->old_enum_value_),
+           enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.EnumAlterUpdate(enum_name, enum_value_old, enum_value_new);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value {}::{} already exists.", enum_name, enum_value_new);
+                case storage::EnumStorageError::UnknownEnumType:
+                  throw QueryRuntimeException("Unknown Enum name {}.", enum_name);
+                case storage::EnumStorageError::UnknownEnumValue:
+                  throw QueryRuntimeException("Unknown Enum value {}::{}.", enum_name, enum_value_old);
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be altered.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4905,7 +4936,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       if (in_explicit_transaction_) {
         throw EnumModificationInMulticommandTxException();
       }
-      throw utils::NotYetImplemented("Alter Enum Update Value Query");
+      prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

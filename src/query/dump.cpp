@@ -101,7 +101,7 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
 
 void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
   auto const opt_str = dba->EnumToName(value);
-  if (!opt_str) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  if (opt_str.HasError()) throw query::QueryRuntimeException("Unexpected error when getting enum.");
   os << *opt_str;
 }
 

@@ -1033,7 +1033,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
 
   if (arg.IsEnum()) {
     auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-    if (!opt_str) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+    if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
     return TypedValue(*opt_str, ctx.memory);
   }
 

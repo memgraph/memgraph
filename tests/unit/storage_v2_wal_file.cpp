@@ -32,44 +32,32 @@
 // Helper function used to convert between enum types.
 memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalDeltaDataType(
     memgraph::storage::durability::StorageMetadataOperation operation) {
+#define add_case(E)                                                \
+  case memgraph::storage::durability::StorageMetadataOperation::E: \
+    return memgraph::storage::durability::WalDeltaData::Type::E
+
   switch (operation) {
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::EDGE_TYPE_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
-    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::ENUM_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
-      return memgraph::storage::durability::WalDeltaData::Type::ENUM_ALTER_ADD;
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_DROP);
+    add_case(EDGE_TYPE_INDEX_CREATE);
+    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(ENUM_CREATE);
+    add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
   }
+#undef add_case
 }
 
 // This class mimics the internals of the storage to generate the deltas.
@@ -361,6 +349,13 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_UPDATE: {
+        ASSERT_TRUE(enum_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, *enum_id, "Old");
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -410,6 +405,11 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
           data.operation_enum_alter_add.etype = enum_type;
           data.operation_enum_alter_add.evalue = "TODO";
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_UPDATE:
+          data.operation_enum_alter_update.etype = enum_type;
+          data.operation_enum_alter_update.evalue_old = "OLD";
+          data.operation_enum_alter_update.evalue_new = "NEW";
           break;
       }
       data_.emplace_back(timestamp_, data);

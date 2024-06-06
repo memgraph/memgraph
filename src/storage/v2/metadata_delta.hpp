@@ -45,6 +45,7 @@ struct MetadataDelta {
     UNIQUE_CONSTRAINT_DROP,
     ENUM_CREATE,
     ENUM_ALTER_ADD,
+    ENUM_ALTER_UPDATE,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -83,6 +84,8 @@ struct MetadataDelta {
   } enum_create;
   static constexpr struct EnumAlterAdd {
   } enum_alter_add;
+  static constexpr struct EnumAlterUpdate {
+  } enum_alter_update;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -135,6 +138,9 @@ struct MetadataDelta {
   MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
       : action(Action::ENUM_ALTER_ADD), enum_alter_add_info{.value = value} {}
 
+  MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
+      : action(Action::ENUM_ALTER_UPDATE), enum_alter_update_info{.value = value, .old_value = std::move(old_value)} {}
+
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
   MetadataDelta &operator=(const MetadataDelta &) = delete;
@@ -157,6 +163,7 @@ struct MetadataDelta {
       case EXISTENCE_CONSTRAINT_DROP:
       case ENUM_CREATE:
       case ENUM_ALTER_ADD:
+      case ENUM_ALTER_UPDATE:
         break;
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
@@ -211,6 +218,11 @@ struct MetadataDelta {
     struct {
       Enum value;
     } enum_alter_add_info;
+
+    struct {
+      Enum value;
+      std::string old_value;
+    } enum_alter_update_info;
   };
 };
 

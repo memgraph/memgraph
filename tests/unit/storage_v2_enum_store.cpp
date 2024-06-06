@@ -15,16 +15,6 @@
 using namespace memgraph::storage;
 using namespace std::string_literals;
 
-enum Doo {
-  a = 9,
-  b = 100,
-};
-
-enum class Doo2 {
-  a = 9,
-  b = 100,
-};
-
 TEST(EnumStore, BasicTests) {
   auto sut = EnumStore{};
 
@@ -37,18 +27,40 @@ TEST(EnumStore, BasicTests) {
 
   {
     auto enum_value_id = sut.to_enum_value(*enum_id, "Zagreb");
-    ASSERT_TRUE(enum_value_id.has_value());
-    ASSERT_EQ(enum_value_id, EnumValueId{0});
+    ASSERT_TRUE(enum_value_id.HasValue());
+    ASSERT_EQ(*enum_value_id, EnumValueId{0});
   }
   {
     auto enum_value_id = sut.to_enum_value(*enum_id, "York");
-    ASSERT_TRUE(enum_value_id.has_value());
-    ASSERT_EQ(enum_value_id, EnumValueId{1});
+    ASSERT_TRUE(enum_value_id.HasValue());
+    ASSERT_EQ(*enum_value_id, EnumValueId{1});
   }
-
-  auto name = sut.to_type_string(EnumTypeId{0});
-  ASSERT_EQ(name, "Location");
-
-  auto value = sut.to_value_string(EnumTypeId{0}, EnumValueId{0});
-  ASSERT_EQ(value, "Zagreb");
+  {
+    auto name = sut.to_type_string(EnumTypeId{0});
+    ASSERT_TRUE(name.HasValue());
+    ASSERT_EQ(*name, "Location");
+  }
+  {
+    auto value = sut.to_value_string(EnumTypeId{0}, EnumValueId{0});
+    ASSERT_TRUE(value.HasValue());
+    ASSERT_EQ(*value, "Zagreb");
+  }
+  {
+    auto value = sut.add_value("Location", "London");
+    ASSERT_TRUE(value.HasValue());
+    ASSERT_EQ(value->type_id(), EnumTypeId{0});
+    ASSERT_EQ(value->value_id(), EnumValueId{2});
+  }
+  ASSERT_TRUE(sut.add_value("Location", "London").HasError());
+  ASSERT_TRUE(sut.update_value("Location", "London", "London").HasError());
+  ASSERT_TRUE(sut.update_value("Location", "London", "York").HasError());
+  {
+    auto value = sut.update_value("Location", "London", "New York");
+    ASSERT_TRUE(value.HasValue());
+    ASSERT_EQ(value->type_id(), EnumTypeId{0});
+    ASSERT_EQ(value->value_id(), EnumValueId{2});
+    auto str = sut.to_value_string(value->type_id(), value->value_id());
+    ASSERT_TRUE(str.HasValue());
+    ASSERT_TRUE(*str == "New York");
+  }
 }

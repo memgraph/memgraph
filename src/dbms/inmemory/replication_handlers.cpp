@@ -936,11 +936,20 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         break;
       }
       case WalDeltaData::Type::ENUM_ALTER_ADD: {
-        spdlog::trace("       Alter enum {} with values {}", delta.operation_enum_alter_add.etype,
-                      delta.operation_enum_alter_add.evalue);
+        auto const &[name, evalue] = delta.operation_enum_alter_add;
+        spdlog::trace("       Alter enum {} add value {}", name, evalue);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
-        auto res =
-            transaction->EnumAlterAdd(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
+        auto res = transaction->EnumAlterAdd(name, evalue);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+        auto const &[name, evalue_old, evalue_new] = delta.operation_enum_alter_update;
+        spdlog::trace("       Alter enum {} update {} to {}", name, evalue_old, evalue_new);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->EnumAlterUpdate(name, evalue_old, evalue_new);
         if (res.HasError()) {
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }

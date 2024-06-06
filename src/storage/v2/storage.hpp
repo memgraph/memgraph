@@ -360,6 +360,15 @@ class Storage {
       return res;
     }
 
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+      auto res = storage_->enum_store_.update_value(name, old_value, new_value);
+      if (res.HasValue()) {
+        transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
+      }
+      return res;
+    }
+
     auto ShowEnums() { return storage_->enum_store_.all_registered(); }
 
     auto GetEnumValue(std::string_view name, std::string_view value) -> utils::BasicResult<EnumStorageError, Enum> {

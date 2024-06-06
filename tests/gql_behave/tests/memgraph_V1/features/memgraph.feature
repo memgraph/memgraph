@@ -112,11 +112,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
 
     Scenario: Update value in enum:
         Given an empty graph
-        When executing query:
+        And having executed
             """
             ALTER ENUM Status UPDATE VALUE Medium TO Average;
             """
-        Then an error should be raised
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad', 'Average'] |
 
     Scenario: Compare enum values for equality:
         Given an empty graph

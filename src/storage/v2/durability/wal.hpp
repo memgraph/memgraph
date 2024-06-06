@@ -77,6 +77,7 @@ struct WalDeltaData {
     UNIQUE_CONSTRAINT_DROP,
     ENUM_CREATE,
     ENUM_ALTER_ADD,
+    ENUM_ALTER_UPDATE,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -147,6 +148,12 @@ struct WalDeltaData {
     std::string etype;
     std::string evalue;
   } operation_enum_alter_add;
+
+  struct {
+    std::string etype;
+    std::string evalue_old;
+    std::string evalue_new;
+  } operation_enum_alter_update;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -191,6 +198,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
     case WalDeltaData::Type::ENUM_CREATE:
     case WalDeltaData::Type::ENUM_ALTER_ADD:
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE:
       return true;  // TODO: Still true?
   }
 }
@@ -238,6 +246,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
+void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
+                           std::string enum_value_old);
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,

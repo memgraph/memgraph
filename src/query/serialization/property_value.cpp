@@ -74,7 +74,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       data.emplace("type", static_cast<uint64_t>(ObjectType::ENUM));
       auto enum_val = property_value.ValueEnum();
       auto enum_str = db_accessor->EnumToName(enum_val);
-      MG_ASSERT(enum_str.has_value(), "Unknown enum");
+      MG_ASSERT(enum_str.HasValue(), "Unknown enum");
       data.emplace("value", *std::move(enum_str));
       return data;
     }

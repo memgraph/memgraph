@@ -1716,11 +1716,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::ENUM_CREATE: {
-          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
-          break;
-        }
-        case MetadataDelta::Action::ENUM_ALTER_ADD: {
+        case MetadataDelta::Action::ENUM_CREATE:
+        case MetadataDelta::Action::ENUM_ALTER_ADD:
+        case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
           throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
           break;
         }

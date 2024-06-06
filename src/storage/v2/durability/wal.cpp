@@ -87,6 +87,7 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(EDGE_TYPE_INDEX_CREATE);
     add_case(EDGE_TYPE_INDEX_DROP);
     add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
     add_case(ENUM_CREATE);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
     add_case(EXISTENCE_CONSTRAINT_DROP);
@@ -148,6 +149,7 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     add_case(EDGE_TYPE_INDEX_CREATE);
     add_case(EDGE_TYPE_INDEX_DROP);
     add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
     add_case(ENUM_CREATE);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
     add_case(EXISTENCE_CONSTRAINT_DROP);
@@ -424,6 +426,25 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
       }
       break;
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE:
+      if constexpr (read_data) {
+        auto etype = decoder->ReadString();
+        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.etype = *etype;
+
+        auto evalue_old = decoder->ReadString();
+        if (!evalue_old) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.evalue_old = *evalue_old;
+
+        auto evalue_new = decoder->ReadString();
+        if (!evalue_new) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.evalue_new = *evalue_new;
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
   }
 
   return delta;
@@ -600,6 +621,12 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::ENUM_ALTER_ADD: {
       return std::tie(a.operation_enum_alter_add.etype, a.operation_enum_alter_add.evalue) ==
              std::tie(b.operation_enum_alter_add.etype, b.operation_enum_alter_add.evalue);
+    }
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+      return std::tie(a.operation_enum_alter_update.etype, a.operation_enum_alter_update.evalue_old,
+                      a.operation_enum_alter_update.evalue_new) == std::tie(b.operation_enum_alter_update.etype,
+                                                                            b.operation_enum_alter_update.evalue_old,
+                                                                            b.operation_enum_alter_update.evalue_new);
     }
   }
 }
@@ -1047,6 +1074,24 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
           }
           break;
         }
+        case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+          auto const &[enum_name, enum_value_old, enum_value_new] = delta.operation_enum_alter_update;
+          auto res = enum_store->update_value(enum_name, enum_value_old, enum_value_new);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::EnumStorageError::InvalidValue:
+                throw RecoveryFailure("Enum value {}::{} already exists.", enum_name, enum_value_new);
+              case storage::EnumStorageError::UnknownEnumType:
+                throw RecoveryFailure("Unknown Enum name {}.", enum_name);
+              case storage::EnumStorageError::UnknownEnumValue:
+                throw RecoveryFailure("Unknown Enum value {}::{}.", enum_name, enum_value_old);
+              default:
+                // Should not happen
+                throw RecoveryFailure("Enum could not be altered.");
+            }
+          }
+          break;
+        }
       }
       ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
       ++deltas_applied;
@@ -1183,16 +1228,27 @@ std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return w
 
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val) {
   auto etype_str = enum_store.to_type_string(enum_val.type_id());
-  DMG_ASSERT(etype_str.has_value());
+  DMG_ASSERT(etype_str.HasValue());
   encoder.WriteString(*etype_str);
   auto value_str = enum_store.to_value_string(enum_val.type_id(), enum_val.value_id());
-  DMG_ASSERT(value_str.has_value());
+  DMG_ASSERT(value_str.HasValue());
+  encoder.WriteString(*value_str);
+}
+
+void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
+                           std::string enum_value_old) {
+  auto etype_str = enum_store.to_type_string(enum_val.type_id());
+  DMG_ASSERT(etype_str.HasValue());
+  encoder.WriteString(*etype_str);
+  encoder.WriteString(enum_value_old);
+  auto value_str = enum_store.to_value_string(enum_val.type_id(), enum_val.value_id());
+  DMG_ASSERT(value_str.HasValue());
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype) {
   auto etype_str = enum_store.to_type_string(etype);
-  DMG_ASSERT(etype_str.has_value());
+  DMG_ASSERT(etype_str.HasValue());
   encoder.WriteString(*etype_str);
   auto const *values = enum_store.to_values_strings(etype);
   DMG_ASSERT(values);

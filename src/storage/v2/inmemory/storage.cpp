@@ -66,6 +66,7 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(UNIQUE_CONSTRAINT_DROP);
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
   }
 #undef add_case
 }
@@ -2352,6 +2353,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::ENUM_ALTER_ADD: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
+                                md_delta.enum_alter_update_info.old_value);
         });
         break;
       }

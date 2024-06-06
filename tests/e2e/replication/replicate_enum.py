@@ -52,6 +52,8 @@ def test_enum_replication(connection):
     # 4/ Validate enum property has arrived at REPLICA
     # 5/ Alter Enum by adding value on MAIN
     # 6/ Validate Enum has updated at REPLICA
+    # 7/ Alter Enum by updating value on MAIN
+    # 8/ Validate Enum has updated at REPLICA
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -195,6 +197,40 @@ def test_enum_replication(connection):
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     replica_2_enums = get_enums(cursor_replica2)
     assert replica_2_enums == [("Location", ["York", "Zagreb", "London"])]
+
+    # 7/
+    execute_and_fetch_all(cursor, "ALTER ENUM Location UPDATE VALUE London TO `New York`;")
+
+    # 8/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 8}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 8}},
+        ),
+    ]
+
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
+
+    def get_enums(cursor):
+        return execute_and_fetch_all(cursor, f"SHOW ENUMS;")
+
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica_1_enums = get_enums(cursor_replica)
+    assert replica_1_enums == [("Location", ["York", "Zagreb", "New York"])]
+
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+    replica_2_enums = get_enums(cursor_replica2)
+    assert replica_2_enums == [("Location", ["York", "Zagreb", "New York"])]
 
 
 if __name__ == "__main__":

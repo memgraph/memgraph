@@ -187,7 +187,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     case query::TypedValue::Type::Enum: {
       check_db();
       auto maybe_enum_value_str = db->enum_store_.to_string(value.ValueEnum());
-      if (!maybe_enum_value_str) [[unlikely]] {
+      if (maybe_enum_value_str.HasError()) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       auto map = bolt_map_t{};
@@ -392,7 +392,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
     case storage::PropertyValue::Type::Enum: {
       auto maybe_enum_value_str = storage.enum_store_.to_string(value.ValueEnum());
-      if (!maybe_enum_value_str) [[unlikely]] {
+      if (maybe_enum_value_str.HasError()) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       // Bolt does not know about enums, encode as map type instead
