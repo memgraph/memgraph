@@ -130,10 +130,8 @@ struct CoordinatorToCoordinatorConfig {
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
 
-// TODO : (andi) Use io::network::Endpoint here
 struct ManagementServerConfig {
-  std::string ip_address;
-  uint16_t port{};
+  io::network::Endpoint ip_address;
   struct SSL {
     std::string key_file;
     std::string cert_file;

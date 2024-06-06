@@ -32,11 +32,11 @@ CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) 
 
 CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
   auto const mgmt_config = ManagementServerConfig{
-      .ip_address = kDefaultReplicationServerIp,
-      .port = static_cast<uint16_t>(config.management_port),
+      .ip_address = io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)},
   };
   data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
-  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.ip_address, mgmt_config.port);
+  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.ip_address.GetAddress(),
+                mgmt_config.ip_address.GetPort());
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
