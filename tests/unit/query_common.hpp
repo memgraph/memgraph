@@ -49,7 +49,7 @@
 #include "query/frontend/ast/pretty_print.hpp"
 #include "utils/string.hpp"
 
-#include "mock_storage.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 namespace memgraph::query::test_common {
 
@@ -69,29 +69,24 @@ auto ToIntMap(const TypedValue &t) {
   return map;
 };
 
-std::unique_ptr<storage::Storage> CreateMockStorage() {
-  auto mock_storage = std::make_unique<memgraph::storage::MockStorage>();
-  EXPECT_CALL(*mock_storage, CreateTransaction(_, _, _))
-      .WillOnce(::testing::Return(testing::ByMove(
-          memgraph::storage::Transaction(1, 1, memgraph::storage::IsolationLevel::READ_COMMITTED,
-                                         memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL, false, false))));
-  return std::move(mock_storage);
-}
-
 std::string ToString(Expression *expr) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+  auto storage_acc = store->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_acc.get());
+
   std::ostringstream ss;
-  auto mock_storage = CreateMockStorage();
-  auto mock_accessor = std::make_unique<memgraph::storage::MockStorageAccessor>(mock_storage.get());
-  DbAccessor dba(mock_accessor.get());
   PrintExpression(expr, &ss, dba);
   return ss.str();
 }
 
 std::string ToString(NamedExpression *expr) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+  auto storage_acc = store->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_acc.get());
+
   std::ostringstream ss;
-  auto mock_storage = CreateMockStorage();
-  auto mock_accessor = std::make_unique<memgraph::storage::MockStorageAccessor>(mock_storage.get());
-  DbAccessor dba(mock_accessor.get());
   PrintExpression(expr, &ss, dba);
   return ss.str();
 }
