@@ -35,18 +35,25 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
+
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
+#include "mock_storage.hpp"
+
 namespace memgraph::query::test_common {
+
+using ::testing::_;
 
 auto ToIntList(const TypedValue &t) {
   std::vector<int64_t> list;
@@ -62,15 +69,30 @@ auto ToIntMap(const TypedValue &t) {
   return map;
 };
 
+std::unique_ptr<storage::Storage> CreateMockStorage() {
+  auto mock_storage = std::make_unique<memgraph::storage::MockStorage>();
+  EXPECT_CALL(*mock_storage, CreateTransaction(_, _, _))
+      .WillOnce(::testing::Return(testing::ByMove(
+          memgraph::storage::Transaction(1, 1, memgraph::storage::IsolationLevel::READ_COMMITTED,
+                                         memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL, false, false))));
+  return std::move(mock_storage);
+}
+
 std::string ToString(Expression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  auto mock_storage = CreateMockStorage();
+  auto mock_accessor = std::make_unique<memgraph::storage::MockStorageAccessor>(mock_storage.get());
+  DbAccessor dba(mock_accessor.get());
+  PrintExpression(expr, &ss, dba);
   return ss.str();
 }
 
 std::string ToString(NamedExpression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  auto mock_storage = CreateMockStorage();
+  auto mock_accessor = std::make_unique<memgraph::storage::MockStorageAccessor>(mock_storage.get());
+  DbAccessor dba(mock_accessor.get());
+  PrintExpression(expr, &ss, dba);
   return ss.str();
 }
 
