@@ -53,11 +53,11 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const state_machine_config = CoordinatorStateMachineConfig{coordinator_id, nullptr};
+  auto const state_machine_config = CoordinatorStateMachineConfig{coordinator_id};
 
   auto const state_manager_config =
       CoordinatorStateManagerConfig{coordinator_id, coordinator_port, bolt_port,
-                                    test_folder_ / "high_availability" / "coordinator" / "state_manager", nullptr};
+                                    test_folder_ / "high_availability" / "coordinator" / "state_manager"};
 
   auto raft_state = std::make_unique<RaftState>(state_machine_config, state_manager_config, "",
                                                 std::move(become_leader_cb), std::move(become_follower_cb));
@@ -75,11 +75,11 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const state_machine_config = CoordinatorStateMachineConfig{coordinator_id, nullptr};
+  auto const state_machine_config = CoordinatorStateMachineConfig{coordinator_id};
 
   auto const state_manager_config =
       CoordinatorStateManagerConfig{coordinator_id, coordinator_port, bolt_port,
-                                    test_folder_ / "high_availability" / "coordinator" / "state_manager", nullptr};
+                                    test_folder_ / "high_availability" / "coordinator" / "state_manager"};
 
   auto raft_state = std::make_unique<RaftState>(state_machine_config, state_manager_config, "",
                                                 std::move(become_leader_cb), std::move(become_follower_cb));

@@ -119,7 +119,7 @@ class CoordinatorStateMachine : public state_machine {
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
 
-  std::shared_ptr<kvstore::KVStore> durability_store_;
+  std::shared_ptr<kvstore::KVStore> durability_;
 };
 
 }  // namespace memgraph::coordination

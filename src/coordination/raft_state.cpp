@@ -102,7 +102,6 @@ auto RaftState::InitRaftServer() -> void {
 
   init_opts.start_server_in_constructor_ = false;
   init_opts.raft_callback_ = [this](cb_func::Type event_type, cb_func::Param *param) -> nuraft::CbReturnCode {
-    spdlog::trace("Got event type: {}", (int)event_type);
     if (event_type == cb_func::BecomeLeader) {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();

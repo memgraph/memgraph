@@ -76,9 +76,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   };
   auto const coordinator_state_manager_durability_dir = config.durability_dir / "state_manager";
   memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
-  CoordinatorStateMachineConfig state_machine_config{config.coordinator_id, nullptr};
+  CoordinatorStateMachineConfig state_machine_config{config.coordinator_id};
   CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
-                                                     coordinator_state_manager_durability_dir, nullptr};
+                                                     coordinator_state_manager_durability_dir};
 
   if (FLAGS_coordinator_use_durability) {
     memgraph::utils::EnsureDirOrDie(config.durability_dir / "durability");

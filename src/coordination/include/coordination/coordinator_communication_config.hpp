@@ -43,16 +43,19 @@ struct CoordinatorInstanceInitConfig {
   int bolt_port{0};
   std::filesystem::path durability_dir;
   std::string nuraft_log_file;
+  bool use_durability;
 
   // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
   explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
-                                         std::filesystem::path durability_dir, std::string nuraft_log_file = "")
+                                         std::filesystem::path durability_dir, std::string nuraft_log_file = "",
+                                         bool use_durability = true)
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
         bolt_port(bolt_port),
         durability_dir(std::move(durability_dir)),
-        nuraft_log_file(std::move(nuraft_log_file)) {
+        nuraft_log_file(std::move(nuraft_log_file)),
+        use_durability(use_durability) {
     MG_ASSERT(!this->durability_dir.empty(), "Path empty");
   }
 };
@@ -66,7 +69,7 @@ struct CoordinatorStateManagerConfig {
 
   CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
                                 std::filesystem::path state_manager_durability_dir,
-                                std::shared_ptr<kvstore::KVStore> durability_store)
+                                std::shared_ptr<kvstore::KVStore> durability_store = nullptr)
       : coordinator_id_(coordinator_id),
         coordinator_port_(coordinator_port),
         bolt_port_(bolt_port),
@@ -80,7 +83,8 @@ struct CoordinatorStateMachineConfig {
   uint32_t coordinator_id_{0};
   std::shared_ptr<kvstore::KVStore> durability_store_;
 
-  explicit CoordinatorStateMachineConfig(uint32_t coordinator_id, std::shared_ptr<kvstore::KVStore> durability_store)
+  explicit CoordinatorStateMachineConfig(uint32_t coordinator_id,
+                                         std::shared_ptr<kvstore::KVStore> durability_store = nullptr)
       : coordinator_id_(coordinator_id), durability_store_(std::move(durability_store)) {}
 };
 
@@ -131,7 +135,7 @@ struct CoordinatorToCoordinatorConfig {
 };
 
 struct ManagementServerConfig {
-  io::network::Endpoint ip_address;
+  io::network::Endpoint endpoint;
   struct SSL {
     std::string key_file;
     std::string cert_file;

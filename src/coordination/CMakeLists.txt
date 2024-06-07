@@ -24,7 +24,6 @@ target_sources(mg-coordination
         include/nuraft/logger.hpp
         include/nuraft/logger_wrapper.hpp
 
-        include/utils.hpp
 
         PRIVATE
         coordinator_communication_config.cpp

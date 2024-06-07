@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import concurrent.futures
 import os
 import shutil
 import sys
@@ -3123,8 +3124,6 @@ def test_all_coords_down_resume():
     interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
 
     # 4
-
-    import concurrent.futures
 
     with concurrent.futures.ThreadPoolExecutor(2) as executor:
         executor.submit(interactive_mg_runner.start, inner_instances_description, "coordinator_2")

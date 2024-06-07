@@ -12,11 +12,12 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include "utils.hpp"
 #include "utils/file.hpp"
 
 #include <spdlog/spdlog.h>
 
-#include "utils.hpp"
+#include <range/v3/view.hpp>
 
 namespace memgraph::coordination {
 
@@ -37,13 +38,50 @@ constexpr std::string_view kElectionTimer = "election_timer";
 constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
 constexpr int kActiveStateManagerDurabilityVersion = 1;
 
+constexpr std::string_view kServers = "servers";
+constexpr std::string_view kPrevLogIdx = "prev_log_idx";
+constexpr std::string_view kLogIdx = "log_idx";
+constexpr std::string_view kAsyncReplication = "async_replication";
+constexpr std::string_view kUserCtx = "user_ctx";
+
 }  // namespace
+
+void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &config) {
+  auto servers = json_cluster_config.at(kServers.data()).get<std::vector<std::tuple<int, std::string, std::string>>>();
+
+  auto const prev_log_idx = json_cluster_config.at(kPrevLogIdx.data()).get<int64_t>();
+  auto const log_idx = json_cluster_config.at(kLogIdx.data()).get<int64_t>();
+  auto const async_replication = json_cluster_config.at(kAsyncReplication.data()).get<bool>();
+  auto const user_ctx = json_cluster_config.at(kUserCtx.data()).get<std::string>();
+  auto new_cluster_config = cs_new<cluster_config>(log_idx, prev_log_idx, async_replication);
+  new_cluster_config->set_user_ctx(user_ctx);
+  for (auto &[coord_id, endpoint, aux] : servers) {
+    auto one_server_config = cs_new<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
+    new_cluster_config->get_servers().push_back(std::move(one_server_config));
+  }
+  config = new_cluster_config;
+}
+
+void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
+  auto const servers_vec =
+      ranges::views::transform(
+          cluster_config.get_servers(),
+          [](auto const &server) {
+            return std::tuple{static_cast<int>(server->get_id()), server->get_endpoint(), server->get_aux()};
+          }) |
+      ranges::to<std::vector>();
+  j = nlohmann::json{{kServers, servers_vec},
+                     {kPrevLogIdx, cluster_config.get_prev_log_idx()},
+                     {kLogIdx, cluster_config.get_log_idx()},
+                     {kAsyncReplication, cluster_config.is_async_replication()},
+                     {kUserCtx, cluster_config.get_user_ctx()}};
+}
 
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
       cur_log_store_(cs_new<CoordinatorLogStore>(config.durability_store_, logger)),
       logger_(logger),
-      state_manager_durability_(config.state_manager_durability_dir_) {
+      durability_(config.state_manager_durability_dir_) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
                                      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}};
@@ -53,20 +91,8 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
 
-  int version{0};
-  auto maybe_version = state_manager_durability_.Get(kStateManagerDurabilityVersionKey);
-  if (maybe_version.has_value()) {
-    version = std::stoi(maybe_version.value());
-  } else {
-    logger_.Log(
-        nuraft_log_level::INFO,
-        fmt::format("Assuming first start of state manager with durability as version is missing, storing version {}.",
-                    kActiveStateManagerDurabilityVersion));
-    MG_ASSERT(state_manager_durability_.Put(kStateManagerDurabilityVersionKey,
-                                            std::to_string(kActiveStateManagerDurabilityVersion)),
-              "Failed to store version to disk");
-    version = kActiveStateManagerDurabilityVersion;
-  }
+  auto const version = memgraph::coordination::GetVersion(durability_, kStateManagerDurabilityVersionKey,
+                                                          kActiveStateManagerDurabilityVersion, logger_);
 
   MG_ASSERT(version <= kActiveStateManagerDurabilityVersion && version > 0,
             "Unsupported version of log store with durability");
@@ -74,14 +100,14 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
-  auto const maybe_cluster_config = state_manager_durability_.Get(kClusterConfigKey);
+  auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
     logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
     return cluster_config_;
   }
   auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
-  cluster_config_ = DeserializeClusterConfig(cluster_config_json);
+  from_json(cluster_config_json, cluster_config_);
   logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
   return cluster_config_;
 }
@@ -90,8 +116,9 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
   logger_.Log(nuraft_log_level::TRACE, "Saving cluster config to RocksDb");
-  auto json = SerializeClusterConfig(config);
-  MG_ASSERT(state_manager_durability_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
+  nlohmann::json json;
+  to_json(json, config);
+  MG_ASSERT(durability_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
@@ -100,8 +127,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   auto const server_state_json = nlohmann::json{{kTerm, state.get_term()},
                                                 {kVotedFor, state.get_voted_for()},
                                                 {kElectionTimer, state.is_election_timer_allowed()}};
-  MG_ASSERT(state_manager_durability_.Put(kServerStateKey, server_state_json.dump()),
-            "Couldn't store server state to disk.");
+  MG_ASSERT(durability_.Put(kServerStateKey, server_state_json.dump()), "Couldn't store server state to disk.");
 
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
@@ -110,7 +136,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
   logger_.Log(nuraft_log_level::TRACE, "Reading server state in coordinator state manager.");
 
-  auto const maybe_server_state = state_manager_durability_.Get(kServerStateKey);
+  auto const maybe_server_state = durability_.Get(kServerStateKey);
   if (!maybe_server_state.has_value()) {
     logger_.Log(nuraft_log_level::INFO, "Didn't find anything stored on disk for server state.");
     return saved_state_;

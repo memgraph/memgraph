@@ -8,28 +8,11 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#include <utility>
-
-#include <spdlog/spdlog.h>
-#include <json/json.hpp>
-#include <libnuraft/nuraft.hxx>
-#include <range/v3/view.hpp>
-
-using nuraft::async_result;
-using nuraft::buffer;
-using nuraft::buffer_serializer;
-using nuraft::cluster_config;
-using nuraft::cs_new;
-using nuraft::int32;
-using nuraft::ptr;
-using nuraft::snapshot;
-using nuraft::srv_config;
-using nuraft::state_machine;
+#include <optional>
+#include <string>
+#include "kvstore/kvstore.hpp"
 
 namespace memgraph::coordination {
-
-auto DeserializeClusterConfig(nlohmann::json const &json_cluster_config) -> ptr<cluster_config>;
-auto SerializeClusterConfig(cluster_config const &config) -> nlohmann::json;
-
+auto GetVersion(kvstore::KVStore &durability, std::string_view key, int const default_value, LoggerWrapper logger)
+    -> int;
 }  // namespace memgraph::coordination
