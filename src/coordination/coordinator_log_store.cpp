@@ -12,7 +12,9 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_log_store.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "utils.hpp"
 #include "utils/logging.hpp"
 
@@ -28,27 +30,20 @@ using nuraft::cs_new;
 
 namespace {
 
-constexpr std::string_view kLogEntryPrefix = "log_entry_";
-constexpr std::string_view kLastLogEntry = "last_log_entry";
-constexpr std::string_view kStartIdx = "start_idx";
-
-constexpr std::string_view kLogStoreDurabilityVersion = "log_store_durability_version";
-constexpr int kActiveVersion = 1;
-
-const std::string kLogEntryDataKey = "data";
-const std::string kLogEntryTermKey = "term";
-const std::string kLogEntryValTypeKey = "val_type";
-
 ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
   return cs_new<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
                            entry->get_timestamp());
 }
 }  // namespace
 
-CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store, LoggerWrapper logger)
-    : durability_(std::move(durability_store)), logger_(logger) {
+CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability)
+    : logger_(logger) {
   ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
   logs_[0] = cs_new<log_entry>(0, buf);
+
+  if (log_store_durability) {
+    durability_ = log_store_durability->durability_store_;
+  }
 
   if (!durability_) {
     spdlog::warn("No durability directory provided, logs will not be persisted to disk");
@@ -56,44 +51,57 @@ CoordinatorLogStore::CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durab
     return;
   }
 
-  auto const version =
-      memgraph::coordination::GetVersion(*durability_, kLogStoreDurabilityVersion, kActiveVersion, logger_);
+  MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_,
+                                   log_store_durability->active_log_store_version_),
+            "Couldn't handle version migration");
+}
 
-  MG_ASSERT(version <= kActiveVersion && version > 0, "Unsupported version of log store with durability");
+bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version,
+                                                 memgraph::coordination::LogStoreVersion active_version) {
+  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+    auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
+    auto const maybe_start_idx = durability_->Get(kStartIdx);
+    if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
+      logger_.Log(nuraft_log_level::INFO,
+                  "No last log entry or start index found on disk, assuming first start of log store with durability");
+      start_idx_ = 1;
+      MG_ASSERT(durability_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+      MG_ASSERT(durability_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
+                "Failed to store last log entry to disk");
+      return true;
+    }
 
-  auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
-  auto const maybe_start_idx = durability_->Get(kStartIdx);
-  if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
-    logger_.Log(nuraft_log_level::INFO,
-                "No last log entry or start index found on disk, assuming first start of log store with durability");
-    start_idx_ = 1;
-    MG_ASSERT(durability_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
-    MG_ASSERT(durability_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
-              "Failed to store last log entry to disk");
-    return;
+    uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
+    start_idx_ = std::stoull(maybe_start_idx.value());
+
+    // Compaction might have happened so we might be missing some logs.
+    for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
+      auto const entry = durability_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
+
+      MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}>", id, start_idx_.load(),
+                last_log_entry + 1);
+
+      auto const j = nlohmann::json::parse(entry.value());
+      auto const term = j.at(kLogEntryTermKey).get<int>();
+      auto const data = j.at(kLogEntryDataKey).get<std::string>();
+      auto const value_type = j.at("val_type").get<int>();
+      auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
+      buffer_serializer bs{log_term_buffer};
+      bs.put_str(data);
+      logs_[id] = cs_new<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
+      logger_.Log(nuraft_log_level::TRACE, fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ",
+                                                       std::string{j.dump()}, std::to_string(id), data));
+    }
+    return true;
   }
 
-  uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
-  start_idx_ = std::stoull(maybe_start_idx.value());
-
-  // Compaction might have happened so we might be missing some logs.
-  for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
-    auto const entry = durability_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
-
-    MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}>", id, start_idx_.load(),
-              last_log_entry + 1);
-
-    auto const j = nlohmann::json::parse(entry.value());
-    auto const term = j.at(kLogEntryTermKey).get<int>();
-    auto const data = j.at(kLogEntryDataKey).get<std::string>();
-    auto const value_type = j.at("val_type").get<int>();
-    auto log_term_buffer = buffer::alloc(sizeof(uint32_t) + data.size());
-    buffer_serializer bs{log_term_buffer};
-    bs.put_str(data);
-    logs_[id] = cs_new<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
-    logger_.Log(nuraft_log_level::TRACE, fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ",
-                                                     std::string{j.dump()}, std::to_string(id), data));
+  if (stored_version < active_version) {
+    // Handle migration from older versions to newer ones.
+    // Currently we only have one version so we don't need to do anything.
+    return true;
   }
+
+  return false;
 }
 
 CoordinatorLogStore::~CoordinatorLogStore() = default;

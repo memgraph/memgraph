@@ -72,7 +72,9 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
   {
     auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestBasicSerialization");
 
-    CoordinatorLogStore log_store{log_store_storage, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+
+    CoordinatorLogStore log_store{GetLogger(), log_store_durability};
     ASSERT_EQ(log_store.next_slot(), 1);
     ASSERT_EQ(log_store.start_index(), 1);
 
@@ -87,7 +89,9 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
   {
     auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestBasicSerialization");
 
-    CoordinatorLogStore log_store{log_store_storage, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+    CoordinatorLogStore log_store{GetLogger(), log_store_durability};
+
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
 
@@ -139,7 +143,8 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     auto log_store_storage =
         std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestMultipleInstancesSerialization");
 
-    CoordinatorLogStore log_store{log_store_storage, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+    CoordinatorLogStore log_store{GetLogger(), log_store_durability};
     ASSERT_EQ(log_store.next_slot(), 1);
     ASSERT_EQ(log_store.start_index(), 1);
 
@@ -176,7 +181,8 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
   auto log_store_storage =
       std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestMultipleInstancesSerialization");
 
-  CoordinatorLogStore log_store{log_store_storage, GetLogger()};
+  memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+  CoordinatorLogStore log_store{GetLogger(), log_store_durability};
   ASSERT_EQ(log_store.next_slot(), 6);
   ASSERT_EQ(log_store.start_index(), 1);
 
@@ -231,10 +237,12 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
   {
     // Define two CoordinatorLogStore instances
     auto log_store_storage_1 = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestPackAndApplyPack1");
-    CoordinatorLogStore log_store1{log_store_storage_1, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability_1{log_store_storage_1};
+    CoordinatorLogStore log_store1{GetLogger(), log_store_durability_1};
 
     auto log_store_storage_2 = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestPackAndApplyPack2");
-    CoordinatorLogStore log_store2{log_store_storage_2, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
+    CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
 
     // Add the same log to both stores at index 1
     auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(
@@ -306,10 +314,12 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
   // Check that the logs in log_store2 are the same as those in log_store1
   {
     auto log_store_storage_1 = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestPackAndApplyPack1");
-    CoordinatorLogStore log_store1{log_store_storage_1, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability_1{log_store_storage_1};
+    CoordinatorLogStore log_store1{GetLogger(), log_store_durability_1};
 
     auto log_store_storage_2 = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestPackAndApplyPack2");
-    CoordinatorLogStore log_store2{log_store_storage_2, GetLogger()};
+    memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
+    CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
     for (int i = 1; i != log_store1.next_slot(); ++i) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
@@ -326,7 +336,8 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
 TEST_F(CoordinatorLogStoreTests, TestCompact) {
   // Define a CoordinatorLogStore instance
   auto log_store_storage = std::make_shared<memgraph::kvstore::KVStore>(test_folder_ / "TestCompact");
-  CoordinatorLogStore log_store{log_store_storage, GetLogger()};
+  memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
+  CoordinatorLogStore log_store{GetLogger(), log_store_durability};
 
   // Add 5 logs to the store
   for (int i = 1; i <= 5; ++i) {

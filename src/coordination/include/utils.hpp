@@ -13,6 +13,5 @@
 #include "kvstore/kvstore.hpp"
 
 namespace memgraph::coordination {
-auto GetVersion(kvstore::KVStore &durability, std::string_view key, int const default_value, LoggerWrapper logger)
-    -> int;
+auto GetVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger) -> int;
 }  // namespace memgraph::coordination

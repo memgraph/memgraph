@@ -13,6 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_communication_config.hpp"
+
 #include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
 #include "nuraft/logger_wrapper.hpp"
@@ -36,7 +38,7 @@ using nuraft::raft_server;
  */
 class CoordinatorLogStore : public log_store {
  public:
-  CoordinatorLogStore(std::shared_ptr<kvstore::KVStore> durability_store, LoggerWrapper logger);
+  CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -73,6 +75,8 @@ class CoordinatorLogStore : public log_store {
 
  private:
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
+
+  bool HandleVersionMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
 
   // TODO(antoniofilipovic) Isolate into CoordinatorLogStoreInternals
   std::map<ulong, ptr<log_entry>> logs_;

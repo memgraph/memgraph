@@ -11,6 +11,7 @@
 
 #include "nuraft/coordinator_state_machine.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
@@ -164,9 +165,11 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
   {
     auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
 
-    CoordinatorStateMachine state_machine{kv_store_, my_logger};
+    memgraph::coordination::LogStoreDurability log_store_durability{
+        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     CoordinatorStateManagerConfig config{
-        0, 12345, 9090, test_folder_ / "high_availability" / "coordination" / "state_manager", kv_store_};
+        0, 12345, 9090, test_folder_ / "high_availability" / "coordination" / "state_manager", log_store_durability};
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
@@ -186,7 +189,9 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
 
   {
     auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
-    CoordinatorStateMachine state_machine{kv_store_, my_logger};
+    memgraph::coordination::LogStoreDurability log_store_durability{
+        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     auto last_snapshot = state_machine.last_snapshot();
     ASSERT_EQ(last_snapshot->get_last_log_idx(), 1);
     auto zipped_view = ranges::views::zip(old_config->get_servers(), last_snapshot->get_last_config()->get_servers());

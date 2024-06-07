@@ -23,6 +23,7 @@ target_sources(mg-coordination
         include/nuraft/coordinator_state_manager.hpp
         include/nuraft/logger.hpp
         include/nuraft/logger_wrapper.hpp
+        include/nuraft/constants_log_durability.hpp
 
 
         PRIVATE

@@ -13,14 +13,14 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <spdlog/spdlog.h>
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
-
-#include <spdlog/spdlog.h>
 
 #include <optional>
 #include <variant>
@@ -47,7 +47,7 @@ struct SnapshotCtx {
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability, LoggerWrapper logger);
+  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -107,6 +107,8 @@ class CoordinatorStateMachine : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
+  bool HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+
   auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;

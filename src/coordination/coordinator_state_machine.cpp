@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_machine.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
 #include "utils.hpp"
@@ -24,15 +25,7 @@ using nuraft::ptr;
 using nuraft::snapshot;
 
 namespace {
-constexpr std::string_view kCoordClusterState = "coord_cluster_state";
-constexpr std::string_view kLastLogIdx = "last_log_idx";
-constexpr std::string_view kLastLogTerm = "last_log_term";
-constexpr std::string_view kSize = "size";
-constexpr std::string_view kLastConfig = "last_config";
-constexpr std::string_view kType = "type";
-constexpr std::string_view kSnapshotIdPrefix = "snapshot_id_";                // top level
-constexpr std::string_view kSnapshotVersion = "snapshot_durability_version";  // top level
-constexpr int kActiveVersion = 1;
+
 constexpr int MAX_SNAPSHOTS = 3;
 
 auto DeserializeSnapshotCtxFromDisk(const std::string &snapshot_id, memgraph::kvstore::KVStore &kv_store)
@@ -44,12 +37,13 @@ auto DeserializeSnapshotCtxFromDisk(const std::string &snapshot_id, memgraph::kv
 
   auto snapshot_ctx_json = nlohmann::json::parse(snapshot_ctx_str.value());
 
-  auto cluster_state_json = snapshot_ctx_json.at(kCoordClusterState.data()).get<std::string>();
-  auto last_log_idx = snapshot_ctx_json.at(kLastLogIdx.data()).get<uint64_t>();
-  auto last_log_term = snapshot_ctx_json.at(kLastLogTerm.data()).get<uint64_t>();
-  auto size = snapshot_ctx_json.at(kSize.data()).get<uint64_t>();
-  auto last_config_json = snapshot_ctx_json.at(kLastConfig.data()).get<std::string>();
-  auto type = static_cast<nuraft::snapshot::type>((snapshot_ctx_json.at(kType.data()).get<int>()));
+  auto cluster_state_json = snapshot_ctx_json.at(memgraph::coordination::kCoordClusterState.data()).get<std::string>();
+  auto last_log_idx = snapshot_ctx_json.at(memgraph::coordination::kLastLogIdx.data()).get<uint64_t>();
+  auto last_log_term = snapshot_ctx_json.at(memgraph::coordination::kLastLogTerm.data()).get<uint64_t>();
+  auto size = snapshot_ctx_json.at(memgraph::coordination::kSize.data()).get<uint64_t>();
+  auto last_config_json = snapshot_ctx_json.at(memgraph::coordination::kLastConfig.data()).get<std::string>();
+  auto type =
+      static_cast<nuraft::snapshot::type>((snapshot_ctx_json.at(memgraph::coordination::kType.data()).get<int>()));
 
   ptr<cluster_config> last_config;
   memgraph::coordination::from_json(nlohmann::json::parse(last_config_json), last_config);
@@ -68,20 +62,24 @@ auto SerializeSnapshotCtxToJson(memgraph::coordination::SnapshotCtx const &snaps
   nlohmann::json last_config_json;
   memgraph::coordination::to_json(last_config_json, *snapshot_ctx.snapshot_->get_last_config());
 
-  return nlohmann::json{{kCoordClusterState, cluster_state_json.dump()},
-                        {kLastLogTerm, snapshot_ctx.snapshot_->get_last_log_term()},
-                        {kLastLogIdx, snapshot_ctx.snapshot_->get_last_log_idx()},
-                        {kSize, snapshot_ctx.snapshot_->size()},
-                        {kLastConfig, last_config_json.dump()},
-                        {kType, static_cast<int>((snapshot_ctx.snapshot_->get_type()))}};
+  return nlohmann::json{{memgraph::coordination::kCoordClusterState, cluster_state_json.dump()},
+                        {memgraph::coordination::kLastLogTerm, snapshot_ctx.snapshot_->get_last_log_term()},
+                        {memgraph::coordination::kLastLogIdx, snapshot_ctx.snapshot_->get_last_log_idx()},
+                        {memgraph::coordination::kSize, snapshot_ctx.snapshot_->size()},
+                        {memgraph::coordination::kLastConfig, last_config_json.dump()},
+                        {memgraph::coordination::kType, static_cast<int>((snapshot_ctx.snapshot_->get_type()))}};
 }
 
 }  // namespace
 
 namespace memgraph::coordination {
 
-CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStore> durability, LoggerWrapper logger)
-    : logger_(logger), durability_(std::move(durability)) {
+CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
+                                                 std::optional<LogStoreDurability> log_store_durability)
+    : logger_(logger) {
+  if (log_store_durability.has_value()) {
+    durability_ = log_store_durability->durability_store_;
+  }
   if (!durability_) {
     logger_.Log(nuraft_log_level::WARNING, "Coordinator state machine stores snapshots only in memory from now on.");
     return;
@@ -89,34 +87,42 @@ CoordinatorStateMachine::CoordinatorStateMachine(std::shared_ptr<kvstore::KVStor
 
   logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
 
-  auto const version = memgraph::coordination::GetVersion(*durability_, kSnapshotVersion, kActiveVersion, logger_);
+  bool successful_migration =
+      HandleMigration(log_store_durability->stored_log_store_version_, log_store_durability->active_log_store_version_);
 
-  MG_ASSERT(version <= kActiveVersion && version > 0, "Unsupported version of log store with durability");
+  MG_ASSERT(successful_migration, "Couldn't handle migration of log store version.");
+}
 
-  for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
-       kv_store_snapshot_it != durability_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
-    auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
-    try {
-      auto parsed_snapshot_id =
-          std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
-      snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *durability_);
-      MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
-                "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
-                snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
-    } catch (std::exception &e) {
-      LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
+  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+    for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
+         kv_store_snapshot_it != durability_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
+      auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
+      try {
+        auto parsed_snapshot_id =
+            std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
+        last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
+        snapshots_[parsed_snapshot_id] = DeserializeSnapshotCtxFromDisk(snapshot_key_id, *durability_);
+        MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
+                  "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
+                  snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
+      } catch (std::exception &e) {
+        LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+      }
+      logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
     }
-    logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
+
+    if (last_committed_idx_ == 0) {
+      logger_.Log(nuraft_log_level::TRACE, "Last committed index is 0");
+      return true;
+    }
+    cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+    logger_.Log(nuraft_log_level::TRACE,
+                fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+    return true;
   }
 
-  if (last_committed_idx_ == 0) {
-    logger_.Log(nuraft_log_level::TRACE, "Last committed index is 0");
-    return;
-  }
-  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
-  logger_.Log(nuraft_log_level::TRACE,
-              fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+  return false;  // fill up afterwards
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
@@ -281,7 +287,8 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
                                  SerializeSnapshotCtxToJson(SnapshotCtx{snapshot_ptr, cluster_state}).dump()),
                 "Failed to store snapshot to disk.");
     }
-    // TODO(antoniofilipovic): Check with Andi S. why we are not updating here also snapshot ptr
+    ptr<buffer> snp_buf = snapshot.serialize();
+    entry->second->snapshot_ = snapshot::deserialize(*snp_buf);
     entry->second->cluster_state_ = cluster_state;
   }
   obj_id++;
@@ -328,6 +335,7 @@ auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::h
   create_snapshot_internal(ss);
 
   ptr<std::exception> except(nullptr);
+  // TODO(antoniofilipovic): Check true/false
   bool ret = true;
   when_done(ret, except);
 }

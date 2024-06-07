@@ -10,14 +10,8 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_instance.hpp"
-
-#include "auth/auth.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "interpreter_faker.hpp"
 #include "io/network/endpoint.hpp"
-#include "license/license.hpp"
-#include "replication_handler/replication_handler.hpp"
-#include "storage/v2/config.hpp"
 
 #include "utils/file.hpp"
 

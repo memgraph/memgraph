@@ -29,6 +29,6 @@ DECLARE_uint32(instance_get_uuid_frequency_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(nuraft_log_file);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(coordinator_use_durability);
+DECLARE_bool(ha_durability);
 
 #endif

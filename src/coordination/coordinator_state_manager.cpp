@@ -79,7 +79,7 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
 
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
-      cur_log_store_(cs_new<CoordinatorLogStore>(config.durability_store_, logger)),
+      cur_log_store_(cs_new<CoordinatorLogStore>(logger, config.log_store_durability_)),
       logger_(logger),
       durability_(config.state_manager_durability_dir_) {
   auto const c2c =
@@ -124,10 +124,9 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   logger_.Log(nuraft_log_level::TRACE, "Saving server state in coordinator state manager.");
 
-  auto const server_state_json = nlohmann::json{{kTerm, state.get_term()},
-                                                {kVotedFor, state.get_voted_for()},
-                                                {kElectionTimer, state.is_election_timer_allowed()}};
-  MG_ASSERT(durability_.Put(kServerStateKey, server_state_json.dump()), "Couldn't store server state to disk.");
+  nlohmann::json json;
+  to_json(json, state);
+  MG_ASSERT(durability_.Put(kServerStateKey, json.dump()), "Couldn't store server state to disk.");
 
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
@@ -141,7 +140,11 @@ auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
     logger_.Log(nuraft_log_level::INFO, "Didn't find anything stored on disk for server state.");
     return saved_state_;
   }
+
+  saved_state_ = cs_new<srv_state>();
   auto server_state_json = nlohmann::json::parse(maybe_server_state.value());
+  from_json(server_state_json, *saved_state_);
+
   auto const term = server_state_json.at(kTerm.data()).get<ulong>();
   auto const voted_for = server_state_json.at(kVotedFor.data()).get<int>();
   auto const election_timer = server_state_json.at(kElectionTimer.data()).get<bool>();
@@ -156,6 +159,17 @@ auto CoordinatorStateManager::server_id() -> int32 { return my_id_; }
 auto CoordinatorStateManager::system_exit(int const exit_code) -> void {}
 
 auto CoordinatorStateManager::GetSrvConfig() const -> ptr<srv_config> { return my_srv_config_; }
+
+void to_json(nlohmann::json &j, srv_state const &state) {
+  j = nlohmann::json{{kTerm.data(), state.get_term()},
+                     {kVotedFor.data(), state.get_voted_for()},
+                     {kElectionTimer.data(), state.is_election_timer_allowed()}};
+}
+void from_json(const nlohmann::json &j, srv_state &state) {
+  state.set_term(j.at(kTerm.data()).get<ulong>());
+  state.set_voted_for(j.at(kVotedFor.data()).get<int>());
+  state.allow_election_timer(j.at(kElectionTimer.data()).get<bool>());
+}
 
 }  // namespace memgraph::coordination
 #endif

@@ -74,24 +74,11 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                   repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
-  auto const coordinator_state_manager_durability_dir = config.durability_dir / "state_manager";
-  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
-  CoordinatorStateMachineConfig state_machine_config{config.coordinator_id};
-  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
-                                                     coordinator_state_manager_durability_dir};
-
-  if (FLAGS_coordinator_use_durability) {
-    memgraph::utils::EnsureDirOrDie(config.durability_dir / "durability");
-    auto const durability_store = std::make_shared<kvstore::KVStore>(config.durability_dir / "durability");
-    state_machine_config.durability_store_ = durability_store;
-    state_manager_config.durability_store_ = durability_store;
-  }
 
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(state_machine_config, state_manager_config, config.nuraft_log_file,
-                                            GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
+  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
   raft_state_->InitRaftServer();
 }
 

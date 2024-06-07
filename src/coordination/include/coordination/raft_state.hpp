@@ -50,9 +50,8 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 class RaftState {
  public:
   auto InitRaftServer() -> void;
-  explicit RaftState(CoordinatorStateMachineConfig const &state_machine_config,
-                     CoordinatorStateManagerConfig const &state_manager_config, std::string nuraft_log_file,
-                     BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb);
+  explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb);
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
   RaftState &operator=(RaftState const &other) = default;

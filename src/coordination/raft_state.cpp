@@ -11,7 +11,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -25,10 +24,14 @@
 #include "coordination/raft_state.hpp"
 #include "nuraft/logger_wrapper.hpp"
 #include "utils/counter.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
+
+#include "nuraft/constants_log_durability.hpp"
+#include "utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -41,18 +44,36 @@ using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
 
-RaftState::RaftState(CoordinatorStateMachineConfig const &state_machine_config,
-                     CoordinatorStateManagerConfig const &state_manager_config, std::string nuraft_log_file,
-                     BecomeLeaderCb become_leader_cb, BecomeFollowerCb become_follower_cb)
-    : coordinator_port_(state_manager_config.coordinator_port_),
-      coordinator_id_(state_manager_config.coordinator_id_),
-      logger_(cs_new<Logger>(nuraft_log_file)),
-      state_machine_(cs_new<CoordinatorStateMachine>(state_machine_config.durability_store_,
-                                                     LoggerWrapper(static_cast<Logger *>(logger_.get())))),
-      state_manager_(
-          cs_new<CoordinatorStateManager>(state_manager_config, LoggerWrapper(static_cast<Logger *>(logger_.get())))),
+RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+                     BecomeFollowerCb become_follower_cb)
+    : coordinator_port_(config.coordinator_port),
+      coordinator_id_(config.coordinator_id),
+      logger_(cs_new<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
+  auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
+  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
+
+  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
+                                                     coordinator_state_manager_durability_dir};
+  auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
+  LogStoreDurability log_store_durability;
+
+  if (config.use_durability) {
+    auto const log_store_path = config.durability_dir / "logs";
+    memgraph::utils::EnsureDirOrDie(log_store_path);
+    auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+
+    log_store_durability.durability_store_ = durability_store;
+    log_store_durability.active_log_store_version_ = kActiveVersion;
+    log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
+        GetVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
+    state_manager_config.log_store_durability_ = log_store_durability;
+  }
+
+  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
+  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper);
+
   auto last_commit_index_snapshot = state_machine_->last_commit_index();
   auto log_store = state_manager_->load_log_store();
 
@@ -63,8 +84,9 @@ RaftState::RaftState(CoordinatorStateMachineConfig const &state_machine_config,
   auto const last_commit_index_logs = log_store->next_slot();
   spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
                 last_commit_index_logs);
-  auto cntr = last_commit_index_snapshot + 1;
 
+  // TODO(antoniofilipovic) Ranges iota
+  auto cntr = last_commit_index_snapshot + 1;
   auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
   for (auto &log_entry : *log_entries) {
     spdlog::trace("Applying log entry from snapshot with index {}", cntr);

@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "io/network/endpoint.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -60,32 +61,29 @@ struct CoordinatorInstanceInitConfig {
   }
 };
 
+struct LogStoreDurability {
+  std::shared_ptr<kvstore::KVStore> durability_store_{nullptr};
+  LogStoreVersion active_log_store_version_{kActiveVersion};
+  LogStoreVersion stored_log_store_version_{kActiveVersion};
+};
+
 struct CoordinatorStateManagerConfig {
   uint32_t coordinator_id_{0};
   int coordinator_port_{0};
   int bolt_port_{0};
   std::filesystem::path state_manager_durability_dir_;
-  std::shared_ptr<kvstore::KVStore> durability_store_;
+  std::optional<LogStoreDurability> log_store_durability_;
 
   CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
                                 std::filesystem::path state_manager_durability_dir,
-                                std::shared_ptr<kvstore::KVStore> durability_store = nullptr)
+                                std::optional<LogStoreDurability> log_store_durability = std::nullopt)
       : coordinator_id_(coordinator_id),
         coordinator_port_(coordinator_port),
         bolt_port_(bolt_port),
         state_manager_durability_dir_(std::move(state_manager_durability_dir)),
-        durability_store_(std::move(durability_store)) {
+        log_store_durability_(std::move(log_store_durability)) {
     MG_ASSERT(!this->state_manager_durability_dir_.empty(), "State manager durability dir path is empty");
   }
-};
-
-struct CoordinatorStateMachineConfig {
-  uint32_t coordinator_id_{0};
-  std::shared_ptr<kvstore::KVStore> durability_store_;
-
-  explicit CoordinatorStateMachineConfig(uint32_t coordinator_id,
-                                         std::shared_ptr<kvstore::KVStore> durability_store = nullptr)
-      : coordinator_id_(coordinator_id), durability_store_(std::move(durability_store)) {}
 };
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.
