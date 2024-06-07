@@ -79,7 +79,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 
   logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
 
-  bool successful_migration =
+  bool const successful_migration =
       HandleMigration(log_store_durability->stored_log_store_version_, log_store_durability->active_log_store_version_);
 
   MG_ASSERT(successful_migration, "Couldn't handle migration of log store version.");
@@ -272,7 +272,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
               fmt::format("Save logical snapshot object, obj_id={}, is_first_obj={}, is_last_obj={}", obj_id,
                           is_first_obj, is_last_obj));
 
-  ptr<buffer> snp_buf = snapshot.serialize();
+  ptr<buffer> const snp_buf = snapshot.serialize();
   auto ss = snapshot::deserialize(*snp_buf);
   if (obj_id == 0) {
     CreateSnapshotInternal(ss);
