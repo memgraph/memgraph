@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include "coordination/coordinator_exceptions.hpp"
 #include "utils.hpp"
 #include "utils/file.hpp"
 
@@ -118,7 +119,10 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   logger_.Log(nuraft_log_level::TRACE, "Saving cluster config to RocksDb");
   nlohmann::json json;
   to_json(json, config);
-  MG_ASSERT(durability_.Put(kClusterConfigKey, json.dump()), "Failed to save servers to disk");
+  auto const ok = durability_.Put(kClusterConfigKey, json.dump());
+  if (!ok) {
+    throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
+  }
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
@@ -126,7 +130,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
 
   nlohmann::json json;
   to_json(json, state);
-  MG_ASSERT(durability_.Put(kServerStateKey, json.dump()), "Couldn't store server state to disk.");
+  durability_.Put(kServerStateKey, json.dump());
 
   ptr<buffer> buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);

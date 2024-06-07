@@ -271,9 +271,9 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
               fmt::format("Save logical snapshot object, obj_id={}, is_first_obj={}, is_last_obj={}", obj_id,
                           is_first_obj, is_last_obj));
 
+  ptr<buffer> snp_buf = snapshot.serialize();
+  auto ss = snapshot::deserialize(*snp_buf);
   if (obj_id == 0) {
-    ptr<buffer> snp_buf = snapshot.serialize();
-    auto ss = snapshot::deserialize(*snp_buf);
     create_snapshot_internal(ss);
   } else {
     auto cluster_state = CoordinatorClusterState::Deserialize(data);
@@ -281,14 +281,15 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
     auto ll = std::lock_guard{snapshots_lock_};
     auto entry = snapshots_.find(snapshot.get_last_log_idx());
     MG_ASSERT(entry != snapshots_.end());
+    auto snapshot_ptr = snapshot::deserialize(*snp_buf);
     if (durability_) {
-      auto snapshot_ptr = entry->second->snapshot_;
-      MG_ASSERT(durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot.get_last_log_idx()),
-                                 SerializeSnapshotCtxToJson(SnapshotCtx{snapshot_ptr, cluster_state}).dump()),
-                "Failed to store snapshot to disk.");
+      auto const ok = durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot.get_last_log_idx()),
+                                       SerializeSnapshotCtxToJson(SnapshotCtx{snapshot_ptr, cluster_state}).dump());
+      if (!ok) {
+        throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
+      }
     }
-    ptr<buffer> snp_buf = snapshot.serialize();
-    entry->second->snapshot_ = snapshot::deserialize(*snp_buf);
+    entry->second->snapshot_ = snapshot_ptr;
     entry->second->cluster_state_ = cluster_state;
   }
   obj_id++;
@@ -301,7 +302,9 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
   if (durability_) {
-    MG_ASSERT(durability_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())));
+    if (!durability_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())).has_value()) {
+      throw NoSnapshotOnDiskException("Failed to retrieve snapshot with id {} from disk.", s.get_last_log_idx());
+    }
   }
 
   cluster_state_ = entry->second->cluster_state_;
@@ -347,17 +350,21 @@ auto CoordinatorStateMachine::create_snapshot_internal(ptr<snapshot> snapshot) -
 
   auto ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
   if (durability_) {
-    MG_ASSERT(durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()),
-                               SerializeSnapshotCtxToJson(*ctx).dump()),
-              "Failed to store snapshot to disk.");
+    auto const ok = durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()),
+                                     SerializeSnapshotCtxToJson(*ctx).dump());
+    if (!ok) {
+      throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
+    }
   }
   snapshots_[snapshot->get_last_log_idx()] = ctx;
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
     if (durability_) {
-      MG_ASSERT(durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)),
-                "Failed to delete snapshot from disk");
+      auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current));
+      if (!ok) {
+        throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
+      }
     }
     snapshots_.erase(snapshots_.begin());
   }

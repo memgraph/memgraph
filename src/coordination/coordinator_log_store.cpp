@@ -65,9 +65,8 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
       logger_.Log(nuraft_log_level::INFO,
                   "No last log entry or start index found on disk, assuming first start of log store with durability");
       start_idx_ = 1;
-      MG_ASSERT(durability_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
-      MG_ASSERT(durability_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1)),
-                "Failed to store last log entry to disk");
+      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
+      durability_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1));
       return true;
     }
 
@@ -95,11 +94,8 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
     return true;
   }
 
-  if (stored_version < active_version) {
-    // Handle migration from older versions to newer ones.
-    // Currently we only have one version so we don't need to do anything.
-    return true;
-  }
+  // Handle migration from older versions to newer ones.
+  // Currently we only have one version so we don't need to do anything.
 
   return false;
 }
@@ -122,8 +118,7 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
     }
     logs_.erase(entry);
     if (durability_) {
-      MG_ASSERT(durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(i)),
-                "Failed to delete log entry from disk");
+      durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(i));
     }
   }
 }
@@ -260,8 +255,7 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     if (entry != logs_.end()) {
       start_idx_ = entry->first;
       if (durability_) {
-        MG_ASSERT(durability_->Put(kStartIdx, std::to_string(start_idx_.load())),
-                  "Failed to store start index to disk");
+        durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
       }
     } else {
       start_idx_ = 1;
@@ -280,15 +274,14 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     }
     logs_.erase(entry);
     if (durability_) {
-      MG_ASSERT(durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii)),
-                "Failed to delete log entry from disk");
+      durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii));
     }
   }
 
   if (start_idx_ <= last_log_index) {
     start_idx_ = last_log_index + 1;
     if (durability_) {
-      MG_ASSERT(durability_->Put(kStartIdx, std::to_string(start_idx_.load())), "Failed to store start index to disk");
+      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
     }
   }
   return true;
@@ -307,11 +300,10 @@ bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t
   auto clone_val = static_cast<int>(clone->get_val_type());
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
-  MG_ASSERT(durability_->Put("log_entry_" + std::to_string(key_id), log_term_json.dump()),
-            "Failed to store log to disk!");
+  durability_->Put("log_entry_" + std::to_string(key_id), log_term_json.dump());
 
   if (is_newest_entry) {
-    MG_ASSERT(durability_->Put(kLastLogEntry, std::to_string(key_id)), "Failed to store last log entry to disk!");
+    durability_->Put(kLastLogEntry, std::to_string(key_id));
   }
 
   return true;
