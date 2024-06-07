@@ -38,12 +38,17 @@ using nuraft::snapshot;
 using nuraft::state_machine;
 
 struct SnapshotCtx {
-  SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
+  SnapshotCtx(ptr<snapshot> const &snapshot, CoordinatorClusterState const &cluster_state)
       : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+  SnapshotCtx() = default;
 
   ptr<snapshot> snapshot_;
   CoordinatorClusterState cluster_state_;
 };
+
+void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx);
+void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
 class CoordinatorStateMachine : public state_machine {
  public:
@@ -109,7 +114,7 @@ class CoordinatorStateMachine : public state_machine {
  private:
   bool HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
 
-  auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
+  auto CreateSnapshotInternal(ptr<snapshot> const &snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;
   std::atomic<uint64_t> last_committed_idx_{0};
