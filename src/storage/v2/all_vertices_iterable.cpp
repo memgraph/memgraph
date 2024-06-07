@@ -40,21 +40,25 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, bool last) : self_(self), last(last) {
   if (!last) {
     chunk_ptr = (uint8_t *)self_->itr->value().ToStringView().data();
-    gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
+    auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+    auto *vertex = disk_exp::GetVertex(val_ptr);
+    self_->vertex_ = {vertex, self_->storage_};
   }
 }
 
-VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
-  //
-  // return *self_->vertex_;
+VertexAccessor const &AllVerticesIterable::Iterator::operator*() const {
+  return *self_->vertex_;
+  // if (self_->transaction_->scanned_all_vertices_) {
+
+  // }
 
   // const auto gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
   // auto labels_id = utils::DeserializeLabelsFromMainDiskStorage(self_->itr->key().ToStringView());
   // auto properties = utils::DeserializePropertiesFromMainDiskStorage(self_->itr->value().ToStringView());
 
   // storage::small_vector<storage::LabelId> labels_id{};  // Not supported at the moment
-  auto val_size = *(uint32_t *)chunk_ptr;
-  auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+  // auto val_size = *(uint32_t *)chunk_ptr;
+  // auto *val_ptr = chunk_ptr + sizeof(uint32_t);
   // auto properties = utils::DeserializePropertiesFromMainDiskStorage(std::string_view((char *)val_ptr, val_size));
 
   // Delta *delta{};
@@ -82,31 +86,38 @@ VertexAccessor const AllVerticesIterable::Iterator::operator*() const {
   // v->properties = std::move(properties);
   // delta->prev.Set(&*v);
 
-  auto *vertex = disk_exp::GetVertex(val_ptr);
-  return {vertex, self_->storage_};
+  // auto *vertex = disk_exp::GetVertex(val_ptr);
+  // return {vertex, self_->storage_};
 }
 
 AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
+  if (self_->transaction_->scanned_all_vertices_) {
+    ++it_;
+    it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
+                                 self_->transaction_, self_->view_);
+    return *this;
+  }
+
   auto val_size = *(uint32_t *)chunk_ptr;
   chunk_ptr += sizeof(uint32_t) + val_size;
   val_size = *(uint32_t *)chunk_ptr;
   bool last_chunk = val_size == 0;
-  // gid = memgraph::storage::Gid::FromUint(gid.AsUint() + 1);  // Fake for now
 
   if (last_chunk) {
     self_->itr->Next();
     last = !self_->itr->Valid();
     if (!last) {
       chunk_ptr = (uint8_t *)self_->itr->value().data();
-      // gid = utils::ExtractGidFromKey(0, self_->itr->key().ToStringView());
     }
   }
 
+  if (!last) {
+    auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+    auto *vertex = disk_exp::GetVertex(val_ptr);
+    self_->vertex_ = {vertex, self_->storage_};
+  }
+
   return *this;
-  // ++it_;
-  // it_ = AdvanceToVisibleVertex(it_, self_->vertices_accessor_.end(), &self_->vertex_, self_->storage_,
-  //                              self_->transaction_, self_->view_);
-  // return *this;
 }
 
 }  // namespace memgraph::storage

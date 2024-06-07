@@ -31,21 +31,23 @@ class AllVerticesIterable final {
   class Iterator final {
     AllVerticesIterable *self_;
     utils::SkipList<Vertex>::Iterator it_;
-    bool last;
+    bool last{false};
     uint8_t *chunk_ptr{};
-    Gid gid;
 
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);
     Iterator(AllVerticesIterable *self, bool last);
 
-    VertexAccessor const operator*() const;
+    VertexAccessor const &operator*() const;
 
     Iterator &operator++();
 
     bool operator==(const Iterator &other) const {
+      if (self_->transaction_->scanned_all_vertices_) {
+        return self_ == other.self_ && it_ == other.it_;
+      }
       return self_ == other.self_ && last == other.last;
-    }  // it_ == other.it_; }
+    }
 
     bool operator!=(const Iterator &other) const { return !(*this == other); }
   };
@@ -63,10 +65,18 @@ class AllVerticesIterable final {
         view_(view) {}
 
   Iterator begin() {
+    if (transaction_->scanned_all_vertices_) {
+      return {this, vertices_accessor_.begin()};
+    }
     itr->SeekToFirst();
     return {this, !itr->Valid()};
   }
-  Iterator end() { return {this, true}; }
+  Iterator end() {
+    if (transaction_->scanned_all_vertices_) {
+      return {this, vertices_accessor_.end()};
+    }
+    return {this, true};
+  }
 };
 
 }  // namespace memgraph::storage

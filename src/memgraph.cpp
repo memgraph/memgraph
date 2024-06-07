@@ -84,7 +84,7 @@ constexpr uint64_t kMgVmMaxMapCount = 262144;
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
 void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
                          std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
-  memgraph::query::Interpreter interpreter(&ctx, db_acc);
+  memgraph::query::Interpreter interpreter(&ctx, std::move(db_acc));
   // Temporary empty user
   // TODO: Double check with buda
   memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
@@ -552,7 +552,7 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  auto db_acc = dbms_handler.Get();
+  // auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config, &dbms_handler, &repl_state, system,
@@ -563,7 +563,7 @@ int main(int argc, char **argv) {
       auth_handler.get(), auth_checker.get(), &replication_handler);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
-  MG_ASSERT(db_acc, "Failed to access the main database");
+  // MG_ASSERT(db_acc, "Failed to access the main database");
 
   memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
                                                                   FLAGS_data_directory);
@@ -572,6 +572,7 @@ int main(int argc, char **argv) {
 
   // TODO Make multi-tenant
   if (!FLAGS_init_file.empty()) {
+    auto db_acc = dbms_handler.Get();
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
@@ -583,6 +584,9 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_file);
 #endif
   }
+
+  auto db_acc = dbms_handler.Get();
+  MG_ASSERT(db_acc, "Failed to access the main database");
 
   // Tied to coord initialization, must happen after coordinator is initialized
   auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);

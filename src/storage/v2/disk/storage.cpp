@@ -143,7 +143,9 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
   while (head != nullptr) {
     if (head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
         head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
-        head->action == Delta::Action::SET_PROPERTY) {
+        head->action == Delta::Action::SET_PROPERTY || head->action == Delta::Action::REMOVE_IN_EDGE ||
+        head->action == Delta::Action::REMOVE_OUT_EDGE || head->action == Delta::Action::ADD_IN_EDGE ||
+        head->action == Delta::Action::ADD_OUT_EDGE) {
       return true;
     }
     head = head->next;
@@ -429,16 +431,27 @@ std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyInd
 
 void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
   rocksdb::ReadOptions ro = GenRoOptions();
-  std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
-  rocksdb::Slice ts(strTs);
-  ro.timestamp = &ts;
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(ro, kvstore_->vertex_chandle));
+  // std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
+  // rocksdb::Slice ts(strTs);
+  // ro.timestamp = &ts;
+  // auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(ro, kvstore_->vertex_chandle));
 
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    // We should pass it->timestamp().ToString() instead of "0"
-    // This is hack until RocksDB will support timestamp() in WBWI iterator
-    LoadVertexToMainMemoryCache(transaction, it->key().ToStringView(), it->value().ToStringView(),
-                                kDeserializeTimestamp);
+  // for (it->SeekToFirst(); it->Valid(); it->Next()) {
+  //   // We should pass it->timestamp().ToString() instead of "0"
+  //   // This is hack until RocksDB will support timestamp() in WBWI iterator
+  //   LoadVertexToMainMemoryCache(transaction, it->key().ToStringView(), it->value().ToStringView(),
+  //                               kDeserializeTimestamp);
+  // }
+
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(ro, kvstore_->vertex_chandle));
+  AllVerticesIterable all_vi(transaction->vertices_->access(), this, transaction, View::NEW, std::move(it));
+  auto main_storage_accessor = transaction->vertices_->access();
+  for (auto &v : all_vi) {
+    // Needs to be completely independent, so copy PS and Keys
+    auto ps = PropertyStore::CreateFromBuffer(
+        std::string_view{(char *)v.disk_vertex_->properties()->data(), v.disk_vertex_->properties()->size()}, true);
+    CreateVertexFromDisk(transaction, main_storage_accessor, v.Gid(), v.Labels(View::NEW).GetValue(), std::move(ps),
+                         CreateDeleteDeserializedObjectDelta(transaction, "\0", kDeserializeTimestamp));
   }
 }
 
@@ -1036,6 +1049,34 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
 Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from, VertexAccessor *to,
                                                            EdgeTypeId edge_type) {
+  // Vertex *from_vertex;
+  // Vertex *to_vertex;
+
+  // if (from->disk_vertex_) {
+  //   if (!transaction_.scanned_all_vertices_) {
+  //     static_cast<DiskStorage *>(storage_)->LoadVerticesToMainMemoryCache(&transaction_);
+  //     transaction_.scanned_all_vertices_ = true;
+  //   }
+  //   // Find Vertex* from disk vertex Gid
+  //   auto vacc = transaction_.vertices_->access();
+  //   auto vsl_from = vacc.find(Gid::FromUint(from->disk_vertex_->gid()));
+  //   MG_ASSERT(vsl_from != vacc.end(), "Vertex from not found");
+  //   auto vsl_to = vacc.find(Gid::FromUint(to->disk_vertex_->gid()));
+  //   MG_ASSERT(vsl_to != vacc.end(), "Vertex to not found");
+
+  //   // from_vertex = &*vsl_from;
+  //   // to_vertex = &*vsl_to;
+
+  //   auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  //   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
+  //   EdgeRef edge(gid);
+
+  //   vsl_from->out_edges.emplace_back(edge_type, to_vertex, edge);
+  //   vsl_to->in_edges.emplace_back(edge_type, from_vertex, edge);
+
+  //   return EdgeAccessor{edge, edge_type, from->disk_vertex_, to->disk_vertex_, storage_};
+  // }
+
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1273,14 +1314,24 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  std::string chunk(4096, '\0');
+  std::vector<uint32_t> histo(32768 / 128, 0);
+
+  std::string chunk(4096 * 8, '\0');
   uint32_t chunk_pos = 0;
   uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
   uint64_t id_end = -1;
 
+  // BIG HACK to make mutable queries work; Read everything,, modify, delete everything from disk, write new values
+  bool flush_all = transaction->scanned_all_vertices_;
+  if (flush_all) {
+    auto min_key = utils::StringifyInt<uint32_t, uint32_t>(0) + utils::StringifyInt<uint32_t, uint32_t>(0);
+    auto max_key = utils::StringifyInt<uint32_t, uint32_t>(-1) + utils::StringifyInt<uint32_t, uint32_t>(-1);
+    kvstore_->db_notx->DeleteRange({}, kvstore_->vertex_chandle, min_key, max_key);
+  }
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   for (const Vertex &vertex : vertex_acc) {
-    if (!VertexNeedsToBeSerialized(vertex)) {
+    if (!flush_all && !VertexNeedsToBeSerialized(vertex)) {
       continue;
     }
     // if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
@@ -1292,11 +1343,11 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     }
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
-      if (!DeleteVertexFromDisk(transaction, vertex.gid.ToString(), maybe_old_disk_key.value())) {
-        return StorageManipulationError{SerializationError{}};
-      }
-    }
+    // if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    //   if (!DeleteVertexFromDisk(transaction, vertex.gid.ToString(), maybe_old_disk_key.value())) {
+    //     return StorageManipulationError{SerializationError{}};
+    //   }
+    // }
 
     // if (!WriteVertexToVertexColumnFamily(transaction, vertex)) {
     //   return StorageManipulationError{SerializationError{}};
@@ -1321,8 +1372,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       const auto &[edge_type, opposing_vertex, edge] = in;
       auto const edge_gid = config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
       auto const edge_deleted = config_.salient.items.properties_on_edges ? edge.ptr->deleted : false;
-      auto disk_edge = disk_exp::CreateEdge(builder, edge_gid.AsUint(), edge_type.AsUint(),
-                                            opposing_vertex->gid.AsUint(), {}, edge_deleted);
+      auto disk_edge = disk_exp::CreateEdgeDirect(builder, edge_gid.AsUint(), edge_type.AsUint(),
+                                                  opposing_vertex->gid.AsUint(), nullptr, edge_deleted);
       in_edges.push_back(disk_edge);
     });
 
@@ -1330,8 +1381,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       const auto &[edge_type, opposing_vertex, edge] = in;
       auto const edge_gid = config_.salient.items.properties_on_edges ? edge.ptr->gid : edge.gid;
       auto const edge_deleted = config_.salient.items.properties_on_edges ? edge.ptr->deleted : false;
-      auto disk_edge = disk_exp::CreateEdge(builder, edge_gid.AsUint(), edge_type.AsUint(),
-                                            opposing_vertex->gid.AsUint(), {}, edge_deleted);
+      auto disk_edge = disk_exp::CreateEdgeDirect(builder, edge_gid.AsUint(), edge_type.AsUint(),
+                                                  opposing_vertex->gid.AsUint(), nullptr, edge_deleted);
       out_edges.push_back(disk_edge);
     });
 
@@ -1340,6 +1391,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
     builder.Finish(orc);  // Serialize the root of the object.
     auto val = std::string_view{(char *)builder.GetBufferPointer(), builder.GetSize()};
+
+    ++histo[val.size() / 128];
 
     if (chunk.size() - 4 <= chunk_pos + val.size()) {  // leave last 4 to be 0 always (chunk size = 0 == end)
       // Flush
@@ -1353,23 +1406,39 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       chunk_pos = 0;
     }
 
-    // Append
-    id_end = vertex.gid.AsUint();
-    *(uint32_t *)&chunk[chunk_pos] = val.size();
-    chunk_pos += sizeof(uint32_t);
-    memcpy(&chunk[chunk_pos], val.data(), val.size());
-    chunk_pos += val.size();
+    if (chunk.size() - 4 < val.size()) {
+      // Too big for a single page; flush as is
+      std::cout << val.size() << std::endl;
+      id_end = vertex.gid.AsUint();
+      // Flush
+      std::string ugh(val.size() + 4 + 4, '\0');
+      *(uint32_t *)&ugh[0] = val.size();
+      memcpy(&ugh[4], val.data(), val.size());
+      std::string key =
+          utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
+      status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, ugh);
+      // Reset
+      id_begin = vertex.gid.AsUint() + 1;  // HACK....
+      chunk_pos = 0;
+    } else {
+      // Append
+      id_end = vertex.gid.AsUint();
+      *(uint32_t *)&chunk[chunk_pos] = val.size();
+      chunk_pos += sizeof(uint32_t);
+      memcpy(&chunk[chunk_pos], val.data(), val.size());
+      chunk_pos += val.size();
+    }
 
     if (!status.ok()) {
       spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
       return StorageManipulationError{SerializationError{}};
     }
 
-    if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
-        !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
-        !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
-      return StorageManipulationError{SerializationError{}};
-    }
+    // if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
+    //     !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
+    //     !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
+    //   return StorageManipulationError{SerializationError{}};
+    // }
   }
 
   // Flush
@@ -1384,6 +1453,15 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       return StorageManipulationError{SerializationError{}};
     }
   }
+
+  for (auto h : histo) {
+    std::cout << "\t" << h;
+  }
+  std::cout << std::endl;
+  for (int i = 0; i < histo.size(); ++i) {
+    std::cout << "\t" << (i * 128);
+  }
+  std::cout << std::endl;
 
   return {};
 }
@@ -1918,32 +1996,33 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         return vertices_flush_res.GetError();
       }
 
-      if (auto del_vertices_res = disk_storage->FlushDeletedVertices(&transaction_); del_vertices_res.HasError()) {
-        Abort();
-        return del_vertices_res.GetError();
-      }
+      // if (auto del_vertices_res = disk_storage->FlushDeletedVertices(&transaction_); del_vertices_res.HasError()) {
+      //   Abort();
+      //   return del_vertices_res.GetError();
+      // }
 
-      auto tx_edges_acc = transaction_.edges_->access();
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, tx_edges_acc);
-          modified_edges_res.HasError()) {
-        Abort();
-        return modified_edges_res.GetError();
-      }
+      // auto tx_edges_acc = transaction_.edges_->access();
+      // if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, tx_edges_acc);
+      //     modified_edges_res.HasError()) {
+      //   Abort();
+      //   return modified_edges_res.GetError();
+      // }
 
-      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
-        Abort();
-        return del_edges_res.GetError();
-      }
+      // if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
+      //   Abort();
+      //   return del_edges_res.GetError();
+      // }
 
-      if (auto clear_dangling_res = disk_storage->ClearDanglingVertices(&transaction_); clear_dangling_res.HasError()) {
-        Abort();
-        return clear_dangling_res.GetError();
-      }
+      // if (auto clear_dangling_res = disk_storage->ClearDanglingVertices(&transaction_);
+      // clear_dangling_res.HasError()) {
+      //   Abort();
+      //   return clear_dangling_res.GetError();
+      // }
 
-      if (auto index_flush_res = disk_storage->FlushIndexCache(&transaction_); index_flush_res.HasError()) {
-        Abort();
-        return index_flush_res.GetError();
-      }
+      // if (auto index_flush_res = disk_storage->FlushIndexCache(&transaction_); index_flush_res.HasError()) {
+      //   Abort();
+      //   return index_flush_res.GetError();
+      // }
     }
   }
 

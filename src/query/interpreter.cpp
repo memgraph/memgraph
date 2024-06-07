@@ -3545,9 +3545,6 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
 
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       CurrentDB &current_db, InterpreterContext *interpreter_context) {
-  if (in_explicit_transaction) {
-    throw StorageModeModificationInMulticommandTxException();
-  }
   MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
   memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
 
@@ -3558,22 +3555,32 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
 
   std::function<void()> callback;
 
-  if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
-      requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
+  if (in_explicit_transaction) {
+    callback = [transaction = current_db.db_transactional_accessor_->GetTransaction(),
+                storage = static_cast<storage::DiskStorage *>(db_acc->storage())] {
+      if (!transaction->scanned_all_vertices_) {
+        storage->LoadVerticesToMainMemoryCache(transaction);
+        transaction->scanned_all_vertices_ = true;
+      }
+    };
   } else {
-    // TODO: this needs to be filtered to just db_acc->storage()
-    if (ActiveTransactionsExist(interpreter_context)) {
-      spdlog::info(
-          "Storage mode will be modified when there are no other active transactions. Check the status of the "
-          "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
-    }
+    if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
+        requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+      callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
+    } else {
+      // TODO: this needs to be filtered to just db_acc->storage()
+      if (ActiveTransactionsExist(interpreter_context)) {
+        spdlog::info(
+            "Storage mode will be modified when there are no other active transactions. Check the status of the "
+            "transactions using 'SHOW TRANSACTIONS' query and ensure no other transactions are active.");
+      }
 
-    callback = [requested_mode,
-                storage = static_cast<storage::InMemoryStorage *>(db_acc->storage())]() -> std::function<void()> {
-      // SetStorageMode will probably be handled at the Database level
-      return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
-    }();
+      callback = [requested_mode,
+                  storage = static_cast<storage::InMemoryStorage *>(db_acc->storage())]() -> std::function<void()> {
+        // SetStorageMode will probably be handled at the Database level
+        return [storage, requested_mode] { storage->SetStorageMode(requested_mode); };
+      }();
+    }
   }
 
   return PreparedQuery{{},
