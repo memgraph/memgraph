@@ -97,7 +97,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   auto const version = memgraph::coordination::GetVersion(
       durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
-  MG_ASSERT(static_cast<StateManagerDurabilityVersion>(version) != kActiveStateManagerDurabilityVersion,
+  MG_ASSERT(static_cast<StateManagerDurabilityVersion>(version) == kActiveStateManagerDurabilityVersion,
             "Unsupported version of log store with durability");
 }
 
