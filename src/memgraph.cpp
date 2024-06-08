@@ -419,6 +419,16 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = 0s;
   }
 
+#ifdef MG_ENTERPRISE
+  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
+      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
+    LOG_FATAL(
+        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
+        "option!");
+  }
+
+#endif
+
   // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
@@ -511,7 +521,7 @@ int main(int argc, char **argv) {
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{coordination_setup.coordinator_id,
                                                               coordination_setup.coordinator_port, extracted_bolt_port,
-                                                              high_availability_data_dir});
+                                                              high_availability_data_dir, FLAGS_nuraft_log_file});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }

@@ -247,7 +247,6 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       return "replica";
     };
 
-    // TODO: (andi) Add capability that followers can also return socket addresses
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
