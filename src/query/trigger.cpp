@@ -309,7 +309,14 @@ void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache
       continue;
     }
 
-    auto user = auth_checker->GenQueryUser(owner, role);
+    std::shared_ptr<query::QueryUserOrRole> user = nullptr;
+    try {
+      user = auth_checker->GenQueryUser(owner, role);
+    } catch (const utils::BasicException &e) {
+      spdlog::warn(
+          fmt::format("Failed to load trigger '{}' because its owner is not an existing Memgraph user.", trigger_name));
+      continue;
+    }
 
     std::optional<Trigger> trigger;
     try {
