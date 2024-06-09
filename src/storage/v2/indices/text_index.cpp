@@ -263,7 +263,7 @@ void TextIndex::RecoverIndex(const std::filesystem::path &storage_dir, const std
 
   CreateEmptyIndex(storage_dir, index_name, label);
 
-  for (const auto &v : vertices) {
+  for (auto &v : vertices) {
     if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
       continue;
     }

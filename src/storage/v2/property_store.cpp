@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/property_store.hpp"
+#include <sys/types.h>
 
 #include <chrono>
 #include <cstdint>
@@ -24,11 +25,15 @@
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_compression/compressor.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(property_store_compression, true, "Enable property store compression.");
 
 namespace memgraph::storage {
 
@@ -1505,7 +1510,7 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
   return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
 }
 
-bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
+bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
@@ -1543,7 +1548,11 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return prop_reader.GetPosition() == property_size;
 }
 
-std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
+std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
+  if (FLAGS_property_store_compression) {
+    ZlibCompressor compressor;
+    DecompressBuffer(compressor);
+  }
   BufferInfo buffer_info = GetBufferInfo(buffer_);
   Reader reader(buffer_info.data, buffer_info.size);
 
@@ -1736,6 +1745,13 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
     metadata->Set({Type::EMPTY});
   }
 
+  if (FLAGS_property_store_compression) {
+    ZlibCompressor compressor;
+    CompressBuffer(compressor);
+
+    DecompressBuffer(compressor);
+  }
+
   return true;
 }
 
@@ -1817,6 +1833,39 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   for (uint i = 0; i < size; ++i) {
     data[i] = static_cast<uint8_t>(buffer[i]);
   }
+}
+
+void PropertyStore::CompressBuffer(Compressor &compressor) {
+  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  if (buffer_info.size == 0) {
+    return;
+  }
+
+  auto compressed_buffer = compressor.Compress(buffer_info.data, buffer_info.size);
+  if (compressed_buffer.data.empty()) {
+    throw PropertyValueException("Failed to compress buffer");
+  }
+  spdlog::debug("Compressing buffer of size: {}", compressed_buffer.data.size());
+  spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char *>(compressed_buffer.data.data()),
+                                                                compressed_buffer.data.size()));
+  SetSizeData(buffer_, compressed_buffer.data.size(), compressed_buffer.data.data());
+}
+
+void PropertyStore::DecompressBuffer(Compressor &compressor) {
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  spdlog::debug("Decompressing buffer of size: {}", size);
+  spdlog::debug("Decompressing buffer data: {}", std::string_view(reinterpret_cast<char *>(data), size));
+  if (size == 0) {
+    return;
+  }
+  auto decompressed_buffer = compressor.Decompress(data, size);
+  if (decompressed_buffer.data.empty()) {
+    throw PropertyValueException("Failed to decompress buffer");
+  }
+
+  SetSizeData(buffer_, decompressed_buffer.data.size(), decompressed_buffer.data.data());
 }
 
 }  // namespace memgraph::storage
