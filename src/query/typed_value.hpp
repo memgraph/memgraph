@@ -70,6 +70,7 @@ class TypedValue {
 
   /** A value type. Each type corresponds to exactly one C++ type.
    *  The ORDER BY clause, when processing values of multiple distinct types, sorts them using the below ordering:
+   *  Special case: As Int and Double values are mutually comparable, they follow the chosen query::Ordering.
    */
   enum class Type : unsigned {
     Map,

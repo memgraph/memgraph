@@ -133,6 +133,36 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
   EXPECT_EQ(3, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 }
 
+std::vector<memgraph::storage::PropertyValue> GetMixedTypeValues() {
+  using namespace memgraph::storage;
+  const auto list_v = std::vector<PropertyValue>{PropertyValue(true), PropertyValue(123)};
+  const auto map_v = std::map<std::string, PropertyValue>{{"has_username", PropertyValue(true)},
+                                                          {"has_password", PropertyValue(false)}};
+  const auto us_until_day = 1717550000000000;  // μs leading to June 5, 2024
+  const auto us_in_day = 45803026000;
+  const auto date_time_us = us_until_day + us_in_day;
+  const auto duration_v = TemporalData(TemporalType::Duration, us_in_day);
+  const auto date_v = TemporalData(TemporalType::Date, us_until_day);
+  const auto local_time_v = TemporalData(TemporalType::LocalTime, us_in_day);
+  const auto local_date_time_v = TemporalData(TemporalType::LocalDateTime, date_time_us);
+  const auto zoned_date_time_v = ZonedTemporalData(
+      ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(date_time_us), memgraph::utils::Timezone("Etc/UTC"));
+  return {
+      PropertyValue(map_v),
+      PropertyValue(list_v),
+      PropertyValue(zoned_date_time_v),
+      PropertyValue(local_date_time_v),
+      PropertyValue(date_v),
+      PropertyValue(local_time_v),
+      PropertyValue(duration_v),
+      PropertyValue("Computer"),
+      PropertyValue(false),
+      PropertyValue(-1.9),
+      PropertyValue(0),
+      PropertyValue(),  // NULL
+  };
+}
+
 TYPED_TEST(QueryPlanTest, OrderBy) {
   auto storage_dba = this->db->Access(ReplicationRole::MAIN);
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -141,6 +171,10 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
+  const auto mixed_type_values_asc = GetMixedTypeValues();
+  const std::vector<memgraph::storage::PropertyValue> mixed_type_values_desc(mixed_type_values_asc.rbegin(),
+                                                                             mixed_type_values_asc.rend());
+
   auto Null = memgraph::storage::PropertyValue();
   std::vector<std::pair<Ordering, std::vector<memgraph::storage::PropertyValue>>> orderable{
       {Ordering::ASC,
@@ -155,13 +189,16 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
         memgraph::storage::PropertyValue("a"), memgraph::storage::PropertyValue("a"),
         memgraph::storage::PropertyValue("aa"), memgraph::storage::PropertyValue("ab"),
         memgraph::storage::PropertyValue("aba"), Null, Null}},
+      {Ordering::ASC, mixed_type_values_asc},
       {Ordering::DESC,
        {Null, Null, memgraph::storage::PropertyValue(33), memgraph::storage::PropertyValue(33),
         memgraph::storage::PropertyValue(32.5), memgraph::storage::PropertyValue(32),
         memgraph::storage::PropertyValue(2.2), memgraph::storage::PropertyValue(2.1),
         memgraph::storage::PropertyValue(0)}},
       {Ordering::DESC, {Null, memgraph::storage::PropertyValue(true), memgraph::storage::PropertyValue(false)}},
-      {Ordering::DESC, {Null, memgraph::storage::PropertyValue("zorro"), memgraph::storage::PropertyValue("borro")}}};
+      {Ordering::DESC, {Null, memgraph::storage::PropertyValue("zorro"), memgraph::storage::PropertyValue("borro")}},
+      {Ordering::DESC, mixed_type_values_desc},
+  };
 
   for (const auto &order_value_pair : orderable) {
     std::vector<TypedValue> values;
@@ -180,8 +217,9 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     auto order_equal = [&values, &shuffled]() {
       return std::equal(values.begin(), values.end(), shuffled.begin(), TypedValue::BoolEqual{});
     };
+    std::mt19937 gen(std::random_device{}());
     for (int i = 0; i < 50 && order_equal(); ++i) {
-      std::random_shuffle(shuffled.begin(), shuffled.end());
+      std::shuffle(shuffled.begin(), shuffled.end(), gen);
     }
     ASSERT_FALSE(order_equal());
 
@@ -219,7 +257,8 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
   const int N = 20;
   std::vector<std::pair<int, int>> prop_values;
   for (int i = 0; i < N * N; ++i) prop_values.emplace_back(i % N, i / N);
-  std::random_shuffle(prop_values.begin(), prop_values.end());
+  std::mt19937 gen(std::random_device{}());
+  std::shuffle(prop_values.begin(), prop_values.end(), gen);
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.SetProperty(p1, memgraph::storage::PropertyValue(pair.first)).HasValue());
