@@ -1549,11 +1549,12 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
+  BufferInfo buffer_info;
   if (FLAGS_property_store_compression) {
     ZlibCompressor compressor;
     DecompressBuffer(compressor);
+    std::tie(buffer_info.size, buffer_info.data) = GetSizeData(buffer_);
   }
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
   Reader reader(buffer_info.data, buffer_info.size);
 
   std::map<PropertyId, PropertyValue> props;
@@ -1748,8 +1749,6 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   if (FLAGS_property_store_compression) {
     ZlibCompressor compressor;
     CompressBuffer(compressor);
-
-    DecompressBuffer(compressor);
   }
 
   return true;
@@ -1841,6 +1840,9 @@ void PropertyStore::CompressBuffer(Compressor &compressor) {
     return;
   }
 
+  spdlog::debug("Data before compression: {}",
+                std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
+
   auto compressed_buffer = compressor.Compress(buffer_info.data, buffer_info.size);
   if (compressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to compress buffer");
@@ -1848,7 +1850,10 @@ void PropertyStore::CompressBuffer(Compressor &compressor) {
   spdlog::debug("Compressing buffer of size: {}", compressed_buffer.data.size());
   spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char *>(compressed_buffer.data.data()),
                                                                 compressed_buffer.data.size()));
-  SetSizeData(buffer_, compressed_buffer.data.size(), compressed_buffer.data.data());
+
+  auto *data = new uint8_t[compressed_buffer.data.size()];
+  memcpy(data, compressed_buffer.data.data(), compressed_buffer.data.size());
+  SetSizeData(buffer_, compressed_buffer.data.size(), data);
 }
 
 void PropertyStore::DecompressBuffer(Compressor &compressor) {
@@ -1864,8 +1869,12 @@ void PropertyStore::DecompressBuffer(Compressor &compressor) {
   if (decompressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to decompress buffer");
   }
-
-  SetSizeData(buffer_, decompressed_buffer.data.size(), decompressed_buffer.data.data());
+  delete[] data;
+  auto *new_data = new uint8_t[decompressed_buffer.data.size()];
+  memcpy(new_data, decompressed_buffer.data.data(), decompressed_buffer.data.size());
+  SetSizeData(buffer_, decompressed_buffer.data.size(), new_data);
+  spdlog::debug("Data after decompression: {}",
+                std::string_view(reinterpret_cast<char *>(new_data), decompressed_buffer.data.size()));
 }
 
 }  // namespace memgraph::storage
