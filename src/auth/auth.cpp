@@ -35,11 +35,15 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
     const auto module_and_scheme = utils::Split(mapping, ":");
-    if (module_and_scheme.size() != 2) {
+    const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
+
+    const auto n_values_provided = module_and_scheme.size();
+    const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
+    if (!(n_values_provided == 2 || use_default)) {
       throw auth::AuthException("Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
     }
-    const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
-    const auto module_path = std::string{utils::Trim(module_and_scheme[1])};
+    const auto module_path =
+        std::string{use_default ? DEFAULT_SSO_MAPPINGS.at(scheme_name) : utils::Trim(module_and_scheme[1])};
     module_per_scheme.emplace(scheme_name, module_path);
   }
   return module_per_scheme;
