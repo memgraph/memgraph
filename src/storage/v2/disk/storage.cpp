@@ -281,6 +281,8 @@ DiskStorage::DiskStorage(Config config)
 
   kvstore_->options_.max_open_files = 256;
 
+  // TODO Comparator that orders based on the key start_gid + end_gid
+
   //  options.OptimizeLevelStyleCompaction(128 * 1024 * 1024);
   // kvstore_->options_.allow_concurrent_memtable_write = false;
   // kvstore_->options_.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
@@ -450,8 +452,13 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
     // Needs to be completely independent, so copy PS and Keys
     auto ps = PropertyStore::CreateFromBuffer(
         std::string_view{(char *)v.disk_vertex_->properties()->data(), v.disk_vertex_->properties()->size()}, true);
-    CreateVertexFromDisk(transaction, main_storage_accessor, v.Gid(), v.Labels(View::NEW).GetValue(), std::move(ps),
-                         CreateDeleteDeserializedObjectDelta(transaction, "\0", kDeserializeTimestamp));
+    auto new_v =
+        CreateVertexFromDisk(transaction, main_storage_accessor, v.Gid(), v.Labels(View::NEW).GetValue(), std::move(ps),
+                             CreateDeleteDeserializedObjectDelta(transaction, "\0", kDeserializeTimestamp));
+    auto prop_id = new_v.GetProperty(NameToProperty("id"), View::NEW);
+    if (prop_id.HasValue()) {
+      transaction->prop_id_index_[prop_id->ValueInt()] = new_v.vertex_;
+    }
   }
 }
 
@@ -651,13 +658,24 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
                                                      View view) {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
-    disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_,
-        &transaction_));
+  if (!transaction_.scanned_all_vertices_) {
+    const auto &pos = disk_storage->index_[value.ValueInt()];
+    auto ro = GenRoOptions();
+    // TODO Not pinned....
+    ro.pin_data = true;
+    rocksdb::PinnableSlice vpin;
+    const auto status = disk_storage->kvstore_->db_notx->Get(ro, disk_storage->kvstore_->vertex_chandle,
+                                                             std::string_view{pos.key, sizeof(pos.key)}, &vpin);
+    return VerticesIterable{SingleVertexIterable{std::move(vpin), pos.offset, disk_storage, &transaction_, View::NEW}};
   }
+  // if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+  //   disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
+
+  //   return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+  //       label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_,
+  //       &transaction_));
+  // }
 
   transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
   auto &indexed_vertices = transaction_.index_storage_.back();
@@ -670,14 +688,30 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
            VertexHasEqualPropertyValue(vertex, property, value, &transaction_, view);
   };
 
-  const auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      &transaction_, label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
+  // const auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
+  //     &transaction_, label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
-  disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(&transaction_, label, property, gids, value,
-                                                                           index_deltas, indexed_vertices.get());
+  // disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(&transaction_, label, property, gids,
+  // value,
+  //                                                                          index_deltas, indexed_vertices.get());
+  auto delta = CreateDeleteDeserializedObjectDelta(&transaction_, "\0", kDeserializeTimestamp);
+  auto iacc = indexed_vertices->access();
+  try {
+    auto *vp = transaction_.prop_id_index_.at(value.ValueInt());
+    auto [it, inserted] = iacc.insert(Vertex{vp->gid, delta});
+    MG_ASSERT(inserted, "The vertex must be inserted here!");
+    MG_ASSERT(it != iacc.end(), "Invalid Vertex accessor!");
+    it->labels = vp->labels;
+    PropertyStore ps;
+    ps.SetBuffer(vp->properties.StringBuffer(), true);
+    it->properties = std::move(ps);
+    delta->prev.Set(&*it);
+    // return {&*it, this, transaction};
+  } catch (...) {
+  }
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
-}
+  return VerticesIterable(AllVerticesIterable(std::move(iacc), storage_, &transaction_, view));
+}  // namespace memgraph::storage
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
@@ -1309,14 +1343,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 }
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushVertices(
-    Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
+    Transaction *transaction, auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   std::vector<uint32_t> histo(32768 / 128, 0);
 
-  std::string chunk(4096 * 8, '\0');
+  std::string page(4096 * 8, '\0');  // Currently doesn't work with edges; use at least 32k for edges
   uint32_t chunk_pos = 0;
   uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
   uint64_t id_end = -1;
@@ -1327,9 +1361,28 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     auto min_key = utils::StringifyInt<uint32_t, uint32_t>(0) + utils::StringifyInt<uint32_t, uint32_t>(0);
     auto max_key = utils::StringifyInt<uint32_t, uint32_t>(-1) + utils::StringifyInt<uint32_t, uint32_t>(-1);
     kvstore_->db_notx->DeleteRange({}, kvstore_->vertex_chandle, min_key, max_key);
+    index_.clear();
+
+    // for (auto &index : transaction->prop_id_index_) {
+    for (auto &index : transaction->index_storage_)
+      for (auto &new_v : index->access()) {
+        // auto &new_v = index.second;
+        auto old_v = vertex_acc.find(new_v.gid);
+        old_v->in_edges.reserve(old_v->in_edges.size() + new_v.in_edges.size());
+        for (auto &e : new_v.in_edges) {
+          old_v->in_edges.push_back(std::move(e));
+        }
+        old_v->out_edges.reserve(old_v->out_edges.size() + new_v.out_edges.size());
+        for (auto &e : new_v.out_edges) {
+          old_v->out_edges.push_back(std::move(e));
+        }
+      }
   }
 
+  std::vector<IndexEntry *> to_update;
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  // TODO: FIX Caution; this is not ordered!!!
   for (const Vertex &vertex : vertex_acc) {
     if (!flush_all && !VertexNeedsToBeSerialized(vertex)) {
       continue;
@@ -1357,6 +1410,25 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
     // Flatbuffer....very inefficient for now (a lot of copies)
     flatbuffers::FlatBufferBuilder builder;
+
+    auto update_index = [&](std::string_view key, uint32_t offset) {
+      // Super experimental index
+      // Add element for each label, but ONLY for property ID
+      // We do not support partial vertex updates, so if we are here, we need to add it to the index
+      auto prop_id = vertex.properties.GetProperty(NameToProperty("id"));
+      if (!prop_id.IsNull()) {
+        if (prop_id.ValueInt() == 1) {
+          asm("nop");
+        }
+        for (const auto &l : vertex.labels) {
+          IndexEntry ie{};
+          memcpy(ie.key, key.data(), key.size());
+          ie.offset = offset;
+          auto [itr, _] = index_.emplace(prop_id.ValueInt(), std::move(ie));
+          to_update.push_back(&itr->second);
+        }
+      }
+    };
 
     std::vector<uint32_t> labels;
     labels.reserve(vertex.labels.size());
@@ -1386,27 +1458,34 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       out_edges.push_back(disk_edge);
     });
 
-    auto orc = disk_exp::CreateVertexDirect(builder, vertex.gid.AsUint(), &labels, &in_edges, &out_edges, &properties,
-                                            vertex.deleted);
+    auto v_ser = disk_exp::CreateVertexDirect(builder, vertex.gid.AsUint(), &labels, &in_edges, &out_edges, &properties,
+                                              vertex.deleted);
 
-    builder.Finish(orc);  // Serialize the root of the object.
+    builder.Finish(v_ser);  // Serialize the root of the object.
     auto val = std::string_view{(char *)builder.GetBufferPointer(), builder.GetSize()};
 
     ++histo[val.size() / 128];
 
-    if (chunk.size() - 4 <= chunk_pos + val.size()) {  // leave last 4 to be 0 always (chunk size = 0 == end)
-      // Flush
-      std::string key =
-          utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
-      *(uint32_t *)&chunk[chunk_pos] = 0;
-      chunk_pos += 4;
-      status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, chunk.substr(0, chunk_pos));
+    if (page.size() - 4 <= chunk_pos + val.size()) {
+      if (chunk_pos != 0) {  // leave last 4 to be 0 always (chunk size = 0 == end)
+        // Flush
+        std::string key =
+            utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
+        *(uint32_t *)&page[chunk_pos] = 0;
+        chunk_pos += 4;
+        status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, page.substr(0, chunk_pos));
+        // Update index
+        for (auto *elem : to_update) {
+          memcpy(elem->key, key.data(), key.size());
+        }
+        to_update.clear();
+      }
       // Reset
       id_begin = vertex.gid.AsUint();
       chunk_pos = 0;
     }
 
-    if (chunk.size() - 4 < val.size()) {
+    if (page.size() - 4 < val.size()) {
       // Too big for a single page; flush as is
       std::cout << val.size() << std::endl;
       id_end = vertex.gid.AsUint();
@@ -1420,12 +1499,17 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       // Reset
       id_begin = vertex.gid.AsUint() + 1;  // HACK....
       chunk_pos = 0;
+      // Update index
+      update_index(key, 4);
+      to_update.clear();
     } else {
       // Append
       id_end = vertex.gid.AsUint();
-      *(uint32_t *)&chunk[chunk_pos] = val.size();
+      *(uint32_t *)&page[chunk_pos] = val.size();
       chunk_pos += sizeof(uint32_t);
-      memcpy(&chunk[chunk_pos], val.data(), val.size());
+      // Update index
+      update_index("", chunk_pos);
+      memcpy(&page[chunk_pos], val.data(), val.size());
       chunk_pos += val.size();
     }
 
@@ -1445,13 +1529,18 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   if (chunk_pos != 0) {
     std::string key =
         utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
-    *(uint32_t *)&chunk[chunk_pos] = 0;
+    *(uint32_t *)&page[chunk_pos] = 0;
     chunk_pos += 4;
-    auto status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, chunk.substr(0, chunk_pos));
+    auto status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, page.substr(0, chunk_pos));
     if (!status.ok()) {
       spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
       return StorageManipulationError{SerializationError{}};
     }
+    // Update index
+    for (auto *elem : to_update) {
+      memcpy(elem->key, key.data(), key.size());
+    }
+    to_update.clear();
   }
 
   for (auto h : histo) {
@@ -1462,6 +1551,14 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     std::cout << "\t" << (i * 128);
   }
   std::cout << std::endl;
+
+  std::cout << "index" << std::endl;
+  for (const auto &id : index_) {
+    uint32_t key1, key2;
+    memcpy(&key1, id.second.key, 4);
+    memcpy(&key2, &id.second.key[4], 4);
+    std::cout << id.first << " at " << key1 << key2 << ", " << id.second.offset << std::endl;
+  }
 
   return {};
 }
@@ -1485,8 +1582,9 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     Transaction *transaction) {
   std::vector<std::vector<PropertyValue>> unique_storage;
 
-  for (const auto &vec : transaction->index_storage_) {
-    if (auto vertices_res = FlushVertices(transaction, vec->access(), unique_storage); vertices_res.HasError()) {
+  for (auto &vec : transaction->index_storage_) {
+    auto vacc = vec->access();
+    if (auto vertices_res = FlushVertices(transaction, vacc, unique_storage); vertices_res.HasError()) {
       return vertices_res.GetError();
     }
   }
@@ -1622,6 +1720,13 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
 
   rocksdb::ReadOptions read_opts = GenRoOptions();
   read_opts.pin_data = true;  // Should be pined by the scan all (maybe....)
+
+  // Maybe we can have a map index type thing
+  // But first we can improve this anyway
+  // 1. add page index to the top of the page, so we don't have to sequentially scan the page
+  // 2. add a key filter, so we have the smallest range that could satisfy us
+  //    is it possible to do lower_bound or something like that. we have our start gid (out gid) and want the first
+  //    equal or less
 
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -1989,8 +2094,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
       }
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
-      if (auto vertices_flush_res =
-              disk_storage->FlushVertices(&transaction_, transaction_.vertices_->access(), unique_storage);
+      auto vacc = transaction_.vertices_->access();
+      if (auto vertices_flush_res = disk_storage->FlushVertices(&transaction_, vacc, unique_storage);
           vertices_flush_res.HasError()) {
         Abort();
         return vertices_flush_res.GetError();

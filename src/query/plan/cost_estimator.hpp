@@ -156,10 +156,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     auto property_value = ConstPropertyValue(logical_op.expression_);
     double factor = 1.0;
-    if (property_value)
+    if (property_value) {
+      factor = 1;  // Just getting it to work quickly
       // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, property_value.value());
-    else
+      // factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, property_value.value());
+    } else
       // estimate the influence as ScanAll(label, property) * filtering
       factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) * CardParam::kFilter;
 

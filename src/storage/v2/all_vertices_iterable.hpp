@@ -19,6 +19,46 @@ namespace memgraph::storage {
 
 class Storage;
 
+class SingleVertexIterable final {
+  rocksdb::PinnableSlice vpin;
+  uint32_t offset_;
+  Storage *storage_;
+
+ public:
+  class Iterator final {
+    SingleVertexIterable *self_;
+    bool last_;
+    VertexAccessor vacc;
+
+   public:
+    Iterator(SingleVertexIterable *self, bool last)
+        : self_{self},
+          last_{last},
+          vacc{disk_exp::GetVertex(last ? nullptr : (self_->vpin.data() + self_->offset_)), self_->storage_} {}
+
+    VertexAccessor const &operator*() const {
+      // asm("nop");
+      return vacc;
+    }
+
+    Iterator &operator++() {
+      last_ = true;
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const { return self_ == other.self_ && last_ == other.last_; }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  SingleVertexIterable(rocksdb::PinnableSlice vpin, uint32_t offset, Storage *storage, Transaction *transaction,
+                       View view)
+      : vpin(std::move(vpin)), offset_{offset}, storage_(storage) {}
+
+  Iterator begin() { return {this, false}; }
+  Iterator end() { return {this, true}; }
+};
+
 class AllVerticesIterable final {
   std::unique_ptr<rocksdb::Iterator> itr;
   utils::SkipList<Vertex>::Accessor vertices_accessor_;

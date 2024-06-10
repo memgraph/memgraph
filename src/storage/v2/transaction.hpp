@@ -14,6 +14,7 @@
 #include <atomic>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 
 #include "storage/v2/id_types.hpp"
 #include "utils/memory.hpp"
@@ -111,6 +112,7 @@ struct Transaction {
   /// Main storage
   std::optional<utils::SkipList<Vertex>> vertices_{};
   std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
+  std::unordered_map<uint64_t, Vertex *> prop_id_index_{};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done

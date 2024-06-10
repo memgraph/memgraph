@@ -18,16 +18,18 @@
 namespace memgraph::storage {
 
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
+  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY, SINGLE };
 
   Type type_;
   union {
+    SingleVertexIterable single_vertex_;
     AllVerticesIterable all_vertices_;
     InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
     InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
   };
 
  public:
+  explicit VerticesIterable(SingleVertexIterable);
   explicit VerticesIterable(AllVerticesIterable);
   explicit VerticesIterable(InMemoryLabelIndex::Iterable);
   explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
@@ -43,6 +45,7 @@ class VerticesIterable final {
   class Iterator final {
     Type type_;
     union {
+      SingleVertexIterable::Iterator single_it_;
       AllVerticesIterable::Iterator all_it_;
       InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
       InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
@@ -51,6 +54,7 @@ class VerticesIterable final {
     void Destroy() noexcept;
 
    public:
+    explicit Iterator(SingleVertexIterable::Iterator);
     explicit Iterator(AllVerticesIterable::Iterator);
     explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
     explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);

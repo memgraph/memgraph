@@ -140,11 +140,11 @@ class Pokec(Workload):
     #     )
 
     # NOT OK
-    # def benchmark__arango__expansion_2(self):
-    #     return (
-    #         "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
-    #         {"id": self._get_random_vertex()},
-    #     )
+    def benchmark__arango__expansion_2(self):
+        return (
+            "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
+            {"id": self._get_random_vertex()},
+        )
 
     # NOT OK
     # def benchmark__arango__expansion_2_with_filter(self):

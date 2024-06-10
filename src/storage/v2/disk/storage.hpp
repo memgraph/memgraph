@@ -204,7 +204,7 @@ class DiskStorage final : public Storage {
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
 
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushVertices(
-      Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
+      Transaction *transaction, auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage);
 
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> CheckVertexConstraintsBeforeCommit(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const;
@@ -340,6 +340,16 @@ class DiskStorage final : public Storage {
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
   std::atomic<uint64_t> vertex_count_{0};
+
+ public:
+  struct IndexEntry {
+    char key[2 * sizeof(uint32_t)];  // Works now, but keep an eye on it
+    uint32_t offset;                 // Vertex offset from the value start
+  };
+  // struct index_hash {
+  //   std::size_t operator()(std::pair<uint32_t, PropertyValue> const &v) const { return std::hash()(v.second); }
+  // };
+  std::unordered_map</*std::pair<LabelId, PropertyValue>*/ uint64_t, IndexEntry> index_;
 };
 
 }  // namespace memgraph::storage

@@ -12,6 +12,10 @@
 #include "storage/v2/vertices_iterable.hpp"
 namespace memgraph::storage {
 
+VerticesIterable::VerticesIterable(SingleVertexIterable vertices) : type_(Type::SINGLE) {
+  new (&all_vertices_) SingleVertexIterable(std::move(vertices));
+}
+
 VerticesIterable::VerticesIterable(AllVerticesIterable vertices) : type_(Type::ALL) {
   new (&all_vertices_) AllVerticesIterable(std::move(vertices));
 }
@@ -27,6 +31,9 @@ VerticesIterable::VerticesIterable(InMemoryLabelPropertyIndex::Iterable vertices
 
 VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
+    case Type::SINGLE:
+      new (&all_vertices_) SingleVertexIterable(std::move(other.single_vertex_));
+      break;
     case Type::ALL:
       new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
       break;
@@ -42,6 +49,9 @@ VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(ot
 
 VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept {
   switch (type_) {
+    case Type::SINGLE:
+      single_vertex_.SingleVertexIterable::~SingleVertexIterable();
+      break;
     case Type::ALL:
       all_vertices_.AllVerticesIterable::~AllVerticesIterable();
       break;
@@ -54,6 +64,9 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
   }
   type_ = other.type_;
   switch (other.type_) {
+    case Type::SINGLE:
+      new (&single_vertex_) SingleVertexIterable(std::move(other.single_vertex_));
+      break;
     case Type::ALL:
       new (&all_vertices_) AllVerticesIterable(std::move(other.all_vertices_));
       break;
@@ -70,6 +83,9 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
 
 VerticesIterable::~VerticesIterable() {
   switch (type_) {
+    case Type::SINGLE:
+      single_vertex_.SingleVertexIterable::~SingleVertexIterable();
+      break;
     case Type::ALL:
       all_vertices_.AllVerticesIterable::~AllVerticesIterable();
       break;
@@ -84,6 +100,8 @@ VerticesIterable::~VerticesIterable() {
 
 VerticesIterable::Iterator VerticesIterable::begin() {
   switch (type_) {
+    case Type::SINGLE:
+      return Iterator(single_vertex_.begin());
     case Type::ALL:
       return Iterator(all_vertices_.begin());
     case Type::BY_LABEL_IN_MEMORY:
@@ -95,6 +113,8 @@ VerticesIterable::Iterator VerticesIterable::begin() {
 
 VerticesIterable::Iterator VerticesIterable::end() {
   switch (type_) {
+    case Type::SINGLE:
+      return Iterator(single_vertex_.end());
     case Type::ALL:
       return Iterator(all_vertices_.end());
     case Type::BY_LABEL_IN_MEMORY:
@@ -102,6 +122,11 @@ VerticesIterable::Iterator VerticesIterable::end() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.end());
   }
+}
+
+VerticesIterable::Iterator::Iterator(SingleVertexIterable::Iterator it) : type_(Type::SINGLE) {
+  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+  new (&all_it_) SingleVertexIterable::Iterator(std::move(it));
 }
 
 VerticesIterable::Iterator::Iterator(AllVerticesIterable::Iterator it) : type_(Type::ALL) {
@@ -122,6 +147,9 @@ VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Itera
 
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
   switch (other.type_) {
+    case Type::SINGLE:
+      new (&single_it_) SingleVertexIterable::Iterator(other.single_it_);
+      break;
     case Type::ALL:
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
@@ -140,6 +168,9 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
   Destroy();
   type_ = other.type_;
   switch (other.type_) {
+    case Type::SINGLE:
+      new (&single_it_) SingleVertexIterable::Iterator(other.single_it_);
+      break;
     case Type::ALL:
       new (&all_it_) AllVerticesIterable::Iterator(other.all_it_);
       break;
@@ -156,6 +187,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
 
 VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
+    case Type::SINGLE:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+      new (&single_it_) SingleVertexIterable::Iterator(std::move(other.single_it_));
+      break;
     case Type::ALL:
       // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
@@ -176,6 +211,10 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
   Destroy();
   type_ = other.type_;
   switch (other.type_) {
+    case Type::SINGLE:
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
+      new (&single_it_) SingleVertexIterable::Iterator(std::move(other.single_it_));
+      break;
     case Type::ALL:
       // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       new (&all_it_) AllVerticesIterable::Iterator(std::move(other.all_it_));
@@ -197,6 +236,9 @@ VerticesIterable::Iterator::~Iterator() { Destroy(); }
 
 void VerticesIterable::Iterator::Destroy() noexcept {
   switch (type_) {
+    case Type::SINGLE:
+      single_it_.SingleVertexIterable::Iterator::~Iterator();
+      break;
     case Type::ALL:
       all_it_.AllVerticesIterable::Iterator::~Iterator();
       break;
@@ -211,6 +253,8 @@ void VerticesIterable::Iterator::Destroy() noexcept {
 
 VertexAccessor const VerticesIterable::Iterator::operator*() const {
   switch (type_) {
+    case Type::SINGLE:
+      return *single_it_;
     case Type::ALL:
       return *all_it_;
     case Type::BY_LABEL_IN_MEMORY:
@@ -222,6 +266,9 @@ VertexAccessor const VerticesIterable::Iterator::operator*() const {
 
 VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
   switch (type_) {
+    case Type::SINGLE:
+      ++single_it_;
+      break;
     case Type::ALL:
       ++all_it_;
       break;
@@ -237,6 +284,8 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
 
 bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
   switch (type_) {
+    case Type::SINGLE:
+      return single_it_ == other.single_it_;
     case Type::ALL:
       return all_it_ == other.all_it_;
     case Type::BY_LABEL_IN_MEMORY:

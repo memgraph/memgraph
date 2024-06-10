@@ -4578,6 +4578,9 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                                 const std::map<std::string, storage::PropertyValue> &params,
                                                 QueryExtras const &extras) {
+  // for (const auto &p : params) {
+  //   std::cout << p.first << ": " << p.second << std::endl;
+  // }
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);

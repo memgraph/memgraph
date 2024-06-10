@@ -882,61 +882,68 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     // Now try to see if we can use label+property index. If not, try to use
     // just the label index.
-    const auto labels = filters_.FilteredLabels(node_symbol);
+    auto labels = filters_.FilteredLabels(node_symbol);
     if (labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
-    auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
-    if (found_index &&
-        // Use label+property index if we satisfy max_vertex_count.
-        (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
-      // Copy the property filter and then erase it from filters.
-      const auto prop_filter = *found_index->filter.property_filter;
-      if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
-        // Remove the original expression from Filter operation only if it's not
-        // a regex match. In such a case we need to perform the matching even
-        // after we've scanned the index.
-        filter_exprs_for_removal_.insert(found_index->filter.expression);
-      }
-      filters_.EraseFilter(found_index->filter);
-      std::vector<Expression *> removed_expressions;
-      filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
-      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-      if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, prop_filter.lower_bound_, prop_filter.upper_bound_, view);
-      }
-      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
-        // Generate index scan using the empty string as a lower bound.
-        Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
-        auto lower_bound = utils::MakeBoundInclusive(empty_string);
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, std::make_optional(lower_bound), std::nullopt, view);
-      }
-      if (prop_filter.type_ == PropertyFilter::Type::IN) {
-        // TODO(buda): ScanAllByLabelProperty + Filter should be considered
-        // here once the operator and the right cardinality estimation exist.
-        auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
-        expression->MapTo(symbol);
-        auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-        return std::make_unique<ScanAllByLabelPropertyValue>(
-            std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, expression, view);
-      }
-      if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-        return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
-                                                        GetProperty(prop_filter.property_), prop_filter.property_.name,
-                                                        view);
-      }
-      MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-      return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                           GetProperty(prop_filter.property_),
-                                                           prop_filter.property_.name, prop_filter.value_, view);
+    // auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
+    // if (found_index &&
+    //     // Use label+property index if we satisfy max_vertex_count.
+    //     (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
+    //   // Copy the property filter and then erase it from filters.
+    //   const auto prop_filter = *found_index->filter.property_filter;
+    //   if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
+    //     // Remove the original expression from Filter operation only if it's not
+    //     // a regex match. In such a case we need to perform the matching even
+    //     // after we've scanned the index.
+    //     filter_exprs_for_removal_.insert(found_index->filter.expression);
+    //   }
+    //   filters_.EraseFilter(found_index->filter);
+    //   std::vector<Expression *> removed_expressions;
+    //   filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+    //   filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    //   if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
+    //     return std::make_unique<ScanAllByLabelPropertyRange>(
+    //         input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
+    //         prop_filter.property_.name, prop_filter.lower_bound_, prop_filter.upper_bound_, view);
+    //   }
+    //   if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
+    //     // Generate index scan using the empty string as a lower bound.
+    //     Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
+    //     auto lower_bound = utils::MakeBoundInclusive(empty_string);
+    //     return std::make_unique<ScanAllByLabelPropertyRange>(
+    //         input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
+    //         prop_filter.property_.name, std::make_optional(lower_bound), std::nullopt, view);
+    //   }
+    //   if (prop_filter.type_ == PropertyFilter::Type::IN) {
+    //     // TODO(buda): ScanAllByLabelProperty + Filter should be considered
+    //     // here once the operator and the right cardinality estimation exist.
+    //     auto const &symbol = symbol_table_->CreateAnonymousSymbol();
+    //     auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+    //     expression->MapTo(symbol);
+    //     auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
+    //     return std::make_unique<ScanAllByLabelPropertyValue>(
+    //         std::move(unwind_operator), node_symbol, GetLabel(found_index->label),
+    //         GetProperty(prop_filter.property_), prop_filter.property_.name, expression, view);
+    //   }
+    //   if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+    //     return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
+    //                                                     GetProperty(prop_filter.property_),
+    //                                                     prop_filter.property_.name, view);
+    //   }
+    //   MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
+    const auto &prop_filter = filters_.PropertyFilters(node_symbol);
+    if (prop_filter.size() == 1) {
+      filters_.EraseFilter(prop_filter[0]);
+      // std::vector<Expression *> removed_expressions;
+      // filters_.EraseLabelFilter(node_symbol, *labels.begin(), &removed_expressions);
+      // filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      return std::make_unique<ScanAllByLabelPropertyValue>(
+          input, node_symbol, storage::LabelId::FromUint(0), GetProperty(prop_filter[0].property_filter->property_),
+          prop_filter[0].property_filter->property_.name, prop_filter[0].property_filter->value_, view);
     }
+    // }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
     const auto &label = *maybe_label;
