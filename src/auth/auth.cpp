@@ -39,7 +39,7 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 
     const auto n_values_provided = module_and_scheme.size();
     const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
-    if (!(n_values_provided == 2 || use_default)) {
+    if (n_values_provided != 2 && !use_default) {
       throw auth::AuthException("Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
     }
     const auto module_path =

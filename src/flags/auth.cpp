@@ -21,8 +21,8 @@
 DEFINE_VALIDATED_string(
     auth_module_mappings, "",
     "Associates auth schemes to external modules. A mapping is structured as follows: \"<scheme>:<absolute path>\", "
-    "and individual entries are separated with \";\". If it contains whitepace, enclose the whole mapping inside "
-    "quotes: \" \"",
+    "and individual entries are separated with \";\". If the mapping contains whitespace, enclose all of it inside "
+    "quotation marks: \" \"",
     {
       if (value.empty()) return true;
       for (const auto &mapping : memgraph::utils::Split(value, ";")) {
@@ -31,7 +31,7 @@ DEFINE_VALIDATED_string(
 
         const auto n_values_provided = module_and_scheme.size();
         const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
-        if (!(n_values_provided == 2 || use_default)) {
+        if (n_values_provided != 2 && !use_default) {
           throw memgraph::utils::BasicException(
               "Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
         }

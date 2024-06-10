@@ -13,13 +13,14 @@
 # "--log-level=TRACE", "--storage-properties-on-edges=True", "--storage-snapshot-interval-sec", "300", "--storage-wal-enabled=True"
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
+
 startup_config_dict = {
     "auth_module_mappings": (
         "",
         "",
-        "Associates auth schemas to external modules. A mapping is structured as "
-        'follows: "<scheme>: <absolute path>", and individual mappings are separated '
-        'with ";".',
+        'Associates auth schemes to external modules. A mapping is structured as follows: "<scheme>:<absolute path>", '
+        'and individual entries are separated with ";". If the mapping contains whitespace, enclose all of it inside '
+        'quotation marks: " "',
     ),
     "auth_module_timeout_ms": (
         "10000",
