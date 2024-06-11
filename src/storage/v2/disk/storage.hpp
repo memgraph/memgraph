@@ -350,6 +350,7 @@ class DiskStorage final : public Storage {
   //   std::size_t operator()(std::pair<uint32_t, PropertyValue> const &v) const { return std::hash()(v.second); }
   // };
   std::unordered_map</*std::pair<LabelId, PropertyValue>*/ uint64_t, IndexEntry> index_;
+  std::unordered_map</*Gid*/ uint64_t, IndexEntry> index_gid_;
 };
 
 }  // namespace memgraph::storage

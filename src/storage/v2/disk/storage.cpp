@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,6 +24,7 @@
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
+#include <rocksdb/iterator.h>
 #include <rocksdb/memtablerep.h>
 #include <rocksdb/slice.h>
 #include <rocksdb/table.h>
@@ -249,6 +251,55 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
   return true;
 }
 
+void print_key(const auto &str) {
+  uint32_t key1, key2;
+  memcpy(&key1, &str[0], 4);
+  memcpy(&key2, &str[4], 4);
+  std::cout << key1 << "," << key2;
+}
+
+class KeyComparator : public ::rocksdb::Comparator {
+ public:
+  ~KeyComparator() {}
+
+  KeyComparator() {}
+
+  // Three-way comparison function:
+  // if a < b: negative result
+  // if a > b: positive result
+  // else: zero result
+  int Compare(const rocksdb::Slice &lhs, const rocksdb::Slice &rhs) const override {
+    if (lhs.size() != 8 || rhs.size() != 8) return rocksdb::BytewiseComparator()->Compare(lhs, rhs);
+    const auto start_gid1 = *(uint32_t *)lhs.data();
+    const auto start_gid2 = *(uint32_t *)rhs.data();
+    print_key(lhs.ToStringView());
+    std::cout << " < ";
+    print_key(rhs.ToStringView());
+    auto res = [&] {
+      if (start_gid1 != start_gid2) return (1 - 2 * (start_gid1 < start_gid2));
+      const auto end_gid1 = *(uint32_t *)&lhs.data()[sizeof(uint32_t)];
+      const auto end_gid2 = *(uint32_t *)&rhs.data()[sizeof(uint32_t)];
+      return (end_gid1 != end_gid2) * (1 - 2 * (end_gid1 < end_gid2));
+    };
+    std::cout << " = " << res() << std::endl;
+    return res();
+  };
+
+  bool Equal(const rocksdb::Slice &lhs, const rocksdb::Slice &rhs) const override { return Compare(lhs, rhs) == 0; }
+
+  // Ignore the following methods for now:
+  const char *Name() const override { return "KeyComparator"; };
+
+  void FindShortestSeparator(std::string *, const rocksdb::Slice &) const override{};
+
+  void FindShortSuccessor(std::string *) const override{};
+};
+
+const rocksdb::Comparator *cmp() {
+  static KeyComparator cmp;
+  return &cmp;
+}
+
 }  // namespace
 
 DiskStorage::DiskStorage(Config config)
@@ -268,11 +319,12 @@ DiskStorage::DiskStorage(Config config)
   table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
   table_options.optimize_filters_for_memory = false;
   table_options.enable_index_compression = false;
+  table_options.use_delta_encoding = false;
   //  table_options.prepopulate_block_cache =
   //      rocksdb::BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
   kvstore_->options_.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
   // options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(8));
-  kvstore_->options_.max_background_jobs = 4;
+  kvstore_->options_.max_background_jobs = 12;
   kvstore_->options_.enable_pipelined_write = true;
   kvstore_->options_.avoid_unnecessary_blocking_io = true;
 
@@ -287,7 +339,7 @@ DiskStorage::DiskStorage(Config config)
   // kvstore_->options_.allow_concurrent_memtable_write = false;
   // kvstore_->options_.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
 
-  // options.comparator = pds_cmp();
+  // kvstore_->options_.comparator = cmp();
 
   // {
   //   // Setup read options
@@ -1362,6 +1414,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     auto max_key = utils::StringifyInt<uint32_t, uint32_t>(-1) + utils::StringifyInt<uint32_t, uint32_t>(-1);
     kvstore_->db_notx->DeleteRange({}, kvstore_->vertex_chandle, min_key, max_key);
     index_.clear();
+    index_gid_.clear();
 
     // for (auto &index : transaction->prop_id_index_) {
     for (auto &index : transaction->index_storage_)
@@ -1380,6 +1433,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   }
 
   std::vector<IndexEntry *> to_update;
+  std::vector<IndexEntry *> to_update_gid;
 
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   // TODO: FIX Caution; this is not ordered!!!
@@ -1424,8 +1478,10 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
           IndexEntry ie{};
           memcpy(ie.key, key.data(), key.size());
           ie.offset = offset;
-          auto [itr, _] = index_.emplace(prop_id.ValueInt(), std::move(ie));
+          auto [itr, _] = index_.emplace(prop_id.ValueInt(), ie);
           to_update.push_back(&itr->second);
+          auto [itr_gid, _2] = index_gid_.emplace(vertex.gid.AsUint(), ie);
+          to_update_gid.push_back(&itr_gid->second);
         }
       }
     };
@@ -1479,6 +1535,11 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
           memcpy(elem->key, key.data(), key.size());
         }
         to_update.clear();
+        // Update index GID
+        for (auto *elem : to_update_gid) {
+          memcpy(elem->key, key.data(), key.size());
+        }
+        to_update_gid.clear();
       }
       // Reset
       id_begin = vertex.gid.AsUint();
@@ -1502,6 +1563,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       // Update index
       update_index(key, 4);
       to_update.clear();
+      to_update_gid.clear();
     } else {
       // Append
       id_end = vertex.gid.AsUint();
@@ -1541,6 +1603,11 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       memcpy(elem->key, key.data(), key.size());
     }
     to_update.clear();
+    // Update index GID
+    for (auto *elem : to_update_gid) {
+      memcpy(elem->key, key.data(), key.size());
+    }
+    to_update_gid.clear();
   }
 
   for (auto h : histo) {
@@ -1552,12 +1619,19 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   }
   std::cout << std::endl;
 
-  std::cout << "index" << std::endl;
-  for (const auto &id : index_) {
+  std::cout << "index gid" << std::endl;
+  for (const auto &id : index_gid_) {
     uint32_t key1, key2;
     memcpy(&key1, id.second.key, 4);
     memcpy(&key2, &id.second.key[4], 4);
     std::cout << id.first << " at " << key1 << key2 << ", " << id.second.offset << std::endl;
+  }
+
+  // Trying the same thing, just with iterators
+  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator({}, kvstore_->vertex_chandle));
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    print_key(it->key().ToStringView());
+    std::cout << std::endl;
   }
 
   return {};
@@ -1720,9 +1794,113 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
 
   rocksdb::ReadOptions read_opts = GenRoOptions();
   read_opts.pin_data = true;  // Should be pined by the scan all (maybe....)
+  // read_opts.read_tier = rocksdb::kBlockCacheTier;
 
-  // Maybe we can have a map index type thing
-  // But first we can improve this anyway
+  static std::vector<std::unique_ptr<rocksdb::Iterator>> itrs;  // Just put it somewhere.....
+  static std::mutex mtx;
+
+  try {
+    const auto &pos = index_gid_.at(gid.AsUint());
+
+    // Doing a Get will copy the value; not currently able to avoid a copy... bad performance
+    // static std::string page(8 * 4096, '\0');
+    // std::unique_lock l(mtx);
+    // const auto status =
+    //     kvstore_->db_notx->Get(read_opts, kvstore_->vertex_chandle, std::string_view{pos.key, sizeof(pos.key)},
+    //     &page);
+    // auto *s = new std::string(page.data() + pos.offset,
+    //                           *(uint32_t *)(page.data() + pos.offset - 4));  // Try to copy the least amount
+    // l.unlock();
+    // const auto *vertex_ = disk_exp::GetVertex(s->data());
+    // return VertexAccessor{vertex_, this};
+
+    // rocksdb::PinnableSlice *vpin = new rocksdb::PinnableSlice();  // Just leak for now
+    // rocksdb::PinnableSlice vpin;
+    // const auto status =
+    //     kvstore_->db_notx->Get(ro, kvstore_->vertex_chandle, std::string_view{pos.key, sizeof(pos.key)}, &vpin);
+
+    // Trying the same thing, just with iterators
+    // rocksdb::Slice slice(pos.key, sizeof(pos.key));
+    // read_opts.iterate_lower_bound = &slice;
+    // read_opts.iterate_upper_bound = &slice;
+    // auto it = std::unique_ptr<rocksdb::Iterator>(
+    auto *it = kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle);
+
+    auto print_key = [](const auto &str) {
+      uint32_t key1, key2;
+      memcpy(&key1, &str[0], 4);
+      memcpy(&key2, &str[4], 4);
+      std::cout << key1 << "," << key2;
+    };
+    // // std::unique_lock l(mtx);
+    // // it->SeekToFirst();
+    // std::cout << "searching for ";
+    // print_key(pos.key);
+    // std::cout << std::endl;
+    // it->SeekToFirst();
+    it->Seek(pos.key);
+
+    static std::unordered_set<std::string> stats;
+    // print_key(pos.key);
+    // std::cout << " vs ";
+    // print_key(it->key().ToStringView());
+    // std::cout << std::endl;
+    if (it->key().ToStringView() != std::string_view{pos.key, sizeof(pos.key)}) {
+      static std::string page(8 * 4096, '\0');
+      std::unique_lock l(mtx);
+      stats.emplace(pos.key, sizeof(pos.key));
+      const auto status = kvstore_->db_notx->Get(read_opts, kvstore_->vertex_chandle,
+                                                 std::string_view{pos.key, sizeof(pos.key)}, &page);
+      auto *s = new std::string(page.data() + pos.offset,
+                                *(uint32_t *)(page.data() + pos.offset - 4));  // Try to copy the least amount
+      l.unlock();
+      const auto *vertex_ = disk_exp::GetVertex(s->data());
+
+      // std::cout << "stats" << std::endl;
+      // for (const auto &s : stats) {
+      //   print_key(s);
+      //   std::cout << "\t";
+      //   print_key(it->key().ToStringView());
+      //   std::cout << std::endl;
+      // }
+
+      return VertexAccessor{vertex_, this};
+    }
+    // for (it->Seek(pos.key); it->Valid() && it->key() != pos.key; it->Next()) {
+    //   print_key(pos.key);
+    //   std::cout << " vs ";
+    //   print_key(it->key().ToStringView());
+    //   std::cout << std::endl;
+    // }
+    // if (!it->Valid()) {
+    //   throw 1;
+    // }
+    // print_key(pos.key);
+    // std::cout << " vs ";
+    // print_key(it->key().ToStringView());
+    // std::cout << std::endl;
+
+    // // {
+    // //   // Need to same it; horrible, but don't have time to do it right
+    // //   std::unique_lock l(mtx);
+    // //   itrs.emplace_back(std::move(it));
+    // auto *s = new std::string(it->value().data() + pos.offset,
+    //                           *(uint32_t *)(it->value().data() + pos.offset - 4));  // Try to copy the least amount
+    // // ptr = it->value().data() + pos.offset;
+    // // l.unlock();
+    // // }
+    const auto *vertex = disk_exp::GetVertex(it->value().data() + pos.offset);
+    return VertexAccessor{vertex, this};
+
+    // TODO Without index
+    // std::string key = utils::StringifyInt<uint64_t, uint32_t>(T i)
+    // it->SeekForPrev()
+  } catch (...) {
+    return std::nullopt;
+  }
+
+  // TODO
+  // We can improve this anyway
   // 1. add page index to the top of the page, so we don't have to sequentially scan the page
   // 2. add a key filter, so we have the smallest range that could satisfy us
   //    is it possible to do lower_bound or something like that. we have our start gid (out gid) and want the first
