@@ -1610,29 +1610,29 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     to_update_gid.clear();
   }
 
-  for (auto h : histo) {
-    std::cout << "\t" << h;
-  }
-  std::cout << std::endl;
-  for (int i = 0; i < histo.size(); ++i) {
-    std::cout << "\t" << (i * 128);
-  }
-  std::cout << std::endl;
+  // for (auto h : histo) {
+  //   std::cout << "\t" << h;
+  // }
+  // std::cout << std::endl;
+  // for (int i = 0; i < histo.size(); ++i) {
+  //   std::cout << "\t" << (i * 128);
+  // }
+  // std::cout << std::endl;
 
-  std::cout << "index gid" << std::endl;
-  for (const auto &id : index_gid_) {
-    uint32_t key1, key2;
-    memcpy(&key1, id.second.key, 4);
-    memcpy(&key2, &id.second.key[4], 4);
-    std::cout << id.first << " at " << key1 << key2 << ", " << id.second.offset << std::endl;
-  }
+  // std::cout << "index gid" << std::endl;
+  // for (const auto &id : index_gid_) {
+  //   uint32_t key1, key2;
+  //   memcpy(&key1, id.second.key, 4);
+  //   memcpy(&key2, &id.second.key[4], 4);
+  //   std::cout << id.first << " at " << key1 << key2 << ", " << id.second.offset << std::endl;
+  // }
 
-  // Trying the same thing, just with iterators
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator({}, kvstore_->vertex_chandle));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    print_key(it->key().ToStringView());
-    std::cout << std::endl;
-  }
+  // // Trying the same thing, just with iterators
+  // auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator({}, kvstore_->vertex_chandle));
+  // for (it->SeekToFirst(); it->Valid(); it->Next()) {
+  //   print_key(it->key().ToStringView());
+  //   std::cout << std::endl;
+  // }
 
   return {};
 }
@@ -1802,6 +1802,11 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
   try {
     const auto &pos = index_gid_.at(gid.AsUint());
 
+    // Page already cached, just return the pointer
+    if (pos.vp != nullptr) {
+      return VertexAccessor{pos.vp, this};
+    }
+
     // Doing a Get will copy the value; not currently able to avoid a copy... bad performance
     // static std::string page(8 * 4096, '\0');
     // std::unique_lock l(mtx);
@@ -1889,6 +1894,27 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
     // // ptr = it->value().data() + pos.offset;
     // // l.unlock();
     // // }
+
+    auto page_itr = [&](auto key, auto page) {
+      uint64_t begin_gid{};
+      key = utils::DestringifyInt<uint64_t, uint32_t>(key, begin_gid);
+      uint64_t end_gid{};
+      key = utils::DestringifyInt<uint64_t, uint32_t>(key, end_gid);
+      auto *chunk_ptr = (uint8_t *)page.data();
+      // TODO: Do not assume the gid are ordered and all there
+      for (uint64_t gid = begin_gid; gid <= end_gid; ++gid) {
+        // Find in the chunks
+        auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
+        chunk_ptr += sizeof(uint32_t);           // point to the value itself
+        index_gid_[gid].vp = disk_exp::GetVertex(chunk_ptr);
+        // Next chunk
+        chunk_ptr += val_size;  // move past the current value (to the next header)
+      }
+    };
+
+    // Fill local index with the cached page pointers
+    page_itr(it->key().ToStringView(), it->value().ToStringView());
+
     const auto *vertex = disk_exp::GetVertex(it->value().data() + pos.offset);
     return VertexAccessor{vertex, this};
 
@@ -1911,7 +1937,6 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
     auto key = it->key().ToStringView();
     // TODO: Have a bloom filter or index
     // key == begin_gid end_gid
-    utils::StringifyInt<uint64_t, uint32_t>(0);
     uint64_t begin_gid{};
     key = utils::DestringifyInt<uint64_t, uint32_t>(key, begin_gid);
     uint64_t end_gid{};

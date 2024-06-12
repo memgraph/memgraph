@@ -16,6 +16,7 @@
 #include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
+#include "storage/v2/disk/vertex_generated.h"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -345,6 +346,7 @@ class DiskStorage final : public Storage {
   struct IndexEntry {
     char key[2 * sizeof(uint32_t)];  // Works now, but keep an eye on it
     uint32_t offset;                 // Vertex offset from the value start
+    const disk_exp::Vertex *vp{};    // Raw pointer to rocksdb's cache; Could become a union
   };
   // struct index_hash {
   //   std::size_t operator()(std::pair<uint32_t, PropertyValue> const &v) const { return std::hash()(v.second); }
