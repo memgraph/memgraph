@@ -500,6 +500,7 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
   auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(ro, kvstore_->vertex_chandle));
   AllVerticesIterable all_vi(transaction->vertices_->access(), this, transaction, View::NEW, std::move(it));
   auto main_storage_accessor = transaction->vertices_->access();
+  // First pass; ingestion of labels and properties
   for (auto &v : all_vi) {
     // Needs to be completely independent, so copy PS and Keys
     auto ps = PropertyStore::CreateFromBuffer(
@@ -510,6 +511,27 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
     auto prop_id = new_v.GetProperty(NameToProperty("id"), View::NEW);
     if (prop_id.HasValue()) {
       transaction->prop_id_index_[prop_id->ValueInt()] = new_v.vertex_;
+      transaction->gid_index_[v.Gid().AsUint()] = new_v.vertex_;
+    }
+  }
+  // Second pass; edge creation
+  for (auto &v : all_vi) {
+    auto &current_v = transaction->gid_index_[v.Gid().AsUint()];  // in-memory
+    const auto &in_edges = v.InEdges(View::NEW);
+    if (in_edges.HasValue()) {
+      for (const auto &in_edge : in_edges->edges) {
+        // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
+        current_v->in_edges.emplace_back(in_edge.EdgeType(),
+                                         transaction->gid_index_[in_edge.FromVertex().Gid().AsUint()], in_edge.edge_);
+      }
+    }
+    const auto &out_edges = v.OutEdges(View::NEW);
+    if (out_edges.HasValue()) {
+      for (const auto &out_edge : out_edges->edges) {
+        // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
+        current_v->out_edges.emplace_back(out_edge.EdgeType(),
+                                          transaction->gid_index_[out_edge.ToVertex().Gid().AsUint()], out_edge.edge_);
+      }
     }
   }
 }
@@ -1400,9 +1422,9 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  std::vector<uint32_t> histo(32768 / 128, 0);
+  // std::vector<uint32_t> histo(32768 / 128, 0);
 
-  std::string page(4096 * 8, '\0');  // Currently doesn't work with edges; use at least 32k for edges
+  std::string page(8 * 4096, '\0');  // Currently doesn't work with edges; use at least 32k for edges
   uint32_t chunk_pos = 0;
   uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
   uint64_t id_end = -1;
@@ -1520,7 +1542,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     builder.Finish(v_ser);  // Serialize the root of the object.
     auto val = std::string_view{(char *)builder.GetBufferPointer(), builder.GetSize()};
 
-    ++histo[val.size() / 128];
+    // ++histo[val.size() / 128];
 
     if (page.size() - 4 <= chunk_pos + val.size()) {
       if (chunk_pos != 0) {  // leave last 4 to be 0 always (chunk size = 0 == end)
@@ -1831,46 +1853,50 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
     // auto it = std::unique_ptr<rocksdb::Iterator>(
     auto *it = kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle);
 
-    auto print_key = [](const auto &str) {
-      uint32_t key1, key2;
-      memcpy(&key1, &str[0], 4);
-      memcpy(&key2, &str[4], 4);
-      std::cout << key1 << "," << key2;
-    };
+    // auto print_key = [](const auto &str) {
+    //   uint32_t key1, key2;
+    //   memcpy(&key1, &str[0], 4);
+    //   memcpy(&key2, &str[4], 4);
+    //   std::cout << key1 << "," << key2;
+    // };
     // // std::unique_lock l(mtx);
     // // it->SeekToFirst();
     // std::cout << "searching for ";
     // print_key(pos.key);
     // std::cout << std::endl;
     // it->SeekToFirst();
-    it->Seek(pos.key);
+    it->Seek(std::string_view{pos.key, sizeof(pos.key)});
 
     static std::unordered_set<std::string> stats;
     // print_key(pos.key);
     // std::cout << " vs ";
     // print_key(it->key().ToStringView());
     // std::cout << std::endl;
-    if (it->key().ToStringView() != std::string_view{pos.key, sizeof(pos.key)}) {
-      static std::string page(8 * 4096, '\0');
-      std::unique_lock l(mtx);
-      stats.emplace(pos.key, sizeof(pos.key));
-      const auto status = kvstore_->db_notx->Get(read_opts, kvstore_->vertex_chandle,
-                                                 std::string_view{pos.key, sizeof(pos.key)}, &page);
-      auto *s = new std::string(page.data() + pos.offset,
-                                *(uint32_t *)(page.data() + pos.offset - 4));  // Try to copy the least amount
-      l.unlock();
-      const auto *vertex_ = disk_exp::GetVertex(s->data());
 
-      // std::cout << "stats" << std::endl;
-      // for (const auto &s : stats) {
-      //   print_key(s);
-      //   std::cout << "\t";
-      //   print_key(it->key().ToStringView());
-      //   std::cout << std::endl;
-      // }
+    // if (it->key().ToStringView() != std::string_view{pos.key, sizeof(pos.key)}) {
+    //   volatile std::string rk = it->key().ToString();
+    //   static std::string page(8 * 4096, '\0');
+    //   std::unique_lock l(mtx);
+    //   stats.emplace(pos.key, sizeof(pos.key));
+    //   const auto status = kvstore_->db_notx->Get(read_opts, kvstore_->vertex_chandle,
+    //                                              std::string_view{pos.key, sizeof(pos.key)}, &page);
+    //   auto *s = new std::string(page.data() + pos.offset,
+    //                             *(uint32_t *)(page.data() + pos.offset - 4));  // Try to copy the least amount
+    //   l.unlock();
+    //   const auto *vertex_ = disk_exp::GetVertex(s->data());
+    //   volatile auto gid_ = vertex_->gid();
 
-      return VertexAccessor{vertex_, this};
-    }
+    //   std::cout << "stats" << std::endl;
+    //   for (const auto &s : stats) {
+    //     print_key(s);
+    //     std::cout << "\t";
+    //     print_key(it->key().ToStringView());
+    //     std::cout << std::endl;
+    //   }
+
+    //   return VertexAccessor{vertex_, this};
+    // }
+
     // for (it->Seek(pos.key); it->Valid() && it->key() != pos.key; it->Next()) {
     //   print_key(pos.key);
     //   std::cout << " vs ";
