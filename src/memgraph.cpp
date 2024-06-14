@@ -419,6 +419,16 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_interval = 0s;
   }
 
+#ifdef MG_ENTERPRISE
+  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
+      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
+    LOG_FATAL(
+        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
+        "option!");
+  }
+
+#endif
+
   // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
