@@ -136,7 +136,7 @@ jobs:
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Core tests"
+    name: "Clang tidy community"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
@@ -197,7 +197,7 @@ jobs:
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
-    name: "Core tests"
+    name: "Clang tidy enterprise"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
     steps:
