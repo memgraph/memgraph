@@ -896,15 +896,15 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
                                                       EdgeDirection direction) const {
   int64_t expanded_count = 0;
   const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
-  for (const auto &[edge_type, to_vertex, edge] : edges) {
+  for (const auto &[edge_type, vertex, edge] : edges) {
     if (hops_limit && hops_limit->IsUsed()) {
       hops_limit->IncrementHopsCount(1);
       if (hops_limit->IsLimitReached()) break;
     }
     expanded_count++;
-    if (destination && to_vertex != destination->vertex_) continue;
+    if (destination && vertex != destination->vertex_) continue;
     if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end()) continue;
-    result_edges.emplace_back(edge_type, to_vertex, edge);
+    result_edges.emplace_back(edge_type, vertex, edge);
   }
   return expanded_count;
 }
