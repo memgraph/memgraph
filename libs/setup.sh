@@ -30,13 +30,13 @@ clone () {
     fi
   fi
   pushd "$dir_name"
-  # Check whether we have any local changes which need to be preserved.
-  local local_changes=true
-  if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
-    local_changes=false
-  fi
 
   if [ "$shallow" = false ]; then
+    # Check whether we have any local changes which need to be preserved.
+    local local_changes=true
+    if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
+      local_changes=false
+    fi
     # Stash regardless of local_changes, so that a user gets a message on stdout.
     git stash
     # Just fetch new commits from remote repository. Don't merge/pull them in, so
@@ -55,11 +55,10 @@ clone () {
       # errors.
       git cherry-pick -n "$cherry_pick_id" || exit 1
     done
-  fi
-
-  # Reapply any local changes.
-  if [[ $local_changes == true ]]; then
-    git stash pop
+    # Reapply any local changes.
+    if [[ $local_changes == true ]]; then
+      git stash pop
+    fi
   fi
   popd
 }
@@ -201,9 +200,9 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # We wget header instead of cloning repo since repo is huge (lots of test data).
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.
 mkdir -p json
-cd json
+pushd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
-cd ..
+popd
 
 rocksdb_tag="v8.1.1" # (2023-04-21)
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
@@ -235,7 +234,7 @@ repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka
 protobuf_tag="v3.12.4"
 repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
 pushd protobuf
-./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
+./autogen.sh && ./configure CC=clang CXX=clang++ --prefix="$(pwd)/lib"
 popd
 
 #pulsar
@@ -254,9 +253,9 @@ popd
 
 #ctre
 mkdir -p ctre
-cd ctre
+pushd ctre
 file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
-cd ..
+popd
 
 # abseil 20240116.2
 absl_ref="20240116.2"
@@ -275,7 +274,7 @@ MALLOC_CONF="background_thread:true,retain:false,percpu_arena:percpu,oversize_th
   --disable-cxx \
   --with-lg-page=12 \
   --with-lg-hugepage=21 \
-  --enable-shared=no --prefix=$working_dir \
+  --enable-shared=no --prefix="${working_dir}" \
   --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 
 make -j$CPUS install
