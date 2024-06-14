@@ -18,6 +18,7 @@
 #include "range/v3/all.hpp"
 #include "utils/string.hpp"
 
+#include <spdlog/spdlog.h>
 #include <range/v3/view/split.hpp>
 #include <range/v3/view/transform.hpp>
 
@@ -65,6 +66,7 @@ auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
 
   for (auto &&experiment : flags_experimental | rv::split(',') | rv::transform(canonicalize_string)) {
     if (auto it = mapping.find(experiment); it != mapping_end) {
+      spdlog::info(fmt::format("Experimental feature {} is enabled.", it->first));
       to_set |= static_cast<underlying_type>(it->second);
     }
   }
