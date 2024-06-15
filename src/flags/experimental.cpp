@@ -16,6 +16,8 @@
 
 #include "flags/experimental.hpp"
 #include "range/v3/all.hpp"
+#include "utils/enum.hpp"
+#include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
 #include <spdlog/spdlog.h>
@@ -24,10 +26,25 @@
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(
+DEFINE_VALIDATED_string(
     experimental_enabled, "",
-    "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]");
+    "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
+    { return memgraph::flags::ValidExperimentalFlag(value); });
+
 using namespace std::string_view_literals;
+namespace rv = ranges::views;
+
+namespace {
+
+auto const canonicalize_string = [](auto &&rng) {
+  auto const is_space = [](auto c) { return c == ' '; };
+  auto const to_lower = [](unsigned char c) { return std::tolower(c); };
+
+  return rng | rv::drop_while(is_space) | rv::take_while(std::not_fn(is_space)) | rv::transform(to_lower) |
+         ranges::to<std::string>;
+};
+
+}  // namespace
 
 namespace memgraph::flags {
 
@@ -50,16 +67,6 @@ bool AreExperimentsEnabled(Experiments experiments) {
 }
 
 auto ReadExperimental(std::string const &flags_experimental) -> Experiments {
-  namespace rv = ranges::views;
-
-  auto const canonicalize_string = [](auto &&rng) {
-    auto const is_space = [](auto c) { return c == ' '; };
-    auto const to_lower = [](unsigned char c) { return std::tolower(c); };
-
-    return rng | rv::drop_while(is_space) | rv::take_while(std::not_fn(is_space)) | rv::transform(to_lower) |
-           ranges::to<std::string>;
-  };
-
   auto const mapping_end = mapping.cend();
   using underlying_type = std::underlying_type_t<Experiments>;
   auto to_set = underlying_type{};
@@ -85,6 +92,15 @@ void AppendExperimental(Experiments const &experiments) {
   to_set |= new_experiments;
 
   SetExperimental(static_cast<Experiments>(to_set));
+}
+
+auto ValidExperimentalFlag(std::string_view value) -> bool {
+  if (value.empty()) {
+    return true;
+  }
+  auto const mapping_end = mapping.cend();
+  return !ranges::any_of(value | rv::split(',') | rv::transform(canonicalize_string),
+                         [&mapping_end](auto &&experiment) { return mapping.find(experiment) == mapping_end; });
 }
 
 }  // namespace memgraph::flags
