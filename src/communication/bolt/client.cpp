@@ -83,7 +83,7 @@ void Client::Connect(const io::network::Endpoint &endpoint, const std::string &u
   spdlog::debug("Metadata of init message response: {}", metadata);
 }
 
-QueryData Client::Execute(const std::string &query, const Value::map_t &parameters) {
+QueryData Client::Execute(const std::string &query, const map_t &parameters) {
   if (!client_.IsConnected()) {
     throw ClientFatalException("You must first connect to the server before using the client!");
   }
@@ -201,8 +201,8 @@ void Client::Reset() {
   }
 }
 
-std::optional<Value::map_t> Client::Route(const Value::map_t &routing, const std::vector<Value> &bookmarks,
-                                          const std::optional<std::string> &db) {
+std::optional<map_t> Client::Route(const map_t &routing, const std::vector<Value> &bookmarks,
+                                   const std::optional<std::string> &db) {
   if (!client_.IsConnected()) {
     throw ClientFatalException("You must first connect to the server before using the client!");
   }

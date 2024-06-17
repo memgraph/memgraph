@@ -138,7 +138,7 @@ Log::~Log() {
 }
 
 void Log::Record(const std::string &address, const std::string &username, const std::string &query,
-                 const memgraph::communication::bolt::Value::map_t &params, const std::string &db) {
+                 const memgraph::communication::bolt::map_t &params, const std::string &db) {
   if (!started_.load(std::memory_order_relaxed)) return;
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())

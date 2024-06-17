@@ -1188,7 +1188,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
   check_load_csv_queries(false);
 }
 
-void AssertAllValuesAreZero(const memgraph::communication::bolt::Value::map_t &map,
+void AssertAllValuesAreZero(const memgraph::communication::bolt::map_t &map,
                             const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;

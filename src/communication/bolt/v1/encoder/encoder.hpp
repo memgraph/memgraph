@@ -72,7 +72,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageSuccess(const Value::map_t &metadata) {
+  bool MessageSuccess(const map_t &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Success));
     WriteMap(metadata);
@@ -92,7 +92,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *          false otherwise
    */
   bool MessageSuccess() {
-    Value::map_t metadata;
+    map_t metadata;
     return MessageSuccess(metadata);
   }
 
@@ -108,7 +108,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageFailure(const Value::map_t &metadata) {
+  bool MessageFailure(const map_t &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);

@@ -83,7 +83,7 @@ class ServerMalformedDataException : public ClientFatalException {
 struct QueryData {
   std::vector<std::string> fields;
   std::vector<std::vector<Value>> records;
-  Value::map_t metadata;
+  map_t metadata;
 };
 
 /// Bolt client.
@@ -113,7 +113,7 @@ class Client final {
   ///                              executing the query (eg. mistyped query,
   ///                              etc.)
   /// @throws ClientFatalException when we couldn't communicate with the server
-  QueryData Execute(const std::string &query, const Value::map_t &parameters);
+  QueryData Execute(const std::string &query, const map_t &parameters);
 
   /// Close the active client connection.
   void Close();
@@ -123,14 +123,14 @@ class Client final {
   void Reset();
 
   /// Can be used to send a route message.
-  std::optional<Value::map_t> Route(const Value::map_t &routing, const std::vector<Value> &bookmarks,
-                                    const std::optional<std::string> &db);
+  std::optional<map_t> Route(const map_t &routing, const std::vector<Value> &bookmarks,
+                             const std::optional<std::string> &db);
 
  private:
   using ClientEncoder = ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>;
 
   template <typename TException = FailureResponseException>
-  [[noreturn]] void HandleFailure(const Value::map_t &response_map) {
+  [[noreturn]] void HandleFailure(const map_t &response_map) {
     Reset();
     auto it = response_map.find("message");
     if (it != response_map.end()) {

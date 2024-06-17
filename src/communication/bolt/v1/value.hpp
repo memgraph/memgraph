@@ -135,8 +135,6 @@ struct Path {
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:
-  using map_t = std::map<std::string, Value, std::less<>>;
-
   /** Default constructor, makes Null */
   Value() : type_(Type::Null) {}
 
@@ -171,7 +169,7 @@ class Value {
   Value(const char *value) : Value(std::string(value)) {}
   Value(std::string_view value) : Value(std::string(value)) {}
   Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
-  Value(const Value::map_t &value) : type_(Type::Map) { new (&map_v) Value::map_t(value); }
+  Value(const map_t &value) : type_(Type::Map) { new (&map_v) map_t(value); }
   Value(const Vertex &value) : type_(Type::Vertex) { new (&vertex_v) Vertex(value); }
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
@@ -188,7 +186,7 @@ class Value {
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
-  Value(Value::map_t &&value) noexcept : type_(Type::Map) { new (&map_v) Value::map_t(std::move(value)); }
+  Value(map_t &&value) noexcept : type_(Type::Map) { new (&map_v) map_t(std::move(value)); }
   Value(Vertex &&value) noexcept : type_(Type::Vertex) { new (&vertex_v) Vertex(std::move(value)); }
   Value(Edge &&value) noexcept : type_(Type::Edge) { new (&edge_v) Edge(std::move(value)); }
   Value(UnboundedEdge &&value) noexcept : type_(Type::UnboundedEdge) {

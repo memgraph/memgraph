@@ -28,7 +28,7 @@ class Log {
     std::string address;
     std::string username;
     std::string query;
-    memgraph::communication::bolt::Value::map_t params;
+    memgraph::communication::bolt::map_t params;
     std::string db;
   };
 
@@ -49,7 +49,7 @@ class Log {
 
   /// Adds an entry to the audit log. Thread-safe.
   void Record(const std::string &address, const std::string &username, const std::string &query,
-              const memgraph::communication::bolt::Value::map_t &params, const std::string &db);
+              const memgraph::communication::bolt::map_t &params, const std::string &db);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   void ReopenLog();

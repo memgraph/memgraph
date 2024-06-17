@@ -30,5 +30,5 @@ constexpr std::string_view kMgTypeEnum = "mg_enum";
 constexpr std::string_view kMgTypeType = "__type";
 constexpr std::string_view kMgTypeValue = "__value";
 
-auto BoltMapToMgTypeInfo(Value::map_t const &value) -> std::optional<mg_type_info>;
+auto BoltMapToMgTypeInfo(map_t const &value) -> std::optional<mg_type_info>;
 }  // namespace memgraph::communication::bolt

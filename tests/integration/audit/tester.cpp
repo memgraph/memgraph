@@ -57,7 +57,7 @@ memgraph::communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       break;
     }
     case nlohmann::json::value_t::object: {
-      memgraph::communication::bolt::Value::map_t map;
+      memgraph::communication::bolt::map_t map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
         MG_ASSERT(tmp.type() == memgraph::communication::bolt::Value::Type::String,

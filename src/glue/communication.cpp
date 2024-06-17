@@ -31,11 +31,12 @@ using memgraph::communication::bolt::kMgTypeType;
 using memgraph::communication::bolt::kMgTypeValue;
 using memgraph::communication::bolt::MgType;
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 using namespace std::string_view_literals;
 
 namespace memgraph::glue {
 
-auto BoltMapToMgType(Value::map_t const &value, storage::Storage const *storage)
+auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
     -> std::optional<storage::PropertyValue> {
   auto info = BoltMapToMgTypeInfo(value);
   if (!info) return std::nullopt;
@@ -142,7 +143,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 
     // Database potentially not required
     case query::TypedValue::Type::Map: {
-      Value::map_t map;
+      bolt_map_t map;
       for (const auto &kv : value.ValueMap()) {
         auto maybe_value = ToBoltValue(kv.second, db, view);
         if (maybe_value.HasError()) return maybe_value.GetError();
@@ -193,7 +194,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       if (!maybe_enum_value_str) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
-      auto map = Value::map_t{};
+      auto map = bolt_map_t{};
       map.emplace(kMgTypeType, memgraph::communication::bolt::kMgTypeEnum);
       map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
       return Value(std::move(map));
@@ -218,7 +219,7 @@ storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexA
   }
   auto maybe_properties = vertex.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
-  Value::map_t properties;
+  bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
@@ -235,7 +236,7 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
   if (maybe_properties.HasError()) return maybe_properties.GetError();
-  Value::map_t properties;
+  bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
     properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
@@ -266,8 +267,8 @@ storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, c
   return communication::bolt::Path(vertices, edges);
 }
 
-storage::Result<Value::map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
-  Value::map_t map;
+storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view) {
+  bolt_map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
   for (const auto &v : graph.vertices()) {
@@ -367,7 +368,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
     }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
-      Value::map_t dv_map;
+      bolt_map_t dv_map;
       for (const auto &kv : map) {
         dv_map.emplace(kv.first, ToBoltValue(kv.second, storage));
       }
@@ -399,7 +400,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
       // Bolt does not know about enums, encode as map type instead
-      auto map = Value::map_t{};
+      auto map = bolt_map_t{};
       map.emplace(kMgTypeType, kMgTypeEnum);
       map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
       return {std::move(map)};

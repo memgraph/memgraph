@@ -45,7 +45,6 @@ DEF_GETTER_BY_VAL(Double, double, double_v)
 
 DEF_GETTER_BY_REF(String, std::string, string_v)
 DEF_GETTER_BY_REF(List, std::vector<Value>, list_v)
-using map_t = Value::map_t;
 DEF_GETTER_BY_REF(Map, map_t, map_v)
 DEF_GETTER_BY_REF(Vertex, Vertex, vertex_v)
 DEF_GETTER_BY_REF(Edge, Edge, edge_v)

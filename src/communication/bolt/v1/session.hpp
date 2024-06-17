@@ -82,15 +82,14 @@ class Session {
    * @return A pair which contains list of headers and qid which is set only
    * if an explicit transaction was started.
    */
-  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const Value::map_t &params,
-      const memgraph::communication::bolt::Value::map_t &extra) = 0;
+  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
+                                                                            const map_t &params,
+                                                                            const map_t &extra) = 0;
 
-  virtual void Configure(const memgraph::communication::bolt::Value::map_t &run_time_info) = 0;
+  virtual void Configure(const map_t &run_time_info) = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual auto Route(Value::map_t const &routing, std::vector<memgraph::communication::bolt::Value> const &bookmarks,
-                     Value::map_t const &extra) -> Value::map_t = 0;
+  virtual auto Route(map_t const &routing, std::vector<Value> const &bookmarks, map_t const &extra) -> map_t = 0;
 #endif
 
   /**
@@ -101,7 +100,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual Value::map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
+  virtual map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -111,9 +110,9 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  virtual Value::map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
+  virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction(const memgraph::communication::bolt::Value::map_t &params) = 0;
+  virtual void BeginTransaction(const map_t &params) = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;
 

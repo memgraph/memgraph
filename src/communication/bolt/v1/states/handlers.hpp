@@ -80,7 +80,7 @@ namespace details {
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
-    Value::map_t summary;
+    map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
       summary = session.Pull(&session.encoder_, n, qid);
@@ -224,7 +224,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
     // Convert std::string to Value
     std::vector<Value> vec;
-    Value::map_t data;
+    map_t data;
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
@@ -295,7 +295,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
-    Value::map_t data;
+    map_t data;
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));

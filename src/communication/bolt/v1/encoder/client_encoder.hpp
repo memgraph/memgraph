@@ -56,7 +56,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageInit(const Value::map_t &extra) {
+  bool MessageInit(const map_t &extra) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Init));
     WriteMap(extra);
@@ -82,8 +82,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRun(const std::string &statement, const Value::map_t &parameters, const Value::map_t &extra,
-                  bool have_more = true) {
+  bool MessageRun(const std::string &statement, const map_t &parameters, const map_t &extra, bool have_more = true) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     WriteRAW(utils::UnderlyingCast(Signature::Run));
     WriteString(statement);
@@ -109,7 +108,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageDiscard(const Value::map_t &extra) {
+  bool MessageDiscard(const map_t &extra) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Discard));
     WriteMap(extra);
@@ -131,7 +130,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessagePull(const Value::map_t &extra) {
+  bool MessagePull(const map_t &extra) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Pull));
     WriteMap(extra);
@@ -175,8 +174,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRoute(const Value::map_t &routing, const std::vector<Value> &bookmarks,
-                    const std::optional<std::string> &db) {
+  bool MessageRoute(const map_t &routing, const std::vector<Value> &bookmarks, const std::optional<std::string> &db) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     WriteRAW(utils::UnderlyingCast(Signature::Route));
     WriteMap(routing);

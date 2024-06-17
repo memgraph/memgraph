@@ -24,6 +24,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/temporal.hpp"
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 
 /**
  * TODO (mferencevic): document
@@ -155,7 +156,7 @@ TEST_F(BoltEncoder, Map) {
   std::vector<Value> vals;
   uint8_t buff[10];
   for (int i = 0; i < sizes_num; ++i) {
-    Value::map_t val;
+    bolt_map_t val;
     for (int j = 0; j < sizes[i]; ++j) {
       sprintf((char *)buff, "%05X", j);
       std::string tmp((char *)buff, 5);
@@ -260,7 +261,7 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   svec.push_back(Value(sv1));
   svec.push_back(Value(sv2));
   Value slist(svec);
-  Value::map_t svals;
+  bolt_map_t svals;
   svals.insert(std::make_pair(sk, slist));
   bolt_encoder.MessageSuccess(svals);
   CheckOutput(output,
@@ -270,7 +271,7 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   std::string fv1("Neo.ClientError.Statement.SyntaxError"), fv2("Invalid syntax.");
   std::string fk1("code"), fk2("message");
   Value ftv1(fv1), ftv2(fv2);
-  Value::map_t fvals;
+  bolt_map_t fvals;
   fvals.insert(std::make_pair(fk1, ftv1));
   fvals.insert(std::make_pair(fk2, ftv2));
   bolt_encoder.MessageFailure(fvals);

@@ -12,7 +12,7 @@
 #include "communication/bolt/v1/mg_types.hpp"
 namespace memgraph::communication::bolt {
 
-auto BoltMapToMgTypeInfo(Value::map_t const &value) -> std::optional<mg_type_info> {
+auto BoltMapToMgTypeInfo(map_t const &value) -> std::optional<mg_type_info> {
   auto type_selector = value.find(kMgTypeType);
   if (type_selector == value.cend()) return std::nullopt;
   auto value_selector = value.find(kMgTypeValue);

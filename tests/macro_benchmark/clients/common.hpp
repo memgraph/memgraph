@@ -68,8 +68,7 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
 }
 
 std::pair<memgraph::communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
-    Client &client, const std::string &query, const memgraph::communication::bolt::Value::map_t &params,
-    int max_attempts) {
+    Client &client, const std::string &query, const memgraph::communication::bolt::map_t &params, int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};
   int failed_attempts{0};
