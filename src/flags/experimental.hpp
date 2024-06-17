@@ -34,5 +34,6 @@ bool AreExperimentsEnabled(Experiments experiments);
 auto ReadExperimental(std::string const &) -> Experiments;
 void SetExperimental(Experiments const &);
 void AppendExperimental(Experiments const &);
+auto ValidExperimentalFlag(std::string_view value) -> bool;
 
 }  // namespace memgraph::flags
