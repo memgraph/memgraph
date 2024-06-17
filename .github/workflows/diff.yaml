@@ -87,6 +87,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
+      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
     secrets: inherit
 
   Debug:
