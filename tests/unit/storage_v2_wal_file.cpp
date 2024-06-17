@@ -257,14 +257,14 @@ class DeltaGenerator final {
 
     std::optional<memgraph::storage::EnumTypeId> enum_type_id;
     if (!enum_type.empty()) {
-      auto result = enum_store_.to_enum_type(enum_type);
+      auto result = enum_store_.ToEnumType(enum_type);
       ASSERT_TRUE(result.HasValue());
       enum_type_id = *result;
     }
 
     std::optional<memgraph::storage::Enum> enum_id;
     if (!enum_val.empty()) {
-      auto result = enum_store_.to_enum(enum_val);
+      auto result = enum_store_.ToEnum(enum_val);
       ASSERT_TRUE(result.HasValue());
       enum_id = *result;
     }

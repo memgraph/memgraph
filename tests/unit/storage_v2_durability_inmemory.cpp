@@ -145,7 +145,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     // Create vertices.
-    auto enum_val = *store->enum_store_.to_enum("enum1", "v2");
+    auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access(ReplicationRole::MAIN);
       auto vertex = acc->CreateVertex();
@@ -311,11 +311,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
-    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v1").HasValue());
-    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v2").HasValue());
-    ASSERT_TRUE(store->enum_store_.to_enum("enum1", "v3").HasValue());
-    ASSERT_FALSE(store->enum_store_.to_enum("enum1", "v4").HasValue());
-    ASSERT_FALSE(store->enum_store_.to_enum("enum2", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum1", "v4").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").HasValue());
 
     // Create storage accessor.
     auto acc = store->Access(ReplicationRole::MAIN);
@@ -462,7 +462,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Verify base dataset.
     if (have_base_dataset) {
-      auto enum_val = *store->enum_store_.to_enum("enum1", "v2");
+      auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
       // Verify vertices.
       for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
         auto vertex = acc->FindVertex(base_vertex_gids_[i], memgraph::storage::View::OLD);

@@ -45,7 +45,7 @@ auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
   switch (type) {
     case MgType::Enum: {
       if (!storage) return std::nullopt;
-      auto enum_val = storage->enum_store_.to_enum(mg_value);
+      auto enum_val = storage->enum_store_.ToEnum(mg_value);
       if (enum_val.HasError()) return std::nullopt;
       return storage::PropertyValue(*enum_val);
     }
@@ -186,7 +186,7 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
     }
     case query::TypedValue::Type::Enum: {
       check_db();
-      auto maybe_enum_value_str = db->enum_store_.to_string(value.ValueEnum());
+      auto maybe_enum_value_str = db->enum_store_.ToString(value.ValueEnum());
       if (maybe_enum_value_str.HasError()) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }
@@ -391,7 +391,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       }
     }
     case storage::PropertyValue::Type::Enum: {
-      auto maybe_enum_value_str = storage.enum_store_.to_string(value.ValueEnum());
+      auto maybe_enum_value_str = storage.enum_store_.ToString(value.ValueEnum());
       if (maybe_enum_value_str.HasError()) [[unlikely]] {
         throw communication::bolt::ValueException("Enum not registered in the database");
       }

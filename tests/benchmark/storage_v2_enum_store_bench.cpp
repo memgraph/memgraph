@@ -39,12 +39,12 @@ static void BM_ConvertToEnum(benchmark::State &state) {
     auto values = rv::iota(0, 1000) | rv::transform(random_value);
     auto e_type = std::format("enum_type_{}", i);
     auto e_values = std::vector(values.begin(), values.end());
-    [[maybe_unused]] auto res = sut.register_enum(std::move(e_type), std::move(e_values));
+    [[maybe_unused]] auto res = sut.RegisterEnum(std::move(e_type), std::move(e_values));
   }
 
   auto const &c_sut = sut;
   // Lookup potential worst case, the last type + last value
-  auto all = c_sut.all_registered();
+  auto all = c_sut.AllRegistered();
   assert(ranges::size(all) != 0);
   auto const &[e_type, e_values] = *std::ranges::begin(all | rv::reverse);
   auto lookup_type = e_type;
@@ -54,7 +54,7 @@ static void BM_ConvertToEnum(benchmark::State &state) {
     benchmark::ClobberMemory();
     benchmark::DoNotOptimize(lookup_type);
     benchmark::DoNotOptimize(lookup_value);
-    auto e = c_sut.to_enum(lookup_type, lookup_value);
+    auto e = c_sut.ToEnum(lookup_type, lookup_value);
     benchmark::DoNotOptimize(*e);
   }
 }

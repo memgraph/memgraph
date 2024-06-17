@@ -344,7 +344,7 @@ class Storage {
 
     auto CreateEnum(const std::string &name, const std::vector<std::string> &values)
         -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
-      auto res = storage_->enum_store_.register_enum(name, values);
+      auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
       }
@@ -353,7 +353,7 @@ class Storage {
 
     auto EnumAlterAdd(std::string_view name, std::string_view value)
         -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
-      auto res = storage_->enum_store_.add_value(name, value);
+      auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
       }
@@ -362,21 +362,21 @@ class Storage {
 
     auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
         -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
-      auto res = storage_->enum_store_.update_value(name, old_value, new_value);
+      auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
       }
       return res;
     }
 
-    auto ShowEnums() { return storage_->enum_store_.all_registered(); }
+    auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
     auto GetEnumValue(std::string_view name, std::string_view value) -> utils::BasicResult<EnumStorageError, Enum> {
-      return storage_->enum_store_.to_enum(name, value);
+      return storage_->enum_store_.ToEnum(name, value);
     }
 
     auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<EnumStorageError, Enum> {
-      return storage_->enum_store_.to_enum(enum_str);
+      return storage_->enum_store_.ToEnum(enum_str);
     }
 
    protected:

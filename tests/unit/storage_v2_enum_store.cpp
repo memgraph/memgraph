@@ -18,48 +18,48 @@ using namespace std::string_literals;
 TEST(EnumStore, BasicTests) {
   auto sut = EnumStore{};
 
-  auto result = sut.register_enum("Location", {"Zagreb"s, "York"s});
+  auto result = sut.RegisterEnum("Location", {"Zagreb"s, "York"s});
   ASSERT_FALSE(result.HasError());
 
-  auto enum_id = sut.to_enum_type("Location");
+  auto enum_id = sut.ToEnumType("Location");
   ASSERT_TRUE(enum_id.HasValue());
   ASSERT_EQ(*enum_id, EnumTypeId{0});
 
   {
-    auto enum_value_id = sut.to_enum_value(*enum_id, "Zagreb");
+    auto enum_value_id = sut.ToEnumValue(*enum_id, "Zagreb");
     ASSERT_TRUE(enum_value_id.HasValue());
     ASSERT_EQ(*enum_value_id, EnumValueId{0});
   }
   {
-    auto enum_value_id = sut.to_enum_value(*enum_id, "York");
+    auto enum_value_id = sut.ToEnumValue(*enum_id, "York");
     ASSERT_TRUE(enum_value_id.HasValue());
     ASSERT_EQ(*enum_value_id, EnumValueId{1});
   }
   {
-    auto name = sut.to_type_string(EnumTypeId{0});
+    auto name = sut.ToTypeString(EnumTypeId{0});
     ASSERT_TRUE(name.HasValue());
     ASSERT_EQ(*name, "Location");
   }
   {
-    auto value = sut.to_value_string(EnumTypeId{0}, EnumValueId{0});
+    auto value = sut.ToValueString(EnumTypeId{0}, EnumValueId{0});
     ASSERT_TRUE(value.HasValue());
     ASSERT_EQ(*value, "Zagreb");
   }
   {
-    auto value = sut.add_value("Location", "London");
+    auto value = sut.AddValue("Location", "London");
     ASSERT_TRUE(value.HasValue());
     ASSERT_EQ(value->type_id(), EnumTypeId{0});
     ASSERT_EQ(value->value_id(), EnumValueId{2});
   }
-  ASSERT_TRUE(sut.add_value("Location", "London").HasError());
-  ASSERT_TRUE(sut.update_value("Location", "London", "London").HasError());
-  ASSERT_TRUE(sut.update_value("Location", "London", "York").HasError());
+  ASSERT_TRUE(sut.AddValue("Location", "London").HasError());
+  ASSERT_TRUE(sut.UpdateValue("Location", "London", "London").HasError());
+  ASSERT_TRUE(sut.UpdateValue("Location", "London", "York").HasError());
   {
-    auto value = sut.update_value("Location", "London", "New York");
+    auto value = sut.UpdateValue("Location", "London", "New York");
     ASSERT_TRUE(value.HasValue());
     ASSERT_EQ(value->type_id(), EnumTypeId{0});
     ASSERT_EQ(value->value_id(), EnumValueId{2});
-    auto str = sut.to_value_string(value->type_id(), value->value_id());
+    auto str = sut.ToValueString(value->type_id(), value->value_id());
     ASSERT_TRUE(str.HasValue());
     ASSERT_TRUE(*str == "New York");
   }

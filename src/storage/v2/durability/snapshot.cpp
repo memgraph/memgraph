@@ -2224,7 +2224,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
         evalues.emplace_back(*std::move(evalue));
       }
 
-      auto ret = enum_store->register_enum(*std::move(etype), std::move(evalues));
+      auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
       if (ret.HasError()) {
         throw storage::durability::RecoveryFailure("The enum could not be created!");
       }
@@ -3021,7 +3021,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteMarker(Marker::SECTION_ENUMS);
     // TODO: once delete/modify of enums added we need to be more careful in the
     //       mapping of current inmemory enum properties
-    auto all_enums = storage->enum_store_.all_registered();
+    auto all_enums = storage->enum_store_.AllRegistered();
     snapshot.WriteUint(all_enums.size());
     for (auto const &[etype, evalues] : all_enums) {
       snapshot.WriteString(etype);

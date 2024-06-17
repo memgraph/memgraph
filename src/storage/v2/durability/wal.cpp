@@ -1045,7 +1045,7 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::ENUM_CREATE: {
-          auto res = enum_store->register_enum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
+          auto res = enum_store->RegisterEnum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
           if (res.HasError()) {
             switch (res.GetError()) {
               case EnumStorageError::EnumExists:
@@ -1060,7 +1060,7 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::ENUM_ALTER_ADD: {
-          auto res = enum_store->add_value(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
+          auto res = enum_store->AddValue(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::EnumStorageError::InvalidValue:
@@ -1076,7 +1076,7 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
         }
         case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
           auto const &[enum_name, enum_value_old, enum_value_new] = delta.operation_enum_alter_update;
-          auto res = enum_store->update_value(enum_name, enum_value_old, enum_value_new);
+          auto res = enum_store->UpdateValue(enum_name, enum_value_old, enum_value_new);
           if (res.HasError()) {
             switch (res.GetError()) {
               case storage::EnumStorageError::InvalidValue:
@@ -1227,30 +1227,30 @@ void WalFile::TryFlushing() { wal_.TryFlushing(); }
 std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return wal_.CurrentFileBuffer(); }
 
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val) {
-  auto etype_str = enum_store.to_type_string(enum_val.type_id());
+  auto etype_str = enum_store.ToTypeString(enum_val.type_id());
   DMG_ASSERT(etype_str.HasValue());
   encoder.WriteString(*etype_str);
-  auto value_str = enum_store.to_value_string(enum_val.type_id(), enum_val.value_id());
+  auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
   DMG_ASSERT(value_str.HasValue());
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old) {
-  auto etype_str = enum_store.to_type_string(enum_val.type_id());
+  auto etype_str = enum_store.ToTypeString(enum_val.type_id());
   DMG_ASSERT(etype_str.HasValue());
   encoder.WriteString(*etype_str);
   encoder.WriteString(enum_value_old);
-  auto value_str = enum_store.to_value_string(enum_val.type_id(), enum_val.value_id());
+  auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
   DMG_ASSERT(value_str.HasValue());
   encoder.WriteString(*value_str);
 }
 
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype) {
-  auto etype_str = enum_store.to_type_string(etype);
+  auto etype_str = enum_store.ToTypeString(etype);
   DMG_ASSERT(etype_str.HasValue());
   encoder.WriteString(*etype_str);
-  auto const *values = enum_store.to_values_strings(etype);
+  auto const *values = enum_store.ToValuesStrings(etype);
   DMG_ASSERT(values);
   encoder.WriteUint(values->size());
   for (auto const &value : *values) {

@@ -788,7 +788,7 @@ class DbAccessor final {
   }
 
   auto EnumToName(storage::Enum value) const -> memgraph::utils::BasicResult<storage::EnumStorageError, std::string> {
-    return accessor_->GetEnumStoreShared().to_string(value);
+    return accessor_->GetEnumStoreShared().ToString(value);
   }
 
   auto EnumAlterAdd(std::string_view name, std::string_view value)
