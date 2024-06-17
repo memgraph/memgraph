@@ -33,7 +33,7 @@
 namespace memgraph::query {
 
 namespace {
-std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b) {
+std::partial_ordering TypedValueOrdering(TypedValue const &a, TypedValue const &b) {
   // First assume typical same type comparisons
   if (a.type() == b.type()) {
     switch (a.type()) {
@@ -67,9 +67,6 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
         throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
     }
   } else {
-    // from this point legal only between values of
-    // int+float combinations or against null
-
     // in ordering null comes after everything else
     // at the same time Null is not less that null
     // first deal with Null < Whatever case
@@ -77,14 +74,15 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
     // now deal with NotNull < Null case
     if (b.IsNull()) return std::partial_ordering::less;
 
-    if (!(a.IsNumeric() && b.IsNumeric())) [[unlikely]]
-      throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-
     switch (a.type()) {
       case TypedValue::Type::Int:
-        return a.UnsafeValueInt() <=> b.ValueDouble();
+        if (b.IsNumeric()) {
+          return a.UnsafeValueInt() <=> b.ValueDouble();
+        }
       case TypedValue::Type::Double:
-        return a.UnsafeValueDouble() <=> b.ValueInt();
+        if (b.IsNumeric()) {
+          return a.UnsafeValueDouble() <=> b.ValueInt();
+        }
       case TypedValue::Type::Bool:
       case TypedValue::Type::Null:
       case TypedValue::Type::String:
@@ -100,7 +98,7 @@ std::partial_ordering TypedValueCompare(TypedValue const &a, TypedValue const &b
       case TypedValue::Type::Duration:
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
-        LOG_FATAL("Invalid type");
+        return a.type() <=> b.type();
     }
   }
 }
@@ -111,7 +109,7 @@ struct OrderedTypedValueCompare {
   OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
 
   auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
-    return ascending ? TypedValueCompare(lhs, rhs) : TypedValueCompare(rhs, lhs);
+    return ascending ? TypedValueOrdering(lhs, rhs) : TypedValueOrdering(rhs, lhs);
   }
 
   auto ordering() const { return ordering_; }
@@ -124,7 +122,7 @@ struct OrderedTypedValueCompare {
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
 /// Does lexicographical ordering of elements based on the above
-/// defined TypedValueCompare, and also accepts a vector of Orderings
+/// defined TypedValueOrdering, and also accepts a vector of Orderings
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
