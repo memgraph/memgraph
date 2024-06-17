@@ -142,7 +142,15 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
 auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
   try {
     auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+    auto stream_end = std::chrono::system_clock::now();
+    std::time_t stream_sent_end_time = std::chrono::system_clock::to_time_t(stream_end);
+    spdlog::trace("RPC message to instance {} sent. Awaiting response. Time in seconds: {}", config_.instance_name,
+                  std::ctime(&stream_sent_end_time));
     stream.AwaitResponse();
+    auto elapsed_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now() - stream_end);
+    spdlog::trace("RPC message response from instance {} received. Time needed: {}", config_.instance_name,
+                  elapsed_time.count());
     return true;
   } catch (rpc::RpcFailedException const &) {
     return false;
