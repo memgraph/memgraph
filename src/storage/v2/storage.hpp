@@ -342,7 +342,7 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(const std::string &name, const std::vector<std::string> &values)
+    auto CreateEnum(std::string_view name, std::span<std::string const> values)
         -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {

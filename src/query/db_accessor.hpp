@@ -772,7 +772,7 @@ class DbAccessor final {
 
   void DropGraph() { return accessor_->DropGraph(); }
 
-  auto CreateEnum(const std::string &name, const std::vector<std::string> &values)
+  auto CreateEnum(std::string_view name, std::span<std::string const> values)
       -> utils::BasicResult<storage::EnumStorageError, storage::EnumTypeId> {
     return accessor_->CreateEnum(name, values);
   }

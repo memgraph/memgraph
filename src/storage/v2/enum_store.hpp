@@ -30,6 +30,10 @@ namespace memgraph::storage {
 enum struct EnumStorageError : uint8_t { EnumExists, InvalidValue, UnknownEnumType, UnknownEnumValue, ParseError };
 
 struct EnumStore {
+  auto RegisterEnum(std::string_view type_str, std::span<std::string const> enum_value_strs) {
+    return RegisterEnum(std::string{type_str}, std::vector(enum_value_strs.begin(), enum_value_strs.end()));
+  }
+
   auto RegisterEnum(std::string type_str, std::vector<std::string> enum_value_strs)
       -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
     namespace rv = ranges::views;

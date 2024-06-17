@@ -51,6 +51,8 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
+using namespace std::string_literals;
+
 class DurabilityTest : public ::testing::TestWithParam<bool> {
  protected:
   const uint64_t kNumBaseVertices = 1000;
@@ -95,7 +97,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create enum.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
-      ASSERT_FALSE(unique_acc->CreateEnum("enum1", {"v1", "v2"}).HasError());
+      ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
