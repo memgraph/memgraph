@@ -74,8 +74,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, PropertyId property, View view,
-             Storage *storage, Transaction *transaction);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view, Storage *storage, Transaction *transaction);
 
     class Iterator {
      public:
@@ -103,8 +102,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
-    EdgeTypeId edge_type_;
-    PropertyId property_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;

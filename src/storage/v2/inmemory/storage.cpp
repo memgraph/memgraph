@@ -2298,7 +2298,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.edge_type_property;
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE, info.edge_type,
-                                  {info.property}, final_commit_timestamp, streams);
+                                  {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.label_property;

@@ -865,7 +865,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE: {
         spdlog::trace("       Create edge index on :{}({})", delta.operation_edge_type_property.edge_type,
                       delta.operation_edge_type_property.property);
-        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction
                 ->CreateIndex(storage->NameToEdgeType(delta.operation_edge_type_property.edge_type),
                               storage->NameToProperty(delta.operation_edge_type_property.property))
@@ -876,7 +876,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP: {
         spdlog::trace("       Drop edge index on :{}({})", delta.operation_edge_type_property.edge_type,
                       delta.operation_edge_type_property.property);
-        auto *transaction = get_transaction(timestamp, kUniqueAccess);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction
                 ->DropIndex(storage->NameToEdgeType(delta.operation_edge_type_property.edge_type),
                             storage->NameToProperty(delta.operation_edge_type_property.property))

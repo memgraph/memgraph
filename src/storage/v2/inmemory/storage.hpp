@@ -443,7 +443,7 @@ class InMemoryStorage final : public Storage {
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
                                  uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                 uint64_t final_commit_timestamp);
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
   void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
                                  const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
                                  std::span<std::optional<ReplicaStream>> streams);

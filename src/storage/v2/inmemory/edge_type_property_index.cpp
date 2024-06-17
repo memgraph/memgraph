@@ -230,15 +230,9 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
 
 void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
-                                                  PropertyId property, View view, Storage *storage,
-                                                  Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
-      edge_type_(edge_type),
-      property_(property),
-      view_(view),
-      storage_(storage),
-      transaction_(transaction) {}
+InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view,
+                                                  Storage *storage, Transaction *transaction)
+    : index_accessor_(std::move(index_accessor)), view_(view), storage_(storage), transaction_(transaction) {}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                             utils::SkipList<Entry>::Iterator index_iterator)
@@ -332,7 +326,7 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(Edg
   const auto it = index_.find({edge_type, property});
   MG_ASSERT(it != index_.end(), "Index for edge-type {} and property {} doesn't exist", edge_type.AsUint(),
             property.AsUint());
-  return {it->second.access(), edge_type, property, view, storage, transaction};
+  return {it->second.access(), view, storage, transaction};
 }
 
 }  // namespace memgraph::storage
