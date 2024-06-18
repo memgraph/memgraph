@@ -99,6 +99,7 @@ print_help () {
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
+  echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
@@ -254,6 +255,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local init_only=false
+  local cmake_only=false
   local for_docker=false
   local for_platform=false
   local copy_from_host=true
@@ -265,6 +267,10 @@ build_memgraph () {
       ;;
       --init-only)
         init_only=true
+        shift 1
+      ;;
+      --cmake-only)
+        cmake_only=true
         shift 1
       ;;
       --for-docker)
@@ -356,6 +362,9 @@ build_memgraph () {
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  if [[ "$cmake_only" == "true" ]]; then
+    return
+  fi
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # Default value for $threads is 0 instead of $(nproc) because macos
