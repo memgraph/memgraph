@@ -2107,4 +2107,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               UnorderedElementsAre(0, 1, 2, 3, 4));
+
+  auto edges = acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW);
+  for (auto edge : edges) {
+    auto prop_val = edge.GetProperty(this->prop_id, View::NEW)->ValueInt();
+    edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(prop_val + 1));
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 2, 3, 4, 5));
 }
