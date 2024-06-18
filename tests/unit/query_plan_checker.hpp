@@ -166,8 +166,6 @@ class OpChecker : public BaseOpChecker {
  public:
   void CheckOp(LogicalOperator &op, const SymbolTable &symbol_table) override {
     auto *expected_op = dynamic_cast<TOp *>(&op);
-    auto debug_op_typeinfo = op.GetTypeInfo().name;
-    auto debug_expected_typeinfo = TOp::kType.name;
     ASSERT_TRUE(expected_op) << "op is '" << op.GetTypeInfo().name << "' expected '" << TOp::kType.name << "'!";
     ExpectOp(*expected_op, symbol_table);
   }

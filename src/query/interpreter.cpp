@@ -2788,11 +2788,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
-  auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
   }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
@@ -2882,20 +2883,24 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
-  auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
   }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
       const auto &ix_properties = index_query->properties_;
-      auto property_name = ix_properties.empty() ? "" : ix_properties.front().name;
-      index_notification.title =
-          fmt::format("Created index on edge-type {} on property {}.", index_query->edge_type_.name, property_name);
+      if (ix_properties.empty()) {
+        index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+      } else {
+        index_notification.title = fmt::format("Created index on edge-type {} on property {}.",
+                                               index_query->edge_type_.name, ix_properties.front().name);
+      }
 
       handler = [dba, edge_type, label_name = index_query->edge_type_.name,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),

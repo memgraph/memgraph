@@ -393,7 +393,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
-  // Dump all label indices
+  // Dump all edge type indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
@@ -420,7 +420,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
-  // Dump all label indices
+  // Dump all edge type property indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
