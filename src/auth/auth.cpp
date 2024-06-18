@@ -27,7 +27,7 @@
 #include "utils/string.hpp"
 
 namespace memgraph {
-std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::string &module_mappings) {
+std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_view module_mappings) {
   std::unordered_map<std::string, std::string> module_per_scheme;
   if (module_mappings.empty()) {
     return module_per_scheme;
@@ -35,6 +35,10 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(const std::stri
 
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
     const auto module_and_scheme = utils::Split(mapping, ":");
+    if (module_and_scheme.size() == 0) {
+      throw memgraph::utils::BasicException(
+          "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
+    }
     const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
 
     const auto n_values_provided = module_and_scheme.size();
@@ -246,7 +250,7 @@ void MigrateVersions(kvstore::KVStore &store) {
   }
 }
 
-std::unordered_map<std::string, auth::Module> PopulateModules(std::string &module_mappings) {
+std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
   std::unordered_map<std::string, auth::Module> module_per_scheme;
   if (!FLAGS_auth_module_executable.empty()) {
     module_per_scheme.emplace("basic", FLAGS_auth_module_executable);

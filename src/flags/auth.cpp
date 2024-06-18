@@ -27,6 +27,10 @@ DEFINE_VALIDATED_string(
       if (value.empty()) return true;
       for (const auto &mapping : memgraph::utils::Split(value, ";")) {
         const auto module_and_scheme = memgraph::utils::Split(mapping, ":");
+        if (module_and_scheme.size() == 0) {
+          throw memgraph::utils::BasicException(
+              "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
+        }
         const auto scheme_name = std::string{memgraph::utils::Trim(module_and_scheme[0])};
 
         const auto n_values_provided = module_and_scheme.size();

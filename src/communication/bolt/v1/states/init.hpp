@@ -89,7 +89,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     data["scheme"] = "none";
   }
 
-  auto scheme_in_module_mappings = [](const std::string &auth_scheme) {
+  auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
     if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
       return false;
     }
