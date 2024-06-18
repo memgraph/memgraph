@@ -25,9 +25,10 @@ DEFINE_VALIDATED_string(
     "quotation marks: \" \"",
     {
       if (value.empty()) return true;
+      std::cout << value << "\n";
       for (const auto &mapping : memgraph::utils::Split(value, ";")) {
         const auto module_and_scheme = memgraph::utils::Split(mapping, ":");
-        if (module_and_scheme.size() == 0) {
+        if (module_and_scheme.empty()) {
           throw memgraph::utils::BasicException(
               "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
         }

@@ -35,7 +35,7 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_vie
 
   for (const auto &mapping : utils::Split(module_mappings, ";")) {
     const auto module_and_scheme = utils::Split(mapping, ":");
-    if (module_and_scheme.size() == 0) {
+    if (module_and_scheme.empty()) {
       throw memgraph::utils::BasicException(
           "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
     }
