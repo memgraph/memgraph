@@ -3862,11 +3862,6 @@ class EnumValueAccess : public memgraph::query::Expression {
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  EnumValueAccess *MapTo(const Symbol &symbol) {
-    symbol_pos_ = symbol.position();
-    return this;
-  }
-
   std::string enum_name_;
   std::string enum_value_;
   int32_t symbol_pos_{-1};
