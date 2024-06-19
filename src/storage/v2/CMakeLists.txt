@@ -45,14 +45,33 @@ add_library(mg-storage-v2 STATIC
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
 )
+
 target_sources(mg-storage-v2
-        PUBLIC
-        FILE_SET storage_headers
-        TYPE HEADERS
-        BASE_DIRS ../../
-        FILES
-        small_vector.hpp
+    PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ../../
+    FILES
+    small_vector.hpp
+    enum.hpp
+    enum_store.hpp
 )
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-storage-v2 mg::replication Threads::Threads mg-utils mg-flags gflags absl::flat_hash_map mg-rpc mg-slk mg-events mg-memory lib::rangev3 mgcxx_text_search tantivy_text_search)
+target_link_libraries(mg-storage-v2
+    PUBLIC
+    mg::replication
+    Threads::Threads
+    mg-utils
+    mg-flags
+    gflags
+    absl::flat_hash_map
+    mg-rpc
+    mg-slk
+    mg-events
+    mg-memory
+    lib::rangev3
+    mgcxx_text_search
+    tantivy_text_search
+    strong_type::strong_type
+    rangev3
+)

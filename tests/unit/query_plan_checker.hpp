@@ -20,6 +20,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "storage/v2/enum.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -666,6 +667,12 @@ class FakeDbAccessor {
   }
 
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    // Does this need to be less fake?
+    return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
+  }
 
  private:
   std::unordered_map<std::string, memgraph::storage::LabelId> labels_;

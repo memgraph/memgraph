@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -72,7 +72,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageSuccess(const std::map<std::string, Value> &metadata) {
+  bool MessageSuccess(const map_t &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Success));
     WriteMap(metadata);
@@ -92,7 +92,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *          false otherwise
    */
   bool MessageSuccess() {
-    std::map<std::string, Value> metadata;
+    map_t metadata;
     return MessageSuccess(metadata);
   }
 
@@ -108,7 +108,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageFailure(const std::map<std::string, Value> &metadata) {
+  bool MessageFailure(const map_t &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);
