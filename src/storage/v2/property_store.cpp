@@ -28,11 +28,13 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
+#include "utils/compressor.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(property_store_compression, true, "Enable property store compression.");
+DEFINE_bool(property_store_compression, true,
+            "Enable property store compression.");  // true is here for testing, default should be false later
 
 namespace memgraph::storage {
 
@@ -1494,7 +1496,8 @@ bool PropertyStore::IsCompressed() const {
   if (in_local_buffer) {
     return false;
   }
-  return compressor_.IsCompressed(data, size);
+  const auto *compressor = utils::ZlibCompressor::GetInstance();
+  return compressor->IsCompressed(data, size);
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
@@ -1900,7 +1903,8 @@ void PropertyStore::CompressBuffer() {
   spdlog::debug("Data before compression: {}",
                 std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
 
-  auto compressed_buffer = compressor_.Compress(buffer_info.data, buffer_info.size);
+  auto *compressor = utils::ZlibCompressor::GetInstance();
+  auto compressed_buffer = compressor->Compress(buffer_info.data, buffer_info.size);
   if (compressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to compress buffer");
   }
@@ -1927,7 +1931,8 @@ std::vector<uint8_t> PropertyStore::DecompressBuffer() const {
   spdlog::debug("Decompressing buffer of size: {}", size);
   spdlog::debug("Decompressing buffer data: {}", std::string_view(reinterpret_cast<char *>(data), size));
 
-  auto decompressed_buffer = compressor_.Decompress(data, size);
+  auto *compressor = utils::ZlibCompressor::GetInstance();
+  auto decompressed_buffer = compressor->Decompress(data, size);
   if (decompressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to decompress buffer");
   }

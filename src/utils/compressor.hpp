@@ -14,9 +14,7 @@
 #include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
-#include <string_view>
 #include <vector>
-#include "spdlog/spdlog.h"
 
 #define ZLIB_HEADER 0x78
 #define ZLIB_LOW_COMPRESSION 0x01
@@ -45,62 +43,29 @@ class Compressor {
 
   virtual CompressedBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) = 0;
 
-  virtual bool IsCompressed(uint8_t *data, size_t size) = 0;
+  virtual bool IsCompressed(uint8_t *data, size_t size) const = 0;
 };
 
 class ZlibCompressor : public Compressor {
- public:
+ protected:
   ZlibCompressor() = default;
-  CompressedBuffer Compress(uint8_t *input, size_t input_size) override {
-    CompressedBuffer compressed;
-    compressed.data.resize(compressBound(input_size));
 
-    uLongf compressed_size = compressed.data.size();
-    int result = compress(compressed.data.data(), &compressed_size, input, input_size);
+  static ZlibCompressor *instance_;
 
-    if (result != Z_OK) {
-      // Handle compression error
-      return {};
-    }
+ public:
+  static ZlibCompressor *GetInstance();
 
-    compressed.data.resize(compressed_size);
-    compressed.original_size = input_size;
+  void operator=(const ZlibCompressor &) = delete;
 
-    return compressed;
-  }
+  ZlibCompressor(const ZlibCompressor &) = delete;
+  ZlibCompressor(ZlibCompressor &&) = delete;
+  ZlibCompressor &operator=(ZlibCompressor &&) = delete;
 
-  CompressedBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) override {
-    CompressedBuffer decompressed;
+  CompressedBuffer Compress(uint8_t *input, size_t input_size) override;
 
-    uLongf decompressed_size = compressed_size * 2;
-    decompressed.data.resize(decompressed_size);
-    spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
-    int result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
+  CompressedBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) override;
 
-    while (result == Z_BUF_ERROR) {
-      // The decompressed buffer is not large enough, increase its size and retry
-      decompressed_size *= 2;  // Double the buffer size
-      decompressed.data.resize(decompressed_size);
-      result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
-    }
-
-    if (result != Z_OK) {
-      // Handle decompression error
-      return {};
-    }
-
-    decompressed.data.resize(decompressed_size);
-    decompressed.original_size = decompressed_size;
-
-    return decompressed;
-  }
-
-  bool IsCompressed(uint8_t *data, size_t size) override {
-    bool first_byte = data[0] == ZLIB_HEADER;
-    bool second_byte = data[1] == ZLIB_LOW_COMPRESSION || data[1] == ZLIB_FAST_COMPRESSION ||
-                       data[1] == ZLIB_DEFAULT_COMPRESSION || data[1] == ZLIB_BEST_COMPRESSION;
-    bool size_check = size > 2;
-    return size_check && first_byte && second_byte;
-  }
+  bool IsCompressed(uint8_t *data, size_t size) const override;
 };
+
 }  // namespace memgraph::utils

@@ -134,7 +134,5 @@ class PropertyStore {
   std::vector<uint8_t> DecompressBuffer() const;
 
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
-
-  inline static utils::ZlibCompressor compressor_;
 };
 }  // namespace memgraph::storage

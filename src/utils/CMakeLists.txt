@@ -21,6 +21,7 @@ target_sources(mg-utils
     build_info.cpp
     query_memory_tracker.cpp
     exponential_backoff.cpp
+    compressor.cpp
 
     PUBLIC
     FILE_SET HEADERS
