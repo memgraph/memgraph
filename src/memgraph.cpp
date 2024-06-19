@@ -523,9 +523,9 @@ int main(int argc, char **argv) {
     if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{coordination_setup.coordinator_id,
-                                                              coordination_setup.coordinator_port, extracted_bolt_port,
-                                                              high_availability_data_dir, FLAGS_nuraft_log_file});
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{
+          coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
+          high_availability_data_dir, coordination_setup.nuraft_log_file});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
