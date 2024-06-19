@@ -313,6 +313,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
+add_unit_test(storage_v2_enum_store.cpp)
+target_link_libraries(${test_prefix}storage_v2_enum_store mg-storage-v2)
+
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
 

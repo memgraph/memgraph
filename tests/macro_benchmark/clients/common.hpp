@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,8 +68,7 @@ void PrintJsonValue(std::ostream &os, const Value &value) {
 }
 
 std::pair<memgraph::communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
-    Client &client, const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-    int max_attempts) {
+    Client &client, const std::string &query, const memgraph::communication::bolt::map_t &params, int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};
   int failed_attempts{0};
