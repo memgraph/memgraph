@@ -363,6 +363,12 @@ build_memgraph () {
   local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
+    build_target(){
+      target=$1
+      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+    }
+    # Force build that generate the header files needed by analysis (ie. clang-tidy)
+    build_target generated_code
     return
   fi
   # ' is used instead of " because we need to run make within the allowed
