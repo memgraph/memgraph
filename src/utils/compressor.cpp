@@ -81,7 +81,7 @@ bool ZlibCompressor::IsCompressed(uint8_t *data, size_t size) const {
 
 ZlibCompressor *ZlibCompressor::instance_ = nullptr;
 
-const ZlibCompressor *ZlibCompressor::GetInstance() {
+ZlibCompressor *ZlibCompressor::GetInstance() {
   if (instance_ == nullptr) {
     instance_ = new ZlibCompressor();
   }
