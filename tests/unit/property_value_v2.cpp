@@ -471,7 +471,7 @@ TEST(PropertyValue, ListMove) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapCopy) {
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(123)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(123)}};
   PropertyValue pv(map);
 
   ASSERT_EQ(map.size(), 1);
@@ -528,7 +528,7 @@ TEST(PropertyValue, MapCopy) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MapMove) {
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(123)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(123)}};
   PropertyValue pv(std::move(map));
 
   ASSERT_EQ(map.size(), 0);
@@ -585,7 +585,7 @@ TEST(PropertyValue, MapMove) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyConstructor) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -643,7 +643,7 @@ TEST(PropertyValue, CopyConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveConstructor) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -702,7 +702,7 @@ TEST(PropertyValue, MoveConstructor) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, CopyAssignment) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -761,7 +761,7 @@ TEST(PropertyValue, CopyAssignment) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, MoveAssignment) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   std::vector<PropertyValue> data{
       PropertyValue(),
@@ -843,7 +843,7 @@ TEST(PropertyValue, MoveAssignmentSelf) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Equal) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  auto map = std::map<std::string, PropertyValue>{{"nandare", PropertyValue(false)}};
+  auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
       PropertyValue(),          PropertyValue(true), PropertyValue(123), PropertyValue(123.5),
@@ -863,7 +863,7 @@ TEST(PropertyValue, Equal) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};
-  auto map = std::map<std::string, PropertyValue>{{"nandare", PropertyValue(false)}};
+  auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
       PropertyValue(),          PropertyValue(true), PropertyValue(123), PropertyValue(123.5),

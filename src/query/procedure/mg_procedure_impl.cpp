@@ -1799,12 +1799,12 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list) {
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map) {
-  memgraph::storage::PropertyValue result{std::map<std::string, memgraph::storage::PropertyValue>{}};
-  auto &result_map = result.ValueMap();
+  auto result_map = memgraph::storage::PropertyValue::map_t{};
+  result_map.reserve(map.items.size());
   for (const auto &[key, value] : map.items) {
     result_map.insert_or_assign(std::string{key}, ToPropertyValue(value));
   }
-  return result;
+  return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
@@ -4253,8 +4253,9 @@ struct MgProcedureResultStream final {
   }
 };
 
-std::map<std::string, memgraph::storage::PropertyValue> CreateQueryParams(mgp_map *params) {
-  std::map<std::string, memgraph::storage::PropertyValue> query_params;
+memgraph::storage::PropertyValue::map_t CreateQueryParams(mgp_map *params) {
+  auto query_params = memgraph::storage::PropertyValue::map_t{};
+  query_params.reserve(params->items.size());
   for (auto &[k, v] : params->items) {
     query_params.emplace(k, ToPropertyValue(v));
   }
@@ -4298,7 +4299,9 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
 
-        auto query_params_func = [&](memgraph::storage::Storage const *) { return CreateQueryParams(params); };
+        auto query_params_func = [&](memgraph::storage::Storage const *) -> memgraph::storage::PropertyValue::map_t {
+          return CreateQueryParams(params);
+        };
         auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);

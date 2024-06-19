@@ -57,7 +57,7 @@ TEST(SlkAdvanced, PropertyValueList) {
 
 TEST(SlkAdvanced, PropertyValueMap) {
   const auto sample_duration = memgraph::utils::AsSysTime(23);
-  std::map<std::string, memgraph::storage::PropertyValue> original{
+  memgraph::storage::PropertyValue::map_t original{
       {"hello", memgraph::storage::PropertyValue("world")},
       {"number", memgraph::storage::PropertyValue(5)},
       {"real", memgraph::storage::PropertyValue(1.123423)},
@@ -80,7 +80,7 @@ TEST(SlkAdvanced, PropertyValueMap) {
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  std::map<std::string, memgraph::storage::PropertyValue> decoded;
+  memgraph::storage::PropertyValue::map_t decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 
@@ -107,7 +107,7 @@ TEST(SlkAdvanced, PropertyValueComplex) {
   ASSERT_EQ(vec_v[5].type(), memgraph::storage::PropertyValue::Type::TemporalData);
   ASSERT_EQ(vec_v[6].type(), memgraph::storage::PropertyValue::Type::ZonedTemporalData);
 
-  std::map<std::string, memgraph::storage::PropertyValue> map_v{
+  memgraph::storage::PropertyValue::map_t map_v{
       {"hello", memgraph::storage::PropertyValue("world")},
       {"number", memgraph::storage::PropertyValue(5)},
       {"real", memgraph::storage::PropertyValue(1.123423)},
