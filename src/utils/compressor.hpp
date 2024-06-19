@@ -18,6 +18,14 @@
 #include <vector>
 #include "spdlog/spdlog.h"
 
+#define ZLIB_HEADER 0x78
+#define ZLIB_LOW_COMPRESSION 0x01
+#define ZLIB_FAST_COMPRESSION 0x5E
+#define ZLIB_DEFAULT_COMPRESSION 0x9C
+#define ZLIB_BEST_COMPRESSION 0xDA
+
+namespace memgraph::utils {
+
 struct CompressedBuffer {
   std::vector<uint8_t> data;
   size_t original_size;
@@ -36,6 +44,8 @@ class Compressor {
   virtual CompressedBuffer Compress(uint8_t *input, size_t input_size) = 0;
 
   virtual CompressedBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) = 0;
+
+  virtual bool IsCompressed(uint8_t *data, size_t size) = 0;
 };
 
 class ZlibCompressor : public Compressor {
@@ -64,7 +74,7 @@ class ZlibCompressor : public Compressor {
 
     uLongf decompressed_size = compressed_size * 2;
     decompressed.data.resize(decompressed_size);
-    // spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
+    spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
     int result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
 
     while (result == Z_BUF_ERROR) {
@@ -84,4 +94,13 @@ class ZlibCompressor : public Compressor {
 
     return decompressed;
   }
+
+  bool IsCompressed(uint8_t *data, size_t size) override {
+    bool first_byte = data[0] == ZLIB_HEADER;
+    bool second_byte = data[1] == ZLIB_LOW_COMPRESSION || data[1] == ZLIB_FAST_COMPRESSION ||
+                       data[1] == ZLIB_DEFAULT_COMPRESSION || data[1] == ZLIB_BEST_COMPRESSION;
+    bool size_check = size > 2;
+    return size_check && first_byte && second_byte;
+  }
 };
+}  // namespace memgraph::utils

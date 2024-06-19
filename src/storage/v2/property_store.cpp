@@ -25,7 +25,6 @@
 #include <utility>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/property_compression/compressor.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
@@ -1406,8 +1405,6 @@ uint32_t ToPowerOf8(uint32_t size) {
 
 const uint8_t kUseLocalBuffer = 0x01;
 
-const uint8_t kIsCompressed = 0x02;
-
 // Helper functions used to retrieve/store `size` and `data` from/into the
 // `buffer_`.
 
@@ -1489,7 +1486,16 @@ PropertyStore::~PropertyStore() {
   }
 }
 
-bool PropertyStore::IsCompressed() const { return buffer_[0] == kIsCompressed; }
+bool PropertyStore::IsCompressed() const {
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
+  std::tie(size, data) = GetSizeData(buffer_);
+  bool in_local_buffer = size % 8 != 0;
+  if (in_local_buffer) {
+    return false;
+  }
+  return compressor_.IsCompressed(data, size);
+}
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   BufferInfo buffer_info;
@@ -1902,13 +1908,16 @@ void PropertyStore::CompressBuffer() {
   spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char *>(compressed_buffer.data.data()),
                                                                 compressed_buffer.data.size()));
 
-  auto *data = new uint8_t[compressed_buffer.data.size()];
+  auto size_of_compressed_buffer = ToPowerOf8(compressed_buffer.data.size());
+  if (size_of_compressed_buffer >= buffer_info.size) {
+    // Compressed buffer is larger than the original buffer, so we don't compress it.
+    return;
+  }
+  auto *data = new uint8_t[size_of_compressed_buffer];
 
   memcpy(data, compressed_buffer.data.data(), compressed_buffer.data.size());
-
   delete[] buffer_info.data;
-
-  SetSizeData(buffer_, compressed_buffer.data.size(), data);
+  SetSizeData(buffer_, size_of_compressed_buffer, data);
 }
 
 std::vector<uint8_t> PropertyStore::DecompressBuffer() const {

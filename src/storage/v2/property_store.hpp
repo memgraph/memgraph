@@ -17,8 +17,8 @@
 #include <set>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/property_compression/compressor.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/compressor.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(property_store_compression);
@@ -135,7 +135,6 @@ class PropertyStore {
 
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 
-  inline static ZlibCompressor compressor_;
+  inline static utils::ZlibCompressor compressor_;
 };
-
 }  // namespace memgraph::storage
