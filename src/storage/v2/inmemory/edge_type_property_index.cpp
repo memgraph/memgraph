@@ -37,7 +37,7 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
     auto guard = std::shared_lock{vertex->lock};
     delta = vertex->delta;
   }
-  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
+  ApplyDeltasForRead(transaction, delta, view, [&edge, &vertex, &link](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
