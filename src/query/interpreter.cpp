@@ -5225,4 +5225,25 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 void Interpreter::ResetUser() { user_or_role_.reset(); }
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
 
+void Interpreter::ResetInterpreter() {
+  query_executions_.clear();
+  system_transaction_.reset();
+  transaction_queries_->clear();
+  if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
+    current_db_.db_acc_.reset();
+  }
+  if (current_db_.db_acc_) {
+    auto *storage = current_db_.db_acc_->get()->storage();
+    auto *disk = dynamic_cast<storage::DiskStorage *>(storage);
+    if (disk) {
+      if (disk->page_cache_.size() > 100) {
+        // std::cout << "clear cache" << std::endl;
+        disk->page_cache_.clear();
+        // int to_delete = disk->page_cache_.size() - 100;
+        // disk->page_cache_.erase(disk->page_cache_.begin(), disk->page_cache_.begin() + to_delete);
+      }
+    }
+  }
+}
+
 }  // namespace memgraph::query

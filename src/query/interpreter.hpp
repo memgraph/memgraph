@@ -360,14 +360,7 @@ class Interpreter final {
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
  private:
-  void ResetInterpreter() {
-    query_executions_.clear();
-    system_transaction_.reset();
-    transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
-      current_db_.db_acc_.reset();
-    }
-  }
+  void ResetInterpreter();
 
   struct QueryExecution {
     QueryAllocator execution_memory;  // NOTE: before all other fields which uses this memory

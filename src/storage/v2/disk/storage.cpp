@@ -20,7 +20,7 @@
 #include <string_view>
 #include <vector>
 
-#include <rocksdb/cache.h>
+#include <rocksdb/advanced_cache.h>
 #include <rocksdb/comparator.h>
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
@@ -302,6 +302,8 @@ const rocksdb::Comparator *cmp() {
 
 }  // namespace
 
+std::shared_ptr<rocksdb::Cache> block{};
+
 DiskStorage::DiskStorage(Config config)
     : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
       kvstore_(std::make_unique<RocksDBStorage>()),
@@ -315,11 +317,15 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
 
   rocksdb::BlockBasedTableOptions table_options;
-  table_options.block_cache = rocksdb::NewLRUCache(256 * 1024 * 1024);
-  table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
-  table_options.optimize_filters_for_memory = false;
+  table_options.block_cache = rocksdb::NewLRUCache(48 * 1024 * 1024 /*256 * 1024 * 1024*/, 0, true, 0.1);
+  block = table_options.block_cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = false;
+  // table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(8));
+  // table_options.optimize_filters_for_memory = false;
   table_options.enable_index_compression = false;
   table_options.use_delta_encoding = false;
+  // table_options.block_size = 32 << 10;
   //  table_options.prepopulate_block_cache =
   //      rocksdb::BlockBasedTableOptions::PrepopulateBlockCache::kFlushOnly;
   kvstore_->options_.table_factory.reset(rocksdb::NewBlockBasedTableFactory(table_options));
@@ -331,11 +337,13 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.use_direct_io_for_flush_and_compaction = true;
   kvstore_->options_.use_direct_reads = true;
 
-  kvstore_->options_.max_open_files = 256;
+  kvstore_->options_.max_open_files = -1;
+
+  kvstore_->options_.optimize_filters_for_hits = true;
 
   // TODO Comparator that orders based on the key start_gid + end_gid
 
-  //  options.OptimizeLevelStyleCompaction(128 * 1024 * 1024);
+  kvstore_->options_.OptimizeLevelStyleCompaction(12 * 1024 * 1024);
   // kvstore_->options_.allow_concurrent_memtable_write = false;
   // kvstore_->options_.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory());
 
@@ -386,6 +394,9 @@ DiskStorage::DiskStorage(Config config)
     logging::AssertRocksDBStatus(
         kvstore_->db_notx->CreateColumnFamily(kvstore_->options_, kInEdgesHandle, &kvstore_->in_edges_chandle));
   }
+
+  // Experimental eviction policy
+  page_cache_.reserve(1000);
 }
 
 DiskStorage::~DiskStorage() {
@@ -515,24 +526,36 @@ void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
     }
   }
   // Second pass; edge creation
-  for (auto &v : all_vi) {
+  for (const auto &v : all_vi) {
     auto &current_v = transaction->gid_index_[v.Gid().AsUint()];  // in-memory
-    const auto &in_edges = v.InEdges(View::NEW);
-    if (in_edges.HasValue()) {
-      for (const auto &in_edge : in_edges->edges) {
-        // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
-        current_v->in_edges.emplace_back(in_edge.EdgeType(),
-                                         transaction->gid_index_[in_edge.FromVertex().Gid().AsUint()], in_edge.edge_);
-      }
+    for (const auto &in : *v.disk_vertex_->in_edges()) {
+      current_v->in_edges.emplace_back(EdgeTypeId::FromUint(in->type()), transaction->gid_index_[in->vertex_gid()],
+                                       EdgeRef{Gid::FromUint(in->gid())});
     }
-    const auto &out_edges = v.OutEdges(View::NEW);
-    if (out_edges.HasValue()) {
-      for (const auto &out_edge : out_edges->edges) {
-        // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
-        current_v->out_edges.emplace_back(out_edge.EdgeType(),
-                                          transaction->gid_index_[out_edge.ToVertex().Gid().AsUint()], out_edge.edge_);
-      }
+    for (const auto &out : *v.disk_vertex_->out_edges()) {
+      current_v->out_edges.emplace_back(EdgeTypeId::FromUint(out->type()), transaction->gid_index_[out->vertex_gid()],
+                                        EdgeRef{Gid::FromUint(out->gid())});
     }
+    // page_cache_.clear();  // Make sure there is enough space for all connected vertices
+    // const auto &in_edges = v.InEdges(View::NEW);
+    // if (in_edges.HasValue()) {
+    //   for (const auto &in_edge : in_edges->edges) {
+    //     // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
+    //     current_v->in_edges.emplace_back(in_edge.EdgeType(),
+    //                                      transaction->gid_index_[in_edge.FromVertex().Gid().AsUint()],
+    //                                      in_edge.edge_);
+    //   }
+    // }
+    // page_cache_.clear();  // Make sure there is enough space for all connected vertices
+    // const auto &out_edges = v.OutEdges(View::NEW);
+    // if (out_edges.HasValue()) {
+    //   for (const auto &out_edge : out_edges->edges) {
+    //     // std::tuple<EdgeTypeId, Vertex *, EdgeRef>
+    //     current_v->out_edges.emplace_back(out_edge.EdgeType(),
+    //                                       transaction->gid_index_[out_edge.ToVertex().Gid().AsUint()],
+    //                                       out_edge.edge_);
+    //   }
+    // }
   }
 }
 
@@ -736,12 +759,18 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (!transaction_.scanned_all_vertices_) {
     const auto &pos = disk_storage->index_[value.ValueInt()];
     auto ro = GenRoOptions();
-    // TODO Not pinned....
     ro.pin_data = true;
-    rocksdb::PinnableSlice vpin;
-    const auto status = disk_storage->kvstore_->db_notx->Get(ro, disk_storage->kvstore_->vertex_chandle,
-                                                             std::string_view{pos.key, sizeof(pos.key)}, &vpin);
-    return VerticesIterable{SingleVertexIterable{std::move(vpin), pos.offset, disk_storage, &transaction_, View::NEW}};
+
+    auto &page = disk_storage->pages_.at(std::string{pos.key, sizeof(pos.key)});
+    if (!page) {
+      // Hydrate page
+      auto *it = disk_storage->kvstore_->db_notx->NewIterator(ro, disk_storage->kvstore_->vertex_chandle);
+      it->Seek(std::string_view{pos.key, sizeof(pos.key)});
+      page.Set(it);  // not safe
+      disk_storage->page_cache_.emplace_back(&page);
+      // std::cout << "eb " << disk_storage->page_cache_.size() << std::endl;
+    }
+    return VerticesIterable{SingleVertexIterable{&page, pos.offset, disk_storage, &transaction_, View::NEW}};
   }
   // if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
   //   disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
@@ -1424,7 +1453,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
   // std::vector<uint32_t> histo(32768 / 128, 0);
 
-  std::string page(8 * 4096, '\0');  // Currently doesn't work with edges; use at least 32k for edges
+  std::string page(24576, '\0');  // Currently doesn't work with edges; use at least 32k for edges
   uint32_t chunk_pos = 0;
   uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
   uint64_t id_end = -1;
@@ -1437,6 +1466,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     kvstore_->db_notx->DeleteRange({}, kvstore_->vertex_chandle, min_key, max_key);
     index_.clear();
     index_gid_.clear();
+    pages_.clear();
+    page_cache_.clear();
 
     // for (auto &index : transaction->prop_id_index_) {
     for (auto &index : transaction->index_storage_)
@@ -1493,9 +1524,9 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       // We do not support partial vertex updates, so if we are here, we need to add it to the index
       auto prop_id = vertex.properties.GetProperty(NameToProperty("id"));
       if (!prop_id.IsNull()) {
-        if (prop_id.ValueInt() == 1) {
-          asm("nop");
-        }
+        // if (prop_id.ValueInt() == 1) {
+        //   asm("nop");
+        // }
         for (const auto &l : vertex.labels) {
           IndexEntry ie{};
           memcpy(ie.key, key.data(), key.size());
@@ -1562,6 +1593,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
           memcpy(elem->key, key.data(), key.size());
         }
         to_update_gid.clear();
+        // Update page index
+        pages_.emplace(std::piecewise_construct, std::make_tuple(key), std::make_tuple());
       }
       // Reset
       id_begin = vertex.gid.AsUint();
@@ -1586,6 +1619,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       update_index(key, 4);
       to_update.clear();
       to_update_gid.clear();
+      // Update page index
+      pages_.emplace(std::piecewise_construct, std::make_tuple(key), std::make_tuple());
     } else {
       // Append
       id_end = vertex.gid.AsUint();
@@ -1630,6 +1665,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       memcpy(elem->key, key.data(), key.size());
     }
     to_update_gid.clear();
+    // Update page index
+    pages_.emplace(std::piecewise_construct, std::make_tuple(key), std::make_tuple());
   }
 
   // for (auto h : histo) {
@@ -1818,15 +1855,16 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
   read_opts.pin_data = true;  // Should be pined by the scan all (maybe....)
   // read_opts.read_tier = rocksdb::kBlockCacheTier;
 
-  static std::vector<std::unique_ptr<rocksdb::Iterator>> itrs;  // Just put it somewhere.....
-  static std::mutex mtx;
+  // static std::vector<std::unique_ptr<rocksdb::Iterator>> itrs;  // Just put it somewhere.....
+  // static std::mutex mtx;
 
   try {
     const auto &pos = index_gid_.at(gid.AsUint());
+    auto &page = pages_.at(std::string{pos.key, sizeof(pos.key)});
 
     // Page already cached, just return the pointer
-    if (pos.vp != nullptr) {
-      return VertexAccessor{pos.vp, this};
+    if (page) {
+      return VertexAccessor{&page, pos.offset, this};
     }
 
     // Doing a Get will copy the value; not currently able to avoid a copy... bad performance
@@ -1929,20 +1967,28 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
       auto *chunk_ptr = (uint8_t *)page.data();
       // TODO: Do not assume the gid are ordered and all there
       for (uint64_t gid = begin_gid; gid <= end_gid; ++gid) {
+        // index_gid_[gid].itr = it;
+
         // Find in the chunks
-        auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
-        chunk_ptr += sizeof(uint32_t);           // point to the value itself
-        index_gid_[gid].vp = disk_exp::GetVertex(chunk_ptr);
+        // auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
+        // chunk_ptr += sizeof(uint32_t);           // point to the value itself
+        // index_gid_[gid].vp = disk_exp::GetVertex(chunk_ptr);
         // Next chunk
-        chunk_ptr += val_size;  // move past the current value (to the next header)
+        // chunk_ptr += val_size;  // move past the current value (to the next header)
       }
     };
 
     // Fill local index with the cached page pointers
-    page_itr(it->key().ToStringView(), it->value().ToStringView());
+    // page_itr(it->key().ToStringView(), it->value().ToStringView());
+    page.Set(it);  // not safe
+    page_cache_.emplace_back(&page);
+    // std::cout << "eb " << page_cache_.size() << std::endl;
+    // std::cout << "\t" << block->GetUsage() << std::endl;
+    // std::cout << "\t\t" << block->GetPinnedUsage() << std::endl;
+    // const auto dbp = kvstore_->db_notx->getProperty("rocksdb.block-cache-usage");
 
     const auto *vertex = disk_exp::GetVertex(it->value().data() + pos.offset);
-    return VertexAccessor{vertex, this};
+    return VertexAccessor{&page, pos.offset, this};
 
     // TODO Without index
     // std::string key = utils::StringifyInt<uint64_t, uint32_t>(T i)
@@ -1958,34 +2004,34 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
   //    is it possible to do lower_bound or something like that. we have our start gid (out gid) and want the first
   //    equal or less
 
-  auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle));
-  for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    auto key = it->key().ToStringView();
-    // TODO: Have a bloom filter or index
-    // key == begin_gid end_gid
-    uint64_t begin_gid{};
-    key = utils::DestringifyInt<uint64_t, uint32_t>(key, begin_gid);
-    uint64_t end_gid{};
-    key = utils::DestringifyInt<uint64_t, uint32_t>(key, end_gid);
-    uint8_t *chunk_ptr = (uint8_t *)it->value().data();
-    if (begin_gid <= gid.AsUint() <= end_gid) {
-      // Find in the chunks
-      auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
-      chunk_ptr += sizeof(uint32_t);           // point to the value itself
-      while (val_size != 0) {
-        const auto *vertex = disk_exp::GetVertex(chunk_ptr);
-        if (vertex->gid() == gid.AsUint()) {
-          return VertexAccessor{vertex, this};
-        }
-        // Next chunk
-        chunk_ptr += val_size;              // move past the current value (to the next header)
-        val_size = *(uint32_t *)chunk_ptr;  // read header
-        chunk_ptr += sizeof(uint32_t);      // increment past the header (point to the value)
-      }
-    }  // Depends how we organize the chunks; could break here if begin_gid > gid
-  }
-  // Not found
-  return std::nullopt;
+  // auto it = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(read_opts, kvstore_->vertex_chandle));
+  // for (it->SeekToFirst(); it->Valid(); it->Next()) {
+  //   auto key = it->key().ToStringView();
+  //   // TODO: Have a bloom filter or index
+  //   // key == begin_gid end_gid
+  //   uint64_t begin_gid{};
+  //   key = utils::DestringifyInt<uint64_t, uint32_t>(key, begin_gid);
+  //   uint64_t end_gid{};
+  //   key = utils::DestringifyInt<uint64_t, uint32_t>(key, end_gid);
+  //   uint8_t *chunk_ptr = (uint8_t *)it->value().data();
+  //   if (begin_gid <= gid.AsUint() <= end_gid) {
+  //     // Find in the chunks
+  //     auto val_size = *(uint32_t *)chunk_ptr;  // header is the value size
+  //     chunk_ptr += sizeof(uint32_t);           // point to the value itself
+  //     while (val_size != 0) {
+  //       const auto *vertex = disk_exp::GetVertex(chunk_ptr);
+  //       if (vertex->gid() == gid.AsUint()) {
+  //         return VertexAccessor{vertex, this};
+  //       }
+  //       // Next chunk
+  //       chunk_ptr += val_size;              // move past the current value (to the next header)
+  //       val_size = *(uint32_t *)chunk_ptr;  // read header
+  //       chunk_ptr += sizeof(uint32_t);      // increment past the header (point to the value)
+  //     }
+  //   }  // Depends how we organize the chunks; could break here if begin_gid > gid
+  // }
+  // // Not found
+  // return std::nullopt;
 }
 
 std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,

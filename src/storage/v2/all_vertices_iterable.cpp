@@ -42,6 +42,7 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, bool last) : 
     chunk_ptr = (uint8_t *)self_->itr->value().ToStringView().data();
     auto *val_ptr = chunk_ptr + sizeof(uint32_t);
     auto *vertex = disk_exp::GetVertex(val_ptr);
+    // TODO Update to cacheble pages
     self_->vertex_ = {vertex, self_->storage_};
   }
 }

@@ -82,6 +82,54 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
 }
 }  // namespace detail
 
+VertexAccessor::VertexAccessor(Page *page, uint32_t offset, Storage *storage)
+    : storage_(storage),
+      disk_vertex_(const_cast<disk_exp::Vertex *>(disk_exp::GetVertex(page->Get()->value().data() + offset))),
+      page_{page} {}
+
+VertexAccessor::~VertexAccessor() {
+  if (page_) page_->Release();
+}
+
+VertexAccessor::VertexAccessor(const VertexAccessor &other)
+    : vertex_(other.vertex_),
+      storage_(other.storage_),
+      transaction_(other.transaction_),
+      disk_vertex_(other.disk_vertex_),
+      page_(other.page_),
+      for_deleted_(other.for_deleted_) {
+  if (page_) page_->Get();
+}
+VertexAccessor &VertexAccessor::operator=(const VertexAccessor &other) {
+  if (this == &other) return *this;
+  for_deleted_ = other.for_deleted_;
+  vertex_ = other.vertex_;
+  storage_ = other.storage_;
+  transaction_ = other.transaction_;
+  disk_vertex_ = other.disk_vertex_;
+  page_ = other.page_;
+  if (page_) page_->Get();
+  return *this;
+}
+VertexAccessor::VertexAccessor(VertexAccessor &&other) noexcept {
+  for_deleted_ = std::exchange(other.for_deleted_, false);
+  vertex_ = std::exchange(other.vertex_, nullptr);
+  storage_ = std::exchange(other.storage_, nullptr);
+  transaction_ = std::exchange(other.transaction_, nullptr);
+  disk_vertex_ = std::exchange(other.disk_vertex_, nullptr);
+  page_ = std::exchange(other.page_, nullptr);
+}
+VertexAccessor &VertexAccessor::operator=(VertexAccessor &&other) noexcept {
+  if (this == &other) return *this;
+  for_deleted_ = std::exchange(other.for_deleted_, false);
+  vertex_ = std::exchange(other.vertex_, nullptr);
+  storage_ = std::exchange(other.storage_, nullptr);
+  transaction_ = std::exchange(other.transaction_, nullptr);
+  disk_vertex_ = std::exchange(other.disk_vertex_, nullptr);
+  page_ = std::exchange(other.page_, nullptr);
+  return *this;
+}
+
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *storage, Transaction *transaction,
                                                      View view) {
   if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {

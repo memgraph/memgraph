@@ -30,6 +30,7 @@ class EdgeAccessor;
 class Storage;
 struct Constraints;
 struct Indices;
+struct Page;
 struct EdgesVertexAccessorResult;
 using edge_store = small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
@@ -43,6 +44,15 @@ class VertexAccessor final {
 
   VertexAccessor(const disk_exp::Vertex *dv, Storage *storage)
       : storage_(storage), disk_vertex_(const_cast<disk_exp::Vertex *>(dv)) {}
+
+  VertexAccessor(Page *, uint32_t offset, Storage *storage);
+
+  ~VertexAccessor();
+
+  VertexAccessor(const VertexAccessor &);
+  VertexAccessor &operator=(const VertexAccessor &other);
+  VertexAccessor(VertexAccessor &&) noexcept;
+  VertexAccessor &operator=(VertexAccessor &&) noexcept;
 
   static std::optional<VertexAccessor> Create(Vertex *vertex, Storage *storage, Transaction *transaction, View view);
 
@@ -131,6 +141,7 @@ class VertexAccessor final {
   Storage *storage_;
   Transaction *transaction_;
   disk_exp::Vertex *disk_vertex_{};
+  Page *page_{};
 
   // if the accessor was created for a deleted vertex.
   // Accessor behaves differently for some methods based on this
@@ -142,8 +153,8 @@ class VertexAccessor final {
   bool for_deleted_{false};
 };
 
-static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
-              "storage::VertexAccessor must be trivially copyable!");
+// static_assert(std::is_trivially_copyable_v<memgraph::storage::VertexAccessor>,
+//               "storage::VertexAccessor must be trivially copyable!");
 
 struct EdgesVertexAccessorResult {
   std::vector<EdgeAccessor> edges;

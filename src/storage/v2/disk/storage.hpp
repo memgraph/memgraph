@@ -27,10 +27,60 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <atomic>
 #include <unordered_set>
+#include <utility>
 #include "storage/v2/small_vector.hpp"
 
 namespace memgraph::storage {
+
+struct Page {
+  Page() {}
+  Page(Page &&other) {
+    itr = std::exchange(other.itr, nullptr);
+    // n = other.n.exchange(0);
+    n = std::exchange(other.n, 0);
+  }
+
+  auto *Get() {
+    if (itr) ++n;  // Not safe
+    // std::cout << "Get "
+    //           << " " << (itr ? (void *)itr->value().data() : nullptr) << " (" << n << ")" << std::endl;
+    return itr;
+  }
+  void Release() {
+    // std::cout << "Releasing " << (itr ? (void *)itr->value().data() : nullptr) << " (" << n << ")" << std::endl;
+    --n;
+    if (n == 0 && itr) {
+      // std::cout << "Deleted" << std::endl;
+      delete itr;
+      itr = nullptr;
+    }
+  }  // Do it better....
+  void Set(auto *it) {
+    // std::cout << "Setting " << (it ? (void *)it->value().data() : nullptr) << std::endl;
+    itr = it;
+    n = 0;
+  }
+
+  explicit operator bool() const { return itr; }
+
+  // char key[2 * sizeof(uint32_t)]{};  // Works now, but keep an eye on it
+  rocksdb::Iterator *itr{};        // Iterator pinning the data
+  /*std::atomic_*/ uint32_t n{0};  // Number of itr users
+};
+
+struct PageCacheEntry {
+  PageCacheEntry(Page *p) : p_{p} {
+    // std::cout << "PageCacheEntry " << (void *)p_->itr->value().data() << std::endl;
+    p_->Get();
+  }
+  ~PageCacheEntry() {
+    // std::cout << "~PageCacheEntry " << std::endl;
+    p_->Release();
+  }
+  Page *p_;
+};
 
 class DiskStorage final : public Storage {
  public:
@@ -346,13 +396,14 @@ class DiskStorage final : public Storage {
   struct IndexEntry {
     char key[2 * sizeof(uint32_t)];  // Works now, but keep an eye on it
     uint32_t offset;                 // Vertex offset from the value start
-    const disk_exp::Vertex *vp{};    // Raw pointer to rocksdb's cache; Could become a union
   };
   // struct index_hash {
   //   std::size_t operator()(std::pair<uint32_t, PropertyValue> const &v) const { return std::hash()(v.second); }
   // };
   std::unordered_map</*std::pair<LabelId, PropertyValue>*/ uint64_t, IndexEntry> index_;
   std::unordered_map</*Gid*/ uint64_t, IndexEntry> index_gid_;
+  std::unordered_map<std::string, Page> pages_;
+  std::vector<PageCacheEntry> page_cache_;
 };
 
 }  // namespace memgraph::storage

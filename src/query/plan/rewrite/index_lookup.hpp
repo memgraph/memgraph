@@ -935,10 +935,11 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     //   MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
     const auto &prop_filter = filters_.PropertyFilters(node_symbol);
     if (prop_filter.size() == 1) {
+      std::vector<Expression *> removed_expressions;
+      filter_exprs_for_removal_.insert(prop_filter[0].expression);
       filters_.EraseFilter(prop_filter[0]);
-      // std::vector<Expression *> removed_expressions;
-      // filters_.EraseLabelFilter(node_symbol, *labels.begin(), &removed_expressions);
-      // filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      filters_.EraseLabelFilter(node_symbol, *labels.begin(), &removed_expressions);
+      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       return std::make_unique<ScanAllByLabelPropertyValue>(
           input, node_symbol, storage::LabelId::FromUint(0), GetProperty(prop_filter[0].property_filter->property_),
           prop_filter[0].property_filter->property_.name, prop_filter[0].property_filter->value_, view);

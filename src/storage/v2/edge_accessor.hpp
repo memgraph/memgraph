@@ -45,6 +45,7 @@ class EdgeAccessor final {
         transaction_(transaction),
         for_deleted_(for_deleted) {}
 
+  // TODO Use page pinner
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, disk_exp::Vertex *from_vertex, disk_exp::Vertex *to_vertex,
                Storage *storage)
       : edge_(edge),
