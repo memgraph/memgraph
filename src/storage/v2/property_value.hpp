@@ -54,9 +54,10 @@ class PropertyValue {
     Enum = 9,
   };
 
-  using string_t = std::string;
-  using list_t = std::vector<PropertyValue>;
-  using map_t = boost::container::flat_map<std::string, PropertyValue, std::less<>>;
+  using string_t = std::basic_string<char, std::char_traits<char>, std::allocator<char>>;
+  using map_t = boost::container::flat_map<string_t, PropertyValue, std::less<>,
+                                           std::allocator<std::pair<string_t, PropertyValue>>>;
+  using list_t = std::vector<PropertyValue, std::allocator<PropertyValue>>;
 
   static bool AreComparableTypes(Type a, Type b) {
     return (a == b) || (a == Type::Int && b == Type::Double) || (a == Type::Double && b == Type::Int);
