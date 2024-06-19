@@ -12,6 +12,7 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <cstdint>
 #include <map>
 #include <set>
 
@@ -120,17 +121,21 @@ class PropertyStore {
   /// Sets buffer
   void SetBuffer(std::string_view buffer);
 
-  /// Compresses buffer
-  void CompressBuffer(Compressor &compressor);
-
-  /// Decompresses buffer
-  void DecompressBuffer(Compressor &compressor);
-
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
+  bool IsCompressed() const;
+
+  /// Compresses buffer
+  void CompressBuffer();
+
+  /// Decompresses buffer
+  std::vector<uint8_t> DecompressBuffer() const;
+
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
+
+  inline static ZlibCompressor compressor_;
 };
 
 }  // namespace memgraph::storage

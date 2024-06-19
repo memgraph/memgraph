@@ -64,8 +64,7 @@ class ZlibCompressor : public Compressor {
 
     uLongf decompressed_size = compressed_size * 2;
     decompressed.data.resize(decompressed_size);
-    spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
-
+    // spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
     int result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
 
     while (result == Z_BUF_ERROR) {
