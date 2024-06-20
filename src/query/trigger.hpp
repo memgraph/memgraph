@@ -109,6 +109,10 @@ struct TriggerStore {
   std::unordered_set<TriggerEventType> GetEventTypes() const;
 
  private:
+  void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                      const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                      std::string_view trigger_name, std::string_view trigger_data);
+
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;
 
