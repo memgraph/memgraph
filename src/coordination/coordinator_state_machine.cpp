@@ -41,12 +41,12 @@ void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx) {
   auto type = static_cast<nuraft::snapshot::type>((j.at(kType.data()).get<int>()));
 
   ptr<cluster_config> last_config;
-  memgraph::coordination::from_json(nlohmann::json::parse(last_config_json), last_config);
+  from_json(nlohmann::json::parse(last_config_json), last_config);
 
   auto deserialized_snapshot = cs_new<snapshot>(last_log_idx, last_log_term, last_config, size, type);
 
-  memgraph::coordination::CoordinatorClusterState cluster_state;
-  memgraph::coordination::from_json(nlohmann::json::parse(cluster_state_json), cluster_state);
+  CoordinatorClusterState cluster_state;
+  from_json(nlohmann::json::parse(cluster_state_json), cluster_state);
 
   snapshot_ctx = SnapshotCtx{deserialized_snapshot, cluster_state};
 }
@@ -87,8 +87,9 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
   if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+    auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
     for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
-         kv_store_snapshot_it != durability_->end(std::string{kSnapshotIdPrefix}); ++kv_store_snapshot_it) {
+         kv_store_snapshot_it != end_iter; ++kv_store_snapshot_it) {
       auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
       try {
         auto parsed_snapshot_id =
@@ -104,10 +105,10 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
         // NOLINTNEXTLINE (misc-const-correctness)
         auto snapshot_ctx = cs_new<SnapshotCtx>();
         from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
-        snapshots_[parsed_snapshot_id] = snapshot_ctx;
         MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
                   "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
                   snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
+        snapshots_[parsed_snapshot_id] = snapshot_ctx;
       } catch (std::exception &e) {
         LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
       }
@@ -288,7 +289,7 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
       nlohmann::json json;
       to_json(json, SnapshotCtx{snapshot_ptr, cluster_state});
       auto const ok =
-          durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot.get_last_log_idx()), json.dump());
+          durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot.get_last_log_idx()), json.dump());
       if (!ok) {
         throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
       }
@@ -306,7 +307,7 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
   auto entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
   if (durability_) {
-    if (!durability_->Get("snapshot_id_" + std::to_string(s.get_last_log_idx())).has_value()) {
+    if (!durability_->Get(fmt::format("{}{}", kSnapshotIdPrefix, s.get_last_log_idx())).has_value()) {
       throw NoSnapshotOnDiskException("Failed to retrieve snapshot with id {} from disk.", s.get_last_log_idx());
     }
   }
@@ -338,11 +339,10 @@ auto CoordinatorStateMachine::last_commit_index() -> ulong {
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Create snapshot, last_log_idx={}", s.get_last_log_idx()));
   ptr<buffer> snp_buf = s.serialize();
-  ptr<snapshot> ss = snapshot::deserialize(*snp_buf);
+  ptr<snapshot> const ss = snapshot::deserialize(*snp_buf);
   CreateSnapshotInternal(ss);
 
   ptr<std::exception> except(nullptr);
-  // TODO(antoniofilipovic): Check true/false
   bool ret = true;
   when_done(ret, except);
 }
@@ -356,8 +356,7 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
   if (durability_) {
     nlohmann::json json;
     to_json(json, *ctx);
-    auto const ok =
-        durability_->Put(std::string{kSnapshotIdPrefix} + std::to_string(snapshot->get_last_log_idx()), json.dump());
+    auto const ok = durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot->get_last_log_idx()), json.dump());
     if (!ok) {
       throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
     }

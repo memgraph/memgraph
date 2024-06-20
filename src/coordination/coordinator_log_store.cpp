@@ -61,12 +61,21 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
   if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
     auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
     auto const maybe_start_idx = durability_->Get(kStartIdx);
-    if (!maybe_last_log_entry.has_value() || !maybe_start_idx.has_value()) {
+    bool is_first_start{false};
+    if (!maybe_last_log_entry.has_value()) {
       logger_.Log(nuraft_log_level::INFO,
-                  "No last log entry or start index found on disk, assuming first start of log store with durability");
+                  "No last log entry found on disk, assuming first start of log store with durability");
+      is_first_start = true;
+    }
+    if (!maybe_start_idx.has_value()) {
+      logger_.Log(nuraft_log_level::INFO,
+                  "No last start index found on disk, assuming first start of log store with durability");
+      is_first_start = true;
+    }
+    if (is_first_start) {
       start_idx_ = 1;
-      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
-      durability_->Put(kLastLogEntry, std::to_string(start_idx_.load() - 1));
+      durability_->Put(kStartIdx, "1");
+      durability_->Put(kLastLogEntry, "0");
       return true;
     }
 
@@ -75,10 +84,9 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
 
     // Compaction might have happened so we might be missing some logs.
     for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
-      auto const entry = durability_->Get(std::string{kLogEntryPrefix} + std::to_string(id));
+      auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
-      MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}>", id, start_idx_.load(),
-                last_log_entry + 1);
+      MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry);
 
       auto const j = nlohmann::json::parse(entry.value());
       auto const term = j.at(kLogEntryTermKey).get<int>();
@@ -88,8 +96,8 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
       buffer_serializer bs{log_term_buffer};
       bs.put_str(data);
       logs_[id] = cs_new<log_entry>(term, log_term_buffer, static_cast<nuraft::log_val_type>(value_type));
-      logger_.Log(nuraft_log_level::TRACE, fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ",
-                                                       std::string{j.dump()}, std::to_string(id), data));
+      logger_.Log(nuraft_log_level::TRACE,
+                  fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
     }
     return true;
   }
@@ -118,7 +126,7 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
     }
     logs_.erase(entry);
     if (durability_) {
-      durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(i));
+      durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, i));
     }
   }
 }
@@ -139,12 +147,13 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 }
 
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
-  ptr<log_entry> clone = MakeClone(entry);
+  auto const clone = MakeClone(entry);
   auto lock = std::lock_guard{logs_lock_};
   uint64_t next_slot = start_idx_ + logs_.size() - 1;
 
   if (durability_) {
-    StoreEntryToDisk(clone, next_slot, next_slot == start_idx_ + logs_.size() - 1);
+    bool const is_entry_with_biggest_id = next_slot == start_idx_ + logs_.size() - 1;
+    StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
   }
 
   logs_[next_slot] = clone;
@@ -153,7 +162,7 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
 }
 
 void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
-  ptr<log_entry> clone = MakeClone(entry);
+  ptr<log_entry> const clone = MakeClone(entry);
 
   // Discard all logs equal to or greater than `index.
   auto lock = std::lock_guard{logs_lock_};
@@ -164,7 +173,8 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   logs_[index] = clone;
 
   if (durability_) {
-    StoreEntryToDisk(clone, index, index >= start_idx_ - logs_.size() - 1);
+    bool const is_entry_with_biggest_id = index >= start_idx_ - logs_.size() - 1;
+    StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
   }
 }
 
@@ -233,8 +243,8 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
   int32 const num_logs = pack.get_int();
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Applying pack for logs from {} to {}", index, index + num_logs));
   for (int32 i = 0; i < num_logs; ++i) {
-    uint64_t cur_idx = index + i;
-    int32 buf_size = pack.get_int();
+    auto const cur_idx = index + i;
+    auto const buf_size = pack.get_int();
 
     ptr<buffer> buf_local = buffer::alloc(buf_size);
     pack.get(buf_local);
@@ -244,7 +254,8 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
       auto lock = std::lock_guard{logs_lock_};
       logs_[cur_idx] = le;
       if (durability_) {
-        StoreEntryToDisk(le, cur_idx, cur_idx >= start_idx_ + logs_.size() - 1);
+        bool const is_entry_with_biggest_id = cur_idx >= start_idx_ + logs_.size() - 1;
+        StoreEntryToDisk(le, cur_idx, is_entry_with_biggest_id);
       }
     }
   }
@@ -274,7 +285,7 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
     }
     logs_.erase(entry);
     if (durability_) {
-      durability_->Delete(std::string{kLogEntryPrefix} + std::to_string(ii));
+      durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
     }
   }
 
@@ -300,7 +311,7 @@ bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t
   auto clone_val = static_cast<int>(clone->get_val_type());
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
-  durability_->Put("log_entry_" + std::to_string(key_id), log_term_json.dump());
+  durability_->Put(fmt::format("{}{}", kLogEntryPrefix, key_id), log_term_json.dump());
 
   if (is_newest_entry) {
     durability_->Put(kLastLogEntry, std::to_string(key_id));

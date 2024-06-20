@@ -521,7 +521,7 @@ int main(int argc, char **argv) {
     }
 
     if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/raft_data";
+      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
