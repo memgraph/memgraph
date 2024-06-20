@@ -306,6 +306,9 @@ target_link_libraries(${test_prefix}utils_static_vector mg::utils)
 add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
 
+add_unit_test(utils_compressor.cpp)
+target_link_libraries(${test_prefix}utils_compressor mg-utils)
+
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)

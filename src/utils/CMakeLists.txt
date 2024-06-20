@@ -39,7 +39,9 @@ find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json)
+find_package(ZLIB REQUIRED)
+
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json ZLIB::ZLIB)
 target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt)
 
 add_library(mg-settings STATIC)

@@ -1899,17 +1899,18 @@ void PropertyStore::CompressBuffer() {
     return;
   }
 
-  spdlog::debug("Data before compression: {}",
-                std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
+  // spdlog::debug("Data before compression: {}",
+  //               std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
 
   auto *compressor = utils::ZlibCompressor::GetInstance();
   auto compressed_buffer = compressor->Compress(buffer_info.data, buffer_info.size);
   if (compressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to compress buffer");
   }
-  spdlog::debug("Compressing buffer of size: {}", compressed_buffer.data.size());
-  spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char *>(compressed_buffer.data.data()),
-                                                                compressed_buffer.data.size()));
+  // spdlog::debug("Compressing buffer of size: {}", compressed_buffer.data.size());
+  // spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char
+  // *>(compressed_buffer.data.data()),
+  //                                                               compressed_buffer.data.size()));
 
   auto size_of_compressed_buffer = ToPowerOf8(compressed_buffer.data.size());
   if (size_of_compressed_buffer >= buffer_info.size) {
@@ -1927,8 +1928,8 @@ std::vector<uint8_t> PropertyStore::DecompressBuffer() const {
   uint32_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
-  spdlog::debug("Decompressing buffer of size: {}", size);
-  spdlog::debug("Decompressing buffer data: {}", std::string_view(reinterpret_cast<char *>(data), size));
+  // spdlog::debug("Decompressing buffer of size: {}", size);
+  // spdlog::debug("Decompressing buffer data: {}", std::string_view(reinterpret_cast<char *>(data), size));
 
   auto *compressor = utils::ZlibCompressor::GetInstance();
   auto decompressed_buffer = compressor->Decompress(data, size);

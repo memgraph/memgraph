@@ -11,13 +11,12 @@
 
 #pragma once
 
-#include "utils/compressor.hpp"
 #include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
-#include <string_view>
 #include <vector>
-#include "spdlog/spdlog.h"
+
+#include "utils/compressor.hpp"
 
 #define ZLIB_HEADER 0x78
 #define ZLIB_LOW_COMPRESSION 0x01
@@ -28,6 +27,10 @@
 namespace memgraph::utils {
 
 CompressedBuffer ZlibCompressor::Compress(uint8_t *input, size_t input_size) {
+  if (input_size == 0) {
+    return {};
+  }
+
   CompressedBuffer compressed;
   compressed.data.resize(compressBound(input_size));
 
@@ -50,7 +53,6 @@ CompressedBuffer ZlibCompressor::Decompress(uint8_t *compressed_data, size_t com
 
   uLongf decompressed_size = compressed_size * 2;
   decompressed.data.resize(decompressed_size);
-  spdlog::info("Compressed data {}", std::string_view(reinterpret_cast<char *>(compressed_data), compressed_size));
   int result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
 
   while (result == Z_BUF_ERROR) {
