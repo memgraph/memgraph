@@ -105,9 +105,6 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
         // NOLINTNEXTLINE (misc-const-correctness)
         auto snapshot_ctx = cs_new<SnapshotCtx>();
         from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
-        MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),
-                  "Parsed snapshot id {} does not match last log index {}", parsed_snapshot_id,
-                  snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx());
         snapshots_[parsed_snapshot_id] = snapshot_ctx;
       } catch (std::exception &e) {
         LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
