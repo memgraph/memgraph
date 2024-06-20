@@ -107,6 +107,11 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
       }
       return;
     }
+    case storage::PropertyValue::Type::Enum: {
+      type_ = Type::Enum;
+      enum_v = value.ValueEnum();
+      return;
+    }
   }
   LOG_FATAL("Unsupported type");
 }
@@ -184,6 +189,12 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
           break;
         }
       }
+      break;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      type_ = Type::Enum;
+      enum_v = other.ValueEnum();
+      break;
     }
   }
 
@@ -240,6 +251,9 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      return;
+    case Type::Enum:
+      new (&enum_v) storage::Enum(other.enum_v);
       return;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
@@ -300,6 +314,9 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
       break;
+    case Type::Enum:
+      new (&enum_v) storage::Enum(other.enum_v);
+      break;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       break;
@@ -348,10 +365,15 @@ TypedValue::operator storage::PropertyValue() const {
                                                                zoned_date_time_v.GetTimezone()});
     case Type::Duration:
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
-    default:
-      break;
+    case TypedValue::Type::Enum:
+      return storage::PropertyValue(enum_v);
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::Function:
+      throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
   }
-  throw TypedValueException("Unsupported conversion from TypedValue to PropertyValue");
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -395,6 +417,7 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 
@@ -414,6 +437,7 @@ bool TypedValue::ContainsDeleted() const {
     case Type::LocalDateTime:
     case Type::ZonedDateTime:
     case Type::Duration:
+    case Type::Enum:
       return false;
     // Reference types
     case Type::List:
@@ -428,7 +452,8 @@ bool TypedValue::ContainsDeleted() const {
       return std::ranges::any_of(path_v.vertices(),
                                  [](auto &vertex_acc) { return vertex_acc.impl_.vertex_->deleted; }) ||
              std::ranges::any_of(path_v.edges(), [](auto &edge_acc) { return edge_acc.IsDeleted(); });
-    default:
+    case Type::Graph:
+    case Type::Function:
       throw TypedValueException("Value of unknown type");
   }
   return false;
@@ -450,8 +475,13 @@ bool TypedValue::IsPropertyValue() const {
     case Type::LocalDateTime:
     case Type::ZonedDateTime:
     case Type::Duration:
+    case Type::Enum:
       return true;
-    default:
+    case Type::Vertex:
+    case Type::Edge:
+    case Type::Path:
+    case Type::Graph:
+    case Type::Function:
       return false;
   }
 }
@@ -488,6 +518,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "zoned_date_time";
     case TypedValue::Type::Duration:
       return os << "duration";
+    case TypedValue::Type::Enum:
+      return os << "enum";
     case TypedValue::Type::Graph:
       return os << "graph";
     case TypedValue::Type::Function:
@@ -545,6 +577,7 @@ DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalTime &, LocalTime, local_ti
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::LocalDateTime &, LocalDateTime, local_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::ZonedDateTime &, ZonedDateTime, zoned_date_time_v)
 DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const utils::Duration &, Duration, duration_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const storage::Enum &, Enum, enum_v)
 
 #undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
 
@@ -648,6 +681,9 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         return *this;
+      case Type::Enum:
+        new (&enum_v) storage::Enum(other.enum_v);
+        return *this;
       case Type::Function:
         new (&function_v) std::function<void(TypedValue *)>(other.function_v);
         return *this;
@@ -713,6 +749,9 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
         break;
+      case Type::Enum:
+        new (&enum_v) storage::Enum(other.enum_v);
+        break;
       case Type::Function:
         new (&function_v) std::function<void(TypedValue *)>{other.function_v};
         break;
@@ -763,6 +802,7 @@ void TypedValue::DestroyValue() {
     case Type::LocalTime:
     case Type::LocalDateTime:
     case Type::Duration:
+    case Type::Enum:
     case Type::ZonedDateTime:
       // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
       break;
@@ -825,7 +865,16 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::ZonedDateTime:
       case TypedValue::Type::Duration:
         return true;
-      default:
+
+      case TypedValue::Type::Bool:
+      case TypedValue::Type::List:
+      case TypedValue::Type::Map:
+      case TypedValue::Type::Vertex:
+      case TypedValue::Type::Edge:
+      case TypedValue::Type::Path:
+      case TypedValue::Type::Graph:
+      case TypedValue::Type::Function:
+      case TypedValue::Type::Enum:
         return false;
     }
   };
@@ -946,9 +995,12 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return TypedValue(a.ValueZonedDateTime() == b.ValueZonedDateTime(), a.GetMemoryResource());
     case TypedValue::Type::Duration:
       return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
+    case TypedValue::Type::Enum:
+      return TypedValue(a.ValueEnum() == b.ValueEnum(), a.GetMemoryResource());
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported comparison operator");
-    default:
+    case TypedValue::Type::Function:
+    case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");
   }
 }
@@ -1273,7 +1325,8 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::ZonedDateTimeHash{}(value.ValueZonedDateTime());
     case TypedValue::Type::Duration:
       return utils::DurationHash{}(value.ValueDuration());
-      break;
+    case TypedValue::Type::Enum:
+      return std::hash<storage::Enum>{}(value.ValueEnum());
     case TypedValue::Type::Function:
       throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:

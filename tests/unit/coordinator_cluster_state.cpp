@@ -39,9 +39,6 @@ class CoordinatorClusterStateTest : public ::testing::Test {
   void SetUp() override {}
 
   void TearDown() override {}
-
-  std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
-                                     "MG_tests_unit_coordinator_cluster_state"};
 };
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {

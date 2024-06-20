@@ -241,7 +241,7 @@ auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::Datab
   interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
   ResultStreamFaker stream(db->storage());
 
-  auto [header, _1, qid, _2] = interpreter.Prepare(query, {}, {});
+  auto [header, _1, qid, _2] = interpreter.Prepare(query, memgraph::query::no_params_fn, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);
   stream.Summary(summary);
@@ -957,7 +957,7 @@ class StatefulInterpreter {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(interpreter_.current_db_.db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_.Prepare(query, {}, {});
+    auto [header, _1, qid, _2] = interpreter_.Prepare(query, memgraph::query::no_params_fn, {});
     stream.Header(header);
     auto summary = interpreter_.PullAll(&stream);
     stream.Summary(summary);

@@ -220,7 +220,7 @@ State SendSuccessMessage(TSession &session) {
   // The only usage in the mentioned version is for logging purposes.
   // Because it's not critical for the regular usage of the driver
   // we send a hardcoded value for now.
-  std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+  map_t metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", std::move(*server_name)});
   }

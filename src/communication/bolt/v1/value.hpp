@@ -25,6 +25,8 @@ namespace memgraph::communication::bolt {
 /** Forward declaration of Value class. */
 class Value;
 
+using map_t = std::map<std::string, Value, std::less<>>;
+
 /** Wraps int64_t to prevent dangerous implicit conversions. */
 class Id {
  public:
@@ -56,7 +58,7 @@ inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
 struct Vertex {
   Id id;
   std::vector<std::string> labels;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -69,7 +71,7 @@ struct Edge {
   Id from;
   Id to;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
   std::string from_element_id;
   std::string to_element_id;
@@ -82,7 +84,7 @@ struct Edge {
 struct UnboundedEdge {
   Id id;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -165,10 +167,9 @@ class Value {
   // constructors for non-primitive types
   Value(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
   Value(const char *value) : Value(std::string(value)) {}
+  Value(std::string_view value) : Value(std::string(value)) {}
   Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
-  Value(const std::map<std::string, Value> &value) : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(value);
-  }
+  Value(const map_t &value) : type_(Type::Map) { new (&map_v) map_t(value); }
   Value(const Vertex &value) : type_(Type::Vertex) { new (&vertex_v) Vertex(value); }
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
@@ -185,9 +186,7 @@ class Value {
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
-  Value(std::map<std::string, Value> &&value) noexcept : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(std::move(value));
-  }
+  Value(map_t &&value) noexcept : type_(Type::Map) { new (&map_v) map_t(std::move(value)); }
   Value(Vertex &&value) noexcept : type_(Type::Vertex) { new (&vertex_v) Vertex(std::move(value)); }
   Value(Edge &&value) noexcept : type_(Type::Edge) { new (&edge_v) Edge(std::move(value)); }
   Value(UnboundedEdge &&value) noexcept : type_(Type::UnboundedEdge) {
@@ -219,7 +218,6 @@ class Value {
 
   DECL_GETTER_BY_REFERENCE(String, std::string)
   DECL_GETTER_BY_REFERENCE(List, std::vector<Value>)
-  using map_t = std::map<std::string, Value>;
   DECL_GETTER_BY_REFERENCE(Map, map_t)
   DECL_GETTER_BY_REFERENCE(Vertex, Vertex)
   DECL_GETTER_BY_REFERENCE(Edge, Edge)
@@ -264,7 +262,7 @@ class Value {
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
-    std::map<std::string, Value> map_v;
+    map_t map_v;
     Vertex vertex_v;
     Edge edge_v;
     UnboundedEdge unbounded_edge_v;
