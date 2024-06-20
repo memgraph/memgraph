@@ -24,6 +24,7 @@ const uint64_t kVersion{18};
 
 const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};
+const uint64_t kEnumsVersion{18};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

@@ -52,6 +52,8 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
+using namespace std::string_literals;
+
 class DurabilityTest : public ::testing::TestWithParam<bool> {
  protected:
   const uint64_t kNumBaseVertices = 1000;
@@ -95,6 +97,18 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et2 = store->NameToEdgeType("base_et2");
 
     {
+      // Create enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // alter enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
       // Create label index.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
       ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
@@ -135,6 +149,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     // Create vertices.
+    auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access(ReplicationRole::MAIN);
       auto vertex = acc->CreateVertex();
@@ -145,8 +160,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-        ASSERT_TRUE(
-            vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        if (i % 4 == 0) {
+          ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+        } else {
+          ASSERT_TRUE(
+              vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        }
       }
       ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -305,6 +324,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_count = store->NameToProperty("count");
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
+
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum1", "v4").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").HasValue());
 
     // Create storage accessor.
     auto acc = store->Access(ReplicationRole::MAIN);
@@ -477,6 +502,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Verify base dataset.
     if (have_base_dataset) {
+      auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
       // Verify vertices.
       for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
         auto vertex = acc->FindVertex(base_vertex_gids_[i], memgraph::storage::View::OLD);
@@ -492,7 +518,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          if (i % 4 == 0) {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+          } else {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          }
+
         } else {
           ASSERT_EQ(properties->size(), 0);
         }
@@ -3024,14 +3055,16 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
+  memgraph::storage::EnumStore enum_store;
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
-                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
+  const auto info =
+      recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
+                           name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num, &enum_store);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);

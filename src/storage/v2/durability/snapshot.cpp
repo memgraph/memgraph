@@ -162,6 +162,11 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
+    if (*version >= kEnumsVersion) {
+      info.offset_enums = read_offset();
+    } else {
+      info.offset_enums = 0U;
+    }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
     if (*version >= 15U) {
@@ -2157,6 +2162,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       vertices->clear();
       edges_metadata->clear();
       epoch_history->clear();
+      enum_store->clear();
     }
   });
 
@@ -2188,6 +2194,44 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       SPDLOG_TRACE("Mapping \"{}\"from snapshot id {} to actual id {}.", *name, *id, my_id);
     }
   }
+
+  // Recover enums.
+  // TODO: when we have enum deletion/edits we will need to handle remapping
+  {
+    spdlog::info("Recovering metadata of enums.");
+    if (!snapshot.SetPosition(info.offset_enums)) throw RecoveryFailure("Couldn't read data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_ENUMS) {
+      throw RecoveryFailure("Couldn't read section enums marker!");
+    }
+
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Couldn't read the number of enums!");
+    spdlog::info("Recovering metadata of {} enums.", *size);
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto etype = snapshot.ReadString();
+      if (!etype) throw RecoveryFailure("Couldn't read enum type of enums!");
+
+      auto value_count = snapshot.ReadUint();
+      if (!value_count) throw RecoveryFailure("Couldn't read enum values length of enums!");
+
+      auto evalues = std::vector<std::string>{};
+      evalues.reserve(*value_count);
+      for (uint64_t j = 0; j < *value_count; ++j) {
+        auto evalue = snapshot.ReadString();
+        if (!evalue) throw RecoveryFailure("Couldn't read enum value of enums!");
+        evalues.emplace_back(*std::move(evalue));
+      }
+
+      auto ret = enum_store->RegisterEnum(*std::move(etype), std::move(evalues));
+      if (ret.HasError()) {
+        throw storage::durability::RecoveryFailure("The enum could not be created!");
+      }
+    }
+    spdlog::info("Metadata of enums are recovered.");
+  }
+
   auto get_label_from_id = [&snapshot_id_map](uint64_t label_id) {
     auto it = snapshot_id_map.find(label_id);
     if (it == snapshot_id_map.end()) throw RecoveryFailure("Couldn't find label id in snapshot_id_map!");
@@ -2649,23 +2693,31 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   uint64_t offset_edge_indices = 0;
   uint64_t offset_constraints = 0;
   uint64_t offset_mapper = 0;
+  uint64_t offset_enums = 0;
   uint64_t offset_metadata = 0;
   uint64_t offset_epoch_history = 0;
   uint64_t offset_edge_batches = 0;
   uint64_t offset_vertex_batches = 0;
-  {
-    snapshot.WriteMarker(Marker::SECTION_OFFSETS);
-    offset_offsets = snapshot.GetPosition();
+
+  auto write_offsets = [&] {
     snapshot.WriteUint(offset_edges);
     snapshot.WriteUint(offset_vertices);
     snapshot.WriteUint(offset_indices);
     snapshot.WriteUint(offset_edge_indices);
     snapshot.WriteUint(offset_constraints);
     snapshot.WriteUint(offset_mapper);
+    snapshot.WriteUint(offset_enums);
     snapshot.WriteUint(offset_epoch_history);
     snapshot.WriteUint(offset_metadata);
     snapshot.WriteUint(offset_edge_batches);
     snapshot.WriteUint(offset_vertex_batches);
+  };
+
+  {
+    snapshot.WriteMarker(Marker::SECTION_OFFSETS);
+    offset_offsets = snapshot.GetPosition();
+    // write placeholders...will correct them later
+    write_offsets();
   }
 
   // Object counters.
@@ -2992,6 +3044,23 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
   }
 
+  // Write enums
+  {
+    offset_enums = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_ENUMS);
+    // TODO: once delete/modify of enums added we need to be more careful in the
+    //       mapping of current inmemory enum properties
+    auto all_enums = storage->enum_store_.AllRegistered();
+    snapshot.WriteUint(all_enums.size());
+    for (auto const &[etype, evalues] : all_enums) {
+      snapshot.WriteString(etype);
+      snapshot.WriteUint(evalues.size());
+      for (auto const &evalue : evalues) {
+        snapshot.WriteString(evalue);
+      }
+    }
+  }
+
   // Write epoch history
   {
     offset_epoch_history = snapshot.GetPosition();
@@ -3037,16 +3106,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   // Write true offsets.
   {
     snapshot.SetPosition(offset_offsets);
-    snapshot.WriteUint(offset_edges);
-    snapshot.WriteUint(offset_vertices);
-    snapshot.WriteUint(offset_indices);
-    snapshot.WriteUint(offset_edge_indices);
-    snapshot.WriteUint(offset_constraints);
-    snapshot.WriteUint(offset_mapper);
-    snapshot.WriteUint(offset_epoch_history);
-    snapshot.WriteUint(offset_metadata);
-    snapshot.WriteUint(offset_edge_batches);
-    snapshot.WriteUint(offset_vertex_batches);
+    write_offsets();
   }
 
   // Finalize snapshot file.

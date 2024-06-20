@@ -43,6 +43,35 @@ namespace memgraph::storage {
 
 namespace {
 
+constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define add_case(E)              \
+  case MetadataDelta::Action::E: \
+    return durability::StorageMetadataOperation::E
+  switch (action) {
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(EDGE_TYPE_INDEX_CREATE);
+    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(ENUM_CREATE);
+    add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
+  }
+#undef add_case
+}
+
 auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
     -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
@@ -109,8 +138,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
-                                      name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_);
+    auto info =
+        recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
+                              name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -2280,31 +2310,28 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   if (!transaction.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
       wal_file_->AppendDelta(delta, parent, timestamp);
-      repl_storage_state_.AppendDelta(delta, parent, timestamp, streams);
+      repl_storage_state_.AppendDelta(streams, delta, parent, timestamp);
     });
   }
 
+  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
+    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
+      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+      encode_operation(encoder);
+    };
+
+    // durability
+    full_encode_operation(wal_file_->encoder());
+    wal_file_->UpdateStats(durability_commit_timestamp);
+    // replication
+    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+  };
+
   // Handle metadata deltas
   for (const auto &md_delta : transaction.md_deltas) {
+    auto const op = ActionToStorageOperation(md_delta.action);
     switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_CREATE, md_delta.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_INDEX_CREATE: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE, md_delta.edge_type,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
-        const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE, info.edge_type,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
+      case MetadataDelta::Action::LABEL_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
         AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
                                   durability_commit_timestamp, streams);
@@ -2313,9 +2340,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
                                   durability_commit_timestamp, streams);
       } break;
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
         const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_DROP, info.edge_type,
+        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE, info.edge_type,
                                   {info.property}, durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
@@ -2334,47 +2361,69 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
                                   durability_commit_timestamp, streams);
       } break;
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-        const auto &info = md_delta.label_property_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET, info.label,
-                                  {info.property}, info.stats, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: /* Special case we clear all label/property
-                                                                       pairs with the defined label */
-      {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
-        const auto &info = md_delta.text_index;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_CREATE, info.index_name, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        const auto &info = md_delta.text_index;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::TEXT_INDEX_DROP, info.index_name, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
+                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
-        const auto &info = md_delta.label_properties;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE, info.label,
-                                  info.properties, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+                              md_delta.label_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_CREATE:
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        const auto &info = md_delta.label_properties;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP, info.label,
-                                  info.properties, durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
+                                md_delta.label_properties.properties);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_ADD: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
+                                md_delta.enum_alter_update_info.old_value);
+        });
+        break;
+      }
     }
   }
 

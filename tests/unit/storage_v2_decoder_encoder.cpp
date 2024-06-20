@@ -352,6 +352,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_ZONED_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_PROPERTY_VALUE:
+        case memgraph::storage::durability::Marker::TYPE_ENUM:
           valid_marker = true;
           break;
 
@@ -365,6 +366,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::SECTION_EPOCH_HISTORY:
         case memgraph::storage::durability::Marker::SECTION_EDGE_INDICES:
         case memgraph::storage::durability::Marker::SECTION_OFFSETS:
+        case memgraph::storage::durability::Marker::SECTION_ENUMS:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_DELETE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_ADD_LABEL:
@@ -392,6 +394,9 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;

@@ -35,18 +35,25 @@
 #pragma once
 
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include <gmock/gmock.h>
+
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
-#include "storage/v2/id_types.hpp"
 #include "utils/string.hpp"
 
+#include "storage/v2/inmemory/storage.hpp"
+
 namespace memgraph::query::test_common {
+
+using ::testing::_;
 
 auto ToIntList(const TypedValue &t) {
   std::vector<int64_t> list;
@@ -63,14 +70,24 @@ auto ToIntMap(const TypedValue &t) {
 };
 
 std::string ToString(Expression *expr) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+  auto storage_acc = store->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_acc.get());
+
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  PrintExpression(expr, &ss, dba);
   return ss.str();
 }
 
 std::string ToString(NamedExpression *expr) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+  auto storage_acc = store->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  memgraph::query::DbAccessor dba(storage_acc.get());
+
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  PrintExpression(expr, &ss, dba);
   return ss.str();
 }
 
@@ -637,3 +654,4 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
+#define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

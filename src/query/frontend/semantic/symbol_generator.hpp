@@ -93,6 +93,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Exists & /*exists*/) override;
   bool PostVisit(Exists & /*exists*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
+  ReturnType Visit(EnumValueAccess &) override { return true; }
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;
@@ -259,6 +260,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override { op.expression_->Accept(*this); };
   void Visit(RegexMatch &op) override{};
   void Visit(PatternComprehension &op) override{};
+  void Visit(EnumValueAccess &op) override{};
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 

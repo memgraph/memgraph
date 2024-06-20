@@ -316,13 +316,13 @@ std::string ToString(Ordering ord) {
   }
 }
 
-json ToJson(Expression *expression) {
+json ToJson(Expression *expression, const DbAccessor &dba) {
   std::stringstream sstr;
-  PrintExpression(expression, &sstr);
+  PrintExpression(expression, &sstr, dba);
   return sstr.str();
 }
 
-json ToJson(const utils::Bound<Expression *> &bound) {
+json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba) {
   json json;
   switch (bound.type()) {
     case utils::BoundType::INCLUSIVE:
@@ -333,7 +333,7 @@ json ToJson(const utils::Bound<Expression *> &bound) {
       break;
   }
 
-  json["value"] = ToJson(bound.value());
+  json["value"] = ToJson(bound.value(), dba);
 
   return json;
 }
@@ -346,9 +346,9 @@ json ToJson(storage::LabelId label, const DbAccessor &dba) { return dba.LabelToN
 
 json ToJson(storage::PropertyId property, const DbAccessor &dba) { return dba.PropertyToName(property); }
 
-json ToJson(NamedExpression *nexpr) {
+json ToJson(NamedExpression *nexpr, const DbAccessor &dba) {
   json json;
-  json["expression"] = ToJson(nexpr->expression_);
+  json["expression"] = ToJson(nexpr->expression_, dba);
   json["name"] = nexpr->name_;
   return json;
 }
@@ -356,7 +356,7 @@ json ToJson(NamedExpression *nexpr) {
 json ToJson(const PropertiesMapList &properties, const DbAccessor &dba) {
   json json;
   for (const auto &prop_pair : properties) {
-    json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second));
+    json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second, dba));
   }
   return json;
 }
@@ -365,7 +365,7 @@ json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) 
   json json;
   for (const auto &label : labels) {
     if (const auto *label_node = std::get_if<Expression *>(&label)) {
-      json.emplace_back(ToJson(*label_node));
+      json.emplace_back(ToJson(*label_node, dba));
     } else {
       json.emplace_back(ToJson(std::get<storage::LabelId>(label), dba));
     }
@@ -392,13 +392,13 @@ json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
   return self;
 }
 
-json ToJson(const Aggregate::Element &elem) {
+json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
   json json;
   if (elem.value) {
-    json["value"] = ToJson(elem.value);
+    json["value"] = ToJson(elem.value, dba);
   }
   if (elem.key) {
-    json["key"] = ToJson(elem.key);
+    json["key"] = ToJson(elem.key, dba);
   }
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
@@ -446,8 +446,8 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyRange &op) {
   self["name"] = "ScanAllByLabelPropertyRange";
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
-  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_) : json();
-  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_) : json();
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
@@ -462,7 +462,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   self["name"] = "ScanAllByLabelPropertyValue";
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
-  self["expression"] = ToJson(op.expression_);
+  self["expression"] = ToJson(op.expression_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
@@ -587,14 +587,14 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
   self["direction"] = ToString(op.common_.direction);
   self["type"] = ToString(op.type_);
   self["is_reverse"] = op.is_reverse_;
-  self["lower_bound"] = op.lower_bound_ ? ToJson(op.lower_bound_) : json();
-  self["upper_bound"] = op.upper_bound_ ? ToJson(op.upper_bound_) : json();
+  self["lower_bound"] = op.lower_bound_ ? ToJson(op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(op.upper_bound_, *dba_) : json();
   self["existing_node"] = op.common_.existing_node;
 
-  self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression) : json();
+  self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression, *dba_) : json();
 
   if (op.type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || op.type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
-    self["weight_lambda"] = ToJson(op.weight_lambda_->expression);
+    self["weight_lambda"] = ToJson(op.weight_lambda_->expression, *dba_);
     self["total_weight_symbol"] = ToJson(*op.total_weight_);
   }
 
@@ -621,7 +621,7 @@ bool PlanToJsonVisitor::PreVisit(ConstructNamedPath &op) {
 bool PlanToJsonVisitor::PreVisit(Filter &op) {
   json self;
   self["name"] = "Filter";
-  self["expression"] = ToJson(op.expression_);
+  self["expression"] = ToJson(op.expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -640,7 +640,7 @@ bool PlanToJsonVisitor::PreVisit(Filter &op) {
 bool PlanToJsonVisitor::PreVisit(Produce &op) {
   json self;
   self["name"] = "Produce";
-  self["named_expressions"] = ToJson(op.named_expressions_);
+  self["named_expressions"] = ToJson(op.named_expressions_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -652,7 +652,7 @@ bool PlanToJsonVisitor::PreVisit(Produce &op) {
 bool PlanToJsonVisitor::PreVisit(Delete &op) {
   json self;
   self["name"] = "Delete";
-  self["expressions"] = ToJson(op.expressions_);
+  self["expressions"] = ToJson(op.expressions_, *dba_);
   self["detach"] = op.detach_;
 
   op.input_->Accept(*this);
@@ -666,8 +666,8 @@ bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
   json self;
   self["name"] = "SetProperty";
   self["property"] = ToJson(op.property_, *dba_);
-  self["lhs"] = ToJson(op.lhs_);
-  self["rhs"] = ToJson(op.rhs_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
+  self["rhs"] = ToJson(op.rhs_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -680,7 +680,7 @@ bool PlanToJsonVisitor::PreVisit(SetProperties &op) {
   json self;
   self["name"] = "SetProperties";
   self["input_symbol"] = ToJson(op.input_symbol_);
-  self["rhs"] = ToJson(op.rhs_);
+  self["rhs"] = ToJson(op.rhs_, *dba_);
 
   switch (op.op_) {
     case SetProperties::Op::UPDATE:
@@ -714,7 +714,7 @@ bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
   json self;
   self["name"] = "RemoveProperty";
   self["property"] = ToJson(op.property_, *dba_);
-  self["lhs"] = ToJson(op.lhs_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -776,8 +776,8 @@ bool PlanToJsonVisitor::PreVisit(Accumulate &op) {
 bool PlanToJsonVisitor::PreVisit(Aggregate &op) {
   json self;
   self["name"] = "Aggregate";
-  self["aggregations"] = ToJson(op.aggregations_);
-  self["group_by"] = ToJson(op.group_by_);
+  self["aggregations"] = ToJson(op.aggregations_, *dba_);
+  self["group_by"] = ToJson(op.group_by_, *dba_);
   self["remember"] = ToJson(op.remember_);
 
   op.input_->Accept(*this);
@@ -790,7 +790,7 @@ bool PlanToJsonVisitor::PreVisit(Aggregate &op) {
 bool PlanToJsonVisitor::PreVisit(Skip &op) {
   json self;
   self["name"] = "Skip";
-  self["expression"] = ToJson(op.expression_);
+  self["expression"] = ToJson(op.expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -802,7 +802,7 @@ bool PlanToJsonVisitor::PreVisit(Skip &op) {
 bool PlanToJsonVisitor::PreVisit(Limit &op) {
   json self;
   self["name"] = "Limit";
-  self["expression"] = ToJson(op.expression_);
+  self["expression"] = ToJson(op.expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -818,7 +818,7 @@ bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
   for (auto i = 0; i < op.order_by_.size(); ++i) {
     json json;
     json["ordering"] = ToString(op.compare_.orderings()[i].ordering());
-    json["expression"] = ToJson(op.order_by_[i]);
+    json["expression"] = ToJson(op.order_by_[i], *dba_);
     self["order_by"].push_back(json);
   }
   self["output_symbols"] = ToJson(op.output_symbols_);
@@ -866,7 +866,7 @@ bool PlanToJsonVisitor::PreVisit(Unwind &op) {
   json self;
   self["name"] = "Unwind";
   self["output_symbol"] = ToJson(op.output_symbol_);
-  self["input_expression"] = ToJson(op.input_expression_);
+  self["input_expression"] = ToJson(op.input_expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
@@ -879,7 +879,7 @@ bool PlanToJsonVisitor::PreVisit(query::plan::CallProcedure &op) {
   json self;
   self["name"] = "CallProcedure";
   self["procedure_name"] = op.procedure_name_;
-  self["arguments"] = ToJson(op.arguments_);
+  self["arguments"] = ToJson(op.arguments_, *dba_);
   self["result_fields"] = op.result_fields_;
   self["result_symbols"] = ToJson(op.result_symbols_);
 
@@ -895,7 +895,7 @@ bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   self["name"] = "LoadCsv";
 
   if (op.file_) {
-    self["file"] = ToJson(op.file_);
+    self["file"] = ToJson(op.file_, *dba_);
   }
 
   if (op.with_header_) {
@@ -907,15 +907,15 @@ bool PlanToJsonVisitor::PreVisit(query::plan::LoadCsv &op) {
   }
 
   if (op.delimiter_) {
-    self["delimiter"] = ToJson(op.delimiter_);
+    self["delimiter"] = ToJson(op.delimiter_, *dba_);
   }
 
   if (op.quote_) {
-    self["quote"] = ToJson(op.quote_);
+    self["quote"] = ToJson(op.quote_, *dba_);
   }
 
   if (op.nullif_) {
-    self["nullif"] = ToJson(op.nullif_);
+    self["nullif"] = ToJson(op.nullif_, *dba_);
   }
 
   self["row_variable"] = ToJson(op.row_var_);
@@ -990,7 +990,7 @@ bool PlanToJsonVisitor::PreVisit(Foreach &op) {
   json self;
   self["name"] = "Foreach";
   self["loop_variable_symbol"] = ToJson(op.loop_variable_symbol_);
-  self["expression"] = ToJson(op.expression_);
+  self["expression"] = ToJson(op.expression_, *dba_);
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

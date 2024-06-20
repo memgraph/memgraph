@@ -24,6 +24,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
@@ -73,6 +74,8 @@ class ReplicaStream {
   replication::AppendDeltasRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
+
+  auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
  private:
   Storage *storage_;

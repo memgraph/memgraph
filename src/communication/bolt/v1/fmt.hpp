@@ -23,5 +23,5 @@ template <>
 class fmt::formatter<std::vector<memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
 
 template <>
-class fmt::formatter<std::map<std::string, memgraph::communication::bolt::Value>> : public fmt::ostream_formatter {};
+class fmt::formatter<memgraph::communication::bolt::map_t> : public fmt::ostream_formatter {};
 #endif

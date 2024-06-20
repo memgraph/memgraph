@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include "storage/v2/enum_store.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -29,6 +30,7 @@ enum class Marker : uint8_t {
   TYPE_PROPERTY_VALUE = 0x17,
   TYPE_TEMPORAL_DATA = 0x18,
   TYPE_ZONED_TEMPORAL_DATA = 0x19,
+  TYPE_ENUM = 0x1a,
 
   SECTION_VERTEX = 0x20,
   SECTION_EDGE = 0x21,
@@ -39,6 +41,7 @@ enum class Marker : uint8_t {
   SECTION_DELTA = 0x26,
   SECTION_EPOCH_HISTORY = 0x27,
   SECTION_EDGE_INDICES = 0x28,
+  SECTION_ENUMS = 0x29,
 
   SECTION_OFFSETS = 0x42,
 
@@ -67,8 +70,11 @@ enum class Marker : uint8_t {
   DELTA_EDGE_TYPE_INDEX_DROP = 0x66,
   DELTA_TEXT_INDEX_CREATE = 0x67,
   DELTA_TEXT_INDEX_DROP = 0x68,
-  DELTA_EDGE_TYPE_PROPERTY_INDEX_CREATE = 0x69,
-  DELTA_EDGE_TYPE_PROPERTY_INDEX_DROP = 0x6a,
+  DELTA_ENUM_CREATE = 0x69,
+  DELTA_ENUM_ALTER_ADD = 0x6a,
+  DELTA_ENUM_ALTER_UPDATE = 0x6b,
+  DELTA_EDGE_TYPE_PROPERTY_INDEX_CREATE = 0x6c,
+  DELTA_EDGE_TYPE_PROPERTY_INDEX_DROP = 0x6d,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -87,6 +93,7 @@ static const Marker kMarkersAll[] = {
     Marker::TYPE_TEMPORAL_DATA,
     Marker::TYPE_ZONED_TEMPORAL_DATA,
     Marker::TYPE_PROPERTY_VALUE,
+    Marker::TYPE_ENUM,
     Marker::SECTION_VERTEX,
     Marker::SECTION_EDGE,
     Marker::SECTION_MAPPER,
@@ -97,6 +104,7 @@ static const Marker kMarkersAll[] = {
     Marker::SECTION_EPOCH_HISTORY,
     Marker::SECTION_EDGE_INDICES,
     Marker::SECTION_OFFSETS,
+    Marker::SECTION_ENUMS,
     Marker::DELTA_VERTEX_CREATE,
     Marker::DELTA_VERTEX_DELETE,
     Marker::DELTA_VERTEX_ADD_LABEL,
@@ -124,6 +132,9 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_EXISTENCE_CONSTRAINT_DROP,
     Marker::DELTA_UNIQUE_CONSTRAINT_CREATE,
     Marker::DELTA_UNIQUE_CONSTRAINT_DROP,
+    Marker::DELTA_ENUM_CREATE,
+    Marker::DELTA_ENUM_ALTER_ADD,
+    Marker::DELTA_ENUM_ALTER_UPDATE,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

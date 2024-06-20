@@ -236,6 +236,9 @@ struct CurrentDB {
   bool in_explicit_db_{false};
 };
 
+using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
+constexpr auto no_params_fn = [](storage::Storage const *) -> UserParameters { return {}; };
+
 class Interpreter final {
  public:
   explicit Interpreter(InterpreterContext *interpreter_context);
@@ -282,8 +285,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  Interpreter::PrepareResult Prepare(const std::string &query,
-                                     const std::map<std::string, storage::PropertyValue> &params,
+  Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras);
 
 #ifdef MG_ENTERPRISE
