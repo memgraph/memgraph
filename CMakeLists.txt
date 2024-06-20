@@ -417,7 +417,13 @@ if(QUERY_MODULES)
 endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
-add_custom_target(generated_code DEPENDS generate_opencypher_parser mgcxx-proj)
+add_custom_target(generated_code DEPENDS
+    generate_opencypher_parser
+    mgcxx-proj
+    librdkafka-proj
+    antlr4-proj
+    librdtsc-proj
+)
 
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
   PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
