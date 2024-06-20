@@ -43,7 +43,7 @@ void HandleAuthFailure(TSession &session) {
 }
 
 template <typename TSession>
-std::optional<State> BasicAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("principal")) {  // Special case principal = ""
     spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
     data["principal"] = "";
@@ -63,7 +63,7 @@ std::optional<State> BasicAuthentication(TSession &session, std::map<std::string
 }
 
 template <typename TSession>
-std::optional<State> SSOAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("credentials")) {
     spdlog::warn("The client didn’t supply the SSO token!");
     return State::Close;
