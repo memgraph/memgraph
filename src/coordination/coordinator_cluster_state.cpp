@@ -221,12 +221,12 @@ void CoordinatorClusterState::SetIsLockOpened(bool is_lock_opened) {
 }
 
 void CoordinatorClusterState::SetReplicationInstances(
-    std::map<std::string, ReplicationInstanceState, std::less<>> const &replication_instances_) {
+    std::map<std::string, ReplicationInstanceState, std::less<>> replication_instances_) {
   auto lock = std::unique_lock{log_lock_};
-  repl_instances_ = replication_instances_;
+  repl_instances_ = std::move(replication_instances_);
 }
 
-void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID const &current_main_uuid) {
+void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) {
   auto lock = std::unique_lock{log_lock_};
   current_main_uuid_ = current_main_uuid;
 }

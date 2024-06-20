@@ -101,7 +101,8 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
           throw std::runtime_error("Failed to retrieve snapshot context from disk");
         }
 
-        ptr<SnapshotCtx> snapshot_ctx = cs_new<SnapshotCtx>();
+        // NOLINTNEXTLINE (misc-const-correctness)
+        auto snapshot_ctx = cs_new<SnapshotCtx>();
         from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
         snapshots_[parsed_snapshot_id] = snapshot_ctx;
         MG_ASSERT(parsed_snapshot_id == snapshots_[parsed_snapshot_id]->snapshot_->get_last_log_idx(),

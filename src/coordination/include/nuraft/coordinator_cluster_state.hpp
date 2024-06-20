@@ -96,11 +96,14 @@ class CoordinatorClusterState {
 
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>> const &);
+  // Setter function used on parsing data from json
+  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>>);
 
+  // Setter function used on parsing data from json
   void SetIsLockOpened(bool);
 
-  void SetCurrentMainUUID(utils::UUID const &);
+  // Setter function used on parsing data from json
+  void SetCurrentMainUUID(utils::UUID);
 
   auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
