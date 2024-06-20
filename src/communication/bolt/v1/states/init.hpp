@@ -94,7 +94,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
       return false;
     }
     for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
-      if (auth_scheme == std::string{utils::Trim(utils::Split(mapping, ":")[0])}) {
+      if (auth_scheme == utils::Trim(utils::Split(mapping, ":")[0])) {
         return true;
       }
     }
