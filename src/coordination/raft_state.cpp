@@ -67,7 +67,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     log_store_durability.durability_store_ = durability_store;
     log_store_durability.active_log_store_version_ = kActiveVersion;
     log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
-        GetVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
+        GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
     state_manager_config.log_store_durability_ = log_store_durability;
   }
 

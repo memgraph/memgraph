@@ -94,7 +94,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
 
-  auto const version = memgraph::coordination::GetVersion(
+  auto const version = memgraph::coordination::GetOrSetDefaultVersion(
       durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
   MG_ASSERT(static_cast<StateManagerDurabilityVersion>(version) == kActiveStateManagerDurabilityVersion,

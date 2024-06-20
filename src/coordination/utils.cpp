@@ -14,8 +14,8 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::coordination {
-auto GetVersion(kvstore::KVStore &durability, std::string_view key, int const default_value, LoggerWrapper logger)
-    -> int {
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int const default_value,
+                            LoggerWrapper logger) -> int {
   auto maybe_version = durability.Get(key);
   if (maybe_version.has_value()) {
     return std::stoi(maybe_version.value());
