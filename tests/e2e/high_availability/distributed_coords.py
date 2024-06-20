@@ -219,6 +219,105 @@ def get_instances_description_no_setup(use_durability: bool = True):
     }
 
 
+def get_instances_description_no_setup():
+    return {
+        "instance_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7687",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10011",
+            ],
+            "log_file": "high_availability/distributed_coords/instance_1.log",
+            "data_directory": f"{TEMP_DIR}/instance_1",
+            "setup_queries": [],
+        },
+        "instance_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10012",
+            ],
+            "log_file": "high_availability/distributed_coords/instance_2.log",
+            "data_directory": f"{TEMP_DIR}/instance_2",
+            "setup_queries": [],
+        },
+        "instance_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7689",
+                "--log-level",
+                "TRACE",
+                "--management-port",
+                "10013",
+            ],
+            "log_file": "high_availability/distributed_coords/instance_3.log",
+            "data_directory": f"{TEMP_DIR}/instance_3",
+            "setup_queries": [],
+        },
+        "coordinator_1": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--coordinator-id=1",
+                "--coordinator-port=10111",
+            ],
+            "log_file": "high_availability/distributed_coords/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
+            "setup_queries": [],
+        },
+        "coordinator_2": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--coordinator-id=2",
+                "--coordinator-port=10112",
+            ],
+            "log_file": "high_availability/distributed_coords/coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
+            "setup_queries": [],
+        },
+        "coordinator_3": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7692",
+                "--log-level=TRACE",
+                "--coordinator-id=3",
+                "--coordinator-port=10113",
+            ],
+            "log_file": "high_availability/distributed_coords/coordinator3.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_3",
+            "setup_queries": [],
+        },
+        "coordinator_4": {
+            "args": [
+                "--experimental-enabled=high-availability",
+                "--bolt-port",
+                "7693",
+                "--log-level=TRACE",
+                "--coordinator-id=4",
+                "--coordinator-port=10114",
+            ],
+            "log_file": "high_availability/distributed_coords/coordinator4.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_4",
+            "setup_queries": [],
+        },
+    }
+
+
 def test_old_main_comes_back_on_new_leader_as_replica():
     # 1. Start all instances.
     # 2. Kill the main instance
