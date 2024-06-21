@@ -14,6 +14,7 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::coordination {
+#ifdef MG_ENTERPRISE
 auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int const default_value,
                             LoggerWrapper logger) -> int {
   auto maybe_version = durability.Get(key);
@@ -27,4 +28,5 @@ auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, 
   MG_ASSERT(durability.Put(key, std::to_string(default_value)), "Failed to store durability version.");
   return default_value;
 }
+#endif
 }  // namespace memgraph::coordination
