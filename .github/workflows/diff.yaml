@@ -6,12 +6,6 @@ concurrency:
 on:
   merge_group:
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".clang-format"
-      - "CODEOWNERS"
-      - "licenses/*"
   workflow_dispatch:
     inputs:
       community_core:

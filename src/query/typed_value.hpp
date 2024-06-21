@@ -32,6 +32,15 @@
 
 namespace memgraph::query {
 
+namespace {
+template <typename T>
+concept TypedValueValidPrimativeType =
+    std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
+    std::is_same_v<T, storage::Enum> || std::is_same_v<T, utils::Date> || std::is_same_v<T, utils::LocalTime> ||
+    std::is_same_v<T, utils::LocalDateTime> || std::is_same_v<T, utils::ZonedDateTime> ||
+    std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
+}
+
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
  * Stores a query runtime value and its type.
@@ -86,7 +95,8 @@ class TypedValue {
     ZonedDateTime,
     Duration,
     Graph,
-    Function
+    Function,
+    Enum,
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -155,6 +165,11 @@ class TypedValue {
     double_v = value;
   }
 
+  explicit TypedValue(storage::Enum value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Enum) {
+    enum_v = value;
+  }
+
   explicit TypedValue(const utils::Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Date) {
     date_v = value;
@@ -220,9 +235,14 @@ class TypedValue {
   /** Construct a copy using the given utils::MemoryResource */
   explicit TypedValue(const std::vector<TypedValue> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(memory_);
-    list_v.reserve(value.size());
-    list_v.assign(value.begin(), value.end());
+    new (&list_v) TVector(value.begin(), value.end(), memory_);
+  }
+
+  template <class T>
+  requires TypedValueValidPrimativeType<T>
+  explicit TypedValue(const std::vector<T> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::List) {
+    new (&list_v) TVector(value.begin(), value.end(), memory_);
   }
 
   /**
@@ -462,6 +482,7 @@ class TypedValue {
   TypedValue &operator=(const utils::LocalDateTime &);
   TypedValue &operator=(const utils::ZonedDateTime &);
   TypedValue &operator=(const utils::Duration &);
+  TypedValue &operator=(const storage::Enum &);
   TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
@@ -518,6 +539,7 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
@@ -566,6 +588,7 @@ class TypedValue {
     utils::LocalDateTime local_date_time_v;
     utils::ZonedDateTime zoned_date_time_v;
     utils::Duration duration_v;
+    storage::Enum enum_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
     std::function<void(TypedValue *)> function_v;

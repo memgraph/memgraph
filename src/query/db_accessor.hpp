@@ -30,6 +30,7 @@
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/pmr/unordered_set.hpp"
+#include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
@@ -775,6 +776,35 @@ class DbAccessor final {
   }
 
   void DropGraph() { return accessor_->DropGraph(); }
+
+  auto CreateEnum(std::string_view name, std::span<std::string const> values)
+      -> utils::BasicResult<storage::EnumStorageError, storage::EnumTypeId> {
+    return accessor_->CreateEnum(name, values);
+  }
+
+  auto ShowEnums() { return accessor_->ShowEnums(); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->GetEnumValue(name, value);
+  }
+  auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->GetEnumValue(enum_str);
+  }
+
+  auto EnumToName(storage::Enum value) const -> memgraph::utils::BasicResult<storage::EnumStorageError, std::string> {
+    return accessor_->GetEnumStoreShared().ToString(value);
+  }
+
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->EnumAlterAdd(name, value);
+  }
+
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->EnumAlterUpdate(name, old_value, new_value);
+  }
 };
 
 class SubgraphDbAccessor final {

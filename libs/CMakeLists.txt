@@ -238,10 +238,7 @@ add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-FetchContent_Declare(spdlog
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spdlog)
-
-FetchContent_MakeAvailable(spdlog)
+add_subdirectory(spdlog)
 
 # Setup librdkafka.
 import_external_library(librdkafka STATIC
@@ -338,3 +335,7 @@ add_external_project(mgcxx
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+
+
+# setup strong_type (cmake sub_directory tolerant)
+add_subdirectory(strong_type EXCLUDE_FROM_ALL)

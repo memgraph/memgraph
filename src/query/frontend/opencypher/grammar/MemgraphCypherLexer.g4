@@ -155,6 +155,7 @@ USE                     : U S E ;
 USER                    : U S E R ;
 USERS                   : U S E R S ;
 USING                   : U S I N G ;
+VALUE                   : V A L U E ;
 VALUES                  : V A L U E S ;
 VERSION                 : V E R S I O N ;
 WEBSOCKET               : W E B S O C K E T ;

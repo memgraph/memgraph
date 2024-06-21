@@ -2685,6 +2685,15 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Extract>(ident, list, expr));
   } else if (ctx->patternComprehension()) {
     return std::any_cast<Expression *>(ctx->patternComprehension()->accept(this));
+  } else if (ctx->enumValueAccess()) {
+    auto const enum_value_access_parts = ctx->enumValueAccess()->symbolicName();
+    if (enum_value_access_parts.size() != 2) {
+      throw SyntaxException("Enum value access should be in the form of 'enum_name::enum_value'");
+    }
+    auto enum_name = std::any_cast<std::string>(enum_value_access_parts[0]->accept(this));
+    auto enum_value = std::any_cast<std::string>(enum_value_access_parts[1]->accept(this));
+
+    return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
   }
 
   // TODO: Implement this. We don't support comprehensions, filtering... at
@@ -3112,8 +3121,12 @@ antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabase
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext * /*ctx*/) {
+antlrcpp::Any CypherMainVisitor::visitCreateEnumQuery(MemgraphCypher::CreateEnumQueryContext *ctx) {
   auto *create_enum_query = storage_->Create<CreateEnumQuery>();
+  create_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  for (auto *enumVal : ctx->enumValue()) {
+    create_enum_query->enum_values_.push_back(std::any_cast<std::string>(enumVal->symbolicName()->accept(this)));
+  }
   query_ = create_enum_query;
   return create_enum_query;
 }
@@ -3122,6 +3135,23 @@ antlrcpp::Any CypherMainVisitor::visitShowEnumsQuery(MemgraphCypher::ShowEnumsQu
   auto *show_enums_query = storage_->Create<ShowEnumsQuery>();
   query_ = show_enums_query;
   return show_enums_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAlterEnumAddValueQuery(MemgraphCypher::AlterEnumAddValueQueryContext *ctx) {
+  auto *alter_enum_query = storage_->Create<AlterEnumAddValueQuery>();
+  alter_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  alter_enum_query->enum_value_ = std::any_cast<std::string>(ctx->enumValue()->symbolicName()->accept(this));
+  query_ = alter_enum_query;
+  return alter_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAlterEnumUpdateValueQuery(MemgraphCypher::AlterEnumUpdateValueQueryContext *ctx) {
+  auto *alter_enum_query = storage_->Create<AlterEnumUpdateValueQuery>();
+  alter_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  alter_enum_query->old_enum_value_ = std::any_cast<std::string>(ctx->old_value->symbolicName()->accept(this));
+  alter_enum_query->new_enum_value_ = std::any_cast<std::string>(ctx->new_value->symbolicName()->accept(this));
+  query_ = alter_enum_query;
+  return alter_enum_query;
 }
 
 }  // namespace memgraph::query::frontend

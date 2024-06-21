@@ -319,4 +319,13 @@ constexpr utils::TypeInfo query::CreateEnumQuery::kType{utils::TypeId::AST_CREAT
 constexpr utils::TypeInfo query::ShowEnumsQuery::kType{utils::TypeId::AST_SHOW_ENUMS_QUERY, "ShowEnumsQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::EnumValueAccess::kType{utils::TypeId::AST_ENUM_VALUE_ACCESS, "EnumValueAccess",
+                                                        &query::Expression::kType};
+
+constexpr utils::TypeInfo query::AlterEnumAddValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_ADD_VALUE_QUERY,
+                                                               "AlterEnumAddValueQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::AlterEnumUpdateValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_UPDATE_VALUE_QUERY,
+                                                                  "AlterEnumUpdateValueQuery", &query::Query::kType};
+
 }  // namespace memgraph

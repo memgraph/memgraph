@@ -103,7 +103,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
       try {
         // TODO remove security issue
         spdlog::trace("Executing line: {}", line);
-        auto results = interpreter.Prepare(line, {}, {});
+        auto results = interpreter.Prepare(line, memgraph::query::no_params_fn, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
       } catch (std::exception const &e) {
@@ -521,11 +521,11 @@ int main(int argc, char **argv) {
     }
 
     if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{coordination_setup.coordinator_id,
-                                                              coordination_setup.coordinator_port, extracted_bolt_port,
-                                                              high_availability_data_dir, FLAGS_nuraft_log_file});
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{
+          coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
+          high_availability_data_dir, coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }

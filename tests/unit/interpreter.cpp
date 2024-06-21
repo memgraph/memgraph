@@ -252,7 +252,8 @@ TYPED_TEST(InterpreterTest, Parameters) {
                                              memgraph::storage::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result =
+        memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0], nullptr));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
@@ -1187,7 +1188,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
   check_load_csv_queries(false);
 }
 
-void AssertAllValuesAreZero(const std::map<std::string, memgraph::communication::bolt::Value> &map,
+void AssertAllValuesAreZero(const memgraph::communication::bolt::map_t &map,
                             const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
