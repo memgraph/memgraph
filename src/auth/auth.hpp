@@ -112,7 +112,19 @@ class Auth final {
   Config GetConfig() const { return config_; }
 
   /**
-   * Authenticates a user using his username and password.
+   * Calls the external auth module and validates its response.
+   *
+   * @param scheme
+   * @param module_params
+   * @param provided_username
+   *
+   * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
+   */
+  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
+                                               std::optional<std::string> provided_username = std::nullopt);
+
+  /**
+   * Authenticates a user identified by username and password.
    *
    * @param username
    * @param password
@@ -128,7 +140,6 @@ class Auth final {
    * @param response
    *
    * @return username + role if the identity provider response is valid, nullopt otherwise
-   * @throw AuthException if unable to authenticate for any other reason.
    */
   std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
