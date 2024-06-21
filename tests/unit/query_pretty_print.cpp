@@ -68,9 +68,11 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
   EXPECT_EQ(ToString(LITERAL(false)), "false");
 
   // [1 null "hello"]
-  std::vector<memgraph::storage::PropertyValue> values{memgraph::storage::PropertyValue(1),
-                                                       memgraph::storage::PropertyValue(),
-                                                       memgraph::storage::PropertyValue("hello")};
+  std::vector<memgraph::storage::PropertyValue> values{
+      memgraph::storage::PropertyValue(1),
+      memgraph::storage::PropertyValue(),
+      memgraph::storage::PropertyValue("hello"),
+  };
   EXPECT_EQ(ToString(LITERAL(memgraph::storage::PropertyValue(values))), "[1, null, \"hello\"]");
 
   // {hello: 1, there: 2}
@@ -208,4 +210,9 @@ TYPED_TEST(ExpressionPrettyPrinterTest, NamedExpression) {
   // n AS 1
   EXPECT_EQ(ToString(NEXPR("n", LITERAL(1))), "(NamedExpression \"n\" 1)");
 }
+
+TYPED_TEST(ExpressionPrettyPrinterTest, EnumValueAccess) {
+  EXPECT_EQ(ToString(ENUM_VALUE("Name", "Value")), "Name::Value");
+}
+
 }  // namespace

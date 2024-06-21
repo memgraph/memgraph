@@ -287,7 +287,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
-        &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_);
+        &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
+        &storage->enum_store_);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -848,14 +849,14 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         break;
       }
-      case WalDeltaData::Type::EDGE_INDEX_CREATE: {
+      case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE: {
         spdlog::trace("       Create edge index on :{}", delta.operation_edge_type.edge_type);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction->CreateIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
-      case WalDeltaData::Type::EDGE_INDEX_DROP: {
+      case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP: {
         spdlog::trace("       Drop edge index on :{}", delta.operation_edge_type.edge_type);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction->DropIndex(storage->NameToEdgeType(delta.operation_label.label)).HasError())
@@ -919,6 +920,37 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         auto ret =
             transaction->DropUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::ENUM_CREATE: {
+        std::stringstream ss;
+        utils::PrintIterable(ss, delta.operation_enum_create.evalues);
+        spdlog::trace("       Create enum {} with values {}", delta.operation_enum_create.etype, ss.str());
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->CreateEnum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::ENUM_ALTER_ADD: {
+        auto const &[name, evalue] = delta.operation_enum_alter_add;
+        spdlog::trace("       Alter enum {} add value {}", name, evalue);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->EnumAlterAdd(name, evalue);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+        auto const &[name, evalue_old, evalue_new] = delta.operation_enum_alter_update;
+        spdlog::trace("       Alter enum {} update {} to {}", name, evalue_old, evalue_new);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->EnumAlterUpdate(name, evalue_old, evalue_new);
+        if (res.HasError()) {
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }
         break;

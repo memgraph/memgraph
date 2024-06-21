@@ -110,12 +110,14 @@ void memgraph::flags::AddLoggerSink(spdlog::sink_ptr new_sink) {
 
 // Thread-safe because the level enum is an atomic
 // NOTE: default_logger is not thread-safe and shouldn't be changed during application lifetime
+// Updates log-level
 void memgraph::flags::LogToStderr(spdlog::level::level_enum log_level) {
   auto default_logger = spdlog::default_logger();
   auto stderr = default_logger->sinks().front();
   stderr->set_level(log_level);
 }
 
+// Updated log-level
 void memgraph::flags::UpdateStderr(spdlog::level::level_enum log_level) {
   auto default_logger = spdlog::default_logger();
   auto stderr = default_logger->sinks().front();
