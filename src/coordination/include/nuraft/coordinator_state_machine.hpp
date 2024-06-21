@@ -13,13 +13,16 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <spdlog/spdlog.h>
 #include "coordination/coordinator_communication_config.hpp"
+#include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
+#include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
 #include "nuraft/raft_log_action.hpp"
 
-#include <spdlog/spdlog.h>
-
+#include <optional>
 #include <variant>
 
 namespace memgraph::coordination {
@@ -34,9 +37,22 @@ using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::state_machine;
 
+struct SnapshotCtx {
+  SnapshotCtx(ptr<snapshot> const &snapshot, CoordinatorClusterState const &cluster_state)
+      : snapshot_(snapshot), cluster_state_(cluster_state) {}
+
+  SnapshotCtx() = default;
+
+  ptr<snapshot> snapshot_;
+  CoordinatorClusterState cluster_state_;
+};
+
+void from_json(nlohmann::json const &j, SnapshotCtx &snapshot_ctx);
+void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
+
 class CoordinatorStateMachine : public state_machine {
  public:
-  explicit CoordinatorStateMachine(LoggerWrapper logger);
+  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
@@ -96,15 +112,9 @@ class CoordinatorStateMachine : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
-  struct SnapshotCtx {
-    SnapshotCtx(ptr<snapshot> &snapshot, CoordinatorClusterState const &cluster_state)
-        : snapshot_(snapshot), cluster_state_(cluster_state) {}
+  bool HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
 
-    ptr<snapshot> snapshot_;
-    CoordinatorClusterState cluster_state_;
-  };
-
-  auto create_snapshot_internal(ptr<snapshot> snapshot) -> void;
+  auto CreateSnapshotInternal(ptr<snapshot> const &snapshot) -> void;
 
   CoordinatorClusterState cluster_state_;
   std::atomic<uint64_t> last_committed_idx_{0};
@@ -115,6 +125,8 @@ class CoordinatorStateMachine : public state_machine {
   LoggerWrapper logger_;
   ptr<snapshot> last_snapshot_;
   std::mutex last_snapshot_lock_;
+
+  std::shared_ptr<kvstore::KVStore> durability_;
 };
 
 }  // namespace memgraph::coordination

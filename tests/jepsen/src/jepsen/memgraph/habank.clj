@@ -1,5 +1,5 @@
 (ns jepsen.memgraph.habank
-  "TODO, fill"
+  "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as string]
@@ -250,9 +250,12 @@
   (map #(select-keys % [:health :role]) single-read))
 
 (defn get-coordinators
-  "From list of roles, returns those which are coordinator."
+  "From list of roles, returns those which are coordinators."
   [roles]
-  (filter #(= "coordinator" %) roles))
+  (let [leader-followers #{"leader"
+                           "follower"}]
+
+    (filter leader-followers roles)))
 
 (defn get-mains
   "From list of roles, returns those which are main."
