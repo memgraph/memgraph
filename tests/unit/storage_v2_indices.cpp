@@ -1184,7 +1184,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   // should yield no items.
   for (size_t i = 0; i < values.size(); ++i) {
     for (size_t j = i; j < values.size(); ++j) {
-      if (PropertyValue::AreComparableTypes(values[i].type(), values[j].type())) {
+      if (AreComparableTypes(values[i].type(), values[j].type())) {
         verify(memgraph::utils::MakeBoundInclusive(values[i]), memgraph::utils::MakeBoundInclusive(values[j]),
                {values.begin() + i, values.begin() + j + 1});
       } else {

@@ -292,8 +292,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   }
 
   // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ &&
-      !PropertyValue::AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
     bounds_valid_ = false;
     return;
   }
