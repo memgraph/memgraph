@@ -514,5 +514,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   return res;
 }
 
+auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
+
 }  // namespace memgraph::coordination
 #endif
