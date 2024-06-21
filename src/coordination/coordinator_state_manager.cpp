@@ -151,10 +151,6 @@ auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
   auto server_state_json = nlohmann::json::parse(maybe_server_state.value());
   from_json(server_state_json, *saved_state_);
 
-  auto const term = server_state_json.at(kTerm.data()).get<ulong>();
-  auto const voted_for = server_state_json.at(kVotedFor.data()).get<int>();
-  auto const election_timer = server_state_json.at(kElectionTimer.data()).get<bool>();
-  saved_state_ = cs_new<srv_state>(term, voted_for, election_timer);
   return saved_state_;
 }
 
