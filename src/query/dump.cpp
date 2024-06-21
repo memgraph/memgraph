@@ -36,6 +36,11 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 
+#include "range/v3/all.hpp"
+
+namespace r = ranges;
+namespace rv = ranges::views;
+
 namespace memgraph::query {
 
 namespace {
@@ -94,6 +99,12 @@ void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
   os << "DURATION(\"" << dur << "\")";
 }
 
+void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
+  auto const opt_str = dba->EnumToName(value);
+  if (opt_str.HasError()) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  os << *opt_str;
+}
+
 void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
   switch (value.type) {
     case storage::TemporalType::Date: {
@@ -131,7 +142,7 @@ void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &v
 
 }  // namespace
 
-void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
+void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, query::DbAccessor *dba) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       *os << "Null";
@@ -151,16 +162,16 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::List: {
       *os << "[";
       const auto &list = value.ValueList();
-      utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) { DumpPropertyValue(&os, item); });
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { DumpPropertyValue(&os, item, dba); });
       *os << "]";
       return;
     }
     case storage::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();
-      utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
+      utils::PrintIterable(*os, map, ", ", [&](auto &os, const auto &kv) {
         os << EscapeName(kv.first) << ": ";
-        DumpPropertyValue(&os, kv.second);
+        DumpPropertyValue(&os, kv.second, dba);
       });
       *os << "}";
       return;
@@ -171,6 +182,10 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     }
     case storage::PropertyValue::Type::ZonedTemporalData: {
       DumpZonedTemporalData(*os, value.ValueZonedTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      DumpEnum(*os, value.ValueEnum(), dba);
       return;
     }
   }
@@ -186,7 +201,7 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
-    DumpPropertyValue(&os, kv.second);
+    DumpPropertyValue(&os, kv.second, dba);
   });
   *os << "}";
 }
@@ -306,7 +321,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
       db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_chunks_{// Dump all label indices
+      pull_chunks_{// Dump all enums
+                   CreateEnumsPullChunk(),
+                   // Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
                    CreateLabelPropertyIndicesPullChunk(),
@@ -355,6 +372,32 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
     ++current_chunk_index_;
   }
   return current_chunk_index_ == pull_chunks_.size();
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
+  auto enums = dba_->ShowEnums();
+  auto to_create = [](auto &&p) {
+    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first, p.second | rv::join(", ") | r::to<std::string>);
+  };
+  auto results = enums | rv::transform(to_create) | r::to_vector;
+
+  // Dump all enums
+  return [global_index = 0U, results = std::move(results)](AnyStream *stream,
+                                                           std::optional<int> n) mutable -> std::optional<size_t> {
+    size_t local_counter = 0;
+    while (global_index < results.size() && (!n || local_counter < *n)) {
+      stream->Result({TypedValue(results[global_index])});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == results.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {

@@ -10,19 +10,20 @@
 // licenses/APL.txt.
 #include "flags/audit.hpp"
 
-#include "audit/log.hpp"
-
 #include "utils/flag_validation.hpp"
+
+const uint64_t kBufferSizeDefault = 100'000;
+const uint64_t kBufferFlushIntervalMillisDefault = 200;
 
 // Audit logging flags.
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_size, memgraph::audit::kBufferSizeDefault,
-                       "Maximum number of items in the audit log buffer.", FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(audit_buffer_size, kBufferSizeDefault, "Maximum number of items in the audit log buffer.",
+                       FLAG_IN_RANGE(1, INT32_MAX));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, memgraph::audit::kBufferFlushIntervalMillisDefault,
+DEFINE_VALIDATED_int32(audit_buffer_flush_interval_ms, kBufferFlushIntervalMillisDefault,
                        "Interval (in milliseconds) used for flushing the audit log buffer.",
                        FLAG_IN_RANGE(10, INT32_MAX));
 #endif

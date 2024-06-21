@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
   std::cout << fmt::format("Query hash: {}\n", preprocessed.hash());
   std::cout << fmt::format("Property values:\n");
   for (int i = 0; i < preprocessed.literals().size(); ++i) {
-    fmt::format("    {}", preprocessed.literals().At(i).second);
+    std::cout << fmt::format("    {}", preprocessed.literals().At(i).second);
   }
   std::cout << std::endl;
 

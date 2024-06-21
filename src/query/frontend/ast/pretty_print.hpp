@@ -17,7 +17,7 @@
 
 namespace memgraph::query {
 
-void PrintExpression(Expression *expr, std::ostream *out);
-void PrintExpression(NamedExpression *expr, std::ostream *out);
+void PrintExpression(Expression *expr, std::ostream *out, const DbAccessor &dba);
+void PrintExpression(NamedExpression *expr, std::ostream *out, const DbAccessor &dba);
 
 }  // namespace memgraph::query

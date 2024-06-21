@@ -22,7 +22,24 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters {
+  // Copy over the parameters that were introduced during stripping.
+  Parameters parameters{stripped_query.literals()};
+  // Check that all user-specified parameters are provided.
+  for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    auto it = user_parameters.find(param_key);
+
+    if (it == user_parameters.end()) {
+      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    }
+
+    parameters.Add(param_index, it->second);
+  }
+  return parameters;
+}
+
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
@@ -30,19 +47,10 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // Copy over the parameters that were introduced during stripping.
-  Parameters parameters{stripped_query.literals()};
-
-  // Check that all user-specified parameters are provided.
-  for (const auto &param_pair : stripped_query.parameters()) {
-    auto it = params.find(param_pair.second);
-
-    if (it == params.end()) {
-      throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
-    }
-
-    parameters.Add(param_pair.first, it->second);
-  }
+  // get user-specified parameters
+  // ATM we don't need to correctly materise actual PropertyValues exepct Strings
+  // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.hash();
@@ -79,7 +87,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage, &parameters);
+    frontend::CypherMainVisitor visitor(context, &ast_storage, &query_parameters);
 
     visitor.visit(parser->tree());
 
@@ -106,14 +114,16 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     get_information_from_cache(it->second);
   }
 
-  return ParsedQuery{query_string,
-                     params,
-                     std::move(parameters),
-                     std::move(stripped_query),
-                     std::move(result.ast_storage),
-                     result.query,
-                     std::move(result.required_privileges),
-                     is_cacheable};
+  return ParsedQuery{
+      query_string,
+      std::move(stripped_query),
+      std::move(result.ast_storage),
+      result.query,
+      std::move(result.required_privileges),
+      is_cacheable,
+      user_parameters,
+      std::move(query_parameters),
+  };
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,

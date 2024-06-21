@@ -83,6 +83,9 @@ inline std::string ToString(const memgraph::utils::LocalDateTime) { return ""; }
 
 inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
+// TODO: formatting of enum
+inline std::string ToString(const memgraph::storage::Enum) { return ""; }
+
 inline std::string ToString(const memgraph::utils::ZonedDateTime &zdt) { return zdt.ToString(); }
 
 template <class TAccessor>
@@ -138,6 +141,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
     case memgraph::query::TypedValue::Type::Duration:
       os << ToString(value.ValueDuration());
       break;
+    case memgraph::query::TypedValue::Type::Enum:
+      os << ToString(value.ValueEnum());
     case memgraph::query::TypedValue::Type::ZonedDateTime:
       os << ToString(value.ValueZonedDateTime());
       break;

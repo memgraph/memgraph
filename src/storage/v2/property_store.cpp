@@ -126,6 +126,7 @@ enum class Type : uint8_t {
   TEMPORAL_DATA = 0x80,
   ZONED_TEMPORAL_DATA = 0x90,
   OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
+  ENUM = 0xB0,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -200,6 +201,11 @@ const uint8_t kShiftIdSize = 2;
 //     - value saved as Metadata (the same way as in TEMPORAL_DATA)
 //       + timezone offset
 //         + encoded value (always uint_16; see tz_offset_int)
+//   * ENUM
+//     - type; payload size is used to indicate whether the enum type and enum value are
+//       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t` uses the largest of both
+//     - encoded property ID
+//     - encoded property value as two ints, enum type then enum value, both same size
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
@@ -301,7 +307,30 @@ class Writer {
 
   uint32_t Written() const { return pos_; }
 
- private:
+  template <typename T, typename V>
+  static constexpr bool FitsInt(V value) {
+    static_assert(std::numeric_limits<T>::is_integer);
+    static_assert(std::numeric_limits<V>::is_integer);
+    static_assert(std::numeric_limits<T>::is_signed == std::numeric_limits<V>::is_signed);
+    return (std::numeric_limits<T>::min() <= value) && (value <= std::numeric_limits<T>::max());
+  }
+
+  static constexpr std::optional<Size> UIntSize(uint64_t value) {
+    if (FitsInt<uint8_t>(value)) {
+      return Size::INT8;
+    }
+    if (FitsInt<uint16_t>(value)) {
+      return Size::INT16;
+    }
+    if (FitsInt<uint32_t>(value)) {
+      return Size::INT32;
+    }
+    if (FitsInt<uint64_t>(value)) {
+      return Size::INT64;
+    }
+    return std::nullopt;
+  }
+
   template <typename T, typename V>
   bool InternalWriteInt(V value) {
     static_assert(std::numeric_limits<T>::is_integer);
@@ -315,6 +344,7 @@ class Writer {
     return true;
   }
 
+ private:
   uint8_t *data_{nullptr};
   uint32_t size_{0};
   uint32_t pos_{0};
@@ -566,6 +596,33 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       // We don't need payload size so we set it to a random value
       return {{Type::OFFSET_ZONED_TEMPORAL_DATA, Size::INT8}};
     }
+    case PropertyValue::Type::Enum: {
+      auto const &[e_type, e_value] = value.ValueEnum();
+
+      auto merged = e_type.value_of() | e_value.value_of();
+      auto size = Writer::UIntSize(merged);
+      if (!size) return std::nullopt;
+      switch (*size) {
+        case Size::INT8:
+          if (!writer->InternalWriteInt<uint8_t>(e_type.value_of())) return std::nullopt;
+          if (!writer->InternalWriteInt<uint8_t>(e_value.value_of())) return std::nullopt;
+          break;
+        case Size::INT16:
+          if (!writer->InternalWriteInt<uint16_t>(e_type.value_of())) return std::nullopt;
+          if (!writer->InternalWriteInt<uint16_t>(e_value.value_of())) return std::nullopt;
+          break;
+        case Size::INT32:
+          if (!writer->InternalWriteInt<uint32_t>(e_type.value_of())) return std::nullopt;
+          if (!writer->InternalWriteInt<uint32_t>(e_value.value_of())) return std::nullopt;
+          break;
+        case Size::INT64:
+          if (!writer->InternalWriteInt<uint64_t>(e_type.value_of())) return std::nullopt;
+          if (!writer->InternalWriteInt<uint64_t>(e_value.value_of())) return std::nullopt;
+          break;
+      }
+
+      return {{Type::ENUM, *size}};
+    }
   }
 }
 
@@ -745,6 +802,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       value = PropertyValue(*maybe_zoned_temporal_data);
       return true;
     }
+    case Type::ENUM: {
+      auto e_type = reader->ReadUint(payload_size);
+      if (!e_type) return false;
+      auto e_value = reader->ReadUint(payload_size);
+      if (!e_value) return false;
+      value = PropertyValue(Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}});
+      return true;
+    }
   }
 }
 
@@ -838,6 +903,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
+    case Type::ENUM:
+      reader->ReadInt(payload_size);
+      // double payload
+      // - first for enum type
+      // - second for enum value
+      property_size += SizeToByteSize(payload_size) * 2;
+      return true;
   }
 }
 
@@ -897,6 +969,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::OFFSET_ZONED_TEMPORAL_DATA: {
       return DecodeZonedTemporalData(*reader).has_value();
     }
+    case Type::ENUM:
+      // double payload
+      // - first for enum type
+      // - second for enum value
+      if (!reader->ReadInt(payload_size)) return false;
+      // NOLINTNEXTLINE(readability-simplify-boolean-expr)
+      if (!reader->ReadInt(payload_size)) return false;
+      return true;
   }
 }
 
@@ -1008,6 +1088,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
       return *maybe_zoned_temporal_data == value.ValueZonedTemporalData();
     }
+    case Type::ENUM:
+      if (!value.IsEnum()) return false;
+      auto e_type = reader->ReadUint(payload_size);
+      if (!e_type) return false;
+      auto e_value = reader->ReadUint(payload_size);
+      if (!e_value) return false;
+      return value.ValueEnum() == Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}};
   }
 }
 

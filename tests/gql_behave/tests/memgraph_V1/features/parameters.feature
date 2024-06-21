@@ -170,3 +170,19 @@ Feature: Parameters
             | n               |
             | (:Node {id: 1}) |
             | (:Node {id: 2}) |
+
+    Scenario: Enum parameter
+        Given an empty graph
+        And having executed
+            """
+            CREATE ENUM Location VALUES { York, Zagreb };
+            """
+        And parameters are:
+            | a     | {__type: 'mg_enum', __value: 'Location::Zagreb'}   |
+        When executing query:
+            """
+            RETURN $a = Location::Zagreb as res
+            """
+        Then the result should be:
+            | res  |
+            | true |
