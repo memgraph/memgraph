@@ -423,6 +423,7 @@ add_custom_target(generated_code DEPENDS
     librdkafka-proj
     antlr4-proj
     librdtsc-proj
+    pulsar-proj
 )
 
 install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
