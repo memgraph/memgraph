@@ -77,7 +77,7 @@ bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const Entry &rhs) const {
   if (edge->gid < rhs.edge->gid) {
     return true;
   }
-  if (rhs.edge->gid < edge->gid) {
+  if (edge->gid > rhs.edge->gid) {
     return false;
   }
   return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) <
@@ -110,14 +110,15 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
 
       for (auto &edge : from_vertex.out_edges) {
         const auto type = std::get<kEdgeTypeIdPos>(edge);
-        if (type == edge_type) {
-          auto *to_vertex = std::get<kVertexPos>(edge);
-          if (to_vertex->deleted) {
-            continue;
-          }
-          auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
-          edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
+        if (type != edge_type) {
+          continue;
         }
+        auto *to_vertex = std::get<kVertexPos>(edge);
+        if (to_vertex->deleted) {
+          continue;
+        }
+        auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
+        edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
       }
     }
   } catch (const utils::OutOfMemoryException &) {

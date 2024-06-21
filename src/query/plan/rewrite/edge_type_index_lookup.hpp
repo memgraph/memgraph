@@ -603,9 +603,9 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
       // We only remove the filter if we are looking for edges with a specific edge-type. If we
       // have some other type of property filtering e.g. range or value lookup, we do not want to
-      // remove the filters to keep the semantics of the original query in tackt. We can optimize
+      // remove the filters to keep the semantics of the original query intact. We can optimize
       // this by adding additional operators for the specific kinds of edge-type+property filtering.
-      // On top of this we only want to remove the filter if when?????
+      // On top of this we only want to remove the NOT NULL filter
       const auto prop_filter_type = property_filter_->property_filter->type_;
       if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
         filter_exprs_for_removal_.insert(property_filter_->expression);

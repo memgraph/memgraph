@@ -284,7 +284,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   if (ctx->propertyKeyName()) {
-    auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
     index_query->properties_ = {name_key};
   }
   return index_query;

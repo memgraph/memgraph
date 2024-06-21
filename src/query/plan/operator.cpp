@@ -688,13 +688,13 @@ ACCEPT_WITH_INPUT(ScanAllByEdgeTypeProperty)
 UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
 
-  auto edges = [this](Frame &, ExecutionContext &context) {
+  const auto get_edges = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
     return std::make_optional(db->Edges(view_, edge_type_, property_));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeTypeProperty");
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(get_edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
 }
 
 std::vector<Symbol> ScanAllByEdgeTypeProperty::ModifiedSymbols(const SymbolTable &table) const {
