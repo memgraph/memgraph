@@ -28,7 +28,7 @@ class CoordinationSetupTest : public ::testing::Test {
 };
 
 TEST_F(CoordinationSetupTest, CoordinationSetupSimple) {
-  memgraph::flags::CoordinationSetup coord_setup(1, 2, 3, "nuraft_log_file");
+  memgraph::flags::CoordinationSetup coord_setup(1, 2, 3, "nuraft_log_file", false);
   EXPECT_EQ(coord_setup.management_port, 1);
   EXPECT_EQ(coord_setup.coordinator_port, 2);
   EXPECT_EQ(coord_setup.coordinator_id, 3);

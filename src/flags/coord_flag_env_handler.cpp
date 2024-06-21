@@ -28,18 +28,19 @@
 namespace memgraph::flags {
 
 CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
-                                     std::string nuraft_log_file)
+                                     std::string nuraft_log_file, bool ha_durability)
     : management_port(management_port),
       coordinator_port(coordinator_port),
       coordinator_id(coordinator_id),
-      nuraft_log_file(std::move(nuraft_log_file)) {}
+      nuraft_log_file(std::move(nuraft_log_file)),
+      ha_durability(ha_durability) {}
+
 
 std::string CoordinationSetup::ToString() {
   return fmt::format("management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {}",
                      management_port, coordinator_port, coordinator_id, nuraft_log_file);
 }
 
-// TODO: (andi) This will change if we add management server to coordinators.
 [[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool { return management_port != 0; }
 
 auto CoordinationSetupInstance() -> CoordinationSetup & {
@@ -51,7 +52,8 @@ void SetFinalCoordinationSetup() {
 #ifdef MG_ENTERPRISE
 
   std::vector<char const *> const maybe_coord_envs{std::getenv(kMgManagementPort), std::getenv(kMgCoordinatorPort),
-                                                   std::getenv(kMgCoordinatorId), std::getenv(kMgNuRaftLogFile)};
+                                                   std::getenv(kMgCoordinatorId), std::getenv(kMgNuRaftLogFile),
+                                                   std::getenv(kMgHaDurability)};
 
   bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
 
@@ -90,12 +92,13 @@ void SetFinalCoordinationSetup() {
       return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
                                coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
                                coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
-                               coord_envs[3] ? coord_envs[3].value() : "");
+                               coord_envs[3] ? coord_envs[3].value() : "",
+                               coord_envs[4] ? bool(std::stoi(coord_envs[4].value())) : false);
     }
 
     spdlog::trace("Coordinator will be initilized using flags.");
     return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id,
-                             FLAGS_nuraft_log_file};
+                             FLAGS_nuraft_log_file, FLAGS_ha_durability};
   }();  // iile
 #endif
 }
