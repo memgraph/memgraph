@@ -111,15 +111,9 @@ struct MetadataDelta {
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
-      : action(Action::EDGE_TYPE_INDEX_CREATE), edge_type(edge_type) {}
+      : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
 
   MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
-
-  MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
-      : action(Action::EDGE_PROPERTY_INDEX_CREATE), edge_type_property{edge_type, property} {}
-
-  MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
-      : action(Action::EDGE_PROPERTY_INDEX_DROP), edge_type_property{edge_type, property} {}
 
   MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
       : action(Action::EDGE_PROPERTY_INDEX_CREATE), edge_type_property{edge_type, property} {}

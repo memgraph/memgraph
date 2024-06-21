@@ -2128,7 +2128,8 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config) {
+                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
+                               memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 

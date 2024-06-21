@@ -57,8 +57,10 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
     add_case(LABEL_PROPERTY_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
-    add_case(EDGE_TYPE_INDEX_CREATE);
-    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(EDGE_INDEX_CREATE);
+    add_case(EDGE_INDEX_DROP);
+    add_case(EDGE_PROPERTY_INDEX_CREATE);
+    add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
@@ -2333,33 +2335,17 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     switch (md_delta.action) {
       case MetadataDelta::Action::LABEL_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_DROP, md_delta.label,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_INDEX_DROP: {
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP, md_delta.edge_type,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
-        const auto &info = md_delta.edge_type_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::EDGE_TYPE_PROPERTY_INDEX_CREATE, info.edge_type,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
-        const auto &info = md_delta.label_property;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP, info.label,
-                                  {info.property}, durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET, info.label, info.stats,
-                                  durability_commit_timestamp, streams);
-      } break;
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
-        const auto &info = md_delta.label_stats;
-        AppendToWalDataDefinition(durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR, info.label,
-                                  durability_commit_timestamp, streams);
-      } break;
+        apply_encode(op,
+                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+        });
+        break;
+      }
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
@@ -2367,10 +2353,18 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
-      case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
+      case MetadataDelta::Action::EDGE_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
+                                      md_delta.edge_type_property.property);
         });
         break;
       }
@@ -2433,66 +2427,6 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   return repl_storage_state_.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc),
                                                  std::move(streams));
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::optional<std::string> text_index_name, LabelId label,
-                                                const std::set<PropertyId> &properties, LabelIndexStats stats,
-                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, text_index_name, label, properties, stats, property_stats,
-                             final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp,
-                                      replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, edge_type, properties, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, edge_type, properties, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  wal_file_->AppendOperation(operation, edge_type, {}, final_commit_timestamp);
-  repl_storage_state_.AppendOperation(operation, edge_type, {}, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties,
-                                                LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, std::nullopt, label, properties, {}, property_stats,
-                                   final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                LabelIndexStats stats, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, std::nullopt, label, {}, stats, {}, final_commit_timestamp,
-                                   replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, label, properties, {}, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, label, {}, {}, final_commit_timestamp, replica_streams);
-}
-
-void InMemoryStorage::AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
-                                                const std::optional<std::string> text_index_name, LabelId label,
-                                                uint64_t final_commit_timestamp,
-                                                std::span<std::optional<ReplicaStream>> replica_streams) {
-  return AppendToWalDataDefinition(operation, text_index_name, label, {}, {}, {}, final_commit_timestamp,
-                                   replica_streams);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(

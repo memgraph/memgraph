@@ -849,14 +849,14 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(info.label));
         break;
       }
-      case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE: {
+      case WalDeltaData::Type::EDGE_INDEX_CREATE: {
         spdlog::trace("       Create edge index on :{}", delta.operation_edge_type.edge_type);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction->CreateIndex(storage->NameToEdgeType(delta.operation_edge_type.edge_type)).HasError())
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         break;
       }
-      case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP: {
+      case WalDeltaData::Type::EDGE_INDEX_DROP: {
         spdlog::trace("       Drop edge index on :{}", delta.operation_edge_type.edge_type);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         if (transaction->DropIndex(storage->NameToEdgeType(delta.operation_edge_type.edge_type)).HasError())

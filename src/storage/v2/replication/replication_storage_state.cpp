@@ -31,53 +31,6 @@ auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
   return replica_streams;
 }
 
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
-                                          std::span<std::optional<ReplicaStream>> replica_streams) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
-      clients[i]->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, vertex, timestamp); },
-                                         replica_stream);
-    }
-  });
-}
-
-void ReplicationStorageState::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp,
-                                          std::span<std::optional<ReplicaStream>> replica_streams) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
-      clients[i]->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(delta, edge, timestamp); },
-                                         replica_stream);
-    }
-  });
-}
-void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                                              const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                                              const LabelPropertyIndexStats &property_stats,
-                                              uint64_t final_commit_timestamp,
-                                              std::span<std::optional<ReplicaStream>> replica_streams) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
-      clients[i]->IfStreamingTransaction(
-          [&](auto &stream) {
-            stream.AppendOperation(operation, label, properties, stats, property_stats, final_commit_timestamp);
-          },
-          replica_stream);
-    }
-  });
-}
-
-void ReplicationStorageState::AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                                              const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
-                                              std::span<std::optional<ReplicaStream>> replica_streams) {
-  replication_clients_.WithLock([&](auto &clients) {
-    for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
-      clients[i]->IfStreamingTransaction(
-          [&](auto &stream) { stream.AppendOperation(operation, edge_type, properties, final_commit_timestamp); },
-          replica_stream);
-    }
-  });
-}
-
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                                                   std::vector<std::optional<ReplicaStream>> replica_streams) {
   return replication_clients_.WithLock([=, db_acc = std::move(db_acc),
