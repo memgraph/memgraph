@@ -37,14 +37,17 @@ std::unordered_map<std::string, std::string> ModuleMappingsToMap(std::string_vie
     const auto module_and_scheme = utils::Split(mapping, ":");
     if (module_and_scheme.empty()) {
       throw memgraph::utils::BasicException(
-          "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
+          "Empty auth module mapping: each entry should follow the \"auth_scheme:module_path\" syntax, e.g. "
+          "\"saml-entra-id:usr/lib/saml.py\"!");
     }
     const auto scheme_name = std::string{utils::Trim(module_and_scheme[0])};
 
     const auto n_values_provided = module_and_scheme.size();
     const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
     if (n_values_provided != 2 && !use_default) {
-      throw auth::AuthException("Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
+      throw auth::AuthException(
+          "Entries in the auth module mapping follow the \"auth_scheme:module_path\" syntax, e.g. "
+          "\"saml-entra-id:usr/lib/saml.py\"!");
     }
     const auto module_path =
         std::string{use_default ? DEFAULT_SSO_MAPPINGS.at(scheme_name) : utils::Trim(module_and_scheme[1])};

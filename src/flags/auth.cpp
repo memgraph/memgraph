@@ -30,7 +30,8 @@ DEFINE_VALIDATED_string(
         const auto module_and_scheme = memgraph::utils::Split(mapping, ":");
         if (module_and_scheme.empty()) {
           throw memgraph::utils::BasicException(
-              "Empty auth module mapping: each entry should follow the \"auth_scheme: module_path\" syntax!");
+              "Empty auth module mapping: each entry should follow the \"auth_scheme:module_path\" syntax, e.g. "
+              "\"saml-entra-id:usr/lib/saml.py\"!");
         }
         const auto scheme_name = std::string{memgraph::utils::Trim(module_and_scheme[0])};
 
@@ -38,7 +39,8 @@ DEFINE_VALIDATED_string(
         const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
         if (n_values_provided != 2 && !use_default) {
           throw memgraph::utils::BasicException(
-              "Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
+              "Entries in the auth module mapping follow the \"auth_scheme:module_path\" syntax, e.g. "
+              "\"saml-entra-id:usr/lib/saml.py\"!");
         }
         auto module_path =
             use_default ? DEFAULT_SSO_MAPPINGS.at(scheme_name) : memgraph::utils::Trim(module_and_scheme[1]);
