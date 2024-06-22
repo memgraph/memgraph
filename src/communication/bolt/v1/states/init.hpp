@@ -112,7 +112,7 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
       "flag or isn’t otherwise supported",
       data["scheme"].ValueString());
   HandleAuthFailure(session);
-  
+
   return State::Close;
 }
 
