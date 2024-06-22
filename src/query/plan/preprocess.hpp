@@ -95,6 +95,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
+  bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -288,6 +289,7 @@ class PatternVisitor : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override{};
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();

@@ -1648,7 +1648,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_INDEX_CREATE: {
+        case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
@@ -1663,7 +1663,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_INDEX_DROP: {
+        case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
@@ -1716,6 +1716,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::ENUM_CREATE:
+        case MetadataDelta::Action::ENUM_ALTER_ADD:
+        case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
+          break;
+        }
       }
     }
   } else if (transaction_.deltas.empty() ||

@@ -118,7 +118,8 @@ class KVStore final {
   bool DeletePrefix(const std::string &prefix = "");
 
   /**
-   * Store values under the given keys and delete the keys.
+   * Store values under the given keys and delete the keys. If keys in delete are the same as in put you could end
+   * without any keys.
    *
    * @param items
    * @param keys
@@ -152,6 +153,13 @@ class KVStore final {
    * @return - true if the compaction finished successfully, false otherwise.
    */
   bool CompactRange(const std::string &begin_prefix, const std::string &end_prefix);
+
+  /**
+   * Flushes all memtables to storage.
+   *
+   * @return - true if the flush finished successfully, false otherwise.
+   */
+  bool SyncWal();
 
   /**
    * Custom prefix-based iterator over kvstore.

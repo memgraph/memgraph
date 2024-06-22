@@ -21,9 +21,11 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/metrics.hpp"
+#include "flags/auth.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -41,7 +43,7 @@ void HandleAuthFailure(TSession &session) {
 }
 
 template <typename TSession>
-std::optional<State> BasicAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("principal")) {  // Special case principal = ""
     spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
     data["principal"] = "";
@@ -61,7 +63,7 @@ std::optional<State> BasicAuthentication(TSession &session, std::map<std::string
 }
 
 template <typename TSession>
-std::optional<State> SSOAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("credentials")) {
     spdlog::warn("The client didn’t supply the SSO token!");
     return State::Close;
@@ -87,14 +89,30 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     data["scheme"] = "none";
   }
 
+  auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
+    if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
+      return false;
+    }
+    for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
+      if (auth_scheme == utils::Trim(utils::Split(mapping, ":")[0])) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   if (data["scheme"].ValueString() == "basic" || data["scheme"].ValueString() == "none") {
     return BasicAuthentication(session, data);
-  } else if (std::set<std::string>{"saml-entra-id", "oauth-entra-id", "oidc-entra-id", "saml-okta", "oauth-okta"}
-                 .contains(data["scheme"].ValueString())) {
+  } else if (scheme_in_module_mappings(data["scheme"].ValueString())) {
     return SSOAuthentication(session, data);
   }
 
-  spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
+  spdlog::warn(
+      "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
+      "flag or isn’t otherwise supported",
+      data["scheme"].ValueString());
+  HandleAuthFailure(session);
+  
   return State::Close;
 }
 
@@ -202,7 +220,7 @@ State SendSuccessMessage(TSession &session) {
   // The only usage in the mentioned version is for logging purposes.
   // Because it's not critical for the regular usage of the driver
   // we send a hardcoded value for now.
-  std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+  map_t metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", std::move(*server_name)});
   }

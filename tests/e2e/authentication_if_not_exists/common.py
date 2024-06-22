@@ -10,12 +10,24 @@
 # licenses/APL.txt.
 
 import pytest
-from common import connect, execute_and_fetch_all
+from gqlalchemy import Memgraph
 
 
-@pytest.fixture(autouse=True)
-def connection():
-    connection = connect()
-    yield connection
-    cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+@pytest.fixture
+def memgraph(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+
+    memgraph.drop_indexes()
+    memgraph.ensure_constraints([])
+    memgraph.drop_database()
+
+    try:
+        memgraph.execute("DROP USER mrma;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP ROLE mrma;")
+    except Exception as e:
+        pass

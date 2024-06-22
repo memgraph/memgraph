@@ -24,6 +24,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
+#include "storage/v2/replication/serialization.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
@@ -61,17 +62,11 @@ class ReplicaStream {
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
-
-  /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp);
-
-  /// @throw rpc::RpcFailedException
   replication::AppendDeltasRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
+
+  auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
 
  private:
   Storage *storage_;

@@ -14,6 +14,6 @@ in_memory_cluster: &in_memory_cluster
 
 workloads:
   - name: "Garbage collection"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["garbage_collection/gc_periodic.py"]
+    binary: "tests/e2e/garbage_collection/memgraph__e2e__garbage_collection"
+    args: []
     <<: *in_memory_cluster

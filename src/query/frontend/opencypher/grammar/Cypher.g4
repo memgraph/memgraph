@@ -256,6 +256,7 @@ atom : literal
      | parenthesizedExpression
      | functionInvocation
      | variable
+     | enumValueAccess
      ;
 
 literal : numberLiteral
@@ -356,6 +357,8 @@ createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 doubleLiteral : FloatingLiteral ;
+
+enumValueAccess : symbolicName ':' ':' symbolicName ;
 
 cypherKeyword : ALL
               | AND

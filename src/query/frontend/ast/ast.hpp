@@ -22,6 +22,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -2957,6 +2958,7 @@ class AuthQuery : public memgraph::query::Query {
   std::string user_;
   std::string role_;
   std::string user_or_role_;
+  bool if_not_exists_;
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
   std::vector<memgraph::query::AuthQuery::Privilege> privileges_;
@@ -2971,6 +2973,7 @@ class AuthQuery : public memgraph::query::Query {
     object->user_ = user_;
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
+    object->if_not_exists_ = if_not_exists_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
@@ -2980,14 +2983,15 @@ class AuthQuery : public memgraph::query::Query {
   }
 
  protected:
-  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, Expression *password,
-            std::string database, std::vector<Privilege> privileges,
+  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, bool if_not_exists,
+            Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges)
       : action_(action),
         user_(user),
         role_(role),
         user_or_role_(user_or_role),
+        if_not_exists_(if_not_exists),
         password_(password),
         database_(database),
         privileges_(privileges),
@@ -3811,8 +3815,13 @@ class CreateEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  std::string enum_name_;
+  std::vector<std::string> enum_values_;
+
   CreateEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateEnumQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_values_ = enum_values_;
     return object;
   }
 
@@ -3831,6 +3840,84 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   ShowEnumsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EnumValueAccess : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EnumValueAccess() = default;
+
+  EnumValueAccess(std::string enum_name, std::string enum_value)
+      : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  std::string enum_name_;
+  std::string enum_value_;
+  int32_t symbol_pos_{-1};
+
+  EnumValueAccess *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EnumValueAccess>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumAddValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumAddValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string enum_value_;
+
+  AlterEnumAddValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumAddValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumUpdateValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumUpdateValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string old_enum_value_;
+  std::string new_enum_value_;
+
+  AlterEnumUpdateValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumUpdateValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->old_enum_value_ = old_enum_value_;
+    object->new_enum_value_ = new_enum_value_;
     return object;
   }
 

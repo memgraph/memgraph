@@ -35,6 +35,7 @@ class BaseEncoder {
   virtual void WriteUint(uint64_t value) = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(std::string_view value) = 0;
+  virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePropertyValue(const PropertyValue &value) = 0;
 };
 
@@ -55,6 +56,7 @@ class Encoder final : public BaseEncoder {
   void WriteUint(uint64_t value) override;
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
+  void WriteEnum(storage::Enum value) override;
   void WritePropertyValue(const PropertyValue &value) override;
 
   uint64_t GetPosition();
@@ -92,6 +94,7 @@ class BaseDecoder {
   virtual std::optional<uint64_t> ReadUint() = 0;
   virtual std::optional<double> ReadDouble() = 0;
   virtual std::optional<std::string> ReadString() = 0;
+  virtual std::optional<Enum> ReadEnumValue() = 0;
   virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
 
   virtual bool SkipString() = 0;
@@ -115,6 +118,7 @@ class Decoder final : public BaseDecoder {
   std::optional<uint64_t> ReadUint() override;
   std::optional<double> ReadDouble() override;
   std::optional<std::string> ReadString() override;
+  std::optional<Enum> ReadEnumValue() override;
   std::optional<PropertyValue> ReadPropertyValue() override;
 
   bool SkipString() override;

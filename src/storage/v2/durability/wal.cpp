@@ -78,44 +78,36 @@ namespace memgraph::storage::durability {
 
 namespace {
 
-Marker OperationToMarker(StorageMetadataOperation operation) {
+constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define add_case(E)                 \
+  case StorageMetadataOperation::E: \
+    return Marker::DELTA_##E
   switch (operation) {
-    case StorageMetadataOperation::LABEL_INDEX_CREATE:
-      return Marker::DELTA_LABEL_INDEX_CREATE;
-    case StorageMetadataOperation::LABEL_INDEX_DROP:
-      return Marker::DELTA_LABEL_INDEX_DROP;
-    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
-      return Marker::DELTA_LABEL_INDEX_STATS_SET;
-    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-      return Marker::DELTA_LABEL_INDEX_STATS_CLEAR;
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-      return Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE;
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-      return Marker::DELTA_LABEL_PROPERTY_INDEX_DROP;
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
-      return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET;
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      return Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR;
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-      return Marker::DELTA_EDGE_TYPE_INDEX_CREATE;
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
-      return Marker::DELTA_EDGE_TYPE_INDEX_DROP;
-    case StorageMetadataOperation::TEXT_INDEX_CREATE:
-      return Marker::DELTA_TEXT_INDEX_CREATE;
-    case StorageMetadataOperation::TEXT_INDEX_DROP:
-      return Marker::DELTA_TEXT_INDEX_DROP;
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-      return Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE;
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
-      return Marker::DELTA_EXISTENCE_CONSTRAINT_DROP;
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-      return Marker::DELTA_UNIQUE_CONSTRAINT_CREATE;
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
-      return Marker::DELTA_UNIQUE_CONSTRAINT_DROP;
+    add_case(EDGE_TYPE_INDEX_CREATE);
+    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
+    add_case(ENUM_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_DROP);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
   }
+#undef add_case
 }
 
-Marker VertexActionToMarker(Delta::Action action) {
+constexpr Marker DeltaActionToMarker(Delta::Action action) {
   // When converting a Delta to a WAL delta the logic is inverted. That is
   // because the Delta's represent undo actions and we want to store redo
   // actions.
@@ -145,58 +137,40 @@ Marker VertexActionToMarker(Delta::Action action) {
 // This function convertes a Marker to a WalDeltaData::Type. It checks for the
 // validity of the marker and throws if an invalid marker is specified.
 // @throw RecoveryFailure
-WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
+constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
+  // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define add_case(E)       \
+  case Marker::DELTA_##E: \
+    return WalDeltaData::Type::E
   switch (marker) {
-    case Marker::DELTA_VERTEX_CREATE:
-      return WalDeltaData::Type::VERTEX_CREATE;
-    case Marker::DELTA_VERTEX_DELETE:
-      return WalDeltaData::Type::VERTEX_DELETE;
-    case Marker::DELTA_VERTEX_ADD_LABEL:
-      return WalDeltaData::Type::VERTEX_ADD_LABEL;
-    case Marker::DELTA_VERTEX_REMOVE_LABEL:
-      return WalDeltaData::Type::VERTEX_REMOVE_LABEL;
-    case Marker::DELTA_EDGE_CREATE:
-      return WalDeltaData::Type::EDGE_CREATE;
-    case Marker::DELTA_EDGE_DELETE:
-      return WalDeltaData::Type::EDGE_DELETE;
-    case Marker::DELTA_VERTEX_SET_PROPERTY:
-      return WalDeltaData::Type::VERTEX_SET_PROPERTY;
-    case Marker::DELTA_EDGE_SET_PROPERTY:
-      return WalDeltaData::Type::EDGE_SET_PROPERTY;
-    case Marker::DELTA_TRANSACTION_END:
-      return WalDeltaData::Type::TRANSACTION_END;
-    case Marker::DELTA_LABEL_INDEX_CREATE:
-      return WalDeltaData::Type::LABEL_INDEX_CREATE;
-    case Marker::DELTA_LABEL_INDEX_DROP:
-      return WalDeltaData::Type::LABEL_INDEX_DROP;
-    case Marker::DELTA_LABEL_INDEX_STATS_SET:
-      return WalDeltaData::Type::LABEL_INDEX_STATS_SET;
-    case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-      return WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR;
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
-      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case Marker::DELTA_TEXT_INDEX_CREATE:
-      return WalDeltaData::Type::TEXT_INDEX_CREATE;
-    case Marker::DELTA_TEXT_INDEX_DROP:
-      return WalDeltaData::Type::TEXT_INDEX_DROP;
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      return WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
-    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-      return WalDeltaData::Type::EDGE_INDEX_CREATE;
-    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
-      return WalDeltaData::Type::EDGE_INDEX_DROP;
-    case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
-      return WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
-    case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
-      return WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
-    case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
-      return WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
-    case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
-      return WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
+    add_case(EDGE_CREATE);
+    add_case(EDGE_DELETE);
+    add_case(EDGE_SET_PROPERTY);
+    add_case(EDGE_TYPE_INDEX_CREATE);
+    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
+    add_case(ENUM_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_DROP);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(TRANSACTION_END);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(VERTEX_ADD_LABEL);
+    add_case(VERTEX_CREATE);
+    add_case(VERTEX_DELETE);
+    add_case(VERTEX_REMOVE_LABEL);
+    add_case(VERTEX_SET_PROPERTY);
 
     case Marker::TYPE_NULL:
     case Marker::TYPE_BOOL:
@@ -208,6 +182,7 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_TEMPORAL_DATA:
     case Marker::TYPE_ZONED_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
+    case Marker::TYPE_ENUM:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
     case Marker::SECTION_MAPPER:
@@ -218,10 +193,12 @@ WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure("Invalid WAL data!");
   }
+#undef add_case
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -315,8 +292,8 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       }
       break;
     }
-    case WalDeltaData::Type::EDGE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_INDEX_DROP: {
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP: {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
         if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
@@ -408,6 +385,66 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
       }
       break;
     }
+    case WalDeltaData::Type::ENUM_CREATE: {
+      if constexpr (read_data) {
+        auto etype = decoder->ReadString();
+        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_create.etype = *etype;
+
+        auto evalues_count = decoder->ReadUint();
+        if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
+        auto evalues = std::vector<std::string>{};
+        evalues.reserve(*evalues_count);
+        for (auto i = 0; i != *evalues_count; ++i) {
+          auto evalue = decoder->ReadString();
+          if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+          evalues.emplace_back(*std::move(evalue));
+        }
+        delta.operation_enum_create.evalues = std::move(evalues);
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+
+        auto evalues_count = decoder->ReadUint();
+        if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
+        for (auto i = 0; i != *evalues_count; ++i) {
+          if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        }
+      }
+      break;
+    }
+    case WalDeltaData::Type::ENUM_ALTER_ADD:
+      if constexpr (read_data) {
+        auto etype = decoder->ReadString();
+        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_add.etype = *etype;
+
+        auto evalue = decoder->ReadString();
+        if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_add.evalue = *evalue;
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE:
+      if constexpr (read_data) {
+        auto etype = decoder->ReadString();
+        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.etype = *etype;
+
+        auto evalue_old = decoder->ReadString();
+        if (!evalue_old) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.evalue_old = *evalue_old;
+
+        auto evalue_new = decoder->ReadString();
+        if (!evalue_new) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_enum_alter_update.evalue_new = *evalue_new;
+      } else {
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
   }
 
   return delta;
@@ -574,9 +611,23 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
-    case WalDeltaData::Type::EDGE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_INDEX_DROP:
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP:
       return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
+    case WalDeltaData::Type::ENUM_CREATE: {
+      return std::tie(a.operation_enum_create.etype, a.operation_enum_create.evalues) ==
+             std::tie(b.operation_enum_create.etype, b.operation_enum_create.evalues);
+    }
+    case WalDeltaData::Type::ENUM_ALTER_ADD: {
+      return std::tie(a.operation_enum_alter_add.etype, a.operation_enum_alter_add.evalue) ==
+             std::tie(b.operation_enum_alter_add.etype, b.operation_enum_alter_add.evalue);
+    }
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+      return std::tie(a.operation_enum_alter_update.etype, a.operation_enum_alter_update.evalue_old,
+                      a.operation_enum_alter_update.evalue_new) == std::tie(b.operation_enum_alter_update.etype,
+                                                                            b.operation_enum_alter_update.evalue_old,
+                                                                            b.operation_enum_alter_update.evalue_new);
+    }
   }
 }
 bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b); }
@@ -615,7 +666,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
     case Delta::Action::DELETE_OBJECT:
     case Delta::Action::RECREATE_OBJECT: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
+      encoder->WriteMarker(DeltaActionToMarker(delta.action));
       encoder->WriteUint(vertex.gid.AsUint());
       break;
     }
@@ -633,14 +684,14 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
     }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
+      encoder->WriteMarker(DeltaActionToMarker(delta.action));
       encoder->WriteUint(vertex.gid.AsUint());
       encoder->WriteString(name_id_mapper->IdToName(delta.label.value.AsUint()));
       break;
     }
     case Delta::Action::ADD_OUT_EDGE:
     case Delta::Action::REMOVE_OUT_EDGE: {
-      encoder->WriteMarker(VertexActionToMarker(delta.action));
+      encoder->WriteMarker(DeltaActionToMarker(delta.action));
       if (items.properties_on_edges) {
         encoder->WriteUint(delta.vertex_edge.edge.ptr->gid.AsUint());
       } else {
@@ -705,108 +756,10 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_END);
 }
 
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     const std::optional<std::string> text_index_name, LabelId label,
-                     const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  switch (operation) {
-    case StorageMetadataOperation::LABEL_INDEX_CREATE:
-    case StorageMetadataOperation::LABEL_INDEX_DROP:
-    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR: /* Special case, this clear is done on all
-                                                                        label/property pairs that contain the defined
-                                                                        label */
-    {
-      MG_ASSERT(properties.empty(), "Invalid function call!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      break;
-    }
-    case StorageMetadataOperation::LABEL_INDEX_STATS_SET: {
-      MG_ASSERT(properties.empty(), "Invalid function call!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      encoder->WriteString(ToJson(stats));
-      break;
-    }
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
-      MG_ASSERT(properties.size() == 1, "Invalid function call!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      encoder->WriteString(name_id_mapper->IdToName((*properties.begin()).AsUint()));
-      break;
-    }
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET: {
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      encoder->WriteString(name_id_mapper->IdToName((*properties.begin()).AsUint()));
-      encoder->WriteString(ToJson(property_stats));
-      break;
-    }
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
-      MG_ASSERT(!properties.empty(), "Invalid function call!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      encoder->WriteUint(properties.size());
-      for (const auto &property : properties) {
-        encoder->WriteString(name_id_mapper->IdToName(property.AsUint()));
-      }
-      break;
-    }
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
-      MG_ASSERT(false, "Invalid function  call!");
-    }
-    case StorageMetadataOperation::TEXT_INDEX_CREATE:
-    case StorageMetadataOperation::TEXT_INDEX_DROP: {
-      MG_ASSERT(text_index_name.has_value(), "Text indices must be named!");
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(text_index_name.value());
-      encoder->WriteString(name_id_mapper->IdToName(label.AsUint()));
-      break;
-    }
-  }
-}
-
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     EdgeTypeId edge_type, uint64_t timestamp) {
-  encoder->WriteMarker(Marker::SECTION_DELTA);
-  encoder->WriteUint(timestamp);
-  switch (operation) {
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-    case StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
-      encoder->WriteMarker(OperationToMarker(operation));
-      encoder->WriteString(name_id_mapper->IdToName(edge_type.AsUint()));
-      break;
-    }
-    case StorageMetadataOperation::LABEL_INDEX_CREATE:
-    case StorageMetadataOperation::LABEL_INDEX_DROP:
-    case StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case StorageMetadataOperation::LABEL_INDEX_STATS_SET:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-    case StorageMetadataOperation::TEXT_INDEX_CREATE:
-    case StorageMetadataOperation::TEXT_INDEX_DROP:
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
-    case StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-    case StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
-      MG_ASSERT(false, "Invalid function call!");
-  }
-}
-
-RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
+RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
+                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items) {
+                     SalientConfig::Items items, EnumStore *enum_store) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
 
@@ -971,8 +924,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           edge->properties.SetProperty(property_id, property_value);
           break;
         }
-        case WalDeltaData::Type::TRANSACTION_END:
+        case WalDeltaData::Type::TRANSACTION_END: {
           break;
+        }
         case WalDeltaData::Type::LABEL_INDEX_CREATE: {
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label.label));
           AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");
@@ -984,13 +938,13 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                          "The label index doesn't exist!");
           break;
         }
-        case WalDeltaData::Type::EDGE_INDEX_CREATE: {
+        case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE: {
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
           AddRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
                                       "The edge-type index already exists!");
           break;
         }
-        case WalDeltaData::Type::EDGE_INDEX_DROP: {
+        case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP: {
           auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(delta.operation_edge_type.edge_type));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.edge, edge_type_id,
                                          "The edge-type index doesn't exist!");
@@ -1088,6 +1042,54 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
           RemoveRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
                                          "The unique constraint doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::ENUM_CREATE: {
+          auto res = enum_store->RegisterEnum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case EnumStorageError::EnumExists:
+                throw RecoveryFailure("The enum already exist!");
+              case EnumStorageError::InvalidValue:
+                throw RecoveryFailure("The enum has invalid values!");
+              default:
+                // Should not happen
+                throw RecoveryFailure("The enum could not be registered!");
+            }
+          }
+          break;
+        }
+        case WalDeltaData::Type::ENUM_ALTER_ADD: {
+          auto res = enum_store->AddValue(delta.operation_enum_alter_add.etype, delta.operation_enum_alter_add.evalue);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::EnumStorageError::InvalidValue:
+                throw RecoveryFailure("Enum value already exists.");
+              case storage::EnumStorageError::UnknownEnumType:
+                throw RecoveryFailure("Unknown Enum type.");
+              default:
+                // Should not happen
+                throw RecoveryFailure("Enum could not be altered.");
+            }
+          }
+          break;
+        }
+        case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
+          auto const &[enum_name, enum_value_old, enum_value_new] = delta.operation_enum_alter_update;
+          auto res = enum_store->UpdateValue(enum_name, enum_value_old, enum_value_new);
+          if (res.HasError()) {
+            switch (res.GetError()) {
+              case storage::EnumStorageError::InvalidValue:
+                throw RecoveryFailure("Enum value {}::{} already exists.", enum_name, enum_value_new);
+              case storage::EnumStorageError::UnknownEnumType:
+                throw RecoveryFailure("Unknown Enum name {}.", enum_name);
+              case storage::EnumStorageError::UnknownEnumValue:
+                throw RecoveryFailure("Unknown Enum value {}::{}.", enum_name, enum_value_old);
+              default:
+                // Should not happen
+                throw RecoveryFailure("Enum could not be altered.");
+            }
+          }
           break;
         }
       }
@@ -1204,19 +1206,6 @@ void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   UpdateStats(timestamp);
 }
 
-void WalFile::AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
-                              LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                              const LabelPropertyIndexStats &property_stats, uint64_t timestamp) {
-  EncodeOperation(&wal_, name_id_mapper_, operation, text_index_name, label, properties, stats, property_stats,
-                  timestamp);
-  UpdateStats(timestamp);
-}
-
-void WalFile::AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, uint64_t timestamp) {
-  EncodeOperation(&wal_, name_id_mapper_, operation, edge_type, timestamp);
-  UpdateStats(timestamp);
-}
-
 void WalFile::Sync() { wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }
@@ -1236,5 +1225,83 @@ void WalFile::EnableFlushing() { wal_.EnableFlushing(); }
 void WalFile::TryFlushing() { wal_.TryFlushing(); }
 
 std::pair<const uint8_t *, size_t> WalFile::CurrentFileBuffer() const { return wal_.CurrentFileBuffer(); }
+
+void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val) {
+  auto etype_str = enum_store.ToTypeString(enum_val.type_id());
+  DMG_ASSERT(etype_str.HasValue());
+  encoder.WriteString(*etype_str);
+  auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
+  DMG_ASSERT(value_str.HasValue());
+  encoder.WriteString(*value_str);
+}
+
+void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
+                           std::string enum_value_old) {
+  auto etype_str = enum_store.ToTypeString(enum_val.type_id());
+  DMG_ASSERT(etype_str.HasValue());
+  encoder.WriteString(*etype_str);
+  encoder.WriteString(enum_value_old);
+  auto value_str = enum_store.ToValueString(enum_val.type_id(), enum_val.value_id());
+  DMG_ASSERT(value_str.HasValue());
+  encoder.WriteString(*value_str);
+}
+
+void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype) {
+  auto etype_str = enum_store.ToTypeString(etype);
+  DMG_ASSERT(etype_str.HasValue());
+  encoder.WriteString(*etype_str);
+  auto const *values = enum_store.ToValuesStrings(etype);
+  DMG_ASSERT(values);
+  encoder.WriteUint(values->size());
+  for (auto const &value : *values) {
+    encoder.WriteString(value);
+  }
+}
+
+void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+}
+
+void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+}
+
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
+                              LabelPropertyIndexStats const &stats) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  encoder.WriteString(ToJson(stats));
+}
+
+void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteString(ToJson(stats));
+}
+
+void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type) {
+  encoder.WriteString(name_id_mapper.IdToName(edge_type.AsUint()));
+}
+
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::set<PropertyId> const &properties) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteUint(properties.size());
+  for (const auto &property : properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
+}
+
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
+                     LabelId label) {
+  encoder.WriteString(text_index_name);
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+}
+
+void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
+  encoder.WriteMarker(Marker::SECTION_DELTA);
+  encoder.WriteUint(timestamp);
+  encoder.WriteMarker(OperationToMarker(Op));
+}
 
 }  // namespace memgraph::storage::durability

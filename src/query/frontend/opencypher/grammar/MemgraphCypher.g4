@@ -151,6 +151,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
                       | VALUES
                       | VERSION
                       | WEBSOCKET
@@ -192,6 +193,8 @@ query : cypherQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -316,14 +319,16 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE role=userOrRoleName ;
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
-createUser : CREATE USER user=userOrRoleName
+createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
+
+ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
@@ -577,8 +582,10 @@ enumName : symbolicName ;
 
 enumValue : symbolicName ;
 
-enumValuesList : enumValue ( ',' enumValue )* ;
-
-createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;

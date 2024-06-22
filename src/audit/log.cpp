@@ -8,15 +8,13 @@
 
 #include "audit/log.hpp"
 
-#include <chrono>
 #include <sstream>
 
 #include <fmt/format.h>
 #include <json/json.hpp>
 #include <utility>
 
-#include "storage/v2/property_value.hpp"
-#include "storage/v2/temporal.hpp"
+#include "communication/bolt/v1/mg_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -25,82 +23,86 @@
 
 namespace memgraph::audit {
 
-// Helper function that converts a `storage::PropertyValue` to `nlohmann::json`.
-inline nlohmann::json PropertyValueToJson(const storage::PropertyValue &pv) {
+// Helper function that converts a `communication::bolt::Value` to `nlohmann::json`.
+inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
   nlohmann::json ret;
-  switch (pv.type()) {
-    case storage::PropertyValue::Type::Null:
+  switch (value.type()) {
+    using enum memgraph::communication::bolt::Value::Type;
+    case Null:
       break;
-    case storage::PropertyValue::Type::Bool:
-      ret = pv.ValueBool();
+    case Bool:
+      ret = value.ValueBool();
       break;
-    case storage::PropertyValue::Type::Int:
-      ret = pv.ValueInt();
+    case Int:
+      ret = value.ValueInt();
       break;
-    case storage::PropertyValue::Type::Double:
-      ret = pv.ValueDouble();
+    case Double:
+      ret = value.ValueDouble();
       break;
-    case storage::PropertyValue::Type::String:
-      ret = pv.ValueString();
+    case String:
+      ret = value.ValueString();
       break;
-    case storage::PropertyValue::Type::List: {
+    case List: {
       ret = nlohmann::json::array();
-      for (const auto &item : pv.ValueList()) {
-        ret.push_back(PropertyValueToJson(item));
+      for (const auto &item : value.ValueList()) {
+        ret.push_back(BoltValueToJson(item));
       }
       break;
     }
-    case storage::PropertyValue::Type::Map: {
-      ret = nlohmann::json::object();
-      for (const auto &item : pv.ValueMap()) {
-        ret.push_back(nlohmann::json::object_t::value_type(item.first, PropertyValueToJson(item.second)));
+    case Map: {
+      auto const &bolt_value_map = value.ValueMap();
+      auto const info = memgraph::communication::bolt::BoltMapToMgTypeInfo(bolt_value_map);
+      if (info) {
+        switch (info->type) {
+          case communication::bolt::MgType::Enum: {
+            ret = info->value_str;
+            break;
+          }
+        }
+      } else {
+        ret = nlohmann::json::object();
+        for (const auto &[map_k, map_v] : bolt_value_map) {
+          ret.push_back(nlohmann::json::object_t::value_type(map_k, BoltValueToJson(map_v)));
+        }
       }
       break;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      const auto temporal_data = pv.ValueTemporalData();
-      auto to_string = [](auto temporal_data) {
-        std::stringstream ss;
-        const auto ms = temporal_data.microseconds;
-        switch (temporal_data.type) {
-          case storage::TemporalType::Date: {
-            const auto date = utils::Date(ms);
-            ss << date;
-            return ss.str();
-          }
-          case storage::TemporalType::Duration: {
-            const auto dur = utils::Duration(ms);
-            ss << dur;
-            return ss.str();
-          }
-          case storage::TemporalType::LocalTime: {
-            const auto lt = utils::LocalTime(ms);
-            ss << lt;
-            return ss.str();
-          }
-          case storage::TemporalType::LocalDateTime: {
-            const auto ldt = utils::LocalDateTime(ms);
-            ss << ldt;
-            return ss.str();
-          }
-        }
-      };
-      ret = to_string(temporal_data);
+    case Date: {
+      std::stringstream ss;
+      ss << utils::Date(value.ValueDate().MicrosecondsSinceEpoch());
+      ret = ss.str();
       break;
     }
-    case storage::PropertyValue::Type::ZonedTemporalData: {
-      const auto zoned_temporal_data = pv.ValueZonedTemporalData();
-      auto to_string = [](auto zoned_temporal_data) {
-        std::stringstream ss;
-        switch (zoned_temporal_data.type) {
-          case storage::ZonedTemporalType::ZonedDateTime: {
-            const auto zdt = utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
-            ss << zdt;
-            return ss.str();
-          }
-        }
-      };
-      ret = to_string(zoned_temporal_data);
+    case Duration: {
+      std::stringstream ss;
+      ss << utils::Duration(value.ValueDuration().microseconds);
+      ret = ss.str();
+      break;
+    }
+    case LocalTime: {
+      std::stringstream ss;
+      ss << utils::LocalTime(value.ValueLocalTime().MicrosecondsSinceEpoch());
+      ret = ss.str();
+      break;
+    }
+    case LocalDateTime: {
+      std::stringstream ss;
+      ss << utils::LocalDateTime(value.ValueLocalDateTime().MicrosecondsSinceEpoch());
+      ret = ss.str();
+      break;
+    }
+    case ZonedDateTime: {
+      const auto &temp_value = value.ValueZonedDateTime();
+      std::stringstream ss;
+      ss << utils::ZonedDateTime(temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone());
+      ret = ss.str();
+      break;
+    }
+    case Vertex:
+    case Edge:
+    case UnboundedEdge:
+    case Path: {
+      // Should not be sent for audit
       break;
     }
   }
@@ -136,7 +138,7 @@ Log::~Log() {
 }
 
 void Log::Record(const std::string &address, const std::string &username, const std::string &query,
-                 const storage::PropertyValue &params, const std::string &db) {
+                 const memgraph::communication::bolt::map_t &params, const std::string &db) {
   if (!started_.load(std::memory_order_relaxed)) return;
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
@@ -156,9 +158,15 @@ void Log::Flush() {
   for (uint64_t i = 0; i < buffer_size_; ++i) {
     auto item = buffer_->pop();
     if (!item) break;
+
+    auto params_json = nlohmann::json::object();
+    for (const auto &[k, v] : item->params) {
+      params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
+    }
+
     log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n", item->timestamp / 1000000, item->timestamp % 1000000,
                            item->address, item->username, item->db, utils::Escape(item->query),
-                           utils::Escape(PropertyValueToJson(item->params).dump())));
+                           utils::Escape(params_json.dump())));
   }
   log_.Sync();
 }

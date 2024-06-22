@@ -120,6 +120,9 @@
 #include "flags/experimental.hpp"
 #endif
 
+namespace r = ranges;
+namespace rv = ranges::views;
+
 namespace memgraph::metrics {
 extern Event ReadQuery;
 extern Event WriteQuery;
@@ -303,9 +306,8 @@ class ReplQueryHandler {
       ValidatePort(port);
 
       auto const config = memgraph::replication::ReplicationServerConfig{
-          .ip_address = memgraph::replication::kDefaultReplicationServerIp,
-          .port = static_cast<uint16_t>(*port),
-      };
+          .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
+                                                         static_cast<uint16_t>(*port))};
 
       if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
@@ -339,13 +341,12 @@ class ReplQueryHandler {
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
     if (maybe_endpoint) {
-      const auto replication_config =
-          replication::ReplicationClientConfig{.name = name,
-                                               .mode = repl_mode,
-                                               .ip_address = std::move(maybe_endpoint->GetAddress()),
-                                               .port = maybe_endpoint->GetPort(),
-                                               .replica_check_frequency = replica_check_frequency,
-                                               .ssl = std::nullopt};
+      const auto replication_config = replication::ReplicationClientConfig{
+          .name = name,
+          .mode = repl_mode,
+          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+          .replica_check_frequency = replica_check_frequency,
+          .ssl = std::nullopt};
 
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
@@ -709,6 +710,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   std::string username = auth_query->user_;
   std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
+  const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
 #ifdef MG_ENTERPRISE
@@ -765,8 +767,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   switch (auth_query->action_) {
     case AuthQuery::Action::CREATE_USER:
       forbid_on_replica();
-      callback.fn = [auth, username, password, valid_enterprise_license = !license_check_result.HasError(),
-                     interpreter = &interpreter] {
+      callback.fn = [auth, username, password, if_not_exists,
+                     valid_enterprise_license = !license_check_result.HasError(), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
@@ -775,7 +777,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         if (!auth->CreateUser(
                 username, password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                 &*interpreter->system_transaction_)) {
-          throw UserAlreadyExistsException("User '{}' already exists.", username);
+          if (!if_not_exists) {
+            throw UserAlreadyExistsException("User '{}' already exists.", username);
+          }
+          spdlog::warn("User '{}' already exists.", username);
         }
 
         // If the license is not valid we create users with admin access
@@ -830,13 +835,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, rolename, if_not_exists, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          if (!if_not_exists) {
+            throw QueryRuntimeException("Role '{}' already exists.", rolename);
+          }
+          spdlog::warn("Role '{}' already exists.", rolename);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -2290,9 +2298,9 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   // looked up using their positions within the string that was parsed. These
   // wouldn't match up if if we were to reuse the AST (produced by parsing the
   // full query string) when given just the inner query to execute.
-  ParsedQuery parsed_inner_query =
-      ParseQuery(parsed_query.query_string.substr(kExplainQueryStart.size()), parsed_query.user_parameters,
-                 &interpreter_context->ast_cache, interpreter_context->config.query);
+  auto inner_query = parsed_query.query_string.substr(kExplainQueryStart.size());
+  ParsedQuery parsed_inner_query = ParseQuery(inner_query, parsed_query.user_parameters,
+                                              &interpreter_context->ast_cache, interpreter_context->config.query);
 
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_inner_query.query);
   MG_ASSERT(cypher_query, "Cypher grammar should not allow other queries in EXPLAIN");
@@ -3275,7 +3283,6 @@ Callback ShowTriggers(TriggerStore *trigger_store) {
 PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::vector<Notification> *notifications, CurrentDB &current_db,
                                   InterpreterContext *interpreter_context,
-                                  const std::map<std::string, storage::PropertyValue> &user_parameters,
                                   std::shared_ptr<QueryUserOrRole> user_or_role) {
   if (in_explicit_transaction) {
     throw TriggerModificationInMulticommandTxException();
@@ -3291,8 +3298,9 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   std::optional<Notification> trigger_notification;
 
-  auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba, &user_parameters,
-                               owner = std::move(user_or_role), &trigger_notification]() mutable {
+  auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba,
+                               user_parameters = parsed_query.user_parameters, owner = std::move(user_or_role),
+                               &trigger_notification]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
@@ -4506,6 +4514,115 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
 #endif
 }
 
+PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Create Enum query expects a current DB");
+
+  auto *create_enum_query = utils::Downcast<CreateEnumQuery>(parsed_query.query);
+  MG_ASSERT(create_enum_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(create_enum_query->enum_name_),
+           enum_values = std::move(create_enum_query->enum_values_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.CreateEnum(enum_name, enum_values);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::EnumExists:
+                  throw QueryRuntimeException("Enum already exists.");
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value has duplicate.");
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be created.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
+}
+
+PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  return PreparedQuery{
+      {"Enum Name", "Enum Values"},
+      std::move(parsed_query.required_privileges),
+      [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          auto enums = dba.ShowEnums();
+          auto to_row = [](auto &&p) { return std::vector{TypedValue{p.first}, TypedValue{p.second}}; };
+          pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::COMMIT;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE,
+      ""  // No target DB
+  };
+}
+
+PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+
+  auto *alter_enum_add_query = utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query);
+  MG_ASSERT(alter_enum_add_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_add_query->enum_name_),
+           enum_value = std::move(alter_enum_add_query->enum_value_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.EnumAlterAdd(enum_name, enum_value);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value already exists.");
+                case storage::EnumStorageError::UnknownEnumType:
+                  throw QueryRuntimeException("Unknown Enum type.");
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be altered.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
+}
+
+PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+  MG_ASSERT(current_db.db_acc_, "Alter Enum query expects a current DB");
+
+  auto *alter_enum_update_query = utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+  MG_ASSERT(alter_enum_update_query);
+
+  return {{},
+          std::move(parsed_query.required_privileges),
+          [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_update_query->enum_name_),
+           enum_value_old = std::move(alter_enum_update_query->old_enum_value_),
+           enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
+            auto res = dba.EnumAlterUpdate(enum_name, enum_value_old, enum_value_new);
+            if (res.HasError()) {
+              switch (res.GetError()) {
+                case storage::EnumStorageError::InvalidValue:
+                  throw QueryRuntimeException("Enum value {}::{} already exists.", enum_name, enum_value_new);
+                case storage::EnumStorageError::UnknownEnumType:
+                  throw QueryRuntimeException("Unknown Enum name {}.", enum_name);
+                case storage::EnumStorageError::UnknownEnumValue:
+                  throw QueryRuntimeException("Unknown Enum value {}::{}.", enum_name, enum_value_old);
+                default:
+                  // Should not happen
+                  throw QueryRuntimeException("Enum could not be altered.");
+              }
+            }
+            return QueryHandlerResult::COMMIT;
+          },
+          RWType::W};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4561,8 +4678,7 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 }
 #endif
 
-Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
-                                                const std::map<std::string, storage::PropertyValue> &params,
+Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
@@ -4600,8 +4716,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     utils::Timer parsing_timer;
-    ParsedQuery parsed_query =
-        ParseQuery(query_string, params, &interpreter_context_->ast_cache, interpreter_context_->config.query);
+    ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
+                                          interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
 
     // Setup QueryExecution
@@ -4648,24 +4764,31 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries require an active transaction in order to be prepared.
     // TODO: make a better analysis visitor over the `parsed_query.query`
-    bool requires_db_transaction =
-        utils::Downcast<CypherQuery>(parsed_query.query) || utils::Downcast<ExplainQuery>(parsed_query.query) ||
-        utils::Downcast<ProfileQuery>(parsed_query.query) || utils::Downcast<DumpQuery>(parsed_query.query) ||
-        utils::Downcast<TriggerQuery>(parsed_query.query) || utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+    bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query);
+        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
+        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+
+    bool const requires_db_transaction =
+        unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
+        utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query) ||
+        utils::Downcast<DumpQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query) ||
+        utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool unique = utils::Downcast<IndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<EdgeIndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<TextIndexQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<ConstraintQuery>(parsed_query.query) != nullptr ||
-                    utils::Downcast<DropGraphQuery>(parsed_query.query) != nullptr ||
-                    upper_case_query.find(kSchemaAssert) != std::string::npos;
+      bool const unique = unique_db_transaction || upper_case_query.find(kSchemaAssert) != std::string::npos;
       SetupDatabaseTransaction(could_commit, unique);
+    }
+
+    if (current_db_.db_acc_) {
+      // fix parameters, enums requires storage to map to correct enum value
+      parsed_query.user_parameters = params_getter(current_db_.db_acc_->get()->storage());
+      parsed_query.parameters = PrepareQueryParameters(parsed_query.stripped_query, parsed_query.user_parameters);
     }
 
 #ifdef MG_ENTERPRISE
@@ -4732,7 +4855,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
       if (!interpreter_context_->coordinator_state_.has_value()) {
         throw QueryRuntimeException(
-            "Coordinator was not initialized as coordinator port and coordinator id or management port where not set.");
+            "Coordinator was not initialized as coordinator port and coordinator id or management port where not "
+            "set.");
       }
       prepared_query =
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
@@ -4750,7 +4874,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TriggerQuery>(parsed_query.query)) {
       prepared_query =
           PrepareTriggerQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
-                              current_db_, interpreter_context_, params, user_or_role_);
+                              current_db_, interpreter_context_, user_or_role_);
     } else if (utils::Downcast<StreamQuery>(parsed_query.query)) {
       prepared_query =
           PrepareStreamQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
@@ -4798,11 +4922,21 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareDropGraphQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<CreateEnumQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
-        throw CreateEnumInMulticommandTxException();
+        throw EnumModificationInMulticommandTxException();
       }
-      throw utils::NotYetImplemented("enums.");
+      prepared_query = PrepareCreateEnumQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowEnumsQuery>(parsed_query.query)) {
-      throw utils::NotYetImplemented("enums.");
+      prepared_query = PrepareShowEnumsQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw EnumModificationInMulticommandTxException();
+      }
+      prepared_query = PrepareEnumAlterAddQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw EnumModificationInMulticommandTxException();
+      }
+      prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

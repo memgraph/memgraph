@@ -158,6 +158,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 if (json.is_discarded()) return FetchReplicationError::PARSE_ERROR;
                 try {
                   durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
+
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
@@ -217,15 +218,36 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V2: {
+      data.version = durability::DurabilityVersion::V3;
       if (std::holds_alternative<durability::MainRole>(data.role)) {
         auto &main = std::get<durability::MainRole>(data.role);
         main.main_uuid = utils::UUID{};
       }
-      data.version = durability::DurabilityVersion::V3;
-      break;
+      if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
+      [[fallthrough]];
     }
     case durability::DurabilityVersion::V3: {
-      // do nothing - add code if V4 ever happens
+      std::map<std::string, std::string> to_put;
+      for (auto [old_key, old_data] : *durability_) {
+        if (old_key == durability::kReplicationRoleName) {
+          data.version = durability::DurabilityVersion::V4;
+          to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
+        } else {
+          auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+          if (old_json.is_discarded()) return false;
+          try {
+            durability::ReplicationReplicaEntry const new_data = old_json.get<durability::ReplicationReplicaEntry>();
+            to_put.emplace(old_key, nlohmann::json(new_data).dump());
+          } catch (...) {
+            return false;
+          }
+        }
+      }
+      if (!durability_->PutMultiple(to_put)) return false;  // some reason couldn't persist
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V4: {
+      // do nothing - add code if V5 ever happens
       break;
     }
   }
@@ -295,7 +317,7 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
     auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](auto const &replica) {
         const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.GetAddress() == config.ip_address && ep.GetPort() == config.port;
+        return ep == config.repl_server_endpoint;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };

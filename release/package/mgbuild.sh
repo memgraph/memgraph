@@ -99,6 +99,7 @@ print_help () {
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
+  echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
@@ -254,6 +255,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local init_only=false
+  local cmake_only=false
   local for_docker=false
   local for_platform=false
   local copy_from_host=true
@@ -265,6 +267,10 @@ build_memgraph () {
       ;;
       --init-only)
         init_only=true
+        shift 1
+      ;;
+      --cmake-only)
+        cmake_only=true
         shift 1
       ;;
       --for-docker)
@@ -356,6 +362,15 @@ build_memgraph () {
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  if [[ "$cmake_only" == "true" ]]; then
+    build_target(){
+      target=$1
+      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+    }
+    # Force build that generate the header files needed by analysis (ie. clang-tidy)
+    build_target generated_code
+    return
+  fi
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # Default value for $threads is 0 instead of $(nproc) because macos
@@ -393,7 +408,7 @@ package_memgraph() {
       docker exec -u root "$build_container" bash -c "apt update"
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
-  docker exec -u mg "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
+  docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
 }
 
 package_docker() {
@@ -431,7 +446,11 @@ package_docker() {
   local last_package_name=$(cd $package_dir && ls -t memgraph* | head -1)
   local docker_build_folder="$PROJECT_ROOT/release/docker"
   cd "$docker_build_folder"
-  ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  if [[ "$build_type" == "Release" ]]; then
+    ./package_docker --latest --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64"
+  else
+    ./package_docker --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}64" --src-path "$PROJECT_ROOT/src"
+  fi
   # shellcheck disable=SC2012
   local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
   local docker_host_image_path="$docker_host_folder/$docker_image_name"
