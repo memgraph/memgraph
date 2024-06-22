@@ -112,6 +112,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
 
+  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
              bolt_map_t const & /*extra*/) -> bolt_map_t override {

@@ -119,15 +119,16 @@ def _start_instance(
     username=None,
     password=None,
     bolt_port: Optional[int] = None,
+    skip_auth: bool = False,
 ):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
-    ), "If this raises, you are trying to start an instance with the same name than one already running."
+    ), "If this raises, you are trying to start an instance with the same name as the one running."
     if not bolt_port:
         bolt_port = extract_bolt_port(args)
     assert not is_port_in_use(
         bolt_port
-    ), "If this raises, you are trying to start an instance on a port already used by one already running instance."
+    ), "If this raises, you are trying to start an instance on a port used by the running instance."
 
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
     data_directory_path = os.path.join(BUILD_DIR, data_directory)
@@ -140,7 +141,7 @@ def _start_instance(
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
     log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
-    mg_instance.start(args=binary_args, setup_queries=setup_queries, bolt_port=bolt_port)
+    mg_instance.start(args=binary_args, setup_queries=setup_queries, bolt_port=bolt_port, skip_auth=skip_auth)
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
 
 
@@ -220,8 +221,20 @@ def start_instance(context, name, procdir):
         if "default_bolt_port" in value:
             default_bolt_port = value["default_bolt_port"]
 
+        skip_auth = value["skip_auth"] if "skip_auth" in value else False
+
         instance = _start_instance(
-            name, args, log_file, queries, use_ssl, procdir, data_directory, username, password, default_bolt_port
+            name,
+            args,
+            log_file,
+            queries,
+            use_ssl,
+            procdir,
+            data_directory,
+            username,
+            password,
+            default_bolt_port,
+            skip_auth=skip_auth,
         )
         log.info(f"Instance with name {name} started")
         mg_instances[name] = instance
