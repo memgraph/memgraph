@@ -23,6 +23,8 @@ target_sources(mg-coordination
         include/nuraft/coordinator_state_manager.hpp
         include/nuraft/logger.hpp
         include/nuraft/logger_wrapper.hpp
+        include/nuraft/constants_log_durability.hpp
+
 
         PRIVATE
         coordinator_communication_config.cpp
@@ -41,6 +43,7 @@ target_sources(mg-coordination
         coordinator_cluster_state.cpp
         logger.cpp
         logger_wrapper.cpp
+        utils.cpp
 )
 target_include_directories(mg-coordination PUBLIC include)
 

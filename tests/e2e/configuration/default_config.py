@@ -69,6 +69,7 @@ startup_config_dict = {
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "ha_durability": ("true", "true", "Whether to use durability for coordinator logs and snapshots."),
     "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
     "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),

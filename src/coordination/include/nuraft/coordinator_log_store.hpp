@@ -13,7 +13,11 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordinator_communication_config.hpp"
+
 #include <libnuraft/nuraft.hxx>
+#include "kvstore/kvstore.hpp"
+#include "nuraft/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
 
@@ -25,9 +29,16 @@ using nuraft::log_store;
 using nuraft::ptr;
 using nuraft::raft_server;
 
+/**
+ * Current version v1 of CoordinatorLogStore is a simple in-memory log store + durability by default.
+ * If durability is set, logs are persisted to disk and loaded on startup.
+ * On first startup, version is set to 1 and start index and last log entry index are stored to disk - which are 1 and 0
+ * respectfully. If some log is missing, we assert failure. Logs are stored in a map with key being the index of the log
+ * entry. In current version logs are also cached in memory fully. For durability we use RocksDB instance.
+ */
 class CoordinatorLogStore : public log_store {
  public:
-  CoordinatorLogStore();
+  CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -58,12 +69,22 @@ class CoordinatorLogStore : public log_store {
 
   bool flush() override;
 
+  void DeleteLogs(uint64_t start, uint64_t end);
+
+  bool StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
+
  private:
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 
+  bool HandleVersionMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+
+  // TODO(antoniofilipovic) Isolate into CoordinatorLogStoreInternals
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_;
+  std::atomic<ulong> next_idx_;
+  std::shared_ptr<kvstore::KVStore> durability_;
+  LoggerWrapper logger_;
 };
 
 }  // namespace memgraph::coordination
