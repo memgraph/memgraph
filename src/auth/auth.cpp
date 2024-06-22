@@ -292,7 +292,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   auto ret = modules_.at(scheme).Call(module_params, FLAGS_auth_module_timeout_ms);
 
   auto get_errors = [&ret]() -> std::string {
-    const std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
+    std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
     if (ret.find("errors") != ret.end()) {
       return default_error;
     }

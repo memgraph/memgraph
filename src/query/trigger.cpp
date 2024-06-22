@@ -297,7 +297,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   }
 
   const auto owner_role_json = json_trigger_data["owner_role"];
-  std::optional<std::string> role{};
+  const std::optional<std::string> role{};
   if (owner_role_json.is_string()) {
     owner.emplace(owner_role_json.get<std::string>());
   } else if (!owner_role_json.is_null()) {
