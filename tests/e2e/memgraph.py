@@ -61,7 +61,7 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def wait_for_succesful_connection(self, delay=0.1):
+    def wait_for_succesful_connection(self, ignore_auth_failure: bool = False, delay=0.1):
         count = 0
         while count < 150:
             try:
@@ -73,7 +73,13 @@ class MemgraphInstanceRunner:
                     password=(self.password or ""),
                 )
                 return conn
-            except Exception:
+            except Exception as e:
+                if (
+                    ignore_auth_failure
+                    and isinstance(e, mgclient.OperationalError)
+                    and str(e) == "Authentication failure"
+                ):
+                    return
                 count += 1
                 time.sleep(delay)
                 continue
@@ -116,7 +122,9 @@ class MemgraphInstanceRunner:
         conn.autocommit = True
         return conn
 
-    def start(self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None):
+    def start(
+        self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None, skip_auth: bool = False
+    ):
         if not restart and self.is_running():
             return
         self.stop()
@@ -136,9 +144,10 @@ class MemgraphInstanceRunner:
             self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         log.info(f"Subprocess started with args {args_mg}")
-        conn = self.wait_for_succesful_connection()
+        conn = self.wait_for_succesful_connection(ignore_auth_failure=skip_auth)
         log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        self.execute_setup_queries(conn, setup_queries)
+        if not skip_auth:
+            self.execute_setup_queries(conn, setup_queries)
         assert self.is_running(), "The Memgraph process died!"
 
     def is_running(self):

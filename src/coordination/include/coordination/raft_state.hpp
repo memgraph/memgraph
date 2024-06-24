@@ -50,7 +50,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 class RaftState {
  public:
   auto InitRaftServer() -> void;
-  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
+  explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb);
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
@@ -98,6 +98,8 @@ class RaftState {
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
 
+  auto GetLeaderId() const -> uint32_t;
+
  private:
   int coordinator_port_;
   uint32_t coordinator_id_;
@@ -106,9 +108,9 @@ class RaftState {
   ptr<raft_server> raft_server_;
   ptr<asio_service> asio_service_;
   ptr<rpc_listener> asio_listener_;
+
   ptr<CoordinatorStateMachine> state_machine_;
   ptr<CoordinatorStateManager> state_manager_;
-
   BecomeLeaderCb become_leader_cb_;
   BecomeFollowerCb become_follower_cb_;
 };

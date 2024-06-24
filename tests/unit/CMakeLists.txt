@@ -472,6 +472,12 @@ if(MG_ENTERPRISE)
   target_include_directories(${test_prefix}coordinator_state_manager PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+if(MG_ENTERPRISE)
+  add_unit_test(coordinator_log_store.cpp)
+  target_link_libraries(${test_prefix}coordinator_log_store gflags mg-coordination mg-repl_coord_glue)
+  target_include_directories(${test_prefix}coordinator_log_store PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # Test RAFT state
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_raft_state.cpp)

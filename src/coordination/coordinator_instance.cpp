@@ -198,12 +198,17 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return last_succ_resp_ms < instance.instance_down_timeout_sec ? "up" : "down";
   };
 
-  auto const coord_instance_to_status =
-      [this, &stringify_coord_health](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+  auto const get_coord_role = [](auto const coordinator_id, auto const curr_leader) -> std::string {
+    return coordinator_id == curr_leader ? "leader" : "follower";
+  };
+
+  auto const coord_instance_to_status = [this, &stringify_coord_health, &get_coord_role](
+                                            CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+    auto const curr_leader = raft_state_->GetLeaderId();
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
             .coordinator_server = instance.coordinator_server.SocketAddress(),  // show non-resolved IP
             .bolt_server = instance.bolt_server.SocketAddress(),                // show non-resolved IP
-            .cluster_role = "coordinator",
+            .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
             .health = stringify_coord_health(instance),
             .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
   };

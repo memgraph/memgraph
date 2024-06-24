@@ -124,9 +124,3 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(auth_user_or_role_name_regex);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(auth_password_permit_null);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(auth_password_strength_regex);

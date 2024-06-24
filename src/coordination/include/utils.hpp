@@ -8,18 +8,11 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#pragma once
+#include <optional>
+#include <string>
+#include "kvstore/kvstore.hpp"
 
-#include "flags/audit.hpp"
-#include "flags/auth.hpp"
-#include "flags/bolt.hpp"
-#include "flags/coordination.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
-#include "flags/isolation_level.hpp"
-#include "flags/log_level.hpp"
-#include "flags/memory_limit.hpp"
-#include "flags/query.hpp"
-#include "flags/replication.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "flags/storage_mode.hpp"
+namespace memgraph::coordination {
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, const int default_value,
+                            LoggerWrapper logger) -> int;
+}  // namespace memgraph::coordination

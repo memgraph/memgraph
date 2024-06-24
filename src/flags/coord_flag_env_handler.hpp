@@ -18,6 +18,7 @@ namespace memgraph::flags {
 constexpr const char *kMgManagementPort = "MEMGRAPH_MANAGEMENT_PORT";
 constexpr const char *kMgCoordinatorPort = "MEMGRAPH_COORDINATOR_PORT";
 constexpr const char *kMgCoordinatorId = "MEMGRAPH_COORDINATOR_ID";
+constexpr const char *kMgHaDurability = "MEMGRAPH_HA_DURABILITY";
 constexpr const char *kMgNuRaftLogFile = "MEMGRAPH_NURAFT_LOG_FILE";
 
 // Contains values that could be set by environment variables or flags.
@@ -27,9 +28,11 @@ struct CoordinationSetup {
   int coordinator_port{0};
   uint32_t coordinator_id{0};
   std::string nuraft_log_file;
+  bool ha_durability{false};
+
 
   explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
-                             std::string nuraft_log_file);
+                             std::string nuraft_log_file, bool ha_durability);
   CoordinationSetup() = default;
 
   std::string ToString();
