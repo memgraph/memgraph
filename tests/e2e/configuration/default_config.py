@@ -13,8 +13,15 @@
 # "--log-level=TRACE", "--storage-properties-on-edges=True", "--storage-snapshot-interval-sec", "300", "--storage-wal-enabled=True"
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
+
 startup_config_dict = {
-    "auth_module_executable": ("", "", "Absolute path to the auth module executable that should be used."),
+    "auth_module_mappings": (
+        "",
+        "",
+        'Associates auth schemes to external modules. A mapping is structured as follows: "<scheme>:<absolute path>", '
+        'and individual entries are separated with ";". If the mapping contains whitespace, enclose all of it inside '
+        'quotation marks: " "',
+    ),
     "auth_module_timeout_ms": (
         "10000",
         "10000",
@@ -62,6 +69,7 @@ startup_config_dict = {
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "ha_durability": ("true", "true", "Whether to use durability for coordinator logs and snapshots."),
     "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
     "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
@@ -82,6 +90,7 @@ startup_config_dict = {
         "List of default Kafka brokers as a comma separated list of broker host or host:port.",
     ),
     "log_file": ("", "", "Path to where the log should be stored."),
+    "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (
         "WARNING",
         "TRACE",

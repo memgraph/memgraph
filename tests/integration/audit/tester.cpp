@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,7 +57,7 @@ memgraph::communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       break;
     }
     case nlohmann::json::value_t::object: {
-      std::map<std::string, memgraph::communication::bolt::Value> map;
+      memgraph::communication::bolt::map_t map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
         MG_ASSERT(tmp.type() == memgraph::communication::bolt::Value::Type::String,

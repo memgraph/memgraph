@@ -327,6 +327,8 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
+    case memgraph::query::TypedValue::Type::Enum:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Enum doesn't exist."};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
@@ -705,6 +707,12 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
     }
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Enum: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Enum doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }
   }
@@ -3924,6 +3932,9 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       return (*stream) << value.ValueZonedDateTime();
     case TypedValue::Type::Duration:
       return (*stream) << value.ValueDuration();
+    case TypedValue::Type::Enum:
+      // TODO: need to convert to EnumType::EnumValue form
+      LOG_FATAL("enum not printable - not yet implemented");
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
@@ -4287,9 +4298,8 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
 
-        const auto query_params = CreateQueryParams(params);
-
-        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params, {});
+        auto query_params_func = [&](memgraph::storage::Storage const *) { return CreateQueryParams(params); };
+        auto prepare_query_result = result->pImpl->interpreter->Prepare(query_string, query_params_func, {});
 
         memgraph::utils::pmr::vector<memgraph::utils::pmr::string> headers(memory->impl);
         for (const auto &header : prepare_query_result.headers) {

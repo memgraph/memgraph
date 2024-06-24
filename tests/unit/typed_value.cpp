@@ -28,6 +28,10 @@
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
+using memgraph::storage::Enum;
+using memgraph::storage::EnumTypeId;
+using memgraph::storage::EnumValueId;
+using memgraph::storage::PropertyValue;
 
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
@@ -63,6 +67,7 @@ class AllTypesFixture : public testing::Test {
     graph.InsertVertex(vertex);
     graph.InsertEdge(*edge);
     values_.emplace_back(std::move(graph));
+    values_.emplace_back(Enum{EnumTypeId{2}, EnumValueId{42}});
   }
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
@@ -71,13 +76,19 @@ class AllTypesFixture : public testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(AllTypesFixture, StorageTypes);
 
-void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
+void EXPECT_PROP_FALSE(const TypedValue &a) {
+  ASSERT_EQ(a.type(), TypedValue::Type::Bool);
+  ASSERT_FALSE(a.ValueBool());
+}
 
-void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool()); }
+void EXPECT_PROP_TRUE(const TypedValue &a) {
+  ASSERT_EQ(a.type(), TypedValue::Type::Bool);
+  ASSERT_TRUE(a.ValueBool());
+}
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
-void EXPECT_PROP_ISNULL(const TypedValue &a) { EXPECT_TRUE(a.IsNull()); }
+void EXPECT_PROP_ISNULL(const TypedValue &a) { ASSERT_TRUE(a.IsNull()); }
 
 void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a != b); }
 
@@ -95,6 +106,8 @@ TEST(TypedValue, CreationTypes) {
 
   EXPECT_TRUE(TypedValue(0.0).type() == TypedValue::Type::Double);
   EXPECT_TRUE(TypedValue(42.5).type() == TypedValue::Type::Double);
+
+  EXPECT_TRUE(TypedValue(Enum{EnumTypeId{2}, EnumValueId{42}}).type() == TypedValue::Type::Enum);
 }
 
 TEST(TypedValue, CreationValues) {
@@ -107,6 +120,40 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(55).ValueInt(), 55);
 
   EXPECT_FLOAT_EQ(TypedValue(66.6).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  EXPECT_EQ(TypedValue(enum_val).ValueEnum(), enum_val);
+}
+
+TEST(TypedValue, CreationValuesFromPropertyValues) {
+  auto pv_true = PropertyValue{true};
+  EXPECT_EQ(TypedValue(pv_true).ValueBool(), true);
+  EXPECT_EQ(TypedValue(PropertyValue{true}).ValueBool(), true);
+
+  auto pv_false = PropertyValue{false};
+  EXPECT_EQ(TypedValue(pv_false).ValueBool(), false);
+  EXPECT_EQ(TypedValue(PropertyValue{false}).ValueBool(), false);
+
+  auto pv_str1 = PropertyValue{std::string("bla")};
+  EXPECT_EQ(TypedValue(pv_str1).ValueString(), "bla");
+  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}).ValueString(), "bla");
+
+  auto pv_str2 = PropertyValue{"bla2"};
+  EXPECT_EQ(TypedValue(pv_str2).ValueString(), "bla2");
+  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}).ValueString(), "bla2");
+
+  auto pv_int = PropertyValue{55};
+  EXPECT_EQ(TypedValue(pv_int).ValueInt(), 55);
+  EXPECT_EQ(TypedValue(PropertyValue{55}).ValueInt(), 55);
+
+  auto pv_double = PropertyValue{66.6};
+  EXPECT_FLOAT_EQ(TypedValue(pv_double).ValueDouble(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  auto pv_enum = PropertyValue{enum_val};
+  EXPECT_EQ(TypedValue(pv_enum).ValueEnum(), enum_val);
+  EXPECT_EQ(TypedValue(PropertyValue{enum_val}).ValueEnum(), enum_val);
 }
 
 TEST(TypedValue, Equals) {
@@ -163,6 +210,13 @@ TEST(TypedValue, Equals) {
 
   EXPECT_PROP_EQ(local_date_time_1, local_date_time_1);
   EXPECT_PROP_NE(local_date_time_1, local_date_time_2);
+
+  auto enum_val_1 = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  auto enum_val_2 = TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}};
+  auto enum_val_3 = TypedValue{Enum{EnumTypeId{2}, EnumValueId{11}}};
+  EXPECT_PROP_EQ(enum_val_1, enum_val_1);
+  EXPECT_PROP_NE(enum_val_1, enum_val_2);
+  EXPECT_PROP_NE(enum_val_1, enum_val_3);
 }
 
 TEST(TypedValue, Comparison) {
@@ -198,6 +252,9 @@ TEST(TypedValue, Comparison) {
   const auto local_date_time_2 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}));
 
   run_comparison_cases(local_date_time_1, local_date_time_2);
+
+  auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -221,6 +278,8 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
   EXPECT_EQ(hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})),
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_EQ(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}));
 
   // these tests are not really true since they expect
   // hashes to differ, but it's the thought that counts
@@ -231,6 +290,10 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
   EXPECT_NE(hash(TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}})),
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_NE(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{2}, EnumValueId{11}}}));
+  EXPECT_NE(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}}));
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
@@ -282,6 +345,7 @@ TEST(TypedValue, LogicalNot) {
   EXPECT_THROW(!TypedValue(0), TypedValueException);
   EXPECT_THROW(!TypedValue(0.2), TypedValueException);
   EXPECT_THROW(!TypedValue("something"), TypedValueException);
+  EXPECT_THROW(!TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryMinus) {
@@ -292,6 +356,7 @@ TEST(TypedValue, UnaryMinus) {
 
   EXPECT_THROW(-TypedValue(true), TypedValueException);
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
+  EXPECT_THROW(-TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryPlus) {
@@ -302,6 +367,7 @@ TEST(TypedValue, UnaryPlus) {
 
   EXPECT_THROW(+TypedValue(true), TypedValueException);
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
+  EXPECT_THROW(+TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
 }
 
 template <typename StorageType>
@@ -539,6 +605,27 @@ TYPED_TEST(TypedValueLogicTest, LogicalXor) {
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(true), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(true) ^ TypedValue(false), TypedValue(true));
   EXPECT_PROP_EQ(TypedValue(false) ^ TypedValue(false), TypedValue(false));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(AllTypesFixture, CopyConstruction) {
+  for (auto const &value : this->values_) {
+    auto cpy = value;
+    if (value.IsNull()) {
+      EXPECT_PROP_ISNULL(cpy);
+    } else if (value.IsGraph()) {
+      // not comparable
+    } else if (value.IsMap()) {
+      // map contains NULL so can't be true
+      auto res = cpy == value;
+      // THIS IS NOT THE SAME AS NEO4J
+      // NEO4J returns NULL
+      ASSERT_EQ(res.type(), TypedValue::Type::Bool);
+      ASSERT_EQ(res.ValueBool(), false);
+    } else {
+      EXPECT_PROP_EQ(cpy, value);
+    }
+  }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
