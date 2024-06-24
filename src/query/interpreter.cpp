@@ -862,6 +862,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
+    case AuthQuery::Action::SHOW_CURRENT_USER:
+      callback.header = {"user"};
+      callback.fn = [&interpreter] {
+        const auto &username = interpreter.user_or_role_->username();
+        return std::vector<std::vector<TypedValue>>{
+            {username.has_value() ? TypedValue(username.value()) : TypedValue()}};
+      };
+      return callback;
     case AuthQuery::Action::SHOW_USERS:
       callback.header = {"user"};
       callback.fn = [auth] {
