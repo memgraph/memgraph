@@ -347,13 +347,15 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       /* Group by the expression which does not contain aggregation. */                      \
       if (aggr1 && !IsConstantLiteral(op.expression2_)) {                                    \
         group_by_.emplace_back(op.expression2_);                                             \
+        /* Propagate that this whole expression may contain an aggregation. */               \
+        has_aggregation_.emplace_back(has_aggr);                                             \
       }                                                                                      \
       if (aggr2 && !IsConstantLiteral(op.expression1_)) {                                    \
         group_by_.emplace_back(op.expression1_);                                             \
+        /* Propagate that this whole expression may contain an aggregation. */               \
+        has_aggregation_.emplace_back(has_aggr);                                             \
       }                                                                                      \
     }                                                                                        \
-    /* Propagate that this whole expression may contain an aggregation. */                   \
-    has_aggregation_.emplace_back(has_aggr);                                                 \
     return true;                                                                             \
   }
   VISIT_BINARY_OPERATOR(OrOperator)
