@@ -322,12 +322,17 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
     }
 
 
-def test_even_number_coords():
-    # Goal is to check that nothing gets broken on even number of coords
+@pytest.mark.parametrize("use_durability", [True, False])
+def test_even_number_coords(use_durability):
+    # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
+    # 1. Start all instances.
+    # 2. Check that all instances are up and that one of the instances is a main.
+    # 3. Demote the main instance.
+    # 4. Kill two coordinators.
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup_4_coords()
+    inner_instances_description = get_instances_description_no_setup_4_coords(use_durability=use_durability)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -345,6 +350,7 @@ def test_even_number_coords():
     for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
 
+    # 2
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
@@ -433,32 +439,21 @@ def test_even_number_coords():
         "DEMOTE INSTANCE instance_3",
     )
 
-    # 4.
+    def update_tuple_value(index: int, value: str, tuple_obj: tuple):
+        new_tuple = list(tuple_obj)
+        new_tuple[index] = value
+        return tuple(new_tuple)
 
-    leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "up", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
-    ]
+    leader_data_demoted = leader_data_original.copy()
+    leader_data_demoted[-1] = update_tuple_value(-1, "replica", leader_data_original[-1])
 
-    follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "unknown", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
-    ]
+    follower_data_demoted = follower_data_original.copy()
+    follower_data_demoted[-1] = update_tuple_value(-1, "replica", follower_data_original[-1])
 
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
-    mg_sleep_and_assert(follower_data, show_instances_coord4)
+    mg_sleep_and_assert(leader_data_demoted, show_instances_coord3)
+    mg_sleep_and_assert(follower_data_demoted, show_instances_coord1)
+    mg_sleep_and_assert(follower_data_demoted, show_instances_coord2)
+    mg_sleep_and_assert(follower_data_demoted, show_instances_coord4)
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
@@ -532,16 +527,8 @@ def test_even_number_coords():
 
     assert leader_id is not None, "Leader not found"
 
-    def update_tuple_value(index: int, value: str, tuple_obj: tuple):
-        new_tuple = list(tuple_obj)
-        new_tuple[index] = value
-        return tuple(new_tuple)
-
     follower_data[leader_id - 1] = update_tuple_value(-1, "leader", follower_data[leader_id - 1])
     leader_data[leader_id - 1] = update_tuple_value(-1, "leader", leader_data[leader_id - 1])
-
-    print("new leader data", leader_data)
-    print("new follower data", follower_data)
 
     for i in range(1, N + 1):
         coord_cursor = connect(host="localhost", port=7690 + i - 1).cursor()
@@ -3716,4 +3703,4 @@ def test_one_coord_down_with_durability_resume():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-k", "test_even_number_coords", "-vv"]))
+    sys.exit(pytest.main([__file__, "-rA"]))
