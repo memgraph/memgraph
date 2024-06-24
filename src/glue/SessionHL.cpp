@@ -161,9 +161,18 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   }
 #ifdef MG_ENTERPRISE
   // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
+  try {
+    interpreter_.SetCurrentDB(GetDefaultDB(), false);
+  } catch (auth::AuthException &) {
+    // Failed to get default db, connect without db
+    interpreter_.ResetDB();
+  }
 #endif
-  implicit_db_.emplace(GetCurrentDB());
+  const auto db = GetCurrentDB();
+  if (db.empty())
+    implicit_db_.reset();
+  else
+    implicit_db_.emplace(std::move(db));
   return res;
 }
 
@@ -271,8 +280,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
-                      bolt_map_t const & /*extra*/) -> bolt_map_t {
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, bolt_map_t const &
+                      /*extra*/) -> bolt_map_t {
   auto routing_map = ranges::views::transform(
                          routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
                      ranges::to<std::map<std::string, std::string>>();
@@ -366,7 +375,7 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
     if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
     in_explicit_db_ = true;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
-  } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
+  } else if (!implicit_db_ || (in_explicit_db_ && !interpreter_.in_explicit_transaction_)) {  // Just on a switch
     if (implicit_db_) {
       db = *implicit_db_;
     } else {
@@ -401,7 +410,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
 #endif
       auth_(auth),
       endpoint_(std::move(endpoint)),
-      implicit_db_(dbms::kDefaultDB) {
+      implicit_db_(std::nullopt) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
