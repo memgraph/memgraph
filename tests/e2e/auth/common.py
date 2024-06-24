@@ -31,3 +31,15 @@ def memgraph(**kwargs) -> Memgraph:
         memgraph.execute("DROP ROLE mrma;")
     except Exception as e:
         pass
+
+
+@pytest.fixture
+def provide_user() -> Memgraph:
+    memgraph = Memgraph()
+
+    memgraph.execute("CREATE USER anthony IDENTIFIED BY 'password';")
+
+    yield None
+
+    memgraph = Memgraph(username="anthony", password="password")
+    memgraph.execute("DROP USER anthony;")
