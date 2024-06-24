@@ -679,17 +679,16 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket");
   }
 
+// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-  spdlog::trace("Metrics server created!");
 #endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server, &coordinator_state,
+                      &coordinator_state, &metrics_server,
 #endif
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -718,9 +717,7 @@ int main(int argc, char **argv) {
   websocket_server.Start();
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
-  }
+  metrics_server.Start();
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -742,11 +739,8 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
-  }
+  metrics_server.AwaitShutdown();
 #endif
-
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
   python_gc_scheduler.Stop();
