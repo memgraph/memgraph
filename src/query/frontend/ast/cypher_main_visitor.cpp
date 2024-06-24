@@ -1563,7 +1563,7 @@ antlrcpp::Any CypherMainVisitor::visitDropUser(MemgraphCypher::DropUserContext *
 /**
  * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitShowCurrentUser(MemgraphCypher::ShowCurrentUserContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowCurrentUser(MemgraphCypher::ShowCurrentUserContext /*ctx*/) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_CURRENT_USER;
   return auth;
