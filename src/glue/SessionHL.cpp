@@ -146,6 +146,24 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
   return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
+void SessionHL::TryDefaultDB() {
+#ifdef MG_ENTERPRISE
+  const auto default_db = GetDefaultDB();
+  if (default_db) {
+    // Start off with the default database
+    interpreter_.SetCurrentDB(*default_db, false);
+  } else {
+    // Failed to get default db, connect without db
+    interpreter_.ResetDB();
+  }
+#endif
+  const auto db = GetCurrentDB();
+  if (db.empty())
+    implicit_db_.reset();
+  else
+    implicit_db_.emplace(std::move(db));
+}
+
 // This is called on connection establishment
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
@@ -166,21 +184,8 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
     }
   }
-#ifdef MG_ENTERPRISE
-  const auto default_db = GetDefaultDB();
-  if (default_db) {
-    // Start off with the default database
-    interpreter_.SetCurrentDB(*default_db, false);
-  } else {
-    // Failed to get default db, connect without db
-    interpreter_.ResetDB();
-  }
-#endif
-  const auto db = GetCurrentDB();
-  if (db.empty())
-    implicit_db_.reset();
-  else
-    implicit_db_.emplace(std::move(db));
+
+  TryDefaultDB();
   return res;
 }
 
@@ -197,11 +202,7 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
   user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
   interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
 
-#ifdef MG_ENTERPRISE
-  // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
-#endif
-  implicit_db_.emplace(GetCurrentDB());
+  TryDefaultDB();
   return true;
 }
 
