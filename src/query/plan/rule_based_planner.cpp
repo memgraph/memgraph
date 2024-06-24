@@ -410,6 +410,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool Visit(EnumValueAccess & /*unused*/) override {
+    has_aggregation_.emplace_back(false);
+    return true;
+  }
+
   bool PostVisit(RegexMatch & /*unused*/) override {
     MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
     bool has_aggr = has_aggregation_.back();

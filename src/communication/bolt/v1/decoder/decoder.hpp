@@ -382,7 +382,7 @@ class Decoder {
 
     Value dv_key, dv_val;
 
-    *data = Value(std::map<std::string, Value>());
+    *data = Value(map_t{});
     auto &ret = data->ValueMap();
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadValue(&dv_key, Value::Type::String)) {

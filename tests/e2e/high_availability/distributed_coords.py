@@ -254,60 +254,121 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
-    leader_data_inst1_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
+    leader_data_inst1_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
-    leader_data_inst2_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    leader_data_inst1_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    leader_data_inst2_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
-    follower_data_inst1_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    leader_data_inst2_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    follower_data_inst1_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
 
-    follower_data_inst2_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    follower_data_inst1_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
+
+    follower_data_inst2_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
+
+    follower_data_inst2_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
 
     mg_sleep_and_assert_multiple(
-        [leader_data_inst1_main, leader_data_inst2_main], [show_instances_coord1, show_instances_coord2]
+        [
+            leader_data_inst1_main_coord1_leader,
+            leader_data_inst1_main_coord2_leader,
+            leader_data_inst2_main_coord1_leader,
+            leader_data_inst2_main_coord2_leader,
+        ],
+        [show_instances_coord1, show_instances_coord2],
     )
     mg_sleep_and_assert_multiple(
-        [follower_data_inst1_main, follower_data_inst2_main], [show_instances_coord1, show_instances_coord2]
+        [
+            follower_data_inst1_main_coord1_leader,
+            follower_data_inst1_main_coord2_leader,
+            follower_data_inst2_main_coord1_leader,
+            follower_data_inst2_main_coord2_leader,
+        ],
+        [show_instances_coord1, show_instances_coord2],
     )
 
     interactive_mg_runner.start(inner_instances_description, "instance_3")
 
-    leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    coord1_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
-    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
+
+    coord2_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
+    )
 
     def find_main_instance():
         cursor = connect(host="localhost", port=7690).cursor()
@@ -412,9 +473,9 @@ def test_distributed_automatic_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
@@ -498,46 +559,96 @@ def test_distributed_automatic_failover_with_leadership_change():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
-    leader_data_inst1_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
+    leader_data_inst1_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
-    leader_data_inst2_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+
+    leader_data_inst1_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    leader_data_inst2_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
-    follower_data_inst1_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    leader_data_inst2_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    follower_data_inst1_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
-    follower_data_inst2_main = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+
+    follower_data_inst1_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
+
+    follower_data_inst2_main_coord1_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
+
+    follower_data_inst2_main_coord2_leader = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
 
     mg_sleep_and_assert_multiple(
-        [leader_data_inst1_main, leader_data_inst2_main], [show_instances_coord1, show_instances_coord2]
+        [
+            leader_data_inst1_main_coord1_leader,
+            leader_data_inst1_main_coord2_leader,
+            leader_data_inst2_main_coord1_leader,
+            leader_data_inst2_main_coord2_leader,
+        ],
+        [show_instances_coord1, show_instances_coord2],
     )
-
     mg_sleep_and_assert_multiple(
-        [follower_data_inst1_main, follower_data_inst2_main], [show_instances_coord1, show_instances_coord2]
+        [
+            follower_data_inst1_main_coord1_leader,
+            follower_data_inst1_main_coord2_leader,
+            follower_data_inst2_main_coord1_leader,
+            follower_data_inst2_main_coord2_leader,
+        ],
+        [show_instances_coord1, show_instances_coord2],
     )
 
     def find_main_instance():
@@ -677,25 +788,48 @@ def test_old_main_comes_back_on_new_leader_as_main():
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
 
-    leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    coord1_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    coord2_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    coord1_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
     ]
-    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
-    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+
+    coord2_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+    ]
+
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
+    )
+    mg_sleep_and_assert_multiple(
+        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+    )
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
     interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
@@ -846,10 +980,10 @@ def test_registering_4_coords():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "coordinator"),
-        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "follower"),
+        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
@@ -983,10 +1117,10 @@ def test_registering_coord_log_store():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "coordinator"),
-        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "127.0.0.1:7692", "127.0.0.1:10113", "", "up", "follower"),
+        ("coordinator_4", "0.0.0.0:7693", "0.0.0.0:10114", "", "up", "leader"),
     ]
 
     basic_instances = [
@@ -1138,18 +1272,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
         return show_instances_follower_coord
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1169,18 +1303,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 4
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
@@ -1195,18 +1329,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 6
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
@@ -1223,18 +1357,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 8
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "main"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -1249,18 +1383,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 10
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "down", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "unknown"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1284,18 +1418,18 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 13
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1372,9 +1506,9 @@ def test_multiple_old_mains_single_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
     ]
 
     basic_instances = [
@@ -1430,26 +1564,48 @@ def test_multiple_old_mains_single_failover():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    coord1_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
     ]
-    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
 
-    follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    coord2_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+    ]
+
+    coord1_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
     ]
-    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
-    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+
+    coord2_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "unknown"),
+    ]
+
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
+    )
+    mg_sleep_and_assert_multiple(
+        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+    )
 
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
 
@@ -1542,18 +1698,18 @@ def test_force_reset_works_after_failed_registration():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1606,18 +1762,18 @@ def test_force_reset_works_after_failed_registration():
 
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -1694,18 +1850,18 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1758,18 +1914,18 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -1846,18 +2002,18 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -1917,18 +2073,18 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 5
     # This will trigger force reset and choosing of new instance as MAIN
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "down", "unknown"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         (
             "instance_2",
@@ -1952,18 +2108,18 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 7
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -2060,18 +2216,18 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2144,19 +2300,37 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     # 7
 
-    leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "coordinator"),
+    coord1_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+    coord2_leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "down", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
+    ]
+
+    coord1_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "leader"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
+    ]
+
+    coord2_follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "leader"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -2172,8 +2346,12 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    mg_sleep_and_assert_any_function(leader_data, [show_instances_coord1, show_instances_coord2])
-    mg_sleep_and_assert_any_function(follower_data, [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
+    )
+    mg_sleep_and_assert_multiple(
+        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+    )
 
     def show_replicas():
         return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
@@ -2262,18 +2440,18 @@ def test_coordinator_gets_info_on_other_coordinators():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2363,20 +2541,20 @@ def test_coordinator_gets_info_on_other_coordinators():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "down", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
-        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "down", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
+        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "up", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
-        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
+        ("coordinator_4", "127.0.0.1:7693", "0.0.0.0:10114", "", "unknown", "follower"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2435,18 +2613,18 @@ def test_registration_works_after_main_set():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2532,18 +2710,18 @@ def test_coordinator_not_leader_registration_does_not_work():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2639,18 +2817,18 @@ def test_coordinator_user_action_demote_instance_to_replica():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data_original = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data_original = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2706,18 +2884,18 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 4.
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
@@ -2782,18 +2960,18 @@ def test_coordinator_user_action_force_reset_works():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
@@ -2848,18 +3026,18 @@ def test_coordinator_user_action_force_reset_works():
     # 4.
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "coordinator"),
+        ("coordinator_1", "127.0.0.1:7690", "0.0.0.0:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "0.0.0.0:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
         ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "main"),
         ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
         ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),

@@ -36,14 +36,14 @@ extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
 namespace {
-auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgraph::query::QueryExtras {
+auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
   auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
 
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md, nullptr));
     }
   }
 
@@ -61,12 +61,12 @@ class TypedValueResultStreamBase {
 
   void DecodeValues(const std::vector<memgraph::query::TypedValue> &values);
 
-  auto AccessValues() const -> std::vector<memgraph::communication::bolt::Value> const & { return decoded_values_; }
+  auto AccessValues() const -> std::vector<memgraph::glue::bolt_value_t> const & { return decoded_values_; }
 
  protected:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
-  std::vector<memgraph::communication::bolt::Value> decoded_values_;
+  std::vector<memgraph::glue::bolt_value_t> decoded_values_;
 };
 
 /// Wrapper around TEncoder which converts TypedValue to Value
@@ -169,8 +169,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
 
 void SessionHL::Abort() { interpreter_.Abort(); }
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(std::optional<int> n,
-                                                                               std::optional<int> qid) {
+bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
     memgraph::query::DiscardValueResultStream stream;
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
@@ -182,9 +181,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(s
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(SessionHL::TEncoder *encoder,
-                                                                            std::optional<int> n,
-                                                                            std::optional<int> qid) {
+bolt_map_t SessionHL::Pull(SessionHL::TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
   try {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
@@ -204,24 +201,27 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
-    const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-    const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-  for (const auto &[key, bolt_param] : params) {
-    params_pv.emplace(key, ToPropertyValue(bolt_param));
-  }
+std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(const std::string &query,
+                                                                             const bolt_map_t &params,
+                                                                             const bolt_map_t &extra) {
+  auto get_params_pv = [params](storage::Storage const *storage) {
+    std::map<std::string, memgraph::storage::PropertyValue> params_pv;
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.try_emplace(key, ToPropertyValue(bolt_param, storage));
+    }
+    return params_pv;
+  };
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
-    audit_log_->Record(endpoint_.address().to_string(), username, query, memgraph::storage::PropertyValue(params_pv),
+    audit_log_->Record(endpoint_.address().to_string(), username, query, params,
                        db ? db->get()->name() : "no known database");
   }
 #endif
   try {
-    auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
+    auto result = interpreter_.Prepare(query, get_params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
     if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
       interpreter_.Abort();
@@ -249,37 +249,35 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   }
 }
 
-using memgraph::communication::bolt::Value;
-
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(std::map<std::string, Value> const &routing,
-                      std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-                      std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> {
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
+                      bolt_map_t const & /*extra*/) -> bolt_map_t {
   auto routing_map = ranges::views::transform(
                          routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
                      ranges::to<std::map<std::string, std::string>>();
 
   auto routing_table_res = interpreter_.Route(routing_map);
 
-  auto create_server = [](auto const &server_info) -> Value {
+  auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
-    std::map<std::string, Value> server_map;
-    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return Value{addr}; }) |
-                          ranges::to<std::vector<Value>>();
+    bolt_map_t server_map;
+    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
+                          ranges::to<std::vector<bolt_value_t>>();
 
     server_map["addresses"] = std::move(bolt_addresses);
-    server_map["role"] = memgraph::communication::bolt::Value{role};
-    return Value{std::move(server_map)};
+    server_map["role"] = bolt_value_t{role};
+    return bolt_value_t{std::move(server_map)};
   };
 
-  std::map<std::string, Value> communication_res;
-  communication_res["ttl"] = Value{routing_table_res.ttl};
-  communication_res["db"] = Value{};
+  bolt_map_t communication_res;
+  communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
+  communication_res["db"] = bolt_value_t{};
 
-  auto servers = ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<Value>>();
-  communication_res["servers"] = memgraph::communication::bolt::Value{std::move(servers)};
+  auto servers =
+      ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
+  communication_res["servers"] = bolt_value_t{std::move(servers)};
 
-  return {{"rt", memgraph::communication::bolt::Value{std::move(communication_res)}}};
+  return {{"rt", bolt_value_t{std::move(communication_res)}}};
 }
 #endif
 
@@ -315,7 +313,7 @@ void SessionHL::CommitTransaction() {
   }
 }
 
-void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
+void SessionHL::BeginTransaction(const bolt_map_t &extra) {
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra));
   } catch (const memgraph::query::QueryException &e) {
@@ -331,7 +329,7 @@ void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communica
   }
 }
 
-void SessionHL::Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) {
+void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
   std::string db;
   bool update = false;
@@ -396,11 +394,10 @@ SessionHL::~SessionHL() {
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 }
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
-    const std::map<std::string, memgraph::query::TypedValue> &summary) {
+bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
   auto &db_acc = interpreter_.current_db_.db_acc_;
   auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
-  std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
+  bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
     auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {

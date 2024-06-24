@@ -103,6 +103,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
   UNSUCCESSFUL_VISIT(PatternComprehension);
+  UNSUCCESSFUL_VISIT(EnumValueAccess);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -173,6 +174,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
   INVALID_VISIT(PatternComprehension)
+  INVALID_VISIT(EnumValueAccess)
 
 #undef INVALID_VISIT
  private:
@@ -1156,6 +1158,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           frame_pattern_comprehension_value.type());
     }
     return frame_pattern_comprehension_value;
+  }
+
+  TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
+    if (maybe_enum.HasError()) [[unlikely]] {
+      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
+                                  enum_value_access.enum_name_);
+    }
+    return TypedValue(*maybe_enum, ctx_->memory);
   }
 
  private:
