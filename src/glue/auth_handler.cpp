@@ -300,7 +300,7 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
     });
 
     if (first_user) {
-      spdlog::info("{} is first created user. Granting all privileges.", username);
+      spdlog::info("{} is the first created user. Granting all privileges.", username);
       GrantPrivilege(
           username, memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE
@@ -375,9 +375,6 @@ void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::stri
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -395,9 +392,6 @@ void AuthQueryHandler::DenyDatabase(const std::string &db_name, const std::strin
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -415,9 +409,6 @@ void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::str
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -451,9 +442,6 @@ void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::stri
         return;
       case NO_USER_ROLE:
         throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
-      case NO_ROLE:
-        throw query::QueryRuntimeException("Using auth module, no role '{}' found.", user_or_role);
-        break;
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -519,7 +507,7 @@ std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::strin
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
     if (const auto *role = user->role(); role != nullptr) {
@@ -556,11 +544,11 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
     auto role = locked_auth->GetRole(rolename);
     if (!role) {
-      throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
+      throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
     }
     if (const auto *current_role = user->role(); current_role != nullptr) {
       throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
@@ -578,7 +566,7 @@ void AuthQueryHandler::ClearRole(const std::string &username, system::Transactio
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
     user->ClearRole();
     locked_auth->SaveUser(*user, system_tx);
