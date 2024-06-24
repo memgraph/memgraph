@@ -2903,6 +2903,7 @@ class AuthQuery : public memgraph::query::Query {
     CREATE_USER,
     SET_PASSWORD,
     DROP_USER,
+    SHOW_CURRENT_USER,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
