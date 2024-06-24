@@ -3765,5 +3765,83 @@ def test_one_coord_down_with_durability_resume():
     mg_sleep_and_assert(follower_data, show_instances_coord2)
 
 
+def test_registration_does_not_deadlock_when_instance_is_down():
+    # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
+    interactive_mg_runner.start(inner_instances_description, "coordinator_2")
+    interactive_mg_runner.start(inner_instances_description, "coordinator_3")
+
+    setup_queries = [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+    ]
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    query = "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};"
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    assert "Couldn't register replica instance because setting instance to replica failed!" in str(e.value)
+
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+    interactive_mg_runner.start(inner_instances_description, "instance_3")
+
+    setup_queries = [
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
+
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    def show_instances_coord3():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
+
+    leader_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+    ]
+
+    follower_data = [
+        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
+        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
+        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
+        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
+        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
+        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+    mg_sleep_and_assert(follower_data, show_instances_coord1)
+    mg_sleep_and_assert(follower_data, show_instances_coord2)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
