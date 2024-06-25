@@ -617,10 +617,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       throw QueryRuntimeException("Invalid bolt socket address!");
     }
 
-    auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
-                                                     .bolt_server = *maybe_bolt_server,
-                                                     .coordinator_server = *maybe_coordinator_server};
+    auto const coord_coord_config = coordination::CoordinatorToCoordinatorConfig{
+        .coordinator_id = coordinator_id,
+        .bolt_server = *maybe_bolt_server,
+        .coordinator_server = *maybe_coordinator_server,
+
+    };
 
     auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
     switch (status) {

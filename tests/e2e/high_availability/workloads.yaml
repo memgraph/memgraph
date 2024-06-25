@@ -13,12 +13,12 @@ ha_cluster: &ha_cluster
       log_file: "high_availability/coordinator/replication-e2e-main.log"
       setup_queries: []
     coordinator:
-      args: ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level=TRACE", "--coordinator-id=1", "--coordinator-port=10111"]
+      args: ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level=TRACE", "--coordinator-id=1", "--coordinator-port=10111", "--coordinator-hostname=localhost"]
       log_file: "high_availability/coordinator/replication-e2e-coordinator.log"
       setup_queries: [
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
         "SET INSTANCE instance_3 TO MAIN;"
       ]
 
