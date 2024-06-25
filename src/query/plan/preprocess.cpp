@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <functional>
 #include <stack>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -22,6 +21,9 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/range.hpp"
+#include "utils/bound.hpp"
+#include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -182,25 +184,6 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
 
     matching.expansions.push_back(expansion);
   }
-}
-
-auto SplitExpressionOnAnd(Expression *expression) {
-  // TODO: Think about converting all filtering expression into CNF to improve
-  // the granularity of filters which can be stand alone.
-  std::vector<Expression *> expressions;
-  std::stack<Expression *> pending_expressions;
-  pending_expressions.push(expression);
-  while (!pending_expressions.empty()) {
-    auto *current_expression = pending_expressions.top();
-    pending_expressions.pop();
-    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
-    }
-  }
-  return expressions;
 }
 
 auto MatchesIdentifier(Identifier *identifier) {
@@ -414,22 +397,22 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
-  CollectFilterExpression(where.expression_, symbol_table);
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table, AstStorage &storage) {
+  CollectFilterExpression(where.expression_, symbol_table, &storage);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table);
+    AnalyzeAndStoreFilter(filter, symbol_table, storage);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -488,6 +471,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       is_prop_filter = true;
     }
     return is_prop_filter;
+  };
+  auto add_prop_range = [&](RangeOperator *range) {
+    auto filter = RangeOpToFilter(range, symbol_table);
+    all_filters_.emplace_back(filter);
+    return;
   };
   // Check if maybe_id_fun is ID invocation on an indentifier and add it as
   // IdFilter.
@@ -600,6 +588,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
+  } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
+    // We only support property type ranges for now
+    add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
     if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -673,7 +664,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     }
   }
   if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table);
+    matching.filters.CollectWhereFilter(*where, symbol_table, storage);
   }
 }
 
@@ -812,6 +803,51 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
   return QueryParts{query_parts, distinct};
+}
+
+std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
+  // TODO: Think about converting all filtering expression into CNF to improve
+  // the granularity of filters which can be stand alone.
+  std::vector<Expression *> expressions;
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    } else {
+      expressions.push_back(current_expression);
+    }
+  }
+  return expressions;
+}
+
+Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {
+  if (expression == old) return in;
+
+  std::vector<Expression *> expressions;
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      if (and_op->expression1_ == old) {
+        and_op->expression1_ = in;
+        break;
+      }
+      if (and_op->expression2_ == old) {
+        and_op->expression2_ = in;
+        break;
+      }
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    }
+  }
+  return expression;
 }
 
 FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,
