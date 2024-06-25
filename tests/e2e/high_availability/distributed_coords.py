@@ -329,6 +329,10 @@ def test_even_number_coords(use_durability):
     # 2. Check that all instances are up and that one of the instances is a main.
     # 3. Demote the main instance.
     # 4. Kill two coordinators.
+    # 5. Wait for leader to become follower
+    # 6. Bring back up two coordinators.
+    # 7. Find leader
+    # 8.
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
@@ -419,19 +423,6 @@ def test_even_number_coords(use_durability):
     ]
     mg_sleep_and_assert_collection(replicas, show_replicas)
 
-    def get_vertex_count_func(cursor):
-        def get_vertex_count():
-            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-        return get_vertex_count
-
-    vertex_count = 0
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
-
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-
     # 3
 
     execute_and_fetch_all(
@@ -459,9 +450,11 @@ def test_even_number_coords(use_durability):
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
 
+    # 4
     interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
     interactive_mg_runner.kill(inner_instances_description, "coordinator_2")
 
+    # 5
     follower_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
         ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
@@ -479,11 +472,13 @@ def test_even_number_coords(use_durability):
 
     assert "Couldn't set instance to main since coordinator is not a leader!" in str(e.value)
 
+    # 6
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
 
-    def find_and_assert_leader(n):
-        leader_id = None
+    # 7
+    def find_leaders(n):
+        all_leaders = []
         for i in range(0, n):
             coord_cursor = connect(host="localhost", port=7690 + i).cursor()
 
@@ -493,17 +488,22 @@ def test_even_number_coords(use_durability):
                 )
 
             instances = show_instances()
-            print(instances)
             for instance in instances:
                 if instance[-1] == "leader":
-                    assert leader_id is None or int(instance[0][-1]) == leader_id, "Multiple leaders found"
-                    leader_id = int(instance[0][-1])
+                    all_leaders.append(instance[0])  # coordinator name
 
-        return leader_id
+        return all_leaders
 
     N = 4
 
-    leader_id = find_and_assert_leader(N)
+    all_leaders = find_leaders(N)
+
+    leader = all_leaders[0]
+
+    for l in all_leaders:
+        assert l == leader, "Leaders are not the same"
+
+    leader_id = int(leader[-1])
 
     follower_data = [
         ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
