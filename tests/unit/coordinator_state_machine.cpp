@@ -169,7 +169,9 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
         kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     CoordinatorStateManagerConfig config{
-        0, 12345, 9090, test_folder_ / "high_availability" / "coordination" / "state_manager", log_store_durability};
+        0,           12345,
+        9090,        test_folder_ / "high_availability" / "coordination" / "state_manager",
+        "localhost", log_store_durability};
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =

@@ -87,7 +87,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       durability_(config.state_manager_durability_dir_) {
   auto const c2c =
       CoordinatorToCoordinatorConfig{config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
-                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}};
+                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}, config.coordinator_hostname};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
                                       nlohmann::json(c2c).dump(), false);
 

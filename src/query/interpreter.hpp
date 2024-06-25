@@ -226,6 +226,13 @@ struct CurrentDB {
     in_explicit_db_ = in_explicit_db;
   }
 
+  void ResetDB() {
+    db_acc_.reset();
+    db_transactional_accessor_.reset();
+    execution_db_accessor_.reset();
+    trigger_context_collector_.reset();
+  }
+
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
@@ -274,6 +281,7 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+  void ResetDB() { current_db_.ResetDB(); }
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #endif
 
