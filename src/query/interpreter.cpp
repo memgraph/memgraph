@@ -2089,11 +2089,6 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context) : interpreter_context_(interpreter_context) {
   MG_ASSERT(interpreter_context_, "Interpreter context must not be NULL");
-#ifndef MG_ENTERPRISE
-  auto db_acc = interpreter_context_->dbms_handler->Get();
-  MG_ASSERT(db_acc, "Database accessor needs to be valid");
-  current_db_.db_acc_ = std::move(db_acc);
-#endif
 }
 
 Interpreter::Interpreter(InterpreterContext *interpreter_context, memgraph::dbms::DatabaseAccess db)
@@ -4970,7 +4965,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Set the target db to the current db (some queries have different target from the current db)
     if (!query_execution->prepared_query->db) {
-      query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
+      if (current_db_.db_acc_) {
+        query_execution->prepared_query->db = current_db_.db_acc_->get()->name();
+      } else {
+        query_execution->prepared_query->db = "";
+      }
     }
     query_execution->summary["db"] = *query_execution->prepared_query->db;
 
