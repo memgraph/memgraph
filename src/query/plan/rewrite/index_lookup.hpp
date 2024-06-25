@@ -136,21 +136,44 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.all_filters_ = std::move(leftover_filters);
     }
 
-    // edge uniqueness filter comes always before filter in plan generation
-    LogicalOperator *input = op.input().get();
-    LogicalOperator *parent = &op;
-    while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
-      parent = input;
-      input = input->input().get();
-    }
-    bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+    // Filters are pushed down as far as they can go.
+    // If there is a Cartesian after, that means that the filter is working on data from both branches.
+    // In that case, we need to convert the Cartesian into a Join
+    if (removal.did_remove) {
+      LogicalOperator *input = op.input().get();
+      LogicalOperator *parent = &op;
 
-    if (is_child_cartesian && removal.did_remove) {
-      // if we removed something from filter in front of a Cartesian, then we are doing a join from
-      // 2 different branches
-      auto *cartesian = dynamic_cast<Cartesian *>(input);
-      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-      parent->set_input(indexed_join);
+      // Find first possible branching point
+      while (input->HasSingleInput()) {
+        parent = input;
+        input = input->input().get();
+      }
+
+      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+      if (is_child_cartesian) {
+        std::vector<Symbol> modified_symbols;
+        for (const auto &filter : op.all_filters_) {
+          if (filter.property_filter) {
+            modified_symbols.push_back(filter.property_filter->symbol_);
+          }
+        }
+        auto does_modify = [&]() {
+          // Number of symbols is small
+          for (const auto &sym_in : input->ModifiedSymbols(*symbol_table_)) {
+            if (std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end()) {
+              return true;
+            }
+          }
+          return false;
+        };
+        if (does_modify()) {
+          // if we removed something from filter in front of a Cartesian, then we are doing a join from
+          // 2 different branches
+          auto *cartesian = dynamic_cast<Cartesian *>(input);
+          auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
+          parent->set_input(indexed_join);
+        }
+      }
     }
 
     if (!op.expression_) {
@@ -885,14 +908,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, prop_filter.lower_bound_, prop_filter.upper_bound_, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
         // Generate index scan using the empty string as a lower bound.
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
         return std::make_unique<ScanAllByLabelPropertyRange>(
             input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, std::make_optional(lower_bound), std::nullopt, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::IN) {
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperty + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
@@ -902,16 +927,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         return std::make_unique<ScanAllByLabelPropertyValue>(
             std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
             prop_filter.property_.name, expression, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
         return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
                                                         GetProperty(prop_filter.property_), prop_filter.property_.name,
                                                         view);
-      } else {
-        MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-        return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                             GetProperty(prop_filter.property_),
-                                                             prop_filter.property_.name, prop_filter.value_, view);
       }
+      MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
+      return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
+                                                           GetProperty(prop_filter.property_),
+                                                           prop_filter.property_.name, prop_filter.value_, view);
     }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;
