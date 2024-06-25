@@ -76,7 +76,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+                                                   test_folder_ / "high_availability" / "coordinator", "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
 
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
@@ -130,7 +130,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+                                                   test_folder_ / "high_availability" / "coordinator", "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -187,7 +187,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+                                                   test_folder_ / "high_availability" / "coordinator", "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -248,7 +248,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
   CoordinatorInstanceInitConfig const init_config1{coordinator_id, coordinator_port, bolt_port,
-                                                   test_folder_ / "high_availability" / "coordinator"};
+                                                   test_folder_ / "high_availability" / "coordinator", "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       instance.ChooseMostUpToDateInstance(instance_database_histories);

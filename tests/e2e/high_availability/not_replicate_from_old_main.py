@@ -34,7 +34,7 @@ MEMGRAPH_FIRST_CLUSTER_DESCRIPTION = {
     "main1": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7687", "--log-level", "TRACE"],
         "log_file": "high_availability/not_replicate_from_old_main/main.log",
-        "setup_queries": ["REGISTER REPLICA shared_replica SYNC TO '127.0.0.1:10001' ;"],
+        "setup_queries": ["REGISTER REPLICA shared_replica SYNC TO 'localhost:10001' ;"],
     },
 }
 
@@ -49,8 +49,8 @@ MEMGRAPH_SECOND_CLUSTER_DESCRIPTION = {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level", "TRACE"],
         "log_file": "high_availability/not_replicate_from_old_main/main_2.log",
         "setup_queries": [
-            "REGISTER REPLICA shared_replica SYNC TO '127.0.0.1:10001' ;",
-            "REGISTER REPLICA replica SYNC TO '127.0.0.1:10002' ; ",
+            "REGISTER REPLICA shared_replica SYNC TO 'localhost:10001' ;",
+            "REGISTER REPLICA replica SYNC TO 'localhost:10002' ; ",
         ],
     },
 }
@@ -68,7 +68,7 @@ def test_replication_works_on_failover():
     expected_data_on_main = [
         (
             "shared_replica",
-            "127.0.0.1:10001",
+            "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
@@ -92,14 +92,14 @@ def test_replication_works_on_failover():
     expected_data_on_new_main = [
         (
             "replica",
-            "127.0.0.1:10002",
+            "localhost:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "shared_replica",
-            "127.0.0.1:10001",
+            "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
@@ -181,11 +181,13 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [
-                "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
-                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
+                "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+                "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "SET INSTANCE instance_2 TO MAIN",
             ],
         },
@@ -204,9 +206,9 @@ def test_not_replicate_old_main_register_new_cluster():
         )
 
     expected_data_up_first_cluster = [
-        ("coordinator_1", "0.0.0.0:7690", "0.0.0.0:10111", "", "up", "leader"),
-        ("instance_2", "127.0.0.1:7689", "", "127.0.0.1:10012", "up", "main"),
-        ("shared_instance", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
+        ("shared_instance", "localhost:7688", "", "localhost:10011", "up", "replica"),
     ]
 
     mg_sleep_and_assert(expected_data_up_first_cluster, show_repl_cluster)
@@ -236,6 +238,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10112",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "coordinator.log",
             "setup_queries": [],
@@ -246,11 +250,11 @@ def test_not_replicate_old_main_register_new_cluster():
     second_cluster_coord_cursor = connect(host="localhost", port=7691).cursor()
     execute_and_fetch_all(
         second_cluster_coord_cursor,
-        "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
+        "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
     )
     execute_and_fetch_all(
         second_cluster_coord_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
     )
     execute_and_fetch_all(second_cluster_coord_cursor, "SET INSTANCE instance_3 TO MAIN")
 
@@ -262,9 +266,9 @@ def test_not_replicate_old_main_register_new_cluster():
         )
 
     expected_data_up_second_cluster = [
-        ("coordinator_1", "0.0.0.0:7691", "0.0.0.0:10112", "", "up", "leader"),
-        ("instance_3", "127.0.0.1:7687", "", "127.0.0.1:10013", "up", "main"),
-        ("shared_instance", "127.0.0.1:7688", "", "127.0.0.1:10011", "up", "replica"),
+        ("coordinator_1", "localhost:7691", "localhost:10112", "", "up", "leader"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+        ("shared_instance", "localhost:7688", "", "localhost:10011", "up", "replica"),
     ]
 
     mg_sleep_and_assert(expected_data_up_second_cluster, show_repl_cluster)
