@@ -34,7 +34,8 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
   auto const mgmt_config = ManagementServerConfig{
       .endpoint = io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)},
   };
-  data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
+  data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
+                                         std::make_unique<DataInstanceManagementServer>(mgmt_config)};
   spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
                 mgmt_config.endpoint.GetPort());
 }
@@ -117,10 +118,10 @@ auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
   return std::get<CoordinatorInstance>(data_).ShowInstances();
 }
 
-auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
+auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceManagementServer & {
   MG_ASSERT(std::holds_alternative<CoordinatorMainReplicaData>(data_),
             "Cannot get coordinator server since variant holds wrong alternative");
-  return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
+  return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
 auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)

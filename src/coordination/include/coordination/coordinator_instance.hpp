@@ -20,7 +20,7 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
