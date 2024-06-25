@@ -203,6 +203,19 @@ auto SplitExpressionOnAnd(Expression *expression) {
   return expressions;
 }
 
+auto MatchesIdentifier(Identifier *identifier) {
+  return [identifier](FilterInfo const &existing) {
+    auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
+    if (!existing_label_test) return false;
+
+    auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
+    if (!exisiting_identifier) return false;
+
+    // If are the same symbol position then they must be referring to the same identifer
+    return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
+  };
+};
+
 }  // namespace
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
@@ -366,10 +379,26 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       labels.push_back(std::get<LabelIx>(label));
     }
     if (!labels.empty()) {
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
-      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = labels;
-      all_filters_.emplace_back(label_filter);
+      // find existing LabelsTest that matched identifier
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
+        auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
+        label_filter.labels = labels;
+        all_filters_.emplace_back(label_filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels.begin(), labels.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     }
     add_properties(node);
   };
@@ -523,10 +552,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
-    if (utils::Downcast<Identifier>(labels_test->expression_)) {
-      auto filter = make_filter(FilterInfo::Type::Label);
-      filter.labels = labels_test->labels_;
-      all_filters_.emplace_back(filter);
+    if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::Label);
+        filter.labels = labels_test->labels_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
