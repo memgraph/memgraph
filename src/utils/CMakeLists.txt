@@ -20,14 +20,19 @@ target_sources(mg-utils
     uuid.cpp
     build_info.cpp
     query_memory_tracker.cpp
-    exponential_backoff.hpp
     exponential_backoff.cpp
 
     PUBLIC
     FILE_SET HEADERS
     BASE_DIRS ../../
     FILES
+    allocator/page_aligned.hpp
+    allocator/page_slab_memory_resource.hpp
+    exponential_backoff.hpp
+    memory_layout.hpp
     small_vector.hpp
+    static_vector.hpp
+
 )
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)

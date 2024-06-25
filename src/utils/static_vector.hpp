@@ -13,40 +13,38 @@
 
 #include "utils/memory_layout.hpp"
 
-#include <cassert>
-#include <cstdint>
+#include <algorithm>
+#include <compare>
+#include <cstddef>
 #include <memory>
 #include <span>
-#include <utility>
-#include <vector>
+#include <type_traits>
 
 namespace memgraph::utils {
 
-// datastructure for a small vector, design goals:
-// - 16B, so we are smaller than std::vector<T> (24B)
-// - small buffer representation to avoid allocation
+// datastructure for a fixed capacity vector, design goals:
+// - local buffer representation, never allocates a storage buffer
 // - limitation only 2^32-1 capacity
 // layout:
 //  Heap allocation
-//  ┌─────────┬─────────┐
-//  │SIZE     │CAPACITY │
-//  ├─────────┴─────────┤    ┌────┬────┬────┬─
-//  │PTR                ├───►│    │    │    │...
-//  └───────────────────┘    └────┴────┴────┴─
-//  Small buffer representation
-//   capacity is fixed size, while size <= that, we can use the small buffer
-//  ┌─────────┬─────────┐
-//  │<=2      │2        │
-//  ├─────────┼─────────┤
-//  │Val1     │Val2     │
-//  └─────────┴─────────┘
-template <typename T>
-struct small_vector {
+//  ┌──────────────┐
+//  │SIZE          │
+//  ├────┬────┬────┤
+//  │    │    │... │
+//  └────┴────┴────┘
+template <typename T, std::size_t ByteLimit>
+struct static_vector {
   using value_type = T;
   using reference = value_type &;
   using const_reference = value_type const &;
   using pointer = value_type *;
   using const_pointer = value_type const *;
+
+  using size_type = uint32_t;
+
+  static_assert(sizeof(size_type) + sizeof(T) <= ByteLimit, "Not enough bytes for a single element");
+
+  static constexpr auto N = (ByteLimit - sizeof(size_type)) / sizeof(T);
 
   struct const_iterator;
 
@@ -185,47 +183,20 @@ struct small_vector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  small_vector() = default;
+  static_vector() = default;
 
-  small_vector(const small_vector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
-    // NOTE 1: smallest capacity is kSmallCapacity
-    // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
-    if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
-    }
-    std::ranges::uninitialized_copy(other, *this);
-  }
+  static_vector(const static_vector &other) : size_{other.size_} { std::ranges::uninitialized_copy(other, *this); }
 
-  small_vector(small_vector &&other) noexcept : size_{other.size_}, capacity_{other.capacity_} {
-    // NOTE 1: moved from vector, new capacity is kSmallCapacity
-    // NOTE 2: either move the buffer or move into the small buffer
-    if (usingSmallBuffer(other.capacity_)) {
-      std::ranges::uninitialized_move(other, *this);
-      std::ranges::destroy(other);
-    } else {
-      buffer_ = std::exchange(other.buffer_, nullptr);
-    }
+  static_vector(static_vector &&other) noexcept : size_{other.size_} {
+    std::ranges::uninitialized_move(other, *this);
+    std::ranges::destroy(other);
     other.size_ = 0;
-    other.capacity_ = kSmallCapacity;
   }
 
-  auto operator=(const small_vector &other) -> small_vector & {
+  auto operator=(const static_vector &other) -> static_vector & {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
-    // NOTE : ensure we have enough capacity
-    if (capacity_ < other.size_) {
-      auto *new_data = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), other.size_ * sizeof(T)));
-      // NOTE: move values to the new buffer
-      std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
-      std::destroy(begin(), end());
-      if (!usingSmallBuffer(capacity_)) {
-        std::free(buffer_);
-      }
-      buffer_ = new_data;
-      capacity_ = other.size_;
-    }
-    assert(other.size_ <= capacity_);
 
     // NOTE: take care
     //       - copy assign over values that exist
@@ -251,13 +222,12 @@ struct small_vector {
     return *this;
   }
 
-  auto operator=(small_vector &&other) noexcept -> small_vector & {
+  auto operator=(static_vector &&other) noexcept -> static_vector & {
     if (std::addressof(other) == this) [[unlikely]] {
       return *this;
     }
 
-    if (usingSmallBuffer(other.capacity_)) {
-      assert(other.capacity_ <= capacity_);
+    {
       // move assignment
       auto to_assign = std::min(size_, other.size_);
       auto src_assign_end = other.begin() + to_assign;
@@ -274,74 +244,57 @@ struct small_vector {
         std::destroy(dst_assign_end, end());
         size_ = other.size_;
       }
-    } else {
-      if (usingSmallBuffer(capacity_)) {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        buffer_ = other.buffer_;
-      } else {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        auto old_buffer = std::exchange(buffer_, other.buffer_);
-        std::free(old_buffer);
-      }
     }
     return *this;
   }
 
-  ~small_vector() {
-    std::destroy(begin(), end());
-    if (!usingSmallBuffer(capacity_)) {
-      std::free(buffer_);
-    }
-  }
+  ~static_vector() { std::destroy(begin(), end()); }
 
-  explicit small_vector(std::initializer_list<T> other) : small_vector(other.begin(), other.end()) {}
+  explicit static_vector(std::initializer_list<T> other) : static_vector(other.begin(), other.end()) {}
 
   // TODO: change to range + add test
-  explicit small_vector(std::span<T const> other) : small_vector(other.begin(), other.end()) {}
+  explicit static_vector(std::span<T const> other) : static_vector(other.begin(), other.end()) {}
   // TODO: generalise to not just vector
-  explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
-    if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
-    }
+  explicit static_vector(std::vector<T> &&other) : size_(other.size()) {
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
 
   template <typename It>
-  explicit small_vector(It first, It last)
-      : size_(std::distance(first, last)), capacity_{std::max(size_, kSmallCapacity)} {
-    if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
-    }
+  explicit static_vector(It first, It last) : size_(std::distance(first, last)) {
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
 
-  void push_back(const_reference value) {
-    if (capacity_ == size_) {
-      reserve(capacity_ == 0 ? 1 : 2 * capacity_);
+  bool is_full() const { return N == size_; }
+
+  auto push_back(const_reference value) -> reference {
+    if (is_full()) {
+      throw std::logic_error{"Exceeds fixed capacity"};
     }
-    std::construct_at(std::to_address(end()), value);
+    auto *mem = std::to_address(end());
+    std::construct_at(mem, value);
     ++size_;
+    return *mem;
   }
 
-  void push_back(value_type &&value) {
-    if (capacity_ == size_) {
-      reserve(capacity_ == 0 ? 1 : 2 * capacity_);
+  auto push_back(value_type &&value) -> reference {
+    if (is_full()) {
+      throw std::logic_error{"Exceeds fixed capacity"};
     }
-    std::construct_at(std::to_address(end()), std::move(value));
+    auto *mem = std::to_address(end());
+    std::construct_at(mem, std::move(value));
     ++size_;
+    return *mem;
   }
 
   template <typename... Args>
-  void emplace_back(Args &&...args) {
-    if (capacity_ == size_) {
-      reserve(capacity_ == 0 ? 1 : 2 * capacity_);
+  auto emplace_back(Args &&...args) -> reference {
+    if (is_full()) {
+      throw std::logic_error{"Exceeds fixed capacity"};
     }
-    std::construct_at(std::to_address(end()), std::forward<Args>(args)...);
+    auto *mem = std::to_address(end());
+    std::construct_at(mem, std::forward<Args>(args)...);
     ++size_;
+    return *mem;
   }
 
   void pop_back() {
@@ -352,46 +305,31 @@ struct small_vector {
     --size_;
   }
 
-  auto operator[](uint32_t index) -> reference { return begin()[index]; }
+  auto operator[](size_type index) -> reference { return begin()[index]; }
 
-  auto operator[](uint32_t index) const -> const_reference { return begin()[index]; }
+  auto operator[](size_type index) const -> const_reference { return begin()[index]; }
 
-  auto at(uint32_t index) -> reference {
+  auto at(size_type index) -> reference {
     if (size_ <= index) {
       throw std::out_of_range("Index out of range");
     }
     return begin()[index];
   }
 
-  [[nodiscard]] auto at(uint32_t index) const -> const_reference {
+  [[nodiscard]] auto at(size_type index) const -> const_reference {
     if (size_ <= index) {
       throw std::out_of_range("Index out of range");
     }
     return begin()[index];
   }
 
-  [[nodiscard]] auto size() const -> uint32_t { return size_; }
+  [[nodiscard]] auto size() const -> size_type { return size_; }
 
-  [[nodiscard]] auto capacity() const -> uint32_t { return capacity_; }
+  [[nodiscard]] static constexpr auto capacity() -> size_type { return N; }
 
-  void reserve(uint32_t new_capacity) {
-    if (new_capacity <= capacity_) {
-      return;
-    }
-
-    auto *new_data = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), new_capacity * sizeof(T)));
-    std::uninitialized_move(begin(), end(), new_data);
-    std::destroy(begin(), end());
-    if (!usingSmallBuffer(capacity_)) {
-      std::free(buffer_);
-    }
-    buffer_ = new_data;
-    capacity_ = new_capacity;
-  }
-
-  void resize(uint32_t new_size) {
+  void resize(size_type new_size) {
     if (size_ < new_size) {
-      reserve(new_size);
+      if (N < new_size) throw std::logic_error{"Exceeds fixed capacity"};
       auto old_size = std::exchange(size_, new_size);
       for (auto it = begin() + old_size; it != end(); ++it) {
         std::construct_at(std::to_address(it));
@@ -413,13 +351,11 @@ struct small_vector {
     size_ = 0;
   }
 
-  auto begin() -> iterator { return iterator{(usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_}; }
+  auto begin() -> iterator { return iterator{buffer_->as()}; }
 
   auto end() -> iterator { return begin() + size_; }
 
-  [[nodiscard]] auto begin() const -> const_iterator {
-    return const_iterator{(usingSmallBuffer(capacity_)) ? small_buffer_->as() : buffer_};
-  }
+  [[nodiscard]] auto begin() const -> const_iterator { return const_iterator{buffer_->as()}; }
 
   [[nodiscard]] auto end() const -> const_iterator { return begin() + size_; }
 
@@ -463,21 +399,13 @@ struct small_vector {
     return it_first;
   }
 
-  friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
-
-  constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
+  friend bool operator==(static_vector const &lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
 
  private:
-  constexpr static bool usingSmallBuffer(uint32_t capacity) { return capacity == kSmallCapacity; }
-
-  uint32_t size_{};                    // max 4 billion
-  uint32_t capacity_{kSmallCapacity};  // max 4 billion
-  union {
-    value_type *buffer_;
-    uninitialised_storage<value_type> small_buffer_[kSmallCapacity];
-  };
+  size_type size_{};  // max 4 billion
+  uninitialised_storage<value_type> buffer_[N];
 };
 
-static_assert(sizeof(small_vector<int>) == 16);
+static_assert(sizeof(static_vector<int, 15>) == 12);
 
 }  // namespace memgraph::utils

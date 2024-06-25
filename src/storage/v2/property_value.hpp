@@ -22,6 +22,7 @@
 #include "utils/exceptions.hpp"
 
 #include <boost/container/flat_map.hpp>
+#include "range/v3/all.hpp"
 
 namespace memgraph::storage {
 
@@ -446,8 +447,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
-template <typename Alloc>
-inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc> &second) noexcept {
+template <typename Alloc, typename Alloc2>
+inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
   if (!AreComparableTypes(first.type(), second.type())) return false;
   switch (first.type()) {
     case PropertyValueType::Null:
@@ -467,11 +468,20 @@ inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValu
         return first.ValueDouble() == second.ValueInt();
       }
     case PropertyValueType::String:
-      return first.ValueString() == second.ValueString();
+      // using string_view for allocator agnostic compare
+      return std::string_view{first.ValueString()} == second.ValueString();
     case PropertyValueType::List:
-      return first.ValueList() == second.ValueList();
-    case PropertyValueType::Map:
-      return first.ValueMap() == second.ValueMap();
+      return std::ranges::equal(first.ValueList(), second.ValueList(), std::equal_to<>{});
+    case PropertyValueType::Map: {
+      auto const &m1 = first.ValueMap();
+      auto const &m2 = second.ValueMap();
+      if (m1.size() != m2.size()) return false;
+      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
+        if (std::string_view{v1.first} != v2.first) return false;
+        if (v1.second != v2.second) return false;
+      }
+      return true;
+    }
     case PropertyValueType::TemporalData:
       return first.ValueTemporalData() == second.ValueTemporalData();
     case PropertyValueType::ZonedTemporalData:
@@ -479,6 +489,11 @@ inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValu
     case PropertyValueType::Enum:
       return first.ValueEnum() == second.ValueEnum();
   }
+}
+
+template <typename Alloc, typename Alloc2>
+inline bool operator!=(const PropertyValueImpl<Alloc> &first, const PropertyValueImpl<Alloc2> &second) noexcept {
+  return !(first == second);
 }
 
 /// NOLINTNEXTLINE(bugprone-exception-escape)

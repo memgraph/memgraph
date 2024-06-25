@@ -53,6 +53,7 @@ target_sources(mg-storage-v2
         enum_store.hpp
         vertex_info_cache_fwd.hpp
         vertex_info_cache.hpp
+        delta_container.hpp
 )
 
 find_package(gflags REQUIRED)
