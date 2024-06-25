@@ -78,7 +78,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     if (op.input()->GetTypeInfo() == Once::kType) {
       source_node_anon_ = op.output_symbol_.IsSymbolAnonym();
-      once_under_scanall_ = source_node_anon_ && dest_node_anon_;
+      scanall_under_once_ = source_node_anon_ && dest_node_anon_;
     }
 
     return true;
@@ -111,7 +111,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         edge_type_index_exist_ = db_->EdgeTypeIndexExists(edge_type_);
       }
 
-      scanall_under_expand_ = only_one_edge_type && expansion_is_named && expdanded_node_not_named;
+      expand_under_scanall_ = only_one_edge_type && expansion_is_named && expdanded_node_not_named;
 
       const auto &modified_symbols = op.ModifiedSymbols(*symbol_table_);
       std::unordered_set<Symbol> bound_symbols(modified_symbols.begin(), modified_symbols.end());
@@ -132,7 +132,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filters_.EraseFilter(filter);
       }
 
-      if (!scanall_under_expand_) {
+      if (!expand_under_scanall_) {
         return true;
       }
 
@@ -338,7 +338,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
 
     if (op.input()->GetTypeInfo() == Expand::kType) {
-      expand_under_produce_ = true;
+      produce_under_expand_ = true;
     }
 
     return true;
@@ -573,14 +573,14 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   bool EdgeTypeIndexingPossible() const {
-    return expand_under_produce_ && scanall_under_expand_ && once_under_scanall_ && edge_type_index_exist_;
+    return produce_under_expand_ && expand_under_scanall_ && scanall_under_once_ && edge_type_index_exist_;
   }
 
-  bool EdgeTypePropertyIndexingPossible() const { return scanall_under_expand_ && once_under_scanall_ && property_; }
+  bool EdgeTypePropertyIndexingPossible() const { return expand_under_scanall_ && scanall_under_once_ && property_; }
 
-  bool expand_under_produce_ = false;
-  bool scanall_under_expand_ = false;
-  bool once_under_scanall_ = false;
+  bool produce_under_expand_ = false;
+  bool expand_under_scanall_ = false;
+  bool scanall_under_once_ = false;
   bool edge_type_index_exist_ = false;
 
   bool source_node_anon_ = false;
