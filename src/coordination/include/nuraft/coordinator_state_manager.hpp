@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
 
@@ -31,7 +32,7 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config, LoggerWrapper logger);
+  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger);
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -63,8 +64,14 @@ class CoordinatorStateManager : public state_mgr {
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
-  kvstore::KVStore kv_store_;
+  kvstore::KVStore durability_;
 };
+
+void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &config);
+void to_json(nlohmann::json &j, cluster_config const &cluster_config);
+
+void from_json(nlohmann::json const &json_cluster_config, srv_state &srv_state);
+void to_json(nlohmann::json &j, srv_state const &srv_state);
 
 }  // namespace memgraph::coordination
 #endif

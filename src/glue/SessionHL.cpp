@@ -167,6 +167,27 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
   return res;
 }
 
+bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) {
+  interpreter_.ResetUser();
+
+  auto locked_auth = auth_->Lock();
+
+  const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
+  if (!user_or_role.has_value()) {
+    return false;
+  }
+
+  user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+
+#ifdef MG_ENTERPRISE
+  // Start off with the default database
+  interpreter_.SetCurrentDB(GetDefaultDB(), false);
+#endif
+  implicit_db_.emplace(GetCurrentDB());
+  return true;
+}
+
 void SessionHL::Abort() { interpreter_.Abort(); }
 
 bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {

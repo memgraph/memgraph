@@ -11,7 +11,6 @@
 
 #include "general.hpp"
 
-#include "glue/auth_global.hpp"
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
@@ -208,12 +207,3 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
-              "Set to the regular expression that each user or role name must fulfill.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
-              "The regular expression that should be used to match the entire "
-              "entered password to ensure its strength.");
