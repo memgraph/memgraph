@@ -25,6 +25,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
 
@@ -367,6 +368,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(SubscriptOperator)
 
 #undef VISIT_BINARY_OPERATOR
+
+  bool PostVisit(RangeOperator &op) override {
+    bool res = op.expr1_->Accept(*this);
+    res |= op.expr2_->Accept(*this);
+    return res;
+  }
 
   bool PostVisit(Aggregation &aggr) override {
     // Aggregation contains a virtual symbol, where the result will be stored.

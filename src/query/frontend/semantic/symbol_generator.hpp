@@ -236,6 +236,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(GreaterOperator &op) override{};
   void Visit(LessEqualOperator &op) override{};
   void Visit(GreaterEqualOperator &op) override{};
+  void Visit(RangeOperator &op) override{};
   void Visit(SubscriptOperator &op) override{};
   void Visit(ListSlicingOperator &op) override{};
   void Visit(IfOperator &op) override{};
