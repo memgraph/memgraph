@@ -232,6 +232,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
 
 
 def get_instances_description_no_setup_4_coords(use_durability: bool = True):
+    use_durability_str = "true" if use_durability else "false"
     return {
         "instance_1": {
             "args": [
@@ -283,7 +284,9 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                f"--ha_durability={use_durability}",
+                f"--ha_durability={use_durability_str}",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator1.log",
             "data_directory": f"{TEMP_DIR}/coordinator_1",
@@ -297,7 +300,9 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                f"--ha_durability={use_durability}",
+                f"--ha_durability={use_durability_str}",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator2.log",
             "data_directory": f"{TEMP_DIR}/coordinator_2",
@@ -311,7 +316,9 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
-                f"--ha_durability={use_durability}",
+                f"--ha_durability={use_durability_str}",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator3.log",
             "data_directory": f"{TEMP_DIR}/coordinator_3",
@@ -325,7 +332,9 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=4",
                 "--coordinator-port=10114",
-                f"--ha_durability={use_durability}",
+                f"--ha_durability={use_durability_str}",
+                "--coordinator-hostname",
+                "localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator4.log",
             "data_directory": f"{TEMP_DIR}/coordinator_4",
@@ -353,12 +362,12 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
-        "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': '127.0.0.1:7693', 'coordinator_server': '127.0.0.1:10114'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
 
@@ -388,23 +397,23 @@ def test_even_number_coords(use_durability):
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     leader_data_original = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "up", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     follower_data_original = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "unknown", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "", "unknown", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(leader_data_original, show_instances_coord3)
@@ -420,14 +429,14 @@ def test_even_number_coords(use_durability):
     replicas = [
         (
             "instance_1",
-            "127.0.0.1:10001",
+            "localhost:10001",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
         ),
         (
             "instance_2",
-            "127.0.0.1:10002",
+            "localhost:10002",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
@@ -468,13 +477,13 @@ def test_even_number_coords(use_durability):
 
     # 5
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "unknown", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "", "unknown", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
     ]
 
     mg_sleep_and_assert(follower_data, show_instances_coord3)
@@ -518,23 +527,23 @@ def test_even_number_coords(use_durability):
     leader_id = int(leader[-1])
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "follower"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "unknown", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "replica"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "", "unknown", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
     ]
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "follower"),
-        ("coordinator_4", "127.0.0.1:7693", "127.0.0.1:10114", "", "up", "follower"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "replica"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
     assert leader_id is not None, "Leader not found"
