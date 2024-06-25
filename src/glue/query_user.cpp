@@ -15,8 +15,8 @@
 
 namespace memgraph::glue {
 
-bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name, query::UserPolicy *policy) const {
+bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::string_view db_name,
+                                   query::UserPolicy *policy) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {

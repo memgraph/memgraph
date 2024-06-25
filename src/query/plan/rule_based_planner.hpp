@@ -21,6 +21,8 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/general.hpp"
+#include "query/plan/rewrite/range.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
@@ -933,8 +935,10 @@ class RuleBasedPlanner {
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
     if (filter_expr) {
+      filter_expr = CompactFilters(filter_expr, storage);  // Can only compact; not delete the whole expression
+                                                           // Could do in the future when we have parse-time constants
       Filters operator_filters;
-      operator_filters.CollectFilterExpression(filter_expr, symbol_table);
+      operator_filters.CollectFilterExpression(filter_expr, symbol_table, &storage);
       last_op = std::make_unique<Filter>(std::move(last_op), std::move(pattern_filters), filter_expr,
                                          std::move(operator_filters));
     }

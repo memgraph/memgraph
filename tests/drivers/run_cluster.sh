@@ -5,7 +5,7 @@ popd () { command popd "$@" > /dev/null; }
 
 function wait_for_server {
     port=$1
-    while ! nc -z -w 1 127.0.0.1 $port; do
+    while ! nc -z -w 1 localhost $port; do
         sleep 0.1
     done
     sleep 1
@@ -89,6 +89,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --coordinator-id=1 \
     --coordinator-port=10111 \
+    --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level ERROR &
@@ -107,6 +108,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --coordinator-id=2 \
     --coordinator-port=10112 \
+    --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level ERROR &
@@ -125,6 +127,7 @@ $binary_dir/memgraph \
     --also-log-to-stderr \
     --coordinator-id=3 \
     --coordinator-port=10113 \
+    --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level ERROR &
@@ -133,12 +136,13 @@ wait_for_server 7692
 
 sleep 5
 
-echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "127.0.0.1:7691", "coordinator_server":  "127.0.0.1:10112"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "127.0.0.1:7692", "coordinator_server":  "127.0.0.1:10113"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7687", "management_server": "127.0.0.1:10011", "replication_server": "127.0.0.1:10001"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "management_server": "127.0.0.1:10012", "replication_server": "127.0.0.1:10002"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "127.0.0.1:7689", "management_server": "127.0.0.1:10013", "replication_server": "127.0.0.1:10003"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "localhost:7691", "coordinator_server":  "localhost:10112"};' | $binary_dir/bin/mgconsole --port 7690
+echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "localhost:7692", "coordinator_server":  "localhost:10113"};' | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "localhost:7687", "management_server": "localhost:10011", "replication_server": "localhost:10001"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "localhost:7688", "management_server": "localhost:10012", "replication_server": "localhost:10002"};'  | $binary_dir/bin/mgconsole --port 7690
+echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "localhost:7689", "management_server": "localhost:10013", "replication_server": "localhost:10003"};'  | $binary_dir/bin/mgconsole --port 7690
 echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690
+
 
 
 code_test=0

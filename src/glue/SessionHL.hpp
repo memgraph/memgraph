@@ -68,6 +68,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   void Abort() override;
 
+  void TryDefaultDB();
+
   // Called during Init
   bool Authenticate(const std::string &username, const std::string &password) override;
 
@@ -86,7 +88,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    *
    * @return std::string
    */
-  std::string GetDefaultDB();
+  std::optional<std::string> GetDefaultDB();
 
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
