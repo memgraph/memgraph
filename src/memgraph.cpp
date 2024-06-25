@@ -22,7 +22,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
-#include "coordination/coordinator_handlers.hpp"
+#include "coordination/data_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -568,8 +568,10 @@ int main(int argc, char **argv) {
   // MAIN or REPLICA instance
   if (coordination_setup.management_port != 0) {
     spdlog::trace("Starting coordinator server.");
-    memgraph::dbms::CoordinatorHandlers::Register(coordinator_state->GetCoordinatorServer(), replication_handler);
-    MG_ASSERT(coordinator_state->GetCoordinatorServer().Start(), "Failed to start coordinator server!");
+    memgraph::dbms::DataManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                           replication_handler);
+    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+  } else {
   }
 #endif
 

@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
 #include <spdlog/spdlog.h>
@@ -29,20 +29,20 @@ auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &c
 // NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
 // have only a single coordinator server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
-constexpr auto kCoordinatorServerThreads = 1;
+constexpr auto kDataInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
+DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{config.endpoint, &rpc_server_context_, kCoordinatorServerThreads} {
+      rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc on coordinator server");
     replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
   });
 }
 
-CoordinatorServer::~CoordinatorServer() {
+DataInstanceManagementServer::~DataInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
     spdlog::trace("Closing coordinator server on {}", endpoint.SocketAddress());
@@ -51,7 +51,7 @@ CoordinatorServer::~CoordinatorServer() {
   rpc_server_.AwaitShutdown();
 }
 
-bool CoordinatorServer::Start() { return rpc_server_.Start(); }
+bool DataInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
 }  // namespace memgraph::coordination
 #endif

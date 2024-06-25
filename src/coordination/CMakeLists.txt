@@ -5,12 +5,12 @@ target_sources(mg-coordination
         include/coordination/replication_instance_client.hpp
         include/coordination/coordinator_state.hpp
         include/coordination/coordinator_rpc.hpp
-        include/coordination/coordinator_server.hpp
+        include/coordination/data_instance_management_server.hpp
         include/coordination/coordinator_communication_config.hpp
         include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_instance.hpp
-        include/coordination/coordinator_handlers.hpp
+        include/coordination/data_management_server_handlers.hpp
         include/coordination/instance_status.hpp
         include/coordination/replication_instance_connector.hpp
         include/coordination/raft_state.hpp
@@ -31,8 +31,8 @@ target_sources(mg-coordination
         replication_instance_client.cpp
         coordinator_state.cpp
         coordinator_rpc.cpp
-        coordinator_server.cpp
-        coordinator_handlers.cpp
+        data_instance_management_server.cpp
+        data_management_server_handlers.cpp
         coordinator_instance.cpp
         replication_instance_connector.cpp
         raft_state.cpp
