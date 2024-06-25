@@ -224,8 +224,6 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
     return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
   });
   const auto value = entry_to_update->value;
-  acc.remove(Entry{value, entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
-                   entry_to_update->timestamp});
   acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
