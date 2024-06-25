@@ -1,8 +1,8 @@
-#######################
-find_package(gflags REQUIRED)
-find_package(Threads REQUIRED)
+add_library(mg-storage-v2 STATIC)
+add_library(mg::storage ALIAS mg-storage-v2)
 
-add_library(mg-storage-v2 STATIC
+target_sources(mg-storage-v2
+        PRIVATE
         commit_log.cpp
         constraints/existence_constraints.cpp
         constraints/constraints.cpp
@@ -15,8 +15,6 @@ add_library(mg-storage-v2 STATIC
         edge_accessor.cpp
         property_store.cpp
         vertex_accessor.cpp
-        vertex_info_cache_fwd.hpp
-        vertex_info_cache.hpp
         vertex_info_cache.cpp
         storage.cpp
         indices/indices.cpp
@@ -46,17 +44,20 @@ add_library(mg-storage-v2 STATIC
         replication/rpc.cpp
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
+
+        PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS ../../
+        FILES
+        small_vector.hpp
+        enum.hpp
+        enum_store.hpp
+        vertex_info_cache_fwd.hpp
+        vertex_info_cache.hpp
 )
 
-target_sources(mg-storage-v2
-    PUBLIC
-    FILE_SET HEADERS
-    BASE_DIRS ../../
-    FILES
-    small_vector.hpp
-    enum.hpp
-    enum_store.hpp
-)
+find_package(gflags REQUIRED)
+find_package(Threads REQUIRED)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
