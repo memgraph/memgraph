@@ -25,6 +25,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "license/license_sender.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
@@ -282,7 +283,11 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   }
 
 #if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), logging::MaskSensitiveInformation(query.ValueString()));
+  } else {
+    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+  }
 #else
   spdlog::debug("[Run] '{}'", query.ValueString());
 #endif
