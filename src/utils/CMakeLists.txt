@@ -22,6 +22,12 @@ target_sources(mg-utils
     query_memory_tracker.cpp
     exponential_backoff.hpp
     exponential_backoff.cpp
+
+    PUBLIC
+    FILE_SET HEADERS
+    BASE_DIRS ../../
+    FILES
+    small_vector.hpp
 )
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
