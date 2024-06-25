@@ -30,6 +30,7 @@ INSTANCE_DESCRIPTION = {
 
 MG_URI = "bolt://localhost:7687"
 CLIENT_ERROR_MESSAGE = "Authentication failure"
+USERNAME = "anthony"
 
 
 def create_role():
@@ -128,6 +129,8 @@ class TestSSO:
             client.verify_connectivity()
             with client.session() as session:
                 session.run("MATCH (n) RETURN n;")
+                current_user_result = list(session.run("SHOW CURRENT USER;"))
+                assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
 
 def test_sso_create_owned():
