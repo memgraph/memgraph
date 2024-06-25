@@ -27,7 +27,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
 #include <unordered_set>
-#include "storage/v2/small_vector.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -287,7 +287,7 @@ class DiskStorage final : public Storage {
       utils::SkipList<Vertex> *indexed_vertices);
 
   VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                      storage::Gid gid, storage::small_vector<LabelId> label_ids,
+                                      storage::Gid gid, utils::small_vector<LabelId> label_ids,
                                       PropertyStore properties, Delta *delta);
 
   std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,

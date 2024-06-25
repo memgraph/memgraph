@@ -49,7 +49,6 @@ target_sources(mg-storage-v2
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
-        small_vector.hpp
         enum.hpp
         enum_store.hpp
         vertex_info_cache_fwd.hpp

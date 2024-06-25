@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace memgraph::storage {
+namespace memgraph::utils {
 
 namespace {
 
@@ -489,4 +489,4 @@ struct small_vector {
 
 static_assert(sizeof(small_vector<int>) == 16);
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::utils
