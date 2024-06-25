@@ -28,6 +28,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
@@ -89,15 +90,6 @@ struct IndexHints {
 
 namespace impl {
 
-struct ExpressionRemovalResult {
-  Expression *trimmed_expression;
-  bool did_remove{false};
-};
-
-// Return the new root expression after removing the given expressions from the
-// given expression tree.
-ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
-
 struct HashPair {
   template <class T1, class T2>
   std::size_t operator()(const std::pair<T1, T2> &pair) const {
@@ -119,7 +111,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
     return true;
   }
 
@@ -132,7 +124,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
       op.all_filters_ = std::move(leftover_filters);
     }
 

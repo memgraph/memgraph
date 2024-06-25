@@ -27,9 +27,9 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (maybe_enum.HasError()) [[unlikely]] {
-      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
-                                  enum_value_access.enum_name_);
-    }
+        throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
+                                    enum_value_access.enum_name_);
+      }
     prev_expressions_.back() = storage_->Create<PrimitiveLiteral>(*maybe_enum);
   }
 
@@ -124,6 +124,11 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(GreaterEqualOperator &op) override {
     AcceptExpression(op.expression1_);
     AcceptExpression(op.expression2_);
+  }
+
+  void Visit(RangeOperator &op) override {
+    AcceptExpression(op.expr1_);
+    AcceptExpression(op.expr2_);
   }
 
   void Visit(SubscriptOperator &op) override {

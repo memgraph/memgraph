@@ -48,6 +48,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(GreaterOperator &op) override;
   void Visit(LessEqualOperator &op) override;
   void Visit(GreaterEqualOperator &op) override;
+  void Visit(RangeOperator &op) override;
   void Visit(InListOperator &op) override;
   void Visit(SubscriptOperator &op) override;
 
@@ -277,6 +278,13 @@ BINARY_OPERATOR_VISIT(InListOperator, "In");
 BINARY_OPERATOR_VISIT(SubscriptOperator, "Subscript");
 
 #undef BINARY_OPERATOR_VISIT
+
+void ExpressionPrettyPrinter::Visit(RangeOperator &op) {
+  op.expr1_->Accept(*this);
+  *out_ << " And ";
+  op.expr2_->Accept(*this);
+  *out_ << ")";
+}
 
 void ExpressionPrettyPrinter::Visit(ListSlicingOperator &op) {
   PrintOperator(out_, dba_, "ListSlicing", op.list_, op.lower_bound_, op.upper_bound_);
