@@ -29,16 +29,14 @@ binary_dir="$DIR/../../build"
 $binary_dir/memgraph \
     --bolt-port=7687 \
     --data-directory=$tmpdir/instance_1/ \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance1.log \
     --also-log-to-stderr \
     --management-port=10011 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_1=$!
 wait_for_server 7687
 
@@ -46,16 +44,14 @@ wait_for_server 7687
 $binary_dir/memgraph \
     --bolt-port=7688 \
     --data-directory=$tmpdir/instance_2 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance2.log \
     --also-log-to-stderr \
     --management-port=10012 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_2=$!
 wait_for_server 7688
 
@@ -63,16 +59,14 @@ wait_for_server 7688
 $binary_dir/memgraph \
     --bolt-port=7689 \
     --data-directory=$tmpdir/instance_3 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance3.log \
     --also-log-to-stderr \
     --management-port=10013 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_3=$!
 wait_for_server 7689
 
@@ -81,10 +75,7 @@ wait_for_server 7689
 $binary_dir/memgraph \
     --bolt-port=7690 \
     --data-directory=$tmpdir/coordinator_1 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator1.log \
     --also-log-to-stderr \
     --coordinator-id=1 \
@@ -92,7 +83,8 @@ $binary_dir/memgraph \
     --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_1=$!
 wait_for_server 7690
 
@@ -100,10 +92,7 @@ wait_for_server 7690
 $binary_dir/memgraph \
     --bolt-port=7691 \
     --data-directory=$tmpdir/coordinator_2 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator2.log \
     --also-log-to-stderr \
     --coordinator-id=2 \
@@ -111,7 +100,8 @@ $binary_dir/memgraph \
     --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_2=$!
 wait_for_server 7691
 
@@ -119,10 +109,7 @@ wait_for_server 7691
 $binary_dir/memgraph \
     --bolt-port=7692 \
     --data-directory=$tmpdir/coordinator_3 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator3.log \
     --also-log-to-stderr \
     --coordinator-id=3 \
@@ -130,7 +117,8 @@ $binary_dir/memgraph \
     --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_3=$!
 wait_for_server 7692
 
@@ -200,14 +188,15 @@ stop_process $pid_instance_2
 echo "Stopping instance3"
 stop_process $pid_instance_3
 
+tar -zcvf test_report.tar.gz $tmpdir/logs/*.log
+
+# Temporary directory cleanup.
+if [ -d $tmpdir ]; then
+    rm -rf $tmpdir
+fi
 
 # Check test exit code.
 if [ $code_test -ne 0 ]; then
     echo "One of the tests failed!"
     exit $code_test
-fi
-
-# Temporary directory cleanup.
-if [ -d $tmpdir ]; then
-    rm -rf $tmpdir
 fi
