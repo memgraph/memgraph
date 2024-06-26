@@ -3770,6 +3770,7 @@ def test_registration_does_not_deadlock_when_instance_is_down():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.stop_all(keep_directories=False)
     inner_instances_description = get_instances_description_no_setup()
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
