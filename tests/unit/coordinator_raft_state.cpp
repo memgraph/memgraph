@@ -127,7 +127,10 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10003}}});
 
-  raft_state_leader->AppendSetInstanceAsMainLog("instance1", UUID{});
+  auto const curr_uuid = UUID{};
+
+  raft_state_leader->AppendSetInstanceAsMainLog("instance1", curr_uuid);
+  raft_state_leader->AppendUpdateUUIDForNewMainLog(curr_uuid);
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 

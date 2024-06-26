@@ -521,13 +521,12 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  // TODO: (andi) This is wrong check, Fico will correct in #1819.
   auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::MAIN;
+    return IsCurrentMain(instance.config.instance_name);
   };
 
   auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::REPLICA;
+    return !IsCurrentMain(instance.config.instance_name);
   };
 
   auto const &raft_log_repl_instances = GetReplicationInstances();
