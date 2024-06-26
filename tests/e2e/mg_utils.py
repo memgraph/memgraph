@@ -1,4 +1,5 @@
 import time
+from typing import List, Set
 
 
 def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2):
@@ -16,6 +17,33 @@ def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=
         result = function_to_retrieve_data()
 
     return result
+
+
+def wait_for_status_change(
+    function_to_retrieve_data,
+    instance_names: Set[str],
+    new_state: str,
+    max_duration: int = 20,
+    time_between_attempt: int = 5,
+):
+    result = function_to_retrieve_data()
+
+    start_time = time.time()
+
+    while True:
+        for instance_state in result:
+            if instance_state[0] in instance_names:
+                if instance_state[-1] == new_state:
+                    return
+
+        duration = time.time() - start_time
+        if duration > max_duration:
+            assert (
+                False
+            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+
+        time.sleep(time_between_attempt)
+        result = function_to_retrieve_data()
 
 
 def mg_assert_until(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2) -> None:
