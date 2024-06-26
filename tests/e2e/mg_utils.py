@@ -1,4 +1,5 @@
 import time
+from typing import List, Set
 
 
 def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2):
@@ -19,7 +20,11 @@ def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=
 
 
 def wait_for_status_change(
-    function_to_retrieve_data, instance_name: str, new_state: str, max_duration: int = 20, time_between_attempt: int = 5
+    function_to_retrieve_data,
+    instance_names: Set[str],
+    new_state: str,
+    max_duration: int = 20,
+    time_between_attempt: int = 5,
 ):
     result = function_to_retrieve_data()
 
@@ -27,7 +32,7 @@ def wait_for_status_change(
 
     while True:
         for instance_state in result:
-            if instance_state[0] == instance_name:
+            if instance_state[0] in instance_names:
                 if instance_state[-1] == new_state:
                     return
 

@@ -688,7 +688,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    wait_for_status_change(show_instances_coord1, "instance_3", "unknown")
+    # Wait until failover happens
+    wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
+    wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
