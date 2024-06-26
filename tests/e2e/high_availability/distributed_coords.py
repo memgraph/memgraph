@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import time
+from typing import List
 
 import interactive_mg_runner
 import pytest
@@ -30,6 +31,7 @@ from mg_utils import (
     mg_sleep_and_assert_any_function,
     mg_sleep_and_assert_collection,
     mg_sleep_and_assert_multiple,
+    wait_for_status_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -343,6 +345,93 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
     }
 
 
+def find_leader_and_assert_leaders(N=3, skip_coords=None):
+    if skip_coords is None:
+        skip_coords = set()
+
+    def find_leaders():
+        all_leaders = []
+        for i in range(0, N):
+            if skip_coords is not None and (i + 1) in skip_coords:
+                continue
+            coord_cursor = connect(host="localhost", port=7690 + i).cursor()
+
+            def show_instances():
+                return ignore_elapsed_time_from_results(
+                    sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+                )
+
+            instances = show_instances()
+            for instance in instances:
+                if instance[-1] == "leader":
+                    all_leaders.append(instance[0])  # coordinator name
+
+        return all_leaders
+
+    all_leaders = find_leaders()
+
+    leader = all_leaders[0]
+
+    for l in all_leaders:
+        assert l == leader, "Leaders are not the same"
+
+    assert leader is not None and leader != "" and len(all_leaders) > 0, "Main not found"
+
+    return leader
+
+
+def find_main_and_assert_mains(N=3, skip_coords=None):
+    def find_mains():
+        all_mains = []
+        for i in range(0, N):
+            if skip_coords is not None and (i + 1) in skip_coords:
+                continue
+            coord_cursor = connect(host="localhost", port=7690 + i).cursor()
+
+            def show_instances():
+                return ignore_elapsed_time_from_results(
+                    sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
+                )
+
+            instances = show_instances()
+            for instance in instances:
+                if instance[-1] == "main":
+                    all_mains.append(instance[0])  # main instance name
+
+        return all_mains
+
+    all_mains = find_mains()
+
+    main = all_mains[0]
+
+    for other_main in all_mains:
+        assert other_main == main, "Mains are not the same"
+    assert main is not None and main != "" and len(all_mains) > 0, "Main not found"
+
+    return main
+
+
+def update_tuple_value(
+    list_tuples: List, searching_key: str, searching_index: int, index_in_tuple_value: int, new_value: str
+):
+    def find_tuple():
+        for i, tuple_obj in enumerate(list_tuples):
+            if tuple_obj[searching_index] != searching_key:
+                continue
+            return i
+        return None
+
+    index_tuple = find_tuple()
+    assert index_tuple is not None, "Tuple not found"
+
+    tuple_obj = list_tuples[index_tuple]
+    tuple_obj_list = list(tuple_obj)
+    tuple_obj_list[index_in_tuple_value] = new_value
+    list_tuples[index_tuple] = tuple(tuple_obj_list)
+
+    return list_tuples
+
+
 @pytest.mark.parametrize("use_durability", [True, False])
 def test_even_number_coords(use_durability):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
@@ -451,16 +540,11 @@ def test_even_number_coords(use_durability):
         "DEMOTE INSTANCE instance_3",
     )
 
-    def update_tuple_value(index: int, value: str, tuple_obj: tuple):
-        new_tuple = list(tuple_obj)
-        new_tuple[index] = value
-        return tuple(new_tuple)
-
     leader_data_demoted = leader_data_original.copy()
-    leader_data_demoted[-1] = update_tuple_value(-1, "replica", leader_data_original[-1])
+    leader_data_demoted = update_tuple_value(leader_data_demoted, "instance_3", 0, -1, "replica")
 
     follower_data_demoted = follower_data_original.copy()
-    follower_data_demoted[-1] = update_tuple_value(-1, "replica", follower_data_original[-1])
+    follower_data_demoted = update_tuple_value(follower_data_demoted, "instance_3", 0, -1, "replica")
 
     mg_sleep_and_assert(leader_data_demoted, show_instances_coord3)
     mg_sleep_and_assert(follower_data_demoted, show_instances_coord1)
@@ -498,33 +582,7 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
 
     # 7
-    def find_leaders(n):
-        all_leaders = []
-        for i in range(0, n):
-            coord_cursor = connect(host="localhost", port=7690 + i).cursor()
-
-            def show_instances():
-                return ignore_elapsed_time_from_results(
-                    sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
-                )
-
-            instances = show_instances()
-            for instance in instances:
-                if instance[-1] == "leader":
-                    all_leaders.append(instance[0])  # coordinator name
-
-        return all_leaders
-
-    N = 4
-
-    all_leaders = find_leaders(N)
-
-    leader = all_leaders[0]
-
-    for l in all_leaders:
-        assert l == leader, "Leaders are not the same"
-
-    leader_id = int(leader[-1])
+    leader_coord_instance_3_demoted = find_leader_and_assert_leaders(N=3)
 
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
@@ -546,40 +604,47 @@ def test_even_number_coords(use_durability):
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    assert leader_id is not None, "Leader not found"
+    assert leader_coord_instance_3_demoted is not None, "Leader not found"
 
-    follower_data[leader_id - 1] = update_tuple_value(-1, "leader", follower_data[leader_id - 1])
-    leader_data[leader_id - 1] = update_tuple_value(-1, "leader", leader_data[leader_id - 1])
+    follower_data = update_tuple_value(follower_data, leader_coord_instance_3_demoted, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, leader_coord_instance_3_demoted, 0, -1, "leader")
 
-    for i in range(1, N + 1):
-        coord_cursor = connect(host="localhost", port=7690 + i - 1).cursor()
+    port_mappings = {
+        "coordinator_1": 7690,
+        "coordinator_2": 7691,
+        "coordinator_3": 7692,
+        "coordinator_4": 7693,
+    }
+
+    for coord, port in port_mappings.items():
+        coord_cursor = connect(host="localhost", port=port).cursor()
 
         def show_instances():
             return ignore_elapsed_time_from_results(
                 sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
             )
 
-        if i == leader_id:
+        if coord == leader_coord_instance_3_demoted:
             mg_sleep_and_assert(leader_data, show_instances)
         else:
             mg_sleep_and_assert(follower_data, show_instances)
 
-    coord_cursor_leader = connect(host="localhost", port=7690 + leader_id - 1).cursor()
+    coord_cursor_leader = connect(host="localhost", port=port_mappings[leader_coord_instance_3_demoted]).cursor()
 
     execute_and_fetch_all(coord_cursor_leader, "SET INSTANCE instance_3 TO MAIN;")
 
-    follower_data[-1] = update_tuple_value(-1, "main", follower_data[-1])
-    leader_data[-1] = update_tuple_value(-1, "main", leader_data[-1])
+    follower_data = update_tuple_value(follower_data, "instance_3", 0, -1, "main")
+    leader_data = update_tuple_value(leader_data, "instance_3", 0, -1, "main")
 
-    for i in range(1, N + 1):
-        coord_cursor = connect(host="localhost", port=7690 + i - 1).cursor()
+    for coord, port in port_mappings.items():
+        coord_cursor = connect(host="localhost", port=port).cursor()
 
         def show_instances():
             return ignore_elapsed_time_from_results(
                 sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
             )
 
-        if i == leader_id:
+        if coord == leader_coord_instance_3_demoted:
             mg_sleep_and_assert(leader_data, show_instances)
         else:
             mg_sleep_and_assert(follower_data, show_instances)
@@ -623,122 +688,79 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
+    wait_for_status_change(show_instances_coord1, "instance_3", "unknown")
+
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
-    leader_data_inst1_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    leader_data_inst1_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
-
-    leader_data_inst2_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
-
-    leader_data_inst2_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
-
-    follower_data_inst1_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
+    follower_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
     ]
 
-    follower_data_inst1_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
+    leader_instance_3_down = find_leader_and_assert_leaders(N=3, skip_coords={3})
+    main_instance_3_down = find_main_and_assert_mains(N=3, skip_coords={3})
 
-    follower_data_inst2_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
+    leader_data = update_tuple_value(leader_data, leader_instance_3_down, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main_instance_3_down, 0, -1, "main")
 
-    follower_data_inst2_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
+    follower_data = update_tuple_value(follower_data, leader_instance_3_down, 0, -1, "leader")
+    follower_data = update_tuple_value(follower_data, main_instance_3_down, 0, -1, "main")
 
-    mg_sleep_and_assert_multiple(
-        [
-            leader_data_inst1_main_coord1_leader,
-            leader_data_inst1_main_coord2_leader,
-            leader_data_inst2_main_coord1_leader,
-            leader_data_inst2_main_coord2_leader,
-        ],
-        [show_instances_coord1, show_instances_coord2],
-    )
-    mg_sleep_and_assert_multiple(
-        [
-            follower_data_inst1_main_coord1_leader,
-            follower_data_inst1_main_coord2_leader,
-            follower_data_inst2_main_coord1_leader,
-            follower_data_inst2_main_coord2_leader,
-        ],
-        [show_instances_coord1, show_instances_coord2],
-    )
+    def get_show_instances_to_coord(leader_instance):
+        show_instances_mapping = {
+            "coordinator_1": show_instances_coord1,
+            "coordinator_2": show_instances_coord2,
+        }
+
+        return show_instances_mapping.get(leader_instance)
+
+    all_live_coords = ["coordinator_1", "coordinator_2"]
+
+    for coord in all_live_coords:
+        if coord == leader_instance_3_down:
+            mg_sleep_and_assert(leader_data, get_show_instances_to_coord(coord))
+        else:
+            print(follower_data)
+            mg_sleep_and_assert(follower_data, get_show_instances_to_coord(coord))
 
     interactive_mg_runner.start(inner_instances_description, "instance_3")
 
-    coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+    coordinator_leader_instance = find_leader_and_assert_leaders(N=3, skip_coords={3})
+    main_instance_id_instance_3_start = find_main_and_assert_mains(N=3, skip_coords={3})
+
+    assert (
+        main_instance_id_instance_3_start == main_instance_3_down
+    ), f"Main is not {main_instance_3_down} but {main_instance_id_instance_3_start}"
+    assert (
+        coordinator_leader_instance == leader_instance_3_down
+    ), f"Leader is not same as before {leader_instance_3_down}, but {coordinator_leader_instance}"
+
+    coord_leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
-    ]
+    coord_leader_data = update_tuple_value(coord_leader_data, coordinator_leader_instance, 0, -1, "leader")
+    coord_leader_data = update_tuple_value(coord_leader_data, main_instance_id_instance_3_start, 0, -1, "main")
 
-    mg_sleep_and_assert_multiple(
-        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
-    )
+    mg_sleep_and_assert(coord_leader_data, get_show_instances_to_coord(coordinator_leader_instance))
 
     def find_main_instance():
         cursor = connect(host="localhost", port=7690).cursor()
@@ -3742,4 +3764,4 @@ def test_one_coord_down_with_durability_resume():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-k", "test_old_main_comes_back_on_new_leader_as_replica", "-vv"]))
