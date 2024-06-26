@@ -606,3 +606,43 @@ Feature: Aggregations
         | 20    | 21    | 22    | 1   |
         | 10    | 11    | 12    | 1   |
         | 1     | 2     | 3     | 1   |
+
+    Scenario: Empty aggregation without grouping keys 01:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN count(*) > 0 AS exists
+            """
+        Then the result should be:
+            | exists |
+            | false  |
+
+    Scenario: Empty aggregation without grouping keys 02:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN sum(n.prop) + 1 AS prop_sum
+            """
+        Then the result should be:
+            | prop_sum |
+            | 1        |
+
+    Scenario: Empty aggregation without grouping keys 03:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN sum(n.prop) > 0 AS has_props
+            """
+        Then the result should be:
+            | has_props |
+            | false     |
+
+    Scenario: Empty aggregation without grouping keys 04:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN size(collect(n)) = 0 AS is_empty
+            """
+        Then the result should be:
+            | is_empty |
+            | true     |

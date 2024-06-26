@@ -34,7 +34,7 @@
    :--storage-properties-on-edges))
 
 (defn start-coordinator-node!
-  [test node-config]
+  [test node node-config]
   (cu/start-daemon!
    {:logfile mglog
     :pidfile mgpid
@@ -51,7 +51,9 @@
    :--storage-properties-on-edges
    :--telemetry-enabled false
    :--coordinator-id (get node-config :coordinator-id)
-   :--coordinator-port (get node-config :coordinator-port)))
+   :--coordinator-port (get node-config :coordinator-port)
+   :--coordinator-hostname node
+   ))
 
 (defn start-data-node!
   [test node-config]
@@ -78,7 +80,7 @@
   (let [node-config (get nodes-config node)]
     (info "Starting Memgraph node" node-config)
     (if (:coordinator-id node-config)
-      (start-coordinator-node! test node-config)
+      (start-coordinator-node! test node node-config)
       (if (:management-port node-config)
         (start-data-node! test node-config)
         (start-node! test node)))))

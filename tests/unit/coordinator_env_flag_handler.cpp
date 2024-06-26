@@ -19,20 +19,23 @@ class CoordinationSetupTest : public ::testing::Test {
  protected:
   void SetUp() override {}
 
+  // NOTE: Update this function if new environment variables are added
   void TearDown() override {
     unsetenv(memgraph::flags::kMgManagementPort);
     unsetenv(memgraph::flags::kMgCoordinatorPort);
     unsetenv(memgraph::flags::kMgCoordinatorId);
     unsetenv(memgraph::flags::kMgNuRaftLogFile);
+    unsetenv(memgraph::flags::kMgCoordinatorHostname);
   }
 };
 
 TEST_F(CoordinationSetupTest, CoordinationSetupSimple) {
-  memgraph::flags::CoordinationSetup coord_setup(1, 2, 3, "nuraft_log_file");
+  memgraph::flags::CoordinationSetup coord_setup(1, 2, 3, "nuraft_log_file", false, "localhost");
   EXPECT_EQ(coord_setup.management_port, 1);
   EXPECT_EQ(coord_setup.coordinator_port, 2);
   EXPECT_EQ(coord_setup.coordinator_id, 3);
   EXPECT_EQ(coord_setup.nuraft_log_file, "nuraft_log_file");
+  EXPECT_EQ(coord_setup.coordinator_hostname, "localhost");
 }
 
 TEST_F(CoordinationSetupTest, CoordinationSetupAll) {
@@ -55,6 +58,10 @@ TEST_F(CoordinationSetupTest, CoordinationSetupAll) {
     FAIL() << "Failed to set MEMGRAPH_NURAFT_LOG_FILE environment variable";
   }
 
+  if (setenv(kMgCoordinatorHostname, "memgraph-svc-cluster-1.dns", 1) != 0) {
+    FAIL() << "Failed to set MEMGRAPH_COORDINATOR_HOSTNAME environment variable";
+  }
+
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 
@@ -62,6 +69,7 @@ TEST_F(CoordinationSetupTest, CoordinationSetupAll) {
   EXPECT_EQ(coordination_setup.coordinator_port, 10111);
   EXPECT_EQ(coordination_setup.coordinator_id, 1);
   EXPECT_EQ(coordination_setup.nuraft_log_file, "nuraft_log_file");
+  EXPECT_EQ(coordination_setup.coordinator_hostname, "memgraph-svc-cluster-1.dns");
 }
 
 TEST_F(CoordinationSetupTest, CoordinatorSetupPartial) {
@@ -80,4 +88,5 @@ TEST_F(CoordinationSetupTest, CoordinatorSetupPartial) {
   EXPECT_EQ(coordination_setup.coordinator_port, 10111);
   EXPECT_EQ(coordination_setup.coordinator_id, 1);
   EXPECT_EQ(coordination_setup.nuraft_log_file, "");
+  EXPECT_EQ(coordination_setup.coordinator_hostname, "");
 }

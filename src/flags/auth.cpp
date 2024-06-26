@@ -18,25 +18,40 @@
 #include "utils/string.hpp"
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
-DEFINE_VALIDATED_string(auth_module_mappings, "",
-                        "Associates auth schemas to external modules. A mapping is structured as follows: \"<scheme>: "
-                        "<absolute path>\", and individual mappings are separated with \";\".",
-                        {
-                          if (value.empty()) return true;
-                          for (const auto &mapping : memgraph::utils::Split(value, ";")) {
-                            const auto module_and_scheme = memgraph::utils::Split(mapping, ":");
-                            if (module_and_scheme.size() != 2) {
-                              throw memgraph::utils::BasicException(
-                                  "Entries in the auth module mapping follow the \"auth_scheme: module_path\" syntax!");
-                            }
-                            auto module_file = std::filesystem::status(memgraph::utils::Trim(module_and_scheme[1]));
-                            if (!std::filesystem::is_regular_file(module_file)) {
-                              std::cerr << "The auth module path doesn't exist or isn't a file!\n";
-                              return false;
-                            }
-                          }
-                          return true;
-                        });
+DEFINE_VALIDATED_string(
+    auth_module_mappings, "",
+    "Associates auth schemes to external modules. A mapping is structured as follows: \"<scheme>:<absolute path>\", "
+    "and individual entries are separated with \";\". If the mapping contains whitespace, enclose all of it inside "
+    "quotation marks: \" \"",
+    {
+      if (value.empty()) return true;
+      std::cout << value << "\n";
+      for (const auto &mapping : memgraph::utils::Split(value, ";")) {
+        const auto module_and_scheme = memgraph::utils::Split(mapping, ":");
+        if (module_and_scheme.empty()) {
+          throw memgraph::utils::BasicException(
+              "Empty auth module mapping: each entry should follow the \"auth_scheme:module_path\" syntax, e.g. "
+              "\"saml-entra-id:usr/lib/saml.py\"!");
+        }
+        const auto scheme_name = std::string{memgraph::utils::Trim(module_and_scheme[0])};
+
+        const auto n_values_provided = module_and_scheme.size();
+        const auto use_default = n_values_provided == 1 && DEFAULT_SSO_MAPPINGS.contains(scheme_name);
+        if (n_values_provided != 2 && !use_default) {
+          throw memgraph::utils::BasicException(
+              "Entries in the auth module mapping follow the \"auth_scheme:module_path\" syntax, e.g. "
+              "\"saml-entra-id:usr/lib/saml.py\"!");
+        }
+        auto module_path =
+            use_default ? DEFAULT_SSO_MAPPINGS.at(scheme_name) : memgraph::utils::Trim(module_and_scheme[1]);
+        auto module_file = std::filesystem::status(module_path);
+        if (!std::filesystem::is_regular_file(module_file)) {
+          std::cerr << "The auth module path doesn’t exist or isn’t a file!\n";
+          return false;
+        }
+      }
+      return true;
+    });
 
 DEFINE_VALIDATED_int32(auth_module_timeout_ms, 10000,
                        "Timeout (in milliseconds) used when waiting for a response from the auth module.",

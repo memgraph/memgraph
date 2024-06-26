@@ -12,6 +12,7 @@
 #include <optional>
 #include <utility>
 #include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "gflags/gflags.h"
 
 #include "audit/log.hpp"
@@ -111,7 +112,7 @@ TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storag
 
 #ifdef MG_ENTERPRISE
 void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
-  if (user && !user->IsAuthorized({}, std::string(db), &memgraph::query::session_long_policy)) {
+  if (user && !user->IsAuthorized({}, db, &memgraph::query::session_long_policy)) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
@@ -121,9 +122,14 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
 namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
-std::string SessionHL::GetDefaultDB() {
+std::optional<std::string> SessionHL::GetDefaultDB() {
   if (user_or_role_) {
-    return user_or_role_->GetDefaultDB();
+    try {
+      return user_or_role_->GetDefaultDB();
+    } catch (auth::AuthException &) {
+      // Support non-db connection
+      return {};
+    }
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
@@ -140,6 +146,25 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
   return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
+void SessionHL::TryDefaultDB() {
+#ifdef MG_ENTERPRISE
+  const auto default_db = GetDefaultDB();
+  if (default_db) {
+    // Start off with the default database
+    interpreter_.SetCurrentDB(*default_db, false);
+  } else {
+    // Failed to get default db, connect without db
+    interpreter_.ResetDB();
+  }
+#endif
+  const auto db = GetCurrentDB();
+  if (db.empty())
+    implicit_db_.reset();
+  else
+    implicit_db_.emplace(std::move(db));
+}
+
+// This is called on connection establishment
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
   interpreter_.ResetUser();
@@ -159,11 +184,8 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
     }
   }
-#ifdef MG_ENTERPRISE
-  // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
-#endif
-  implicit_db_.emplace(GetCurrentDB());
+
+  TryDefaultDB();
   return res;
 }
 
@@ -180,11 +202,7 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
   user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
   interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
 
-#ifdef MG_ENTERPRISE
-  // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
-#endif
-  implicit_db_.emplace(GetCurrentDB());
+  TryDefaultDB();
   return true;
 }
 
@@ -271,8 +289,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/,
-                      bolt_map_t const & /*extra*/) -> bolt_map_t {
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, bolt_map_t const &
+                      /*extra*/) -> bolt_map_t {
   auto routing_map = ranges::views::transform(
                          routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
                      ranges::to<std::map<std::string, std::string>>();
@@ -352,7 +370,7 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  std::string db;
+  std::optional<std::string> db{};
   bool update = false;
   // Check if user explicitly defined the database to use
   if (run_time_info.contains("db")) {
@@ -363,7 +381,10 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
     db = db_info.ValueString();
     const auto &current = GetCurrentDB();
     update = db != current;
-    if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+    if (!in_explicit_db_) {
+      implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+      update = true;
+    }
     in_explicit_db_ = true;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
   } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
@@ -372,14 +393,18 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
     } else {
       db = GetDefaultDB();
     }
-    update = db != GetCurrentDB();
+    update = true;  // We have to update in order to update the explicit flag
     in_explicit_db_ = false;
   }
 
   // Check if the underlying database needs to be updated
   if (update) {
-    MultiDatabaseAuth(user_or_role_.get(), db);
-    interpreter_.SetCurrentDB(db, in_explicit_db_);
+    if (db) {  // Db connection
+      MultiDatabaseAuth(user_or_role_.get(), *db);
+      interpreter_.SetCurrentDB(*db, in_explicit_db_);
+    } else {  // Non-db connection
+      interpreter_.ResetDB();
+    }
   }
 #endif
 }
@@ -401,7 +426,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
 #endif
       auth_(auth),
       endpoint_(std::move(endpoint)),
-      implicit_db_(dbms::kDefaultDB) {
+      implicit_db_(std::nullopt) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE

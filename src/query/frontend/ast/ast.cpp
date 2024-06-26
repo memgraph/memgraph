@@ -75,6 +75,9 @@ constexpr utils::TypeInfo query::LessEqualOperator::kType{utils::TypeId::AST_LES
 constexpr utils::TypeInfo query::GreaterEqualOperator::kType{utils::TypeId::AST_GREATER_EQUAL_OPERATOR,
                                                              "GreaterEqualOperator", &query::BinaryOperator::kType};
 
+constexpr utils::TypeInfo query::RangeOperator::kType{utils::TypeId::AST_RANGE_OPERATOR, "RangeOperator",
+                                                      &query::Expression::kType};
+
 constexpr utils::TypeInfo query::InListOperator::kType{utils::TypeId::AST_IN_LIST_OPERATOR, "InListOperator",
                                                        &query::BinaryOperator::kType};
 

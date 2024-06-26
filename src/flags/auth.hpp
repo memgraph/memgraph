@@ -10,7 +10,15 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <unordered_map>
+
 #include "gflags/gflags.h"
+
+const std::unordered_map<std::string, std::string> DEFAULT_SSO_MAPPINGS{
+    {"saml-entra-id", "/usr/lib/memgraph/auth_modules/saml.py"},
+    {"saml-okta", "/usr/lib/memgraph/auth_modules/saml.py"},
+    {"oidc-entra-id", "/usr/lib/memgraph/auth_modules/oidc.py"},
+    {"oidc-okta", "/usr/lib/memgraph/auth_modules/oidc.py"}};
 
 // Auth flags.
 

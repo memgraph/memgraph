@@ -10,14 +10,8 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_instance.hpp"
-
-#include "auth/auth.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "interpreter_faker.hpp"
 #include "io/network/endpoint.hpp"
-#include "license/license.hpp"
-#include "replication_handler/replication_handler.hpp"
-#include "storage/v2/config.hpp"
 
 #include "utils/file.hpp"
 
@@ -55,8 +49,9 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
-  auto const init_config = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
-                                                         main_data_directory / "high_availability" / "coordinator"};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                    main_data_directory / "high_availability" / "coordinator", "localhost"};
 
   auto const instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -69,18 +64,21 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     }
   };
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
-                                                          main_data_directory / "high_availability1" / "coordinator"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                    main_data_directory / "high_availability1" / "coordinator", "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
-                                                          main_data_directory / "high_availability2" / "coordinator"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
+                                    main_data_directory / "high_availability2" / "coordinator", "localhost"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
-                                                          main_data_directory / "high_availability3" / "coordinator"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
+                                    main_data_directory / "high_availability3" / "coordinator", "localhost"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 
@@ -149,18 +147,21 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     }
   };
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
-                                                          main_data_directory / "high_availability1" / "coordinator"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{coordinator_ids[0], coordinator_ports[0], bolt_ports[0],
+                                    main_data_directory / "high_availability1" / "coordinator", "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
-                                                          main_data_directory / "high_availability2" / "coordinator"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{coordinator_ids[1], coordinator_ports[1], bolt_ports[1],
+                                    main_data_directory / "high_availability2" / "coordinator", "localhost"};
 
   auto const instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
-                                                          main_data_directory / "high_availability3" / "coordinator"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{coordinator_ids[2], coordinator_ports[2], bolt_ports[2],
+                                    main_data_directory / "high_availability3" / "coordinator", "localhost"};
 
   auto const instance3 = CoordinatorInstance{init_config3};
 

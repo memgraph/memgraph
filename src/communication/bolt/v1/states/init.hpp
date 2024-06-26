@@ -43,7 +43,7 @@ void HandleAuthFailure(TSession &session) {
 }
 
 template <typename TSession>
-std::optional<State> BasicAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("principal")) {  // Special case principal = ""
     spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
     data["principal"] = "";
@@ -63,7 +63,7 @@ std::optional<State> BasicAuthentication(TSession &session, std::map<std::string
 }
 
 template <typename TSession>
-std::optional<State> SSOAuthentication(TSession &session, std::map<std::string, Value> &data) {
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
   if (!data.contains("credentials")) {
     spdlog::warn("The client didn’t supply the SSO token!");
     return State::Close;
@@ -89,12 +89,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     data["scheme"] = "none";
   }
 
-  auto scheme_in_module_mappings = [](const std::string &auth_scheme) {
+  auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
     if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
       return false;
     }
     for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
-      if (auth_scheme == std::string{utils::Trim(utils::Split(mapping, ":")[0])}) {
+      if (auth_scheme == utils::Trim(utils::Split(mapping, ":")[0])) {
         return true;
       }
     }

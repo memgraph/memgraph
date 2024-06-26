@@ -17,8 +17,8 @@
 #include <libnuraft/nuraft.hxx>
 #include <range/v3/view.hpp>
 
-using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorStateManager;
+using memgraph::coordination::CoordinatorStateManagerConfig;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using nuraft::cluster_config;
 using nuraft::cs_new;
@@ -51,13 +51,13 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
-  CoordinatorInstanceInitConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
+  CoordinatorStateManagerConfig config{1, 12345, 9090, test_folder_ / "high_availability" / "coordination",
+                                       "localhost"};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
   Logger logger("");
   LoggerWrapper my_logger(&logger);
-
   ptr<cluster_config> old_config;
   {
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
@@ -79,19 +79,18 @@ TEST_F(CoordinatorStateManagerTest, SingleCoord) {
 TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   // 1st coord stored here
   ptr<cluster_config> old_config;
-  CoordinatorInstanceInitConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination"};
-
+  CoordinatorStateManagerConfig config{0, 12345, 9090, test_folder_ / "high_availability" / "coordination",
+                                       "localhost"};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
   Logger logger("");
   LoggerWrapper my_logger(&logger);
-
   {
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
-        CoordinatorToCoordinatorConfig{config.coordinator_id, memgraph::io::network::Endpoint("0.0.0.0", 9091),
+        CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
                                        memgraph::io::network::Endpoint{"0.0.0.0", 12346}};
     auto temp_srv_config =
         cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
