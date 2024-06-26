@@ -16,7 +16,6 @@
 #include <fmt/format.h>
 
 #include "auth/auth.hpp"
-#include "auth/crypto.hpp"
 #include "auth/models.hpp"
 #include "dbms/constants.hpp"
 #include "glue/auth.hpp"

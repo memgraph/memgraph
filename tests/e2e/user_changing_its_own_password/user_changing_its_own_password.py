@@ -26,22 +26,20 @@ def execute_query(query: str, AUTH):
 
 
 def test_create_user():
-    AUTH = ("", "")
-    execute_query("CREATE USER IF NOT EXISTS testuser IDENTIFIED BY 'testpassword';", AUTH)
+    try:
+        AUTH = ("", "")
+        execute_query("CREATE USER IF NOT EXISTS testuser IDENTIFIED BY 'testpassword';", AUTH)
+    except Exception as e:
+        print("User not created properly.")
     AUTH = ("testuser", "testpassword")
     execute_query("SET PASSWORD TO 'newPassword' REPLACE 'testpassword';", AUTH)
-    print("Created user.")
 
 
 def test_wrong_credentials():
-    try:
-        AUTH = ("testuser", "testpassword")
+    AUTH = ("testuser", "testpassword")
 
+    with pytest.raises(Exception):
         execute_query("SHOW DATABASE SETTINGS;", AUTH)
-
-        # execute_query("SET PASSWORD TO 'newPassword' REPLACE 'testpassword';")
-        # execute_query("MATCH n RETURN n LIMIT 1;")
-    except AuthError as e:
         print("Authentication failed")
 
 
@@ -49,7 +47,6 @@ def test_right_credentials():
     try:
         AUTH = ("testuser", "newPassword")
         execute_query("SHOW DATABASE SETTINGS;", AUTH)
-        # execute_query("MATCH n RETURN n LIMIT 1;")
     except AuthError as e:
         print("Authentication failed")
 

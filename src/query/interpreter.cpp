@@ -843,7 +843,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
         const std::optional<std::string> username = interpreter->user_or_role_->username();
         if (!username) {
-          throw QueryException("You need to be user to replace password");
+          throw QueryException("You need to be valid user to replace password");
         }
 
         MG_ASSERT(newPassword.IsString() || newPassword.IsNull());
