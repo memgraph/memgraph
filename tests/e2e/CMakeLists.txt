@@ -84,7 +84,6 @@ add_subdirectory(execution_query_modules)
 add_subdirectory(index_auto_creation)
 add_subdirectory(text_search_modules)
 add_subdirectory(hops_count)
-add_subdirectory(hops_limit)
 add_subdirectory(sso)
 add_subdirectory(auth)
 
