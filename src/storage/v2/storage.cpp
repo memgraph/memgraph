@@ -92,26 +92,27 @@ StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 std::vector<EventInfo> Storage::GetMetrics() noexcept {
   std::vector<EventInfo> result;
-  auto info = this->GetBaseInfo();
+  auto const kCounterName = "Counter";
+  auto const kGaugeName = "Gauge";
+  auto const kHistogramName = "Histogram";
 
-  for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
-    result.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i), "Counter",
-                        memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+  for (auto i = 0; i < metrics::CounterEnd(); i++) {
+    result.emplace_back(metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName,
+                        metrics::global_counters[i]);
   }
 
-  for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
-    result.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeTypeString(i), "Gauge",
-                        memgraph::metrics::global_gauges[i].load(std::memory_order_acquire));
+  for (auto i = 0; i < metrics::GaugeEnd(); i++) {
+    result.emplace_back(metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName,
+                        metrics::global_gauges[i]);
   }
 
-  for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
-    const auto *name = memgraph::metrics::GetHistogramName(i);
-    auto &histogram = memgraph::metrics::global_histograms[i];
+  for (auto i = 0; i < metrics::HistogramEnd(); i++) {
+    const auto *name = metrics::GetHistogramName(i);
+    auto const &histogram = metrics::global_histograms[i];
 
     for (auto &[percentile, value] : histogram.YieldPercentiles()) {
-      auto metric_name = std::string(name) + "_" + std::to_string(percentile) + "p";
-
-      result.emplace_back(metric_name, memgraph::metrics::GetHistogramType(i), "Histogram", value);
+      auto metric_name = fmt::format("{0}_{1}p", std::string(name), std::to_string(percentile));
+      result.emplace_back(std::move(metric_name), metrics::GetHistogramType(i), kHistogramName, value);
     }
   }
 

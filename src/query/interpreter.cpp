@@ -3966,8 +3966,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 #endif
       header = {"name", "type", "metric type", "value"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
-        auto info = storage->GetBaseInfo();
-        auto metrics_info = storage->GetMetrics();
+        auto const info = storage->GetBaseInfo();
+        auto const metrics_info = storage->GetMetrics();
         std::vector<std::vector<TypedValue>> results;
         results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
                            TypedValue(static_cast<int64_t>(info.vertex_count))});
@@ -3983,7 +3983,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
                              TypedValue(static_cast<int64_t>(metric.value))});
         }
-        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
+        std::ranges::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[1].ValueString();
           const auto type_2 = record_2[1].ValueString();
 

@@ -428,7 +428,7 @@ class Storage {
 
   virtual StorageInfo GetBaseInfo() = 0;
 
-  virtual std::vector<EventInfo> GetMetrics() noexcept;
+  std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
 
