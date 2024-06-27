@@ -3708,6 +3708,16 @@ def test_one_coord_down_with_durability_resume():
 
     interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
 
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "down", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
+
     # 4
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
 
@@ -3778,15 +3788,15 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
 
     setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
     ]
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
     for query in setup_queries:
         execute_and_fetch_all(coord_cursor_3, query)
 
-    query = "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': '127.0.0.1:7687', 'management_server': '127.0.0.1:10011', 'replication_server': '127.0.0.1:10001'};"
+    query = "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};"
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor_3, query)
@@ -3800,8 +3810,8 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     interactive_mg_runner.start(inner_instances_description, "instance_3")
 
     setup_queries = [
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': '127.0.0.1:7688', 'management_server': '127.0.0.1:10012', 'replication_server': '127.0.0.1:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
 
@@ -3822,21 +3832,21 @@ def test_registration_does_not_deadlock_when_instance_is_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     leader_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "up", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "up", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     follower_data = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "unknown", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "unknown", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "unknown", "leader"),
-        ("instance_1", "127.0.0.1:7687", "", "127.0.0.1:10011", "unknown", "replica"),
-        ("instance_2", "127.0.0.1:7688", "", "127.0.0.1:10012", "unknown", "replica"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "unknown", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
     ]
 
     mg_sleep_and_assert(leader_data, show_instances_coord3)
@@ -3845,4 +3855,4 @@ def test_registration_does_not_deadlock_when_instance_is_down():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA"]))
+    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
