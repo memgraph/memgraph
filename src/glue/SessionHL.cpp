@@ -157,7 +157,7 @@ void SessionHL::TryDefaultDB() {
     interpreter_.ResetDB();
   }
 #endif
-  const auto db = GetCurrentDB();
+  auto db = GetCurrentDB();
   if (db.empty())
     implicit_db_.reset();
   else
