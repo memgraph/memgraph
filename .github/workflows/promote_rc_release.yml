@@ -160,10 +160,10 @@ jobs:
           if [[ "${{ matrix.build_type }}" == "Release" ]]; then
             # Download, load, retag and push Release images
             aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} - | docker load
-            docker tag memgraph/memgraph:2.18.0 ${docker_image}:2.18.0-arm64
+            docker tag memgraph:2.18.0 ${docker_image}:2.18.0-arm64
             docker push ${docker_image}:2.18.0-arm64
             aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} - | docker load
-            docker tag memgraph/memgraph:2.18.0 ${docker_image}:2.18.0-amd64
+            docker tag memgraph:2.18.0 ${docker_image}:2.18.0-amd64
             docker push ${docker_image}:2.18.0-amd64
             # Setup manifest list for Release images
             docker manifest create ${docker_image}:2.18.0 \
@@ -174,7 +174,7 @@ jobs:
             echo "Successfully published ${docker_image}:2.18.0 to DockerHub"
           else
             aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} - | docker load
-            docker tag memgraph/memgraph:2.18.0-relwithdebinfo ${docker_image}:2.18.0-relwithdebinfo
+            docker tag memgraph:2.18.0-relwithdebinfo ${docker_image}:2.18.0-relwithdebinfo
             docker push ${docker_image}:2.18.0-relwithdebinfo
             echo "Successfully published ${docker_image}:2.18.0-relwithdebinfo to DockerHub"
           fi
