@@ -21,16 +21,18 @@ on:
         default: false
 
 env:
+  release_version: "2.18.0"
+  rc_version: "rc1"
   s3_region: "eu-west-1"
   rc_bucket: "deps.memgraph.io"
-  rc_dir: "memgraph/v2.18.0-rc1"
+  rc_dir: "memgraph/v${release_version}-${rc_version}"
   release_bucket: "download.memgraph.com"
-  release_dir: "memgraph-release-test/v2.18.0"
-  package_rpm: "memgraph-2.18.0_1-1.x86_64.rpm"
-  package_deb_amd: "memgraph_2.18.0-1_amd64.deb"
-  package_deb_arm: "memgraph_2.18.0-1_arm64.deb"
-  package_docker: "memgraph-2.18.0-docker.tar.gz"
-  package_docker_relwithdebinfo: "memgraph-2.18.0-relwithdebinfo-docker.tar.gz"
+  release_dir: "memgraph-release-test/v${release_version}"
+  package_rpm: "memgraph-${release_version}_1-1.x86_64.rpm"
+  package_deb_amd: "memgraph_${release_version}-1_amd64.deb"
+  package_deb_arm: "memgraph_${release_version}-1_arm64.deb"
+  package_docker: "memgraph-${release_version}-docker.tar.gz"
+  package_docker_relwithdebinfo: "memgraph-${release_version}-relwithdebinfo-docker.tar.gz"
   docker_image: "memgraph/memgraph-release-test"
 
 jobs:
@@ -91,16 +93,16 @@ jobs:
           if aws s3 ls s3://${release_bucket}/${release_dir}/${package_path} &> /dev/null; then
             echo "Release package for ${os} already exists at s3://${release_bucket}/${release_dir}/${package_path}"
             if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
-              echo "Set force_promote to true to override existing release."
+              echo "Set force_promote to true to override existing release!"
               exit 1
             fi
-            echo "Forcing promotion of existing release."
+            echo "Forcing promotion of existing release ..."
           fi
 
       - name: Promote RC to Release
         run: |
           aws s3 cp s3://${rc_bucket}/${rc_dir}/${package_path} s3://${release_bucket}/${release_dir}/${package_path}
-          echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}"
+          echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}!"
 
   PromoteDocker:
     runs-on: ubuntu-latest
@@ -136,17 +138,17 @@ jobs:
 
       - name: Check if release image for this build aldready exists
         run: |
-          image_name=${docker_image}:2.18.0
+          image_name=${docker_image}:${release_version}
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            image_name=${docker_image}:2.18.0-relwithdebinfo
+            image_name=${docker_image}:${release_version}-relwithdebinfo
           fi
           if docker manifest inspect ${image_name} &> /dev/null; then
             echo "Release image ${image_name} already exists on DockerHub"
             if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
-              echo "Set force_promote to true to override existing release."
+              echo "Set force_promote to true to override existing release!"
               exit 1
             fi
-            echo "Forcing promotion of existing release."
+            echo "Forcing promotion of existing release ..."
           fi
 
       - name: "Log in to Docker Hub"
@@ -155,25 +157,35 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Promote RC to Release
+      - name: Promote RC to Release (Release)
+        if: ${{ matrix.build_type == 'Release' }}
         run: |
-          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            # Download, load, retag and push Release images
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} - | docker load
-            docker tag memgraph:2.18.0 ${docker_image}:2.18.0-arm64
-            docker push ${docker_image}:2.18.0-arm64
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} - | docker load
-            docker tag memgraph:2.18.0 ${docker_image}:2.18.0-amd64
-            docker push ${docker_image}:2.18.0-amd64
-            # Setup manifest list for Release images
-            docker manifest create ${docker_image}:2.18.0 \
-            --amend ${docker_image}:2.18.0-amd64 \
-            --amend ${docker_image}:2.18.0-arm64
-            docker manifest push ${docker_image}:2.18.0
-            echo "Successfully published ${docker_image}:2.18.0 to DockerHub"
-          else
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} - | docker load
-            docker tag memgraph:2.18.0-relwithdebinfo ${docker_image}:2.18.0-relwithdebinfo
-            docker push ${docker_image}:2.18.0-relwithdebinfo
-            echo "Successfully published ${docker_image}:2.18.0-relwithdebinfo to DockerHub"
-          fi
+          # Download, load, retag and push Release images
+          # amd64
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} - | docker load
+          docker tag memgraph:${release_version} ${docker_image}:${release_version}-arm64
+          docker push ${docker_image}:${release_version}-arm64
+          # arm64
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} - | docker load
+          docker tag memgraph:${release_version} ${docker_image}:${release_version}-amd64
+          docker push ${docker_image}:${release_version}-amd64
+          # Setup manifest list for Release images
+          docker manifest create ${docker_image}:${release_version} \
+          --amend ${docker_image}:${release_version}-amd64 \
+          --amend ${docker_image}:${release_version}-arm64
+          docker manifest push ${docker_image}:${release_version}
+          echo "Successfully published ${docker_image}:${release_version} to DockerHub!"
+          # Clean up
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "Deleting temporary image ${docker_image}:${release_version}-amd64 ..."
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_image}/tags/${release_version}-amd64/
+          echo "Deleting temporary image ${docker_image}:${release_version}-arm64 ..."
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_image}/tags/${release_version}-arm64/
+
+      - name: Promote RC to Release (RelWithDebInfo)
+        if: ${{ matrix.build_type == 'RelWithDebInfo' }}
+        run: |
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} - | docker load
+          docker tag memgraph:${release_version}-relwithdebinfo ${docker_image}:${release_version}-relwithdebinfo
+          docker push ${docker_image}:${release_version}-relwithdebinfo
+          echo "Successfully published ${docker_image}:${release_version}-relwithdebinfo to DockerHub!"
