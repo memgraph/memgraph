@@ -23,17 +23,17 @@ on:
 env:
   release_version: "2.18.0"
   rc_version: "rc1"
+  docker_image: "memgraph/memgraph-release-test"
   s3_region: "eu-west-1"
   rc_bucket: "deps.memgraph.io"
-  rc_dir: "memgraph/v${release_version}-${rc_version}"
   release_bucket: "download.memgraph.com"
-  release_dir: "memgraph-release-test/v${release_version}"
-  package_rpm: "memgraph-${release_version}_1-1.x86_64.rpm"
-  package_deb_amd: "memgraph_${release_version}-1_amd64.deb"
-  package_deb_arm: "memgraph_${release_version}-1_arm64.deb"
-  package_docker: "memgraph-${release_version}-docker.tar.gz"
-  package_docker_relwithdebinfo: "memgraph-${release_version}-relwithdebinfo-docker.tar.gz"
-  docker_image: "memgraph/memgraph-release-test"
+  rc_dir: memgraph/v${release_version}-${rc_version}
+  release_dir: memgraph-release-test/v${release_version}
+  package_rpm: memgraph-${release_version}_1-1.x86_64.rpm
+  package_deb_amd: memgraph_${release_version}-1_amd64.deb
+  package_deb_arm: memgraph_${release_version}-1_arm64.deb
+  package_docker: memgraph-${release_version}-docker.tar.gz
+  package_docker_relwithdebinfo: memgraph-${release_version}-relwithdebinfo-docker.tar.gz
 
 jobs:
   PromotePackage:
