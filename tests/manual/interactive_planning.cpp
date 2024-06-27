@@ -145,6 +145,8 @@ class InteractiveDbAccessor {
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
 
+  auto GetEnumValue(std::string_view name, std::string_view value) { return dba_->GetEnumValue(name, value); }
+
   int64_t VerticesCount() { return vertices_count_; }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id) {

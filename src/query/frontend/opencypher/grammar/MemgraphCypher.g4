@@ -47,6 +47,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
                       | DO
                       | DELIMITER
@@ -151,6 +152,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
                       | VALUES
                       | VERSION
                       | WEBSOCKET
@@ -192,6 +194,8 @@ query : cypherQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
       ;
 
 cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -202,6 +206,7 @@ authQuery : createRole
           | createUser
           | setPassword
           | dropUser
+          | showCurrentUser
           | showUsers
           | setRole
           | clearRole
@@ -330,6 +335,8 @@ ifNotExists : IF NOT EXISTS ;
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
@@ -579,8 +586,10 @@ enumName : symbolicName ;
 
 enumValue : symbolicName ;
 
-enumValuesList : enumValue ( ',' enumValue )* ;
-
-createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;

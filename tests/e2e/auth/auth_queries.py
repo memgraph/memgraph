@@ -12,7 +12,8 @@
 import sys
 
 import pytest
-from common import memgraph
+from common import memgraph, provide_user
+from gqlalchemy import Memgraph
 
 
 def test_user_creation(memgraph):
@@ -27,6 +28,18 @@ def test_role_creation(memgraph):
     with pytest.raises(Exception):
         memgraph.execute("CREATE ROLE mrma;")
     memgraph.execute("CREATE ROLE IF NOT EXISTS mrma;")
+
+
+def test_show_current_user_if_no_users(memgraph):
+    results = list(memgraph.execute_and_fetch("SHOW CURRENT USER;"))
+    assert len(results) == 1 and "user" in results[0] and results[0]["user"] == None
+
+
+def test_show_current_user(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT USER;"))
+    assert len(results) == 1 and "user" in results[0] and results[0]["user"] == USERNAME
 
 
 if __name__ == "__main__":

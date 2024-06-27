@@ -11,7 +11,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -23,11 +22,16 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
+#include "nuraft/logger_wrapper.hpp"
 #include "utils/counter.hpp"
+#include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
+
+#include "nuraft/constants_log_durability.hpp"
+#include "utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -44,11 +48,53 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      state_machine_(cs_new<CoordinatorStateMachine>()),
-      state_manager_(cs_new<CoordinatorStateManager>(config)),
-      logger_(nullptr),
+      logger_(cs_new<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
-      become_follower_cb_(std::move(become_follower_cb)) {}
+      become_follower_cb_(std::move(become_follower_cb)) {
+  auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
+  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
+
+  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
+                                                     coordinator_state_manager_durability_dir,
+                                                     config.coordinator_hostname};
+  auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
+  LogStoreDurability log_store_durability;
+
+  if (config.use_durability) {
+    auto const log_store_path = config.durability_dir / "logs";
+    memgraph::utils::EnsureDirOrDie(log_store_path);
+    auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+
+    log_store_durability.durability_store_ = durability_store;
+    log_store_durability.active_log_store_version_ = kActiveVersion;
+    log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
+        GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
+    state_manager_config.log_store_durability_ = log_store_durability;
+  }
+
+  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
+  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper);
+
+  auto last_commit_index_snapshot = state_machine_->last_commit_index();
+  auto log_store = state_manager_->load_log_store();
+
+  if (!log_store) {
+    return;
+  }
+
+  auto const last_commit_index_logs = log_store->next_slot();
+  spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
+                last_commit_index_logs);
+
+  // TODO(antoniofilipovic) Ranges iota
+  auto cntr = last_commit_index_snapshot + 1;
+  auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
+  for (auto &log_entry : *log_entries) {
+    spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    state_machine_->commit(cntr, log_entry->get_buf());
+    cntr++;
+  }
+}
 
 // Call to this function results in call to
 // coordinator instance, make sure everything is initialized in coordinator instance
@@ -83,9 +129,6 @@ auto RaftState::InitRaftServer() -> void {
       spdlog::info("Node {} became leader", param->leaderId);
       become_leader_cb_();
     } else if (event_type == cb_func::BecomeFollower) {
-      // TODO(antoniofilipovic) Check what happens when becoming follower while doing failover
-      // There is no way to stop becoming a follower:
-      // https://github.com/eBay/NuRaft/blob/188947bcc73ce38ab1c3cf9d01015ca8a29decd9/src/raft_server.cxx#L1334-L1335
       spdlog::trace("Got request to become follower");
       become_follower_cb_();
       spdlog::trace("Node {} became follower", param->myId);
@@ -144,9 +187,12 @@ auto RaftState::InitRaftServer() -> void {
 
 RaftState::~RaftState() {
   spdlog::trace("Shutting down RaftState for coordinator_{}", coordinator_id_);
-  state_machine_.reset();
-  state_manager_.reset();
-  logger_.reset();
+
+  utils::OnScopeExit const reset_shared_ptrs{[this]() {
+    state_machine_.reset();
+    state_manager_.reset();
+    logger_.reset();
+  }};
 
   if (!raft_server_) {
     spdlog::warn("Raft server not initialized for coordinator_{}, shutdown not necessary", coordinator_id_);
@@ -475,13 +521,12 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  // TODO: (andi) This is wrong check, Fico will correct in #1819.
   auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::MAIN;
+    return IsCurrentMain(instance.config.instance_name);
   };
 
   auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::REPLICA;
+    return !IsCurrentMain(instance.config.instance_name);
   };
 
   auto const &raft_log_repl_instances = GetReplicationInstances();
@@ -512,6 +557,8 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   return res;
 }
+
+auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
 
 }  // namespace memgraph::coordination
 #endif

@@ -4,3 +4,5 @@ endfunction()
 
 copy_query_planning_e2e_python_files(common.py)
 copy_query_planning_e2e_python_files(query_planning_cartesian.py)
+
+copy_e2e_files(query_planning workloads.yaml)

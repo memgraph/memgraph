@@ -114,7 +114,7 @@ class BaseEncoder {
     for (const auto &x : value) WriteValue(x);
   }
 
-  void WriteMap(const std::map<std::string, Value> &value) {
+  void WriteMap(const map_t &value) {
     WriteTypeSize(value.size(), MarkerMap);
     for (const auto &x : value) {
       WriteString(x.first);

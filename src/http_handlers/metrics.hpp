@@ -22,6 +22,7 @@
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
+#include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_histogram.hpp"
 
@@ -151,9 +152,7 @@ class MetricsService {
 // Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
-    spdlog::info("Basic request handler started!");
-  }
+  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
   MetricsRequestHandler(MetricsRequestHandler &&) = delete;
@@ -180,6 +179,14 @@ class MetricsRequestHandler final {
       res.prepare_payload();
       return res;
     };
+
+#ifdef MG_ENTERPRISE
+    if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      return send(bad_request("Memgraph must have an Enterprise License for providing metrics!"));
+    }
+#else
+    return send(bad_request("Memgraph must be built for Enterprise for providing metrics!"));
+#endif
 
     // Make sure we can handle the method
     if (req.method() != boost::beast::http::verb::get) {
