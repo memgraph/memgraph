@@ -3855,4 +3855,4 @@ def test_registration_does_not_deadlock_when_instance_is_down():
 
 
 if __name__ == "__main__":
-    sys.exit(pytest.main([__file__, "-rA", "--log-cli-level=DEBUG", "--capture=tee-sys"]))
+    sys.exit(pytest.main([__file__, "-rA"]))
