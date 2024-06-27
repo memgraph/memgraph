@@ -66,7 +66,7 @@ jobs:
             binary_name=${binary_base}${binary_rpm_ext}
           else
             binary_name=${binary_base}${binary_deb_amd_ext}
-            if [[ ${{ matrix.arch }} == 'arm' ]]; then
+            if [[ "${{ matrix.arch }}" == "arm" ]]; then
               binary_name=${binary_base}${binary_deb_arm_ext}
             fi
           fi
@@ -83,7 +83,7 @@ jobs:
         run: |
           if aws s3 ls s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name} &> /dev/null; then
             echo "Release binary for ${{ matrix.os }}-${{ matrix.arch }} already exists at s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}"
-            if [[ ${{ github.event.inputs.force_promote }} == false ]]; then
+            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
               echo "Set force_promote to true to override existing release."
               exit 1
             fi
@@ -115,7 +115,7 @@ jobs:
 
       - name: Check if rc image for this build exists
         run: |
-          if [[ ${{ matrix.build_type == "Release" }} ]]; then
+          if [[ "${{ matrix.build_type }}" == "Release"]]; then
             if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} &> /dev/null; then
               echo "RC binary for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name}"
               exit 1
@@ -133,12 +133,12 @@ jobs:
       - name: Check if release image for this build aldready exists
         run: |
           image_name=memgraph/memgraph:2.18.0
-          if [[ ${{ matrix.build_type == "RelWithDebInfo" }} ]]; then
+          if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
             image_name=memgraph/memgraph:2.18.0-relwithdebinfo
           fi
           if docker manifest inspect ${image_name} &> /dev/null; then
             echo "Release image ${image_name} already exists on DockerHub"
-            if [[ ${{ github.event.inputs.force_promote }} == false ]]; then
+            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
               echo "Set force_promote to true to override existing release."
               exit 1
             fi
@@ -147,7 +147,7 @@ jobs:
 
       - name: Download and load rc images
         run: | # Download amd + arm for Release and amd for RelwithDebInfo
-          if [[ ${{ matrix.build_type == "Release" }} ]]; then
+          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
             aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} - | docker load
             aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${binary_name} - | docker load
           else
@@ -166,7 +166,7 @@ jobs:
 
       - name: Promote RC to Release
         run: |
-          if [[ ${{ matrix.build_type == "Release" }} ]]; then
+          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
             docker push memgraph/memgraph:2.18.0
             echo "Successfully published memgraph/memgraph:2.18.0 to DockerHub"
           else
