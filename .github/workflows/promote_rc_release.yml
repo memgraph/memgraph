@@ -96,7 +96,7 @@ jobs:
           echo "Successfully promoted RC binary for ${os}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${os}/${binary_name}"
 
   PromoteDocker:
-    if: never
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
