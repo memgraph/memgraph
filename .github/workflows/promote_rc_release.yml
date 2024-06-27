@@ -30,7 +30,7 @@ env:
   package_rpm: "memgraph-2.18.0_1-1.x86_64.rpm"
   package_deb_amd: "memgraph_2.18.0-1_amd64.deb"
   package_deb_arm: "memgraph_2.18.0-1_arm64.deb"
-  package_docker: "memgraph-2.18.0-amd.tar.gz"
+  package_docker: "memgraph-2.18.0-docker.tar.gz"
 
 jobs:
   PromotePackage:
