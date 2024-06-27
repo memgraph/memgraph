@@ -220,6 +220,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
 
+  bool PreVisit(PeriodicCommit &op) override { return true; }
+
+  bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }
+
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;

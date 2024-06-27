@@ -2175,6 +2175,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
   /// contained within a dedicated class/struct
   std::vector<memgraph::query::IndexHint> index_hints_;
+  memgraph::query::Expression *commit_frequency_{nullptr};
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
@@ -2190,6 +2191,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     for (auto i6 = 0; i6 < index_hints_.size(); ++i6) {
       object->index_hints_[i6] = index_hints_[i6].Clone(storage);
     }
+    object->commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     return object;
@@ -3065,7 +3067,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS };
 
   DEFVISITABLE(QueryVisitor<void>);
 

@@ -25,6 +25,8 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_gauge.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -87,6 +89,34 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
+
+std::vector<EventInfo> Storage::GetMetrics() noexcept {
+  std::vector<EventInfo> result;
+  auto info = this->GetBaseInfo();
+
+  for (auto i = 0; i < memgraph::metrics::CounterEnd(); i++) {
+    result.emplace_back(memgraph::metrics::GetCounterName(i), memgraph::metrics::GetCounterType(i), "Counter",
+                        memgraph::metrics::global_counters[i].load(std::memory_order_acquire));
+  }
+
+  for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
+    result.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeTypeString(i), "Gauge",
+                        memgraph::metrics::global_gauges[i].load(std::memory_order_acquire));
+  }
+
+  for (auto i = 0; i < memgraph::metrics::HistogramEnd(); i++) {
+    const auto *name = memgraph::metrics::GetHistogramName(i);
+    auto &histogram = memgraph::metrics::global_histograms[i];
+
+    for (auto &[percentile, value] : histogram.YieldPercentiles()) {
+      auto metric_name = std::string(name) + "_" + std::to_string(percentile) + "p";
+
+      result.emplace_back(metric_name, memgraph::metrics::GetHistogramType(i), "Histogram", value);
+    }
+  }
+
+  return result;
+}
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 

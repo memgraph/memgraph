@@ -1935,7 +1935,8 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::optional<uint64_t> periodic_commit_frequency = std::nullopt);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1966,7 +1967,8 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   std::optional<uint64_t> periodic_commit_frequency)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -1998,6 +2000,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
+  ctx_.periodic_commit_frequency = periodic_commit_frequency;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2036,6 +2039,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   utils::Timer timer;
 
   int i = 0;
+  uint64_t periodic_index = 0;
   if (has_unsent_results_ && !output_symbols.empty()) {
     // stream unsent results from previous pull
     stream_values();
@@ -2049,6 +2053,12 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
     if (!output_symbols.empty()) {
       stream_values();
+    }
+
+    periodic_index++;
+    if (ctx_.periodic_commit_frequency && *ctx_.periodic_commit_frequency == periodic_index) {
+      periodic_index = 0;
+      ctx_.db_accessor->PeriodicCommit();
     }
   }
 
@@ -2229,6 +2239,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
+
+  std::optional<size_t> commit_frequency = EvaluateCommitFrequency(evaluator, cypher_query->commit_frequency_);
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2278,13 +2290,14 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, commit_frequency);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          if (pull_plan->Pull(stream, n, output_symbols, summary)) {
                            return QueryHandlerResult::COMMIT;
                          }
+
                          return std::nullopt;
                        },
                        rw_type_checker.type};
@@ -3964,6 +3977,55 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
+    case DatabaseInfoQuery::InfoType::METRICS: {
+#ifdef MG_ENTERPRISE
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+      }
+#else
+      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+#endif
+      header = {"name", "type", "metric type", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto info = storage->GetBaseInfo();
+        auto metrics_info = storage->GetMetrics();
+        std::vector<std::vector<TypedValue>> results;
+        results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.vertex_count))});
+        results.push_back({TypedValue("EdgeCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.edge_count))});
+        results.push_back(
+            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
+        results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.memory_res))});
+        results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.disk_usage))});
+        for (const auto &metric : metrics_info) {
+          results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
+                             TypedValue(static_cast<int64_t>(metric.value))});
+        }
+        std::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
+          const auto type_1 = record_1[1].ValueString();
+          const auto type_2 = record_2[1].ValueString();
+
+          if (type_1 != type_2) {
+            return type_1 < type_2;
+          }
+
+          const auto event_type_1 = record_1[2].ValueString();
+          const auto event_type_2 = record_2[2].ValueString();
+
+          if (event_type_1 != event_type_2) {
+            return event_type_1 < event_type_2;
+          }
+
+          return record_1[0].ValueString() < record_2[0].ValueString();
+        });
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -4012,6 +4074,9 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
             {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+            {TypedValue("peak_memory_res"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
+            {TypedValue("unreleased_delta_objects"), TypedValue(static_cast<int64_t>(info.unreleased_delta_objects))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
@@ -5313,6 +5378,198 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
+}
+
+void Interpreter::PeriodicCommit() {
+  //   // It's possible that some queries did not finish because the user did
+  //   // not pull all of the results from the query.
+  //   // For now, we will not check if there are some unfinished queries.
+  //   // We should document clearly that all results should be pulled to complete
+  //   // a query.
+  //   current_transaction_.reset();
+  //   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
+  //     // No database nor db transaction; check for system transaction
+  //     if (!system_transaction_) return;
+
+  //     // TODO Distinguish between data and system transaction state
+  //     // Think about updating the status to a struct with bitfield
+  //     // Clean transaction status on exit
+  //     utils::OnScopeExit clean_status([this]() {
+  //       system_transaction_.reset();
+  //       // System transactions are not terminable
+  //       // Durability has happened at time of PULL
+  //       // Commit is doing replication and timestamp update
+  //       // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot
+  //       abort!
+  //       // What we are trying to do is set the transaction back to IDLE
+  //       // We cannot simply put it to IDLE, since the status is used as a syncronization method and we have to follow
+  //       // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
+  //       auto expected = TransactionStatus::ACTIVE;
+  //       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+  //         if (expected == TransactionStatus::TERMINATED) {
+  //           continue;
+  //         }
+  //         expected = TransactionStatus::ACTIVE;
+  //         std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  //       }
+  //     });
+
+  //     auto const main_commit = [&](replication::RoleMainData &mainData) {
+  //     // Only enterprise can do system replication
+  // #ifdef MG_ENTERPRISE
+  //       using enum memgraph::flags::Experiments;
+  //       if (flags::AreExperimentsEnabled(SYSTEM_REPLICATION) &&
+  //       license::global_license_checker.IsEnterpriseValidFast()) {
+  //         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
+  //       }
+  // #endif
+  //       return system_transaction_->Commit(memgraph::system::DoNothing{});
+  //     };
+
+  //     auto const replica_commit = [&](replication::RoleReplicaData &) {
+  //       return system_transaction_->Commit(memgraph::system::DoNothing{});
+  //     };
+
+  //     auto const commit_method = utils::Overloaded{main_commit, replica_commit};
+  //     [[maybe_unused]] auto sync_result = std::visit(commit_method,
+  //     interpreter_context_->repl_state->ReplicationData());
+  //     // TODO: something with sync_result
+  //     return;
+  //   }
+  //   auto *db = current_db_.db_acc_->get();
+
+  //   /*
+  //   At this point we must check that the transaction is alive to start committing. The only other possible state is
+  //   verifying and in that case we must check if the transaction was terminated and if yes abort committing. Exception
+  //   should suffice.
+  //   */
+  //   auto expected = TransactionStatus::ACTIVE;
+  //   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING)) {
+  //     if (expected == TransactionStatus::TERMINATED) {
+  //       throw memgraph::utils::BasicException(
+  //           "Aborting transaction commit because the transaction was requested to stop from other session. ");
+  //     }
+  //     expected = TransactionStatus::ACTIVE;
+  //     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  //   }
+
+  //   // Clean transaction status if something went wrong
+  //   utils::OnScopeExit clean_status(
+  //       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+
+  //   auto current_storage_mode = db->GetStorageMode();
+  //   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
+  //   if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
+  //       current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+  //     throw QueryException(
+  //         "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk
+  //         storage.");
+  //   }
+
+  //   utils::OnScopeExit update_metrics([]() {
+  //     memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);
+  //     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
+  //   });
+
+  //   std::optional<TriggerContext> trigger_context = std::nullopt;
+  //   if (current_db_.trigger_context_collector_) {
+  //     trigger_context.emplace(std::move(*current_db_.trigger_context_collector_).TransformToTriggerContext());
+  //     current_db_.trigger_context_collector_.reset();
+  //   }
+
+  //   if (frame_change_collector_) {
+  //     frame_change_collector_.reset();
+  //   }
+
+  //   if (trigger_context) {
+  //     // Run the triggers
+  //     for (const auto &trigger : db->trigger_store()->BeforeCommitTriggers().access()) {
+  //       QueryAllocator execution_memory{};
+  //       AdvanceCommand();
+  //       try {
+  //         trigger.Execute(&*current_db_.execution_db_accessor_, execution_memory.resource(),
+  //                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
+  //                         &transaction_status_, *trigger_context);
+  //       } catch (const utils::BasicException &e) {
+  //         throw utils::BasicException(
+  //             fmt::format("Trigger '{}' caused the transaction to fail.\nException: {}", trigger.Name(), e.what()));
+  //       }
+  //     }
+  //     SPDLOG_DEBUG("Finished executing before commit triggers");
+  //   }
+
+  //   const auto reset_necessary_members = [this]() {
+  //     for (auto &qe : query_executions_) {
+  //       if (qe) qe->CleanRuntimeData();
+  //     }
+  //     current_db_.CleanupDBTransaction(false);
+  //   };
+  //   utils::OnScopeExit members_reseter(reset_necessary_members);
+
+  auto commit_confirmed_by_all_sync_replicas = true;
+
+  bool is_main = interpreter_context_->repl_state->IsMain();
+  auto maybe_commit_error =
+      current_db_.db_transactional_accessor_->PeriodicCommit({.is_main = is_main}, current_db_.db_acc_);
+  if (maybe_commit_error.HasError()) {
+    const auto &error = maybe_commit_error.GetError();
+
+    std::visit(
+        [&execution_db_accessor = current_db_.execution_db_accessor_,
+         &commit_confirmed_by_all_sync_replicas]<typename T>(const T &arg) {
+          using ErrorType = std::remove_cvref_t<T>;
+          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            commit_confirmed_by_all_sync_replicas = false;
+          } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+            const auto &constraint_violation = arg;
+            auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
+            switch (constraint_violation.type) {
+              case storage::ConstraintViolation::Type::EXISTENCE: {
+                MG_ASSERT(constraint_violation.properties.size() == 1U);
+                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                throw QueryException("Unable to commit due to existence constraint violation on :{}({})", label_name,
+                                     property_name);
+              }
+              case storage::ConstraintViolation::Type::UNIQUE: {
+                std::stringstream property_names_stream;
+                utils::PrintIterable(property_names_stream, constraint_violation.properties, ", ",
+                                     [&execution_db_accessor](auto &stream, const auto &prop) {
+                                       stream << execution_db_accessor->PropertyToName(prop);
+                                     });
+                throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
+                                     property_names_stream.str());
+              }
+            }
+          } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+            throw QueryException("Unable to commit due to serialization error.");
+          } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+            throw QueryException("Unable to commit due to persistance error.");
+          } else {
+            static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+          }
+        },
+        error);
+  }
+
+  // // The ordered execution of after commit triggers is heavily depending on the exclusiveness of
+  // // db_accessor_->Commit(): only one of the transactions can be commiting at the same time, so when the commit is
+  // // finished, that transaction probably will schedule its after commit triggers, because the other transactions that
+  // // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
+  // // ordered execution of after commit triggers are not guaranteed.
+  // if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
+  //   db->AddTask([this, trigger_context = std::move(*trigger_context),
+  //                user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
+  //     RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
+  //                            &this->transaction_status_);
+  //     user_transaction->FinalizeTransaction();
+  //     SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
+  //   });
+  // }
+
+  // SPDLOG_DEBUG("Finished committing the transaction");
+  // if (!commit_confirmed_by_all_sync_replicas) {
+  //   throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+  // }
 }
 
 void Interpreter::AdvanceCommand() {

@@ -1,0 +1,9 @@
+function(copy_observe_current_amount_of_deltas_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(observe_current_amount_of_deltas ${FILE_NAME})
+endfunction()
+
+copy_observe_current_amount_of_deltas_e2e_python_files(common.py)
+copy_observe_current_amount_of_deltas_e2e_python_files(conftest.py)
+copy_observe_current_amount_of_deltas_e2e_python_files(observe_current_amount_of_deltas.py)
+
+copy_e2e_files(observe_current_amount_of_deltas workloads.yaml)

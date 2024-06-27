@@ -142,6 +142,7 @@ extern const Event ApplyOperator;
 extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
+extern const Event PeriodicCommitOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -5925,6 +5926,75 @@ class RollUpApplyCursor : public Cursor {
 UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
   return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
+}
+
+PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
+    : input_(std::move(input)), commit_frequency_(commit_frequency) {}
+
+std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+ACCEPT_WITH_INPUT(PeriodicCommit)
+
+namespace {
+
+class PeriodicCommitCursor : public Cursor {
+ public:
+  PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {
+    MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    if (!max_number_of_commits_.has_value()) {
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+      auto commit_value = self_.commit_frequency_->Accept(evaluator);
+      if (commit_value.IsInt()) {
+        max_number_of_commits_.emplace(commit_value.ValueInt());
+      } else {
+        throw QueryRuntimeException("Commit value must be an int!");
+      }
+    }
+
+    if (!input_cursor_->Pull(frame, context)) {
+      context.db_accessor->PeriodicCommit();
+      current_number_of_commits_ = 0;
+      return false;
+    }
+
+    current_number_of_commits_++;
+    total_number_of_commits_++;
+    if (current_number_of_commits_ >= *max_number_of_commits_) {
+      context.db_accessor->PeriodicCommit();
+      current_number_of_commits_ = 0;
+    }
+
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    current_number_of_commits_ = 0;
+  }
+
+ private:
+  const PeriodicCommit &self_;
+  const UniqueCursorPtr input_cursor_;
+  std::optional<int64_t> max_number_of_commits_;
+  uint64_t current_number_of_commits_{0};
+  uint64_t total_number_of_commits_{0};
+};
+}  // namespace
+
+UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicCommitOperator);
+  return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan

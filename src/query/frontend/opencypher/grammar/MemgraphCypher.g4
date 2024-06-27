@@ -100,9 +100,11 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | OF
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | PASSWORD
+                      | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -116,6 +118,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROWS
                       | QUOTE
                       | SERVER
                       | SERVICE_URL
@@ -198,7 +201,7 @@ query : cypherQuery
       | alterEnumUpdateValueQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( indexHints )? ( periodicCommit )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -273,7 +276,11 @@ indexHints: USING INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicCommit : USING PERIODIC COMMIT periodicCommitNumber=literal ;
+
+periodicSubquery : IN TRANSACTIONS OF periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
