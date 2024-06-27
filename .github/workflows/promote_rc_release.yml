@@ -27,9 +27,10 @@ env:
   # release_bucket: "download.memgraph.com"
   release_bucket: "deps.memgraph.io"
   release_dir: "memgraph-release-test/v2.18.0"
-  binary_rpm: "memgraph-2.18.0_1-1.x86_64.rpm"
-  binary_deb_amd: "memgraph_2.18.0-1_amd64.deb"
-  binary_deb_arm: "memgraph_2.18.0-1_arm64.deb"
+  package_rpm: "memgraph-2.18.0_1-1.x86_64.rpm"
+  package_deb_amd: "memgraph_2.18.0-1_amd64.deb"
+  package_deb_arm: "memgraph_2.18.0-1_arm64.deb"
+  package_docker: "memgraph-2.18.0-amd.tar.gz"
 
 jobs:
   PromotePackage:
@@ -58,30 +59,32 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SAK }}
           aws-region: ${{ env.s3_region }}
 
-      - name: Setup binary name
+      - name: Setup package name
         run: |
           os=${{ matrix.os }}
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
-            binary_name=${binary_rpm}
+            package_name=${package_rpm}
+          elif [[ $os == docker ]]; then
+            package_name=${package_docker}
           else
-            binary_name=${binary_deb_amd}
+            package_name=${package_deb_amd}
             if [[ "${{ matrix.arch }}" == "arm" ]]; then
-              binary_name=${binary_deb_arm}
+              package_name=${package_deb_arm}
             fi
           fi
-          echo "binary_name=$binary_name" >> $GITHUB_ENV
+          echo "package_name=$package_name" >> $GITHUB_ENV
 
-      - name: Check if rc binary for this build exists
+      - name: Check if rc package for this build exists
         run: |
-          if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} &> /dev/null; then
-            echo "RC binary for ${{ matrix.os }}-${{ matrix.arch }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name}"
+          if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
+            echo "RC package for ${{ matrix.os }}-${{ matrix.arch }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name}"
             exit 1
           fi
 
-      - name: Check if release binary for this build aldready exists
+      - name: Check if release package for this build aldready exists
         run: |
-          if aws s3 ls s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name} &> /dev/null; then
-            echo "Release binary for ${{ matrix.os }}-${{ matrix.arch }} already exists at s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}"
+          if aws s3 ls s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
+            echo "Release package for ${{ matrix.os }}-${{ matrix.arch }} already exists at s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
             if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
               echo "Set force_promote to true to override existing release."
               exit 1
@@ -91,8 +94,8 @@ jobs:
 
       - name: Promote RC to Release
         run: |
-          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}
-          echo "Successfully promoted RC binary for ${{ matrix.os }}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}"
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}
+          echo "Successfully promoted RC package for ${{ matrix.os }}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
 
   PromoteDocker:
     if: false
@@ -103,7 +106,7 @@ jobs:
         os: [docker]
         build_type: [Release, RelWithDebInfo]
     env:
-      binary_name: "memgraph-2.18.0-${{ matrix.os }}.tar.gz"
+      package_name: "memgraph-2.18.0-${{ matrix.os }}.tar.gz"
     steps:
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -115,16 +118,16 @@ jobs:
       - name: Check if rc image for this build exists
         run: |
           if [[ "${{ matrix.build_type }}" == "Release"]]; then
-            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} &> /dev/null; then
-              echo "RC binary for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name}"
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name}"
               exit 1
-            elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${binary_name} &> /dev/null; then
-              echo "RC binary for ${{ matrix.os }}-aarch64 does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${binary_name}"
+            elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }}-aarch64 does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name}"
               exit 1
             fi
           else
-            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${binary_name} &> /dev/null; then
-              echo "RC binary for ${{ matrix.os }}-relwithdebinfo does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${binary_name}"
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }}-relwithdebinfo does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name}"
               exit 1
             fi
           fi
@@ -147,10 +150,10 @@ jobs:
       - name: Download and load rc images
         run: | # Download amd + arm for Release and amd for RelwithDebInfo
           if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} - | docker load
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${binary_name} - | docker load
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} - | docker load
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name} - | docker load
           else
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${binary_name} - | docker load
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name} - | docker load
           fi
 
       - name: Setup docker manifest
