@@ -74,17 +74,25 @@ jobs:
           fi
           echo "package_name=$package_name" >> $GITHUB_ENV
 
+      - name: Setup os name
+        run: |
+          os=${{ matrix.os }}
+          if [[ "${{ matrix.arch }}" == "arm" ]]; then
+            os="${os}-aarch64"
+          fi
+          echo "os=$os" >> $GITHUB_ENV
+
       - name: Check if rc package for this build exists
         run: |
           if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
-            echo "RC package for ${{ matrix.os }}-${{ matrix.arch }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name}"
+            echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name}"
             exit 1
           fi
 
       - name: Check if release package for this build aldready exists
         run: |
           if aws s3 ls s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
-            echo "Release package for ${{ matrix.os }}-${{ matrix.arch }} already exists at s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
+            echo "Release package for ${{ matrix.os }} already exists at s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
             if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
               echo "Set force_promote to true to override existing release."
               exit 1
@@ -95,7 +103,7 @@ jobs:
       - name: Promote RC to Release
         run: |
           aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}
-          echo "Successfully promoted RC package for ${{ matrix.os }}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
+          echo "Successfully promoted RC package for ${{ matrix.os }} to s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${package_name}"
 
   PromoteDocker:
     if: false
