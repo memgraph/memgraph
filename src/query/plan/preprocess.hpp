@@ -253,6 +253,11 @@ class PatternVisitor : public ExpressionVisitor<void> {
     op.expression2_->Accept(*this);
   }
 
+  void Visit(RangeOperator &op) override {
+    op.expr1_->Accept(*this);
+    op.expr2_->Accept(*this);
+  }
+
   void Visit(SubscriptOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
@@ -446,18 +451,18 @@ class Filters final {
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectWhereFilter(Where &, const SymbolTable &);
+  void CollectWhereFilter(Where &, const SymbolTable &, AstStorage &);
 
   /// Collects filtering information from an expression.
   ///
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
-  void CollectFilterExpression(Expression *, const SymbolTable &);
+  void CollectFilterExpression(Expression *, const SymbolTable &, AstStorage *storage = nullptr);
 
  private:
   std::vector<FilterInfo> all_filters_;
-  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);
+  void AnalyzeAndStoreFilter(Expression *, const SymbolTable &, AstStorage *storage);
 };
 
 /// Normalized representation of a single or multiple Match clauses.
@@ -639,5 +644,24 @@ struct QueryParts {
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
 QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
+
+/**
+ * @brief Split expression on AND operators; useful for splitting single filters
+ *
+ * @param expression
+ * @return std::vector<Expression *>
+ */
+std::vector<Expression *> SplitExpressionOnAnd(Expression *expression);
+
+/**
+ * @brief Substitute an expression with a new one.
+ * @note Whole expression gets split at every AND and its branches are compared and subsituted
+ *
+ * @param expr whole expression
+ * @param old expression to replace
+ * @param in expression to embed
+ * @return Expression *
+ */
+Expression *SubstituteExpression(Expression *expr, Expression *old, Expression *in);
 
 }  // namespace memgraph::query::plan

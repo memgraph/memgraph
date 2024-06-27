@@ -58,7 +58,7 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
  public:
   MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), std::nullopt) {}
   MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                        const std::string &db_name, memgraph::query::UserPolicy *policy));
+                                        std::string_view db_name, memgraph::query::UserPolicy *policy));
 
 #ifdef MG_ENTERPRISE
   MOCK_CONST_METHOD0(GetDefaultDB, std::string());
