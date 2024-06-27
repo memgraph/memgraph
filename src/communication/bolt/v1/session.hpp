@@ -82,16 +82,14 @@ class Session {
    * @return A pair which contains list of headers and qid which is set only
    * if an explicit transaction was started.
    */
-  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, memgraph::communication::bolt::Value> &extra) = 0;
+  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
+                                                                            const map_t &params,
+                                                                            const map_t &extra) = 0;
 
-  virtual void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) = 0;
+  virtual void Configure(const map_t &run_time_info) = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual auto Route(std::map<std::string, Value> const &routing,
-                     std::vector<memgraph::communication::bolt::Value> const &bookmarks,
-                     std::map<std::string, Value> const &extra) -> std::map<std::string, Value> = 0;
+  virtual auto Route(map_t const &routing, std::vector<Value> const &bookmarks, map_t const &extra) -> map_t = 0;
 #endif
 
   /**
@@ -102,7 +100,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
+  virtual map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -112,9 +110,9 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  virtual std::map<std::string, Value> Discard(std::optional<int> n, std::optional<int> qid) = 0;
+  virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &params) = 0;
+  virtual void BeginTransaction(const map_t &params) = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;
 
@@ -123,6 +121,7 @@ class Session {
 
   /** Return `true` if the user was successfully authenticated. */
   virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
+  virtual bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) = 0;
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */

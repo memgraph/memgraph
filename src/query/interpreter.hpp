@@ -226,6 +226,13 @@ struct CurrentDB {
     in_explicit_db_ = in_explicit_db;
   }
 
+  void ResetDB() {
+    db_acc_.reset();
+    db_transactional_accessor_.reset();
+    execution_db_accessor_.reset();
+    trigger_context_collector_.reset();
+  }
+
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
@@ -235,6 +242,9 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
 };
+
+using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
+constexpr auto no_params_fn = [](storage::Storage const *) -> UserParameters { return {}; };
 
 class Interpreter final {
  public:
@@ -271,6 +281,7 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+  void ResetDB() { current_db_.ResetDB(); }
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
 #endif
 
@@ -282,8 +293,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  Interpreter::PrepareResult Prepare(const std::string &query,
-                                     const std::map<std::string, storage::PropertyValue> &params,
+  Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras);
 
 #ifdef MG_ENTERPRISE

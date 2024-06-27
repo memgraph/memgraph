@@ -22,6 +22,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -641,6 +642,35 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
+
+ private:
+  friend class AstStorage;
+};
+
+class RangeOperator : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  Expression *expr1_{};
+  Expression *expr2_{};
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expr1_->Accept(visitor) && expr2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  RangeOperator *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<RangeOperator>();
+    object->expr1_ = expr1_ ? expr1_->Clone(storage) : nullptr;
+    object->expr2_ = expr2_ ? expr2_->Clone(storage) : nullptr;
+    return object;
+  }
 
  private:
   friend class AstStorage;
@@ -2903,6 +2933,7 @@ class AuthQuery : public memgraph::query::Query {
     SET_PASSWORD,
     CHANGE_PASSWORD,
     DROP_USER,
+    SHOW_CURRENT_USER,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
@@ -3819,8 +3850,13 @@ class CreateEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  std::string enum_name_;
+  std::vector<std::string> enum_values_;
+
   CreateEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateEnumQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_values_ = enum_values_;
     return object;
   }
 
@@ -3839,6 +3875,84 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   ShowEnumsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EnumValueAccess : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EnumValueAccess() = default;
+
+  EnumValueAccess(std::string enum_name, std::string enum_value)
+      : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  std::string enum_name_;
+  std::string enum_value_;
+  int32_t symbol_pos_{-1};
+
+  EnumValueAccess *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EnumValueAccess>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumAddValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumAddValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string enum_value_;
+
+  AlterEnumAddValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumAddValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumUpdateValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumUpdateValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string old_enum_value_;
+  std::string new_enum_value_;
+
+  AlterEnumUpdateValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumUpdateValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->old_enum_value_ = old_enum_value_;
+    object->new_enum_value_ = new_enum_value_;
     return object;
   }
 

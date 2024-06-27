@@ -35,8 +35,7 @@ constexpr auto kCoordinatorServerThreads = 1;
 
 CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{io::network::Endpoint{config.ip_address, config.port}, &rpc_server_context_,
-                  kCoordinatorServerThreads} {
+      rpc_server_{config.endpoint, &rpc_server_context_, kCoordinatorServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
     spdlog::debug("Received FrequentHeartbeatRpc on coordinator server");
     replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
@@ -46,7 +45,7 @@ CoordinatorServer::CoordinatorServer(const ManagementServerConfig &config)
 CoordinatorServer::~CoordinatorServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
-    spdlog::trace("Closing coordinator server on {}:{}", endpoint.GetAddress(), endpoint.GetPort());
+    spdlog::trace("Closing coordinator server on {}", endpoint.SocketAddress());
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();

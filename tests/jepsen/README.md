@@ -12,6 +12,7 @@ cd tests/jepsen
 ./run.sh test --binary ../../build/memgraph --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120"
 ./run.sh test --binary ../../build/memgraph --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 120"
 ./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 120"
+./run.sh test --binary ../../build/memgraph --run-args "--workload habank --nodes-config resources/cluster.edn --time-limit 120"
 ```
 
 Local run of each test (including setup):

@@ -164,10 +164,9 @@
 /// @sa DEFINE_VALIDATED_int64
 /// @sa DEFINE_VALIDATED_uint64
 /// @sa DEFINE_VALIDATED_double
-#define FLAG_IN_RANGE(lower_bound, upper_bound)                                                                \
-  {                                                                                                            \
-    if (value >= lower_bound && value <= upper_bound) return true;                                             \
-    std::cout << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]" \
-              << std::endl;                                                                                    \
-    return false;                                                                                              \
+#define FLAG_IN_RANGE(lower_bound, upper_bound)                                                                   \
+  {                                                                                                               \
+    if (value >= lower_bound && value <= upper_bound) return true;                                                \
+    std::cout << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]\n"; \
+    return false;                                                                                                 \
   }

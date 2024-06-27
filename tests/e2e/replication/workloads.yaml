@@ -101,6 +101,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/show_while_creating_invalid_state.py"]
 
+  - name: "Replicate Enum"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_enum.py" ]
+
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/edge_delete.py"]

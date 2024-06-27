@@ -45,12 +45,6 @@ class Module final {
   /// @return dict retuned by module function
   nlohmann::json Call(const nlohmann::json &params, int timeout_millisec);
 
-  /// This function returns a boolean value indicating whether the module has a
-  /// specified executable path and can thus be used.
-  ///
-  /// @return boolean indicating whether the module can be used
-  bool IsUsed() const;
-
   ~Module();
 
  private:

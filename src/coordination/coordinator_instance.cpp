@@ -198,12 +198,38 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return last_succ_resp_ms < instance.instance_down_timeout_sec ? "up" : "down";
   };
 
+  auto const get_coord_role = [](auto const coordinator_id, auto const curr_leader) -> std::string {
+    return coordinator_id == curr_leader ? "leader" : "follower";
+  };
+
+  auto const get_coordinator_server = [](CoordinatorToCoordinatorConfig const &instance) -> std::string {
+    // If I am the 1st leader, I need separate processing. Only, the 1st leader will have coordinator_server set to
+    // 0.0.0.0. Coordinators that have been registered after the 1st leader will have coordinator_server set to the
+    // actual IP address so for them we can just retrieve their socket address.
+    if (instance.coordinator_server.GetResolvedIPAddress() == "0.0.0.0") {
+      return fmt::format("{}:{}", instance.coordinator_hostname, instance.coordinator_server.GetPort());
+    }
+    return instance.coordinator_server.SocketAddress();
+  };
+
+  auto const get_bolt_server = [](CoordinatorToCoordinatorConfig const &instance) -> std::string {
+    // If I am the 1st leader, I need separate processing. Only, the 1st leader will have bolt_server set to 0.0.0.0.
+    // Coordinators that have been registered after the 1st leader will have bolt_server set to the actual IP address so
+    // for them we can just retrieve their socket address.
+    if (instance.bolt_server.GetResolvedIPAddress() == "0.0.0.0") {
+      return fmt::format("{}:{}", instance.coordinator_hostname, instance.bolt_server.GetPort());
+    }
+    return instance.bolt_server.SocketAddress();
+  };
+
   auto const coord_instance_to_status =
-      [this, &stringify_coord_health](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+      [this, &stringify_coord_health, &get_coord_role, &get_coordinator_server,
+       &get_bolt_server](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+    auto const curr_leader = raft_state_->GetLeaderId();
     return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-            .coordinator_server = instance.coordinator_server.SocketAddress(),
-            .bolt_server = instance.bolt_server.SocketAddress(),
-            .cluster_role = "coordinator",
+            .coordinator_server = get_coordinator_server(instance),  // show non-resolved IP
+            .bolt_server = get_bolt_server(instance),                // show non-resolved IP
+            .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
             .health = stringify_coord_health(instance),
             .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
   };
@@ -224,8 +250,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto process_repl_instance_as_leader =
         [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
       return {.instance_name = instance.InstanceName(),
-              .management_server = instance.ManagementSocketAddress(),
-              .bolt_server = instance.BoltSocketAddress(),
+              .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
+              .bolt_server = instance.BoltSocketAddress(),              // show non-resolved IP
               .cluster_role = stringify_repl_role(instance),
               .health = stringify_repl_health(instance),
               .last_succ_resp_ms = instance.LastSuccRespMs().count()};
@@ -247,12 +273,11 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       return "replica";
     };
 
-    // TODO: (andi) Add capability that followers can also return socket addresses
     auto process_repl_instance_as_follower =
         [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
       return {.instance_name = instance.config.instance_name,
-              .management_server = instance.config.ManagementSocketAddress(),
-              .bolt_server = instance.config.BoltSocketAddress(),
+              .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
+              .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
               .cluster_role = stringify_inst_status(instance),
               .health = "unknown"};
     };

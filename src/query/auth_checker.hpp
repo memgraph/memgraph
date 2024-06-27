@@ -100,7 +100,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
   struct User : query::QueryUserOrRole {
     User() : query::QueryUserOrRole{std::nullopt, std::nullopt} {}
     User(std::string name) : query::QueryUserOrRole{std::move(name), std::nullopt} {}
-    bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/, const std::string & /*db_name*/,
+    bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/, std::string_view /*db_name*/,
                       UserPolicy * /*policy*/) const override {
       return true;
     }

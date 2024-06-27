@@ -24,7 +24,7 @@ namespace memgraph::io::network {
 class Endpoint {
  public:
   Endpoint() = default;
-  Endpoint(std::string const &ip_address, uint16_t port);
+  Endpoint(std::string address, uint16_t port);
 
   Endpoint(Endpoint const &) = default;
   Endpoint(Endpoint &&) noexcept = default;
@@ -39,14 +39,25 @@ class Endpoint {
   static std::optional<Endpoint> ParseAndCreateSocketOrAddress(std::string_view address,
                                                                std::optional<uint16_t> default_port = {});
 
+  // Returns hostname as specified by user. Could be FQDN (IP address) or DNS name.
   [[nodiscard]] auto GetAddress() const -> std::string const &;
-  [[nodiscard]] auto GetPort() const -> uint16_t const &;
-  [[nodiscard]] auto GetIpFamily() const -> IpFamily const &;
   [[nodiscard]] auto GetAddress() -> std::string &;
+  [[nodiscard]] auto GetPort() const -> uint16_t const &;
   [[nodiscard]] auto GetPort() -> uint16_t &;
-  [[nodiscard]] auto GetIpFamily() -> IpFamily &;
+
+  // Does resolution
+  [[nodiscard]] auto GetIpFamily() const -> IpFamily;
+
+  void SetAddress(std::string address);
+  void SetPort(uint16_t port);
 
   [[nodiscard]] std::string SocketAddress() const;
+
+  // Returns IP address:port, after resolving the hostname.
+  [[nodiscard]] std::string GetResolvedSocketAddress() const;
+
+  // Returns IP address, after resolving the hostname.
+  [[nodiscard]] std::string GetResolvedIPAddress() const;
 
   bool operator==(const Endpoint &other) const = default;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
@@ -57,9 +68,8 @@ class Endpoint {
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;
 
-  std::string address_;
+  std::string address_{};
   uint16_t port_{0};
-  IpFamily ip_family_{IpFamily::NONE};
 };
 
 void to_json(nlohmann::json &j, Endpoint const &config);

@@ -712,6 +712,7 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::Bool:
           case storage::PropertyValue::Type::List:
           case storage::PropertyValue::Type::Map:
+          case storage::PropertyValue::Type::Enum:
             // Prevent indexed lookup with something that would fail if we did
             // the original filter with `operator<`. Note, for some reason,
             // Cypher does not support comparing boolean values.

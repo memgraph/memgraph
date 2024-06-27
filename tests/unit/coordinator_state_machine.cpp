@@ -10,6 +10,9 @@
 // licenses/APL.txt.
 
 #include "nuraft/coordinator_state_machine.hpp"
+#include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
+#include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
@@ -17,6 +20,13 @@
 #include "json/json.hpp"
 
 #include "libnuraft/nuraft.hxx"
+
+#include <range/v3/view.hpp>
+#include "coordination/coordinator_communication_config.hpp"
+
+using memgraph::coordination::CoordinatorStateManager;
+using memgraph::coordination::CoordinatorStateManagerConfig;
+using memgraph::coordination::CoordinatorToCoordinatorConfig;
 
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
@@ -28,14 +38,32 @@ using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::utils::UUID;
 using nuraft::buffer;
 using nuraft::buffer_serializer;
+using nuraft::cluster_config;
+using nuraft::cs_new;
 using nuraft::ptr;
+using nuraft::snapshot;
+using nuraft::srv_config;
+
+namespace {
+void CompareServers(ptr<srv_config> const &temp_server, ptr<srv_config> const &loaded_server) {
+  ASSERT_EQ(temp_server->get_id(), loaded_server->get_id());
+  ASSERT_EQ(temp_server->get_endpoint(), loaded_server->get_endpoint());
+  ASSERT_EQ(temp_server->get_aux(), loaded_server->get_aux());
+}
+}  // namespace
 
 // No networking communication in this test.
 class CoordinatorStateMachineTest : public ::testing::Test {
  protected:
-  void SetUp() override {}
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
-  void TearDown() override {}
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
                                      "MG_tests_unit_coordinator_state_machine"};
@@ -124,4 +152,54 @@ TEST_F(CoordinatorStateMachineTest, SerializeUpdateUUID) {
   buffer_serializer bs(*data);
   auto const expected = nlohmann::json{{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}};
   ASSERT_EQ(bs.get_str(), expected.dump());
+}
+
+TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
+  ptr<cluster_config> old_config;
+  using memgraph::coordination::Logger;
+  using memgraph::coordination::LoggerWrapper;
+
+  Logger logger("");
+  LoggerWrapper my_logger(&logger);
+  auto const path = test_folder_ / "serialize_deserialize_snapshot" / "state_machine";
+  {
+    auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
+
+    memgraph::coordination::LogStoreDurability log_store_durability{
+        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    CoordinatorStateMachine state_machine{my_logger, log_store_durability};
+    CoordinatorStateManagerConfig config{
+        0,           12345,
+        9090,        test_folder_ / "high_availability" / "coordination" / "state_manager",
+        "localhost", log_store_durability};
+    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
+    old_config = state_manager_->load_config();
+    auto const c2c =
+        CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
+                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346}};
+    auto temp_srv_config =
+        cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
+    // second coord stored here
+    old_config->get_servers().push_back(temp_srv_config);
+    state_manager_->save_config(*old_config);
+    ASSERT_EQ(old_config->get_servers().size(), 2);
+
+    auto nuraft_snapshot = cs_new<snapshot>(1, 1, old_config, 1);
+    nuraft::async_result<bool>::handler_type handler = [](auto &e, auto &t) {};
+    state_machine.create_snapshot(*nuraft_snapshot, handler);
+  }
+
+  {
+    auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability log_store_durability{
+        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    CoordinatorStateMachine state_machine{my_logger, log_store_durability};
+    auto last_snapshot = state_machine.last_snapshot();
+    ASSERT_EQ(last_snapshot->get_last_log_idx(), 1);
+    auto zipped_view = ranges::views::zip(old_config->get_servers(), last_snapshot->get_last_config()->get_servers());
+    std::ranges::for_each(zipped_view, [](auto const &pair) {
+      auto &[temp_server, loaded_server] = pair;
+      CompareServers(temp_server, loaded_server);
+    });
+  }
 }
