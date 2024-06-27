@@ -119,7 +119,7 @@ jobs:
 
       - name: Check if rc image for this build exists
         run: |
-          if [[ "${{ matrix.build_type }}" == "Release"]]; then
+          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
             if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} &> /dev/null; then
               echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker}"
               exit 1
