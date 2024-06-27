@@ -4,6 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       release_version:
@@ -22,10 +23,11 @@ on:
 env:
   s3_region: "eu-west-1"
   rc_bucket: "deps.memgraph.io"
-  rc_dir: "memgraph/v${{ github.event.inputs.release_version }}-rc${{ github.event.inputs.rc_version }}"
-  release_bucket: "download.memgraph.com"
-  release_dir: "memgraph/v${{ github.event.inputs.release_version }}"
-  binary_base: "memgraph-${{ github.event.inputs.release_version }}"
+  rc_dir: "memgraph/v2.18.0-rc1"
+  # release_bucket: "download.memgraph.com"
+  release_bucket: "deps.memgraph.io"
+  release_dir: "memgraph-release-test/v2.18.0"
+  binary_base: "memgraph-2.18.0"
   binary_rpm_ext: "_1-1.x86_64.rpm"
   binary_deb_amd_ext: "-1_amd64.deb"
   binary_deb_arm_ext: "-1_arm64.deb"
@@ -102,7 +104,7 @@ jobs:
         os: [docker]
         build_type: [Release, RelWithDebInfo]
     env:
-      binary_name: "memgraph-${{ github.event.inputs.release_version }}-${{ matrix.os }}.tar.gz"
+      binary_name: "memgraph-2.18.0-${{ matrix.os }}.tar.gz"
     steps:
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -130,9 +132,9 @@ jobs:
 
       - name: Check if release image for this build aldready exists
         run: |
-          image_name=memgraph/memgraph:${{ github.event.inputs.release_version }}
+          image_name=memgraph/memgraph:2.18.0
           if [[ ${{ matrix.build_type == "RelWithDebInfo" }} ]]; then
-            image_name=memgraph/memgraph:${{ github.event.inputs.release_version }}-relwithdebinfo
+            image_name=memgraph/memgraph:2.18.0-relwithdebinfo
           fi
           if docker manifest inspect ${image_name} &> /dev/null; then
             echo "Release image ${image_name} already exists on DockerHub"
@@ -165,9 +167,9 @@ jobs:
       - name: Promote RC to Release
         run: |
           if [[ ${{ matrix.build_type == "Release" }} ]]; then
-            docker push memgraph/memgraph:${{ github.event.inputs.release_version }}
-            echo "Successfully published memgraph/memgraph:${{ github.event.inputs.release_version }} to DockerHub"
+            docker push memgraph/memgraph:2.18.0
+            echo "Successfully published memgraph/memgraph:2.18.0 to DockerHub"
           else
-            docker push memgraph/memgraph:${{ github.event.inputs.release_version }}-relwithdebinfo
-            echo "Successfully published memgraph/memgraph:${{ github.event.inputs.release_version }}-relwithdebinfo to DockerHub"
+            docker push memgraph/memgraph:2.18.0-relwithdebinfo
+            echo "Successfully published memgraph/memgraph:2.18.0-relwithdebinfo to DockerHub"
           fi
