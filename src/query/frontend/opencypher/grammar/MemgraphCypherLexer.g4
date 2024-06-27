@@ -50,6 +50,7 @@ COORDINATOR             : C O O R D I N A T O R ;
 CREATE_DELETE           : C R E A T E UNDERSCORE D E L E T E ;
 CREDENTIALS             : C R E D E N T I A L S ;
 CSV                     : C S V ;
+CURRENT                 : C U R R E N T ;
 DATA                    : D A T A ;
 DO                      : D O ;
 DELIMITER               : D E L I M I T E R ;

@@ -405,8 +405,6 @@ nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) 
   return ret;
 }
 
-bool Module::IsUsed() const { return !module_executable_path_.empty(); }
-
 void Module::Shutdown() {
   if (pid_ == -1) return;
 

@@ -69,6 +69,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(GreaterOperator);
   UNSUCCESSFUL_VISIT(LessEqualOperator);
   UNSUCCESSFUL_VISIT(GreaterEqualOperator);
+  UNSUCCESSFUL_VISIT(RangeOperator);
 
   UNSUCCESSFUL_VISIT(NotOperator);
   UNSUCCESSFUL_VISIT(UnaryPlusOperator);
@@ -148,6 +149,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(GreaterOperator)
   INVALID_VISIT(LessEqualOperator)
   INVALID_VISIT(GreaterEqualOperator)
+  INVALID_VISIT(RangeOperator)
   INVALID_VISIT(InListOperator)
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
@@ -248,6 +250,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
+
+  TypedValue Visit(RangeOperator &op) override { return op.expr1_->Accept(*this) && op.expr2_->Accept(*this); }
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);

@@ -55,7 +55,8 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
 
   CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
-                                                     coordinator_state_manager_durability_dir};
+                                                     coordinator_state_manager_durability_dir,
+                                                     config.coordinator_hostname};
   auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
   LogStoreDurability log_store_durability;
 
@@ -520,13 +521,12 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  // TODO: (andi) This is wrong check, Fico will correct in #1819.
   auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::MAIN;
+    return IsCurrentMain(instance.config.instance_name);
   };
 
   auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return instance.status == ReplicationRole::REPLICA;
+    return !IsCurrentMain(instance.config.instance_name);
   };
 
   auto const &raft_log_repl_instances = GetReplicationInstances();

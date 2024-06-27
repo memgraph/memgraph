@@ -19,7 +19,6 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -27,7 +26,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "query/plan/rewrite/index_lookup.hpp"
+#include "query/plan/rewrite/general.hpp"
 #include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
@@ -48,7 +47,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
 
     return true;
   }
@@ -60,7 +59,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
       Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
+      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_, ast_storage_);
       op.all_filters_ = std::move(leftover_filters);
     }
 

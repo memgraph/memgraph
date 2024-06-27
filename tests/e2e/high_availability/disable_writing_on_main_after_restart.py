@@ -99,6 +99,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=1",
             "--coordinator-port=10111",
+            "--coordinator-hostname",
+            "localhost",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator1.log",
         "setup_queries": [],
@@ -111,6 +113,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=2",
             "--coordinator-port=10112",
+            "--coordinator-hostname",
+            "localhost",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator2.log",
         "setup_queries": [],
@@ -124,6 +128,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=3",
             "--coordinator-port=10113",
             "--also-log-to-stderr",
+            "--coordinator-hostname",
+            "localhost",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator3.log",
         "setup_queries": [],
@@ -139,16 +145,16 @@ def test_writing_disabled_on_main_restart():
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
     )
 
     def check_coordinator3():
@@ -157,20 +163,20 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -187,10 +193,10 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "follower"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "follower"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "leader"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)

@@ -647,6 +647,35 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
   friend class AstStorage;
 };
 
+class RangeOperator : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  Expression *expr1_{};
+  Expression *expr2_{};
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expr1_->Accept(visitor) && expr2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  RangeOperator *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<RangeOperator>();
+    object->expr1_ = expr1_ ? expr1_->Clone(storage) : nullptr;
+    object->expr2_ = expr2_ ? expr2_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class InListOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;
@@ -2918,6 +2947,7 @@ class AuthQuery : public memgraph::query::Query {
     CREATE_USER,
     SET_PASSWORD,
     DROP_USER,
+    SHOW_CURRENT_USER,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,

@@ -321,14 +321,16 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         execute_user_queries(
             ["USE DATABASE {}".format(db)], should_fail=True, failure_message=UNAUTHORIZED_ERROR, username="user2"
         )
-    print("\033[1;36m~~ Running with user3 (shouldn't even connect) ~~\033[0m")
+    print("\033[1;36m~~ Running with user3 (no main db) ~~\033[0m")
     execute_admin_queries(["GRANT {} TO User3".format("MULTI_DATABASE_USE")])
-    execute_user_queries(
-        ["USE DATABASE db2"],
-        connection_should_fail=True,
-        failure_message="Couldn't communicate with the server!",
-        username="user3",
-    )
+    for db in ["memgraph"]:
+        print("\033[1;36m~~ Running against db {} ~~\033[0m".format(db))
+        execute_user_queries(
+            ["USE DATABASE {}".format(db)], should_fail=True, failure_message=UNAUTHORIZED_ERROR, username="user3"
+        )
+    for db in ["db1", "db2"]:
+        print("\033[1;36m~~ Running against db {} ~~\033[0m".format(db))
+        execute_user_queries(["USE DATABASE {}".format(db), "MATCH (n) RETURN n;"], should_fail=False, username="user3")
     print("\033[1;36m~~ Finished checking connections and database switching ~~\033[0m\n")
 
     # Shutdown the memgraph binary

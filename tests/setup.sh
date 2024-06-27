@@ -10,7 +10,7 @@ PIP_DEPS=(
    "ldap3==2.6"
    "kafka-python==2.0.2"
    "requests==2.25.1"
-   "neo4j-driver==4.1.1"
+   "neo4j==5.14.1"
    "parse==1.18.0"
    "parse-type==0.5.2"
    "pytest==7.3.2"
@@ -91,6 +91,6 @@ EOF
 
         chmod +x ve3/bin/activate_e2e
     else
-        echo "Error: The toolchain virtual enviroonment activation is not a file."
+        echo "Error: The toolchain virtual environment activation is not a file."
     fi
 fi

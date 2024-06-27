@@ -597,6 +597,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define UMINUS(expr) this->storage.template Create<memgraph::query::UnaryMinusOperator>((expr))
 #define IS_NULL(expr) this->storage.template Create<memgraph::query::IsNullOperator>((expr))
 #define ADD(expr1, expr2) this->storage.template Create<memgraph::query::AdditionOperator>((expr1), (expr2))
+#define RANGE(expr1, expr2) this->storage.template Create<memgraph::query::RangeOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) this->storage.template Create<memgraph::query::LessOperator>((expr1), (expr2))
 #define LESS_EQ(expr1, expr2) this->storage.template Create<memgraph::query::LessEqualOperator>((expr1), (expr2))
 #define GREATER(expr1, expr2) this->storage.template Create<memgraph::query::GreaterOperator>((expr1), (expr2))

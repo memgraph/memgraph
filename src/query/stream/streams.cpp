@@ -608,8 +608,15 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       }
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
+      std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        auto owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+      } catch (const utils::BasicException &e) {
+        spdlog::warn(
+            fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
+        return;
+      }
+      try {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(owner), db, ic);
         if (status.is_running) {
           std::visit(

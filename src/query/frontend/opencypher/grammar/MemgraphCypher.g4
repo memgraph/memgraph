@@ -47,6 +47,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
                       | DO
                       | DELIMITER
@@ -205,6 +206,7 @@ authQuery : createRole
           | createUser
           | setPassword
           | dropUser
+          | showCurrentUser
           | showUsers
           | setRole
           | clearRole
@@ -339,6 +341,8 @@ ifNotExists : IF NOT EXISTS ;
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 

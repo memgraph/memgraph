@@ -2291,6 +2291,13 @@ TEST_P(CypherMainVisitorTest, DropUser) {
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, ShowCurrentUser) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT USERNAME"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", "", "", {}, {}, {},
+                   {});
+}
+
 TEST_P(CypherMainVisitorTest, ShowUsers) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);
