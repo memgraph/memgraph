@@ -42,6 +42,7 @@ struct CoordinatorInstanceInitConfig {
   uint32_t coordinator_id{0};
   int coordinator_port{0};
   int bolt_port{0};
+  int management_port{0};
   std::filesystem::path durability_dir;
   std::string coordinator_hostname;
   std::string nuraft_log_file;
@@ -50,12 +51,13 @@ struct CoordinatorInstanceInitConfig {
   // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
   explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
-                                         std::filesystem::path durability_dir, 
-                                         std::string coordinator_hostname,
-                                         std::string nuraft_log_file = "", bool use_durability=true)
+                                         int management_port, std::filesystem::path durability_dir,
+                                         std::string coordinator_hostname, std::string nuraft_log_file = "",
+                                         bool use_durability = true)
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
         bolt_port(bolt_port),
+        management_port(management_port),
         durability_dir(std::move(durability_dir)),
         coordinator_hostname(std::move(coordinator_hostname)),
         nuraft_log_file(std::move(nuraft_log_file)),
@@ -75,17 +77,18 @@ struct CoordinatorStateManagerConfig {
   uint32_t coordinator_id_{0};
   int coordinator_port_{0};
   int bolt_port_{0};
+  int management_port_{0};
   std::filesystem::path state_manager_durability_dir_;
   std::string coordinator_hostname;
   std::optional<LogStoreDurability> log_store_durability_;
 
-  CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
-                                std::filesystem::path state_manager_durability_dir,
-                                std::string coordinator_hostname,
+  CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
+                                std::filesystem::path state_manager_durability_dir, std::string coordinator_hostname,
                                 std::optional<LogStoreDurability> log_store_durability = std::nullopt)
       : coordinator_id_(coordinator_id),
         coordinator_port_(coordinator_port),
         bolt_port_(bolt_port),
+        management_port_(management_port),
         state_manager_durability_dir_(std::move(state_manager_durability_dir)),
         coordinator_hostname(std::move(coordinator_hostname)),
         log_store_durability_(std::move(log_store_durability)) {
@@ -135,6 +138,7 @@ struct CoordinatorToCoordinatorConfig {
   uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
+  io::network::Endpoint management_server;
   // Currently, this is needed additionally to the coordinator_server but maybe we could put hostname into bolt_server
   // and coordinator_server.
   std::string coordinator_hostname;
@@ -143,8 +147,8 @@ struct CoordinatorToCoordinatorConfig {
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
 
-struct ManagementServerConfig {
-  io::network::Endpoint endpoint;
+// TODO(antoniofilipovic) remove this
+struct DataInstanceManagementServerConfig {
   struct SSL {
     std::string key_file;
     std::string cert_file;
@@ -153,9 +157,30 @@ struct ManagementServerConfig {
     friend bool operator==(SSL const &, SSL const &) = default;
   };
 
+  io::network::Endpoint endpoint;
   std::optional<SSL> ssl;
 
-  friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
+  friend bool operator==(DataInstanceManagementServerConfig const &,
+                         DataInstanceManagementServerConfig const &) = default;
+};
+
+struct CoordinatorInstanceManagementServerConfig {
+  struct SSL {
+    std::string key_file;
+    std::string cert_file;
+    std::string ca_file;
+    bool verify_peer{};
+    friend bool operator==(SSL const &, SSL const &) = default;
+  };
+
+  io::network::Endpoint endpoint;
+  std::optional<SSL> ssl;
+
+  explicit CoordinatorInstanceManagementServerConfig(io::network::Endpoint endpoint, std::optional<SSL> ssl = {})
+      : endpoint(std::move(endpoint)), ssl(std::move(ssl)) {}
+
+  friend bool operator==(CoordinatorInstanceManagementServerConfig const &,
+                         CoordinatorInstanceManagementServerConfig const &) = default;
 };
 
 struct InstanceUUIDUpdate {

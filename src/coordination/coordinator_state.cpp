@@ -31,7 +31,7 @@ CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) 
 }
 
 CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
-  auto const mgmt_config = ManagementServerConfig{
+  auto const mgmt_config = DataInstanceManagementServerConfig{
       .endpoint = io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)},
   };
   data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =

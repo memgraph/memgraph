@@ -19,6 +19,7 @@
 #include <optional>
 #include <string_view>
 
+#include "coordination/coord_instance_management_server.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
@@ -83,6 +84,8 @@ class CoordinatorInstance {
   auto IsLeader() const -> bool;
 
   void ShuttingDown();
+
+  auto SendShowInstancesRPC(rpc::Client &rpc_client_) const -> std::optional<std::vector<InstanceStatus>>;
 
  private:
   template <ranges::forward_range R>
@@ -161,6 +164,28 @@ class CoordinatorInstance {
   // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
+
+  CoordinatorInstanceManagementServerConfig management_server_config_;
+
+  struct CoordLeader {
+    CoordInstanceManagementServer server_;
+
+    explicit CoordLeader(CoordinatorInstanceManagementServerConfig const &config) : server_{config} {}
+  };
+
+  struct CoordFollower {
+    static auto CreateClientContext(CoordinatorInstanceManagementServerConfig const &config)
+        -> communication::ClientContext {
+      return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                          : communication::ClientContext{};
+    }
+    communication::ClientContext rpc_context_;
+    mutable rpc::Client rpc_client_;
+
+    explicit CoordFollower(CoordinatorInstanceManagementServerConfig const &config)
+        : rpc_context_{CreateClientContext(config)}, rpc_client_{config.endpoint, &rpc_context_} {}
+  };
+  mutable std::variant<std::monostate, CoordLeader, CoordFollower> leader_follower_logic_;
 };
 
 }  // namespace memgraph::coordination

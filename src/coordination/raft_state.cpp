@@ -54,7 +54,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
   memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
 
-  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
+  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
+                                                     config.coordinator_port,
+                                                     config.bolt_port,
+                                                     config.management_port,
                                                      coordinator_state_manager_durability_dir,
                                                      config.coordinator_hostname};
   auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));

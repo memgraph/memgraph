@@ -5,16 +5,19 @@ target_sources(mg-coordination
         include/coordination/replication_instance_client.hpp
         include/coordination/coordinator_state.hpp
         include/coordination/coordinator_rpc.hpp
+        include/coordination/coord_instance_management_server.hpp
         include/coordination/data_instance_management_server.hpp
         include/coordination/coordinator_communication_config.hpp
         include/coordination/coordinator_exceptions.hpp
         include/coordination/coordinator_slk.hpp
         include/coordination/coordinator_instance.hpp
-        include/coordination/data_management_server_handlers.hpp
+        include/coordination/data_instance_management_server_handlers.hpp
         include/coordination/instance_status.hpp
         include/coordination/replication_instance_connector.hpp
         include/coordination/raft_state.hpp
         include/coordination/rpc_errors.hpp
+        include/coordination/coord_instance_management_server_handlers.hpp
+
 
         include/nuraft/raft_log_action.hpp
         include/nuraft/coordinator_cluster_state.hpp
@@ -31,8 +34,10 @@ target_sources(mg-coordination
         replication_instance_client.cpp
         coordinator_state.cpp
         coordinator_rpc.cpp
+        coord_instance_management_server.cpp
         data_instance_management_server.cpp
-        data_management_server_handlers.cpp
+        data_instance_management_server_handlers.cpp
+        coord_instance_management_server_handlers.cpp
         coordinator_instance.cpp
         replication_instance_connector.cpp
         raft_state.cpp
