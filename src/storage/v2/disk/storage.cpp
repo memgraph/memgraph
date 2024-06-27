@@ -317,7 +317,7 @@ DiskStorage::DiskStorage(Config config)
   kvstore_->options_.wal_compression = rocksdb::kNoCompression;
 
   rocksdb::BlockBasedTableOptions table_options;
-  table_options.block_cache = rocksdb::NewLRUCache(48 * 1024 * 1024 /*256 * 1024 * 1024*/, 0, true, 0.1);
+  table_options.block_cache = rocksdb::NewLRUCache(120 * 1024 * 1024 /*256 * 1024 * 1024*/, 0, true, 0.1);
   block = table_options.block_cache;
   table_options.cache_index_and_filter_blocks = false;
   table_options.pin_l0_filter_and_index_blocks_in_cache = false;
@@ -396,7 +396,7 @@ DiskStorage::DiskStorage(Config config)
   }
 
   // Experimental eviction policy
-  page_cache_.reserve(1000);
+  page_cache_.reserve(10000);
 }
 
 DiskStorage::~DiskStorage() {
@@ -1447,9 +1447,9 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 [[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushVertices(
     Transaction *transaction, auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
-  auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
-  auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
+  // auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
+  // auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
+  // auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   // std::vector<uint32_t> histo(32768 / 128, 0);
 
@@ -1458,8 +1458,10 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   uint64_t id_begin = (vertex_acc.begin() != vertex_acc.end()) ? vertex_acc.begin()->gid.AsUint() : -1;
   uint64_t id_end = -1;
 
+  int64_t id_max_edges = -1;
+  int64_t max_edges = 0;
   // BIG HACK to make mutable queries work; Read everything,, modify, delete everything from disk, write new values
-  bool flush_all = transaction->scanned_all_vertices_;
+  bool flush_all = transaction && transaction->scanned_all_vertices_;
   if (flush_all) {
     auto min_key = utils::StringifyInt<uint32_t, uint32_t>(0) + utils::StringifyInt<uint32_t, uint32_t>(0);
     auto max_key = utils::StringifyInt<uint32_t, uint32_t>(-1) + utils::StringifyInt<uint32_t, uint32_t>(-1);
@@ -1472,15 +1474,20 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     // for (auto &index : transaction->prop_id_index_) {
     for (auto &index : transaction->index_storage_)
       for (auto &new_v : index->access()) {
-        // auto &new_v = index.second;
         auto old_v = vertex_acc.find(new_v.gid);
-        old_v->in_edges.reserve(old_v->in_edges.size() + new_v.in_edges.size());
+        const auto n_in_edges = old_v->in_edges.size() + new_v.in_edges.size();
+        old_v->in_edges.reserve(n_in_edges);
         for (auto &e : new_v.in_edges) {
           old_v->in_edges.push_back(std::move(e));
         }
-        old_v->out_edges.reserve(old_v->out_edges.size() + new_v.out_edges.size());
+        const auto n_out_edges = old_v->out_edges.size() + new_v.out_edges.size();
+        old_v->out_edges.reserve(n_out_edges);
         for (auto &e : new_v.out_edges) {
           old_v->out_edges.push_back(std::move(e));
+        }
+        if (n_out_edges + n_in_edges > max_edges) {
+          max_edges = n_out_edges + n_in_edges;
+          id_max_edges = new_v.properties.GetProperty(NameToProperty("id")).ValueInt();
         }
       }
   }
@@ -1488,10 +1495,19 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   std::vector<IndexEntry *> to_update;
   std::vector<IndexEntry *> to_update_gid;
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  long n = 0;
+
+  std::cout << std::endl;
+  std::cout << std::endl;
+  std::cout << "\t\tMax connected vertex id " << id_max_edges << " (" << max_edges << ")" << std::endl;
+  std::cout << std::endl;
+  std::cout << std::endl;
+
+  auto commit_ts = transaction ? transaction->commit_timestamp->load(std::memory_order_relaxed) : 1;
   // TODO: FIX Caution; this is not ordered!!!
   for (const Vertex &vertex : vertex_acc) {
-    if (!flush_all && !VertexNeedsToBeSerialized(vertex)) {
+    // transaction == null means that we are switching storage modes
+    if (transaction && !flush_all && !VertexNeedsToBeSerialized(vertex)) {
       continue;
     }
     // if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
@@ -1501,6 +1517,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     if (vertex.deleted) {
       continue;
     }
+
+    ++n;
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
     // if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
@@ -1575,7 +1593,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
     // ++histo[val.size() / 128];
 
-    if (page.size() - 4 <= chunk_pos + val.size()) {
+    if (page.size() - 16 <= chunk_pos + val.size()) {
       if (chunk_pos != 0) {  // leave last 4 to be 0 always (chunk size = 0 == end)
         // Flush
         std::string key =
@@ -1601,22 +1619,23 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       chunk_pos = 0;
     }
 
-    if (page.size() - 4 < val.size()) {
-      // Too big for a single page; flush as is
+    // Too big for a single page; flush as is
+    // special case, no size header or footer
+    if (page.size() - 8 < val.size()) {
       std::cout << val.size() << std::endl;
       id_end = vertex.gid.AsUint();
       // Flush
-      std::string ugh(val.size() + 4 + 4, '\0');
-      *(uint32_t *)&ugh[0] = val.size();
-      memcpy(&ugh[4], val.data(), val.size());
+      // std::string ugh(val.size() + 4 + 4, '\0');
+      // *(uint32_t *)&ugh[0] = val.size();
+      // memcpy(&ugh[4], val.data(), val.size());
       std::string key =
           utils::StringifyInt<uint64_t, uint32_t>(id_begin) + utils::StringifyInt<uint64_t, uint32_t>(id_end);
-      status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, ugh);
+      status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, std::string_view{val.data(), val.size()});
       // Reset
       id_begin = vertex.gid.AsUint() + 1;  // HACK....
       chunk_pos = 0;
       // Update index
-      update_index(key, 4);
+      update_index(key, 0);
       to_update.clear();
       to_update_gid.clear();
       // Update page index
@@ -1634,6 +1653,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
     if (!status.ok()) {
       spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
+      std::cout << "failed " << status.ToString() << " on: " << __LINE__ << std::endl;
       return StorageManipulationError{SerializationError{}};
     }
 
@@ -1653,6 +1673,7 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
     auto status = kvstore_->db_notx->Put({}, kvstore_->vertex_chandle, key, page.substr(0, chunk_pos));
     if (!status.ok()) {
       spdlog::error("rocksdb: Failed to save vertex with key and ts {} to vertex column family", commit_ts);
+      std::cout << "failed " << status.ToString() << " on: " << __LINE__ << std::endl;
       return StorageManipulationError{SerializationError{}};
     }
     // Update index
@@ -1692,6 +1713,16 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   //   print_key(it->key().ToStringView());
   //   std::cout << std::endl;
   // }
+
+  // std::cout << n << std::endl;
+
+  // int i = 0;
+  // auto ro = GenRoOptions();
+  // auto itr = std::unique_ptr<rocksdb::Iterator>(kvstore_->db_notx->NewIterator(ro, kvstore_->vertex_chandle));
+  // for (itr->SeekToFirst(); itr->Valid(); itr->Next()) {
+  //   ++i;
+  // }
+  // std::cout << i << std::endl;
 
   return {};
 }
@@ -1987,7 +2018,7 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
     // std::cout << "\t\t" << block->GetPinnedUsage() << std::endl;
     // const auto dbp = kvstore_->db_notx->getProperty("rocksdb.block-cache-usage");
 
-    const auto *vertex = disk_exp::GetVertex(it->value().data() + pos.offset);
+    // const auto *vertex = disk_exp::GetVertex(it->value().data() + pos.offset);
     return VertexAccessor{&page, pos.offset, this};
 
     // TODO Without index

@@ -70,6 +70,7 @@ class AllVerticesIterable final {
     utils::SkipList<Vertex>::Iterator it_;
     bool last{false};
     uint8_t *chunk_ptr{};
+    bool whole{false};
 
    public:
     Iterator(AllVerticesIterable *self, utils::SkipList<Vertex>::Iterator it);

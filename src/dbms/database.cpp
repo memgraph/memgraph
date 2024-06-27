@@ -31,8 +31,10 @@ Database::Database(storage::Config config, replication::ReplicationState &repl_s
   }
 }
 
-void Database::SwitchToOnDisk() {
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_));
+std::unique_ptr<storage::Storage> Database::SwitchToOnDisk() {
+  auto old_storage = std::move(storage_);
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(old_storage->config_);
+  return old_storage;
 }
 
 }  // namespace memgraph::dbms

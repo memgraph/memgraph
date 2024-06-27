@@ -122,7 +122,7 @@ class Database {
    * @brief Switch storage to OnDisk
    *
    */
-  void SwitchToOnDisk();
+  std::unique_ptr<storage::Storage> SwitchToOnDisk();
 
   /**
    * @brief Returns the raw TriggerStore pointer

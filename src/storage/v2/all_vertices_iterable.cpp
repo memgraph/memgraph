@@ -39,8 +39,12 @@ AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, utils::SkipLi
 
 AllVerticesIterable::Iterator::Iterator(AllVerticesIterable *self, bool last) : self_(self), last(last) {
   if (!last) {
-    chunk_ptr = (uint8_t *)self_->itr->value().ToStringView().data();
-    auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+    auto data = self_->itr->value().ToStringView();
+    chunk_ptr = (uint8_t *)data.data();
+    // Special case for sizes that are larger than the page (whole value is a single chunk)
+    // Danger....magic numbers (see storage.cpp)
+    whole = data.size() > 24576 - 8;
+    auto *val_ptr = chunk_ptr + sizeof(uint32_t) * (!whole);
     auto *vertex = disk_exp::GetVertex(val_ptr);
     // TODO Update to cacheble pages
     self_->vertex_ = {vertex, self_->storage_};
@@ -99,10 +103,14 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
     return *this;
   }
 
-  auto val_size = *(uint32_t *)chunk_ptr;
-  chunk_ptr += sizeof(uint32_t) + val_size;
-  val_size = *(uint32_t *)chunk_ptr;
-  bool last_chunk = val_size == 0;
+  bool last_chunk = whole;
+
+  if (!whole) {
+    auto val_size = *(uint32_t *)chunk_ptr;
+    chunk_ptr += sizeof(uint32_t) + val_size;
+    val_size = *(uint32_t *)chunk_ptr;
+    last_chunk = val_size == 0;
+  }
 
   if (last_chunk) {
     self_->itr->Next();
@@ -113,7 +121,10 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   }
 
   if (!last) {
-    auto *val_ptr = chunk_ptr + sizeof(uint32_t);
+    // Special case for sizes that are larger than the page (whole value is a single chunk)
+    // Danger....magic numbers (see storage.cpp)
+    whole = self_->itr->value().size() > 24576 - 8;
+    auto *val_ptr = chunk_ptr + sizeof(uint32_t) * (!whole);
     auto *vertex = disk_exp::GetVertex(val_ptr);
     self_->vertex_ = {vertex, self_->storage_};
   }

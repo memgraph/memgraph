@@ -3474,27 +3474,43 @@ Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageM
     }
     if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
       if (!db.try_exclusively([](auto &in) {
-            if (!in.streams()->GetStreamInfo().empty()) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-                  "associated streams. Drop all streams and retry.");
-            }
+            // if (!in.streams()->GetStreamInfo().empty()) {
+            //   throw utils::BasicException(
+            //       "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+            //       "associated streams. Drop all streams and retry.");
+            // }
 
-            if (!in.trigger_store()->GetTriggerInfo().empty()) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-                  "associated triggers. Drop all triggers and retry.");
-            }
+            // if (!in.trigger_store()->GetTriggerInfo().empty()) {
+            //   throw utils::BasicException(
+            //       "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
+            //       "associated triggers. Drop all triggers and retry.");
+            // }
 
-            std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
-                  "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
-                  "query. ");
+            // std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
+            // if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
+            //   throw utils::BasicException(
+            //       "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
+            //       "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
+            //       "query. ");
+            // }
+            // main_guard.unlock();
+            auto old = in.SwitchToOnDisk();
+            auto *in_mem = static_cast<storage::InMemoryStorage *>(old.get());
+            auto *disk_storage = static_cast<storage::DiskStorage *>(in.storage());
+            disk_storage->vertex_id_.store(in_mem->vertex_id_);
+            disk_storage->edge_id_.store(in_mem->edge_id_);
+            disk_storage->name_id_mapper_ = std::move(in_mem->name_id_mapper_);
+            disk_storage->vertex_count_.store(in_mem->vertices_.size());
+            disk_storage->edge_count_.store(in_mem->edge_count_);
+            disk_storage->timestamp_ = in_mem->timestamp_;
+            disk_storage->transaction_id_ = in_mem->transaction_id_;
+
+            std::vector<std::vector<storage::PropertyValue>> unique_storage;
+            auto vacc = in_mem->vertices_.access();
+            if (auto vertices_flush_res = disk_storage->FlushVertices({}, vacc, unique_storage);
+                vertices_flush_res.HasError()) {
+              std::cout << "FAIL" << std::endl;
             }
-            main_guard.unlock();
-            in.SwitchToOnDisk();
           })) {  // Try exclusively failed
         throw utils::BasicException(
             "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
@@ -5236,7 +5252,7 @@ void Interpreter::ResetInterpreter() {
     auto *storage = current_db_.db_acc_->get()->storage();
     auto *disk = dynamic_cast<storage::DiskStorage *>(storage);
     if (disk) {
-      if (disk->page_cache_.size() > 100) {
+      if (disk->page_cache_.size() > 1000) {
         // std::cout << "clear cache" << std::endl;
         disk->page_cache_.clear();
         // int to_delete = disk->page_cache_.size() - 100;

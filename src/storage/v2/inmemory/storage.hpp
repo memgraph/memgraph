@@ -436,7 +436,10 @@ class InMemoryStorage final : public Storage {
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
   // Main object storage
+ public:
   utils::SkipList<storage::Vertex> vertices_;
+
+ private:
   utils::SkipList<storage::Edge> edges_;
   utils::SkipList<storage::EdgeMetadata> edges_metadata_;
 

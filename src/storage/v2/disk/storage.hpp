@@ -73,12 +73,23 @@ struct Page {
 struct PageCacheEntry {
   PageCacheEntry(Page *p) : p_{p} {
     // std::cout << "PageCacheEntry " << (void *)p_->itr->value().data() << std::endl;
-    p_->Get();
+    if (p_) p_->Get();
   }
   ~PageCacheEntry() {
     // std::cout << "~PageCacheEntry " << std::endl;
-    p_->Release();
+    if (p_) p_->Release();
   }
+  PageCacheEntry(PageCacheEntry &&other) { p_ = std::exchange(other.p_, nullptr); }
+  PageCacheEntry(PageCacheEntry const &other) : p_(other.p_) {
+    if (p_) p_->Get();
+  }
+
+  PageCacheEntry operator=(PageCacheEntry const &other) {
+    p_ = other.p_;
+    if (p_) p_->Get();
+    return *this;
+  }
+
   Page *p_;
 };
 
@@ -390,9 +401,10 @@ class DiskStorage final : public Storage {
   DurableMetadata durable_metadata_;
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
-  std::atomic<uint64_t> vertex_count_{0};
 
  public:
+  std::atomic<uint64_t> vertex_count_{0};
+
   struct IndexEntry {
     char key[2 * sizeof(uint32_t)];  // Works now, but keep an eye on it
     uint32_t offset;                 // Vertex offset from the value start
@@ -400,10 +412,10 @@ class DiskStorage final : public Storage {
   // struct index_hash {
   //   std::size_t operator()(std::pair<uint32_t, PropertyValue> const &v) const { return std::hash()(v.second); }
   // };
-  std::unordered_map</*std::pair<LabelId, PropertyValue>*/ uint64_t, IndexEntry> index_;
-  std::unordered_map</*Gid*/ uint64_t, IndexEntry> index_gid_;
-  std::unordered_map<std::string, Page> pages_;
-  std::vector<PageCacheEntry> page_cache_;
+  std::unordered_map</*std::pair<LabelId, PropertyValue>*/ uint64_t, IndexEntry> index_{};
+  std::unordered_map</*Gid*/ uint64_t, IndexEntry> index_gid_{};
+  std::unordered_map<std::string, Page> pages_{};
+  std::vector<PageCacheEntry> page_cache_{};
 };
 
 }  // namespace memgraph::storage
