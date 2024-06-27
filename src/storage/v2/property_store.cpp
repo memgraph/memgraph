@@ -1492,7 +1492,7 @@ bool PropertyStore::IsCompressed() const {
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
   bool in_local_buffer = size % 8 != 0;
-  if (in_local_buffer) {
+  if (in_local_buffer || size == 0) {
     return false;
   }
   const auto *compressor = utils::ZlibCompressor::GetInstance();
