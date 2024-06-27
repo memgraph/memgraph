@@ -22,7 +22,7 @@ struct InterpreterFaker {
   }
 
   auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
-    const auto [header, _1, qid, _2] = interpreter.Prepare(query, params, {});
+    const auto [header, _1, qid, _2] = interpreter.Prepare(query, [=](auto *) { return params; }, {});
     auto &db = interpreter.current_db_.db_acc_;
     ResultStreamFaker stream(db ? db->get()->storage() : nullptr);
     stream.Header(header);

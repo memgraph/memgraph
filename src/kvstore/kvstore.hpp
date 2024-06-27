@@ -155,6 +155,13 @@ class KVStore final {
   bool CompactRange(const std::string &begin_prefix, const std::string &end_prefix);
 
   /**
+   * Flushes all memtables to storage.
+   *
+   * @return - true if the flush finished successfully, false otherwise.
+   */
+  bool SyncWal();
+
+  /**
    * Custom prefix-based iterator over kvstore.
    *
    * It filters all (key, value) pairs where the key has a certain prefix

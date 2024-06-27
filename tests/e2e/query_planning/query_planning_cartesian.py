@@ -38,5 +38,37 @@ def test_indexed_join_with_indices(memgraph):
     assert expected_explain == actual_explain
 
 
+def test_indexed_join_with_indices_split(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(Prop1);")
+
+    expected_explain = [
+        " * Produce {a0, n0, n1, n2, n3, n4, n5, r0, r1, r2}",
+        " * Expand (n5)-[r2]->(n4)",
+        " * Filter (n5 :Label0:Label1)",
+        " * ScanAll (n5)",
+        " * Unwind",
+        " * EdgeUniquenessFilter {r0 : r1}",
+        " * IndexedJoin",
+        " |\\ ",
+        " | * Expand (n0)<-[r0]-(n1)",
+        " | * ScanAllByLabelPropertyRange (n0 :Label1 {Prop1})",
+        " | * Once",
+        " * Filter (n3 :Label0)",
+        " * Expand (n2)<-[r1]-(n3)",
+        " * Filter (n2 :Label1)",
+        " * ScanAll (n2)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n0 :Label1)<-[r0]-(n1), (n2 :Label1)<-[r1]-(n3 :Label0) UNWIND [1] AS a0 MATCH (n4)<-[r2]-(n5 :Label0 :Label1) WHERE (((n2.Prop0) > (n0.Prop1)))  RETURN *"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -545,8 +545,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           storage::PropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          auto prepare_result =
-              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
+          auto prepare_result = interpreter->Prepare(
+              query,
+              [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
+              {});
           if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
@@ -606,8 +608,15 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       }
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
+      std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        auto owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+      } catch (const utils::BasicException &e) {
+        spdlog::warn(
+            fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
+        return;
+      }
+      try {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(owner), db, ic);
         if (status.is_running) {
           std::visit(

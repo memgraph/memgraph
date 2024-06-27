@@ -20,6 +20,8 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "storage/v2/enum.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -333,9 +335,16 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     EXPECT_EQ(aggr_it, aggregations_.end());
     // TODO: Proper group by expression equality
     std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
     std::unordered_set<size_t> expected_group_by;
-    for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
+    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
+    auto is_constant = [](const Expression *expression) {
+      return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
+    };
+    std::ranges::for_each(group_by_, [&expected_group_by, &is_constant](auto *expr) {
+      if (!is_constant(expr)) {
+        expected_group_by.insert(typeid(*expr).hash_code());
+      }
+    });
     EXPECT_EQ(got_group_by, expected_group_by);
   }
 
@@ -666,6 +675,12 @@ class FakeDbAccessor {
   }
 
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    // Does this need to be less fake?
+    return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
+  }
 
  private:
   std::unordered_map<std::string, memgraph::storage::LabelId> labels_;

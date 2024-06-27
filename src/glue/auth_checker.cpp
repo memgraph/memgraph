@@ -146,7 +146,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name) {  // NOLINT
+                                   std::string_view db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
   if (!db_name.empty() && !user.HasAccess(db_name)) {
     return false;
@@ -161,7 +161,7 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
 
 bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name) {  // NOLINT
+                                   std::string_view db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
   if (!db_name.empty() && !role.HasAccess(db_name)) {
     return false;
@@ -176,7 +176,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
 
 bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_or_role,
                                          const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                         const std::string &db_name) {
+                                         std::string_view db_name) {
   return std::visit(
       utils::Overloaded{
           [&](const auth::User &user) -> bool { return AuthChecker::IsUserAuthorized(user, privileges, db_name); },

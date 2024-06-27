@@ -23,9 +23,9 @@ void ExpectPropEq(const memgraph::storage::PropertyValue &a, const memgraph::sto
 }
 
 void CheckJsonConversion(const memgraph::storage::PropertyValue &property_value) {
-  const auto json_string = memgraph::query::serialization::SerializePropertyValue(property_value).dump();
+  const auto json_string = memgraph::query::serialization::SerializePropertyValue(property_value, nullptr).dump();
   const auto json_object = nlohmann::json::parse(json_string);
-  ExpectPropEq(property_value, memgraph::query::serialization::DeserializePropertyValue(json_object));
+  ExpectPropEq(property_value, memgraph::query::serialization::DeserializePropertyValue(json_object, nullptr));
 }
 
 }  // namespace

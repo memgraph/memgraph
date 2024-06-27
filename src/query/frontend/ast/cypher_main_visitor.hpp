@@ -565,6 +565,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
+  antlrcpp::Any visitShowCurrentUser(MemgraphCypher::ShowCurrentUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
   antlrcpp::Any visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) override;
 
   /**
@@ -1105,6 +1110,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowEnumsQuery*
    */
   antlrcpp::Any visitShowEnumsQuery(MemgraphCypher::ShowEnumsQueryContext *ctx) override;
+
+  /**
+   * @return AlterEnumAddValueQuery*
+   */
+  antlrcpp::Any visitAlterEnumAddValueQuery(MemgraphCypher::AlterEnumAddValueQueryContext *ctx) override;
+
+  /**
+   * @return AlterEnumUpdateValueQuery*
+   */
+  antlrcpp::Any visitAlterEnumUpdateValueQuery(MemgraphCypher::AlterEnumUpdateValueQueryContext *ctx) override;
 
  public:
   Query *query() { return query_; }
