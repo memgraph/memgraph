@@ -30,9 +30,12 @@ env:
   package_deb_amd: "memgraph_2.18.0-1_amd64.deb"
   package_deb_arm: "memgraph_2.18.0-1_arm64.deb"
   package_docker: "memgraph-2.18.0-docker.tar.gz"
+  package_docker_relwithdebinfo: "memgraph-2.18.0-relwithdebinfo-docker.tar.gz"
+  docker_image: "memgraph/memgraph-release-test"
 
 jobs:
   PromotePackage:
+    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -100,15 +103,12 @@ jobs:
           echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}"
 
   PromoteDocker:
-    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         os: [docker]
         build_type: [Release, RelWithDebInfo]
-    env:
-      package_name: "memgraph-2.18.0-${{ matrix.os }}.tar.gz"
     steps:
       - name: Setup AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -120,25 +120,25 @@ jobs:
       - name: Check if rc image for this build exists
         run: |
           if [[ "${{ matrix.build_type }}" == "Release"]]; then
-            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} &> /dev/null; then
-              echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name}"
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker}"
               exit 1
-            elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name} &> /dev/null; then
-              echo "RC package for ${{ matrix.os }}-aarch64 does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name}"
+            elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }}-aarch64 does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker}"
               exit 1
             fi
           else
-            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name} &> /dev/null; then
-              echo "RC package for ${{ matrix.os }}-relwithdebinfo does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name}"
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }} relwithdebinfo does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo}"
               exit 1
             fi
           fi
 
       - name: Check if release image for this build aldready exists
         run: |
-          image_name=memgraph/memgraph:2.18.0
+          image_name=${docker_image}:2.18.0
           if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
-            image_name=memgraph/memgraph:2.18.0-relwithdebinfo
+            image_name=${docker_image}:2.18.0-relwithdebinfo
           fi
           if docker manifest inspect ${image_name} &> /dev/null; then
             echo "Release image ${image_name} already exists on DockerHub"
@@ -149,19 +149,6 @@ jobs:
             echo "Forcing promotion of existing release."
           fi
 
-      - name: Download and load rc images
-        run: | # Download amd + arm for Release and amd for RelwithDebInfo
-          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} - | docker load
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name} - | docker load
-          else
-            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name} - | docker load
-          fi
-
-      - name: Setup docker manifest
-        if: ${{ matrix.build_type == 'Release' }}
-        run: |
-
       - name: "Log in to Docker Hub"
         uses: docker/login-action@v3
         with:
@@ -171,9 +158,23 @@ jobs:
       - name: Promote RC to Release
         run: |
           if [[ "${{ matrix.build_type }}" == "Release" ]]; then
-            docker push memgraph/memgraph:2.18.0
-            echo "Successfully published memgraph/memgraph:2.18.0 to DockerHub"
+            # Download, load, retag and push Release images
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_name} - | docker load
+            docker tag memgraph/memgraph:2.18.0 ${docker_image}:2.18.0-arm64
+            docker push ${docker_image}:2.18.0-arm64
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_name} - | docker load
+            docker tag memgraph/memgraph:2.18.0 ${docker_image}:2.18.0-amd64
+            docker push ${docker_image}:2.18.0-amd64
+            # Setup manifest list for Release images
+            docker manifest create ${docker_image}:2.18.0 \
+            --amend ${docker_image}:2.18.0-amd64 \
+            --amend ${docker_image}:2.18.0-arm64 \
+            --amend ${docker_image}:latest
+            docker manifest push ${docker_image}:2.18.0
+            echo "Successfully published ${docker_image}:2.18.0 to DockerHub"
           else
-            docker push memgraph/memgraph:2.18.0-relwithdebinfo
-            echo "Successfully published memgraph/memgraph:2.18.0-relwithdebinfo to DockerHub"
+            aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_name} - | docker load
+            docker tag memgraph/memgraph:2.18.0-relwithdebinfo ${docker_image}:2.18.0-relwithdebinfo
+            docker push ${docker_image}:2.18.0-relwithdebinfo
+            echo "Successfully published ${docker_image}:2.18.0-relwithdebinfo to DockerHub"
           fi
