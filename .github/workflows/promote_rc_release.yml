@@ -92,8 +92,8 @@ jobs:
 
       - name: Promote RC to Release
         run: |
-          aws s3 cp s3://${rc_bucket}/${rc_dir}/${os}/${binary_name} s3://${release_bucket}/${release_dir}/${os}/${binary_name}
-          echo "Successfully promoted RC binary for ${os}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${os}/${binary_name}"
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${binary_name} s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}
+          echo "Successfully promoted RC binary for ${{ matrix.os }}-${{ matrix.arch }} to s3://${release_bucket}/${release_dir}/${{ matrix.os }}/${binary_name}"
 
   PromoteDocker:
     if: false
