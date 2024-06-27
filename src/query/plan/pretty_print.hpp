@@ -133,9 +133,9 @@ std::string ToString(EdgeAtom::Type type);
 
 std::string ToString(Ordering ord);
 
-nlohmann::json ToJson(Expression *expression);
+nlohmann::json ToJson(Expression *expression, const DbAccessor &dba);
 
-nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
+nlohmann::json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba);
 
 nlohmann::json ToJson(const Symbol &symbol);
 
@@ -145,7 +145,7 @@ nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
 
 nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
 
-nlohmann::json ToJson(NamedExpression *nexpr);
+nlohmann::json ToJson(NamedExpression *nexpr, const DbAccessor &dba);
 
 nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
                       const DbAccessor &dba);
@@ -154,7 +154,7 @@ nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
 
 nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
 
-nlohmann::json ToJson(const Aggregate::Element &elem);
+nlohmann::json ToJson(const Aggregate::Element &elem, const DbAccessor &dba);
 
 template <class T, class... Args>
 nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {

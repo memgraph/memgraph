@@ -252,6 +252,7 @@ const PropertyValue kSmallestTemporalData =
 const PropertyValue kSmallestZonedTemporalData = PropertyValue(
     ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
                       utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
+const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
@@ -328,6 +329,9 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
         break;
       case PropertyValue::Type::ZonedTemporalData:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Enum:
         // This is the last type in the order so we leave the upper bound empty.
         break;
     }
@@ -363,6 +367,9 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         break;
       case PropertyValue::Type::ZonedTemporalData:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+        break;
+      case PropertyValue::Type::Enum:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
         break;
     }
   }

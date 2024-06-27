@@ -282,6 +282,21 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
   spdlog::info("Constraints are recreated from metadata.");
 }
 
+void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                                       Indices *indices, Constraints *constraints, Config const &config,
+                                       RecoveryInfo const &recovery_info,
+                                       RecoveredIndicesAndConstraints const &indices_constraints) {
+  auto storage_dir = std::optional<std::filesystem::path>{};
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    storage_dir = config.durability.storage_directory;
+  }
+
+  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
+                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
+  RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
+                     GetParallelExecInfo(recovery_info, config));
+}
+
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
   return config.durability.allow_parallel_schema_creation
@@ -302,8 +317,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
                                                   utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
                                                   utils::SkipList<EdgeMetadata> *edges_metadata,
                                                   std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                                  Indices *indices, Constraints *constraints, const Config &config,
-                                                  uint64_t *wal_seq_num) {
+                                                  Indices *indices, Constraints *constraints, Config const &config,
+                                                  uint64_t *wal_seq_num, EnumStore *enum_store) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -335,8 +350,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot =
-            LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count, config);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                          edge_count, config, enum_store);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -354,15 +369,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
 
     if (!utils::DirExists(wal_directory_)) {
-      std::optional<std::filesystem::path> storage_dir = std::nullopt;
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        storage_dir = config.durability.storage_directory;
-      }
-
-      RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                             GetParallelExecInfoIndices(recovery_info, config), storage_dir);
-      RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                         GetParallelExecInfo(recovery_info, config));
+      // Apply data dependant meta structures now after all graph data has been loaded
+      RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
+                                        indices_constraints);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -463,7 +472,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items);
+                            edge_count, config.salient.items, enum_store);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
@@ -495,15 +504,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     spdlog::info("All necessary WAL files are loaded successfully.");
   }
 
-  std::optional<std::filesystem::path> storage_dir = std::nullopt;
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_dir = config.durability.storage_directory;
-  }
-
-  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
-                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
-  RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config));
+  // Apply meta structures now after all graph data has been loaded
+  RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
+                                    indices_constraints);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

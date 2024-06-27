@@ -131,6 +131,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(ShowEnumsQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
+  void Visit(AlterEnumAddValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(AlterEnumUpdateValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
@@ -183,6 +187,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   bool Visit(Identifier & /*unused*/) override { return true; }
   bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
   bool Visit(ParameterLookup & /*unused*/) override { return true; }
+  bool Visit(EnumValueAccess & /*unused*/) override { return true; }
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {

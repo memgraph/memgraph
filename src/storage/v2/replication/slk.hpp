@@ -25,4 +25,7 @@ void Load(storage::Gid *gid, slk::Reader *reader);
 void Save(const storage::PropertyValue &value, slk::Builder *builder);
 void Load(storage::PropertyValue *value, slk::Reader *reader);
 
+void Save(const storage::Enum &enum_val, slk::Builder *builder);
+void Load(storage::Enum *enum_val, slk::Reader *reader);
+
 }  // namespace memgraph::slk

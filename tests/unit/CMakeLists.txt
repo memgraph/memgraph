@@ -313,6 +313,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
+add_unit_test(storage_v2_enum_store.cpp)
+target_link_libraries(${test_prefix}storage_v2_enum_store mg-storage-v2)
+
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
 
@@ -469,6 +472,12 @@ if(MG_ENTERPRISE)
   target_include_directories(${test_prefix}coordinator_state_manager PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+if(MG_ENTERPRISE)
+  add_unit_test(coordinator_log_store.cpp)
+  target_link_libraries(${test_prefix}coordinator_log_store gflags mg-coordination mg-repl_coord_glue)
+  target_include_directories(${test_prefix}coordinator_log_store PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # Test RAFT state
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_raft_state.cpp)
@@ -481,6 +490,13 @@ if(MG_ENTERPRISE)
 add_unit_test(coordinator_instance.cpp)
 target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator env flag handler
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_env_flag_handler.cpp)
+target_link_libraries(${test_prefix}coordinator_env_flag_handler gflags mg-flags)
+target_include_directories(${test_prefix}coordinator_env_flag_handler PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
 # Test replication instance connector

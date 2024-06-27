@@ -417,6 +417,24 @@ TYPED_TEST(PrintToJsonTest, Filter) {
           })sep");
 }
 
+TYPED_TEST(PrintToJsonTest, FilterByEnum) {
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node1"));
+  last_op = std::make_shared<Filter>(
+      last_op, std::vector<std::shared_ptr<LogicalOperator>>{},
+      EQ(PROPERTY_LOOKUP(this->dba, "node1", this->dba.NameToProperty("prop")), ENUM_VALUE("Status", "Good")));
+
+  this->Check(last_op.get(), R"sep(
+          {
+            "name" : "Filter",
+            "expression" : "(== (PropertyLookup (Identifier \"node1\") \"prop\") Status::Good)",
+            "input" : {
+              "name" : "ScanAll",
+              "output_symbol" : "node1",
+              "input" : { "name" : "Once" }
+            }
+          })sep");
+}
+
 TYPED_TEST(PrintToJsonTest, Produce) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Produce>(
       nullptr, std::vector<NamedExpression *>{NEXPR("pet", LITERAL(5)), NEXPR("string", LITERAL("string"))});
@@ -503,6 +521,28 @@ TYPED_TEST(PrintToJsonTest, SetProperties) {
             "input_symbol" : "node",
             "rhs" : "{\"prop1\": 1, \"prop2\": \"propko\"}",
             "op" : "replace",
+            "input" : {
+              "name" : "ScanAll",
+              "output_symbol" : "node",
+              "input" : { "name" : "Once" }
+            }
+          })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, SetEnumProperty) {
+  memgraph::storage::PropertyId prop = this->dba.NameToProperty("prop");
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, this->GetSymbol("node"));
+  last_op =
+      std::make_shared<plan::SetProperty>(last_op, prop, PROPERTY_LOOKUP(this->dba, "node", prop),
+                                          ADD(PROPERTY_LOOKUP(this->dba, "node", prop), ENUM_VALUE("Status", "Good")));
+
+  this->Check(last_op.get(), R"sep(
+          {
+            "name" : "SetProperty",
+            "property" : "prop",
+            "lhs" : "(PropertyLookup (Identifier \"node\") \"prop\")",
+            "rhs" : "(+ (PropertyLookup (Identifier \"node\") \"prop\") Status::Good)",
             "input" : {
               "name" : "ScanAll",
               "output_symbol" : "node",

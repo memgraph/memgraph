@@ -273,7 +273,7 @@ TEST_F(BoltDecoder, Map) {
     }
     ASSERT_EQ(decoder.ReadValue(&dv), true);
     ASSERT_EQ(dv.type(), Value::Type::Map);
-    std::map<std::string, Value> &val = dv.ValueMap();
+    auto &val = dv.ValueMap();
     ASSERT_EQ(val.size(), 15);
     for (int j = 0; j < 15; ++j) {
       char tmp_chr = 'a' + j;

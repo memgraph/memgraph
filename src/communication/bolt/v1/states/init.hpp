@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,19 +14,69 @@
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <optional>
+#include <set>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/metrics.hpp"
+#include "flags/auth.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::communication::bolt {
 
 namespace details {
+
+template <typename TSession>
+void HandleAuthFailure(TSession &session) {
+  if (!session.encoder_.MessageFailure(
+          {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
+    spdlog::trace("Couldn't send failure message to the client!");
+  }
+  // Throw an exception to indicate to the network stack that the session
+  // should be closed and cleaned up.
+  throw SessionClosedException("The client is not authenticated!");
+}
+
+template <typename TSession>
+std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  if (!data.contains("principal")) {  // Special case principal = ""
+    spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
+    data["principal"] = "";
+  }
+  if (!data.contains("credentials")) {  // Special case credentials = ""
+    spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
+    data["credentials"] = "";
+  }
+  auto username = data["principal"].ValueString();
+  auto password = data["credentials"].ValueString();
+
+  if (!session.Authenticate(username, password)) {
+    HandleAuthFailure(session);
+  }
+
+  return std::nullopt;
+}
+
+template <typename TSession>
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  if (!data.contains("credentials")) {
+    spdlog::warn("The client didn’t supply the SSO token!");
+    return State::Close;
+  }
+
+  auto scheme = data["scheme"].ValueString();
+  auto identity_provider_response = data["credentials"].ValueString();
+  if (!session.SSOAuthenticate(scheme, identity_provider_response)) {
+    HandleAuthFailure(session);
+  }
+  return std::nullopt;
+}
+
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
@@ -39,35 +89,31 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
     data["scheme"] = "none";
   }
 
-  std::string username;
-  std::string password;
-  if (data["scheme"].ValueString() == "basic") {
-    if (!data.contains("principal")) {  // Special case principal = ""
-      spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
-      data["principal"] = "";
+  auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
+    if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
+      return false;
     }
-    if (!data.contains("credentials")) {  // Special case credentials = ""
-      spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
-      data["credentials"] = "";
+    for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
+      if (auth_scheme == utils::Trim(utils::Split(mapping, ":")[0])) {
+        return true;
+      }
     }
-    username = data["principal"].ValueString();
-    password = data["credentials"].ValueString();
-  } else if (data["scheme"].ValueString() != "none") {
-    spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
-    return State::Close;
+    return false;
+  };
+
+  if (data["scheme"].ValueString() == "basic" || data["scheme"].ValueString() == "none") {
+    return BasicAuthentication(session, data);
+  } else if (scheme_in_module_mappings(data["scheme"].ValueString())) {
+    return SSOAuthentication(session, data);
   }
 
-  // Authenticate the user.
-  if (!session.Authenticate(username, password)) {
-    if (!session.encoder_.MessageFailure(
-            {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
-      spdlog::trace("Couldn't send failure message to the client!");
-    }
-    // Throw an exception to indicate to the network stack that the session
-    // should be closed and cleaned up.
-    throw SessionClosedException("The client is not authenticated!");
-  }
-  return std::nullopt;
+  spdlog::warn(
+      "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
+      "flag or isn’t otherwise supported",
+      data["scheme"].ValueString());
+  HandleAuthFailure(session);
+
+  return State::Close;
 }
 
 template <typename TSession>
@@ -174,7 +220,7 @@ State SendSuccessMessage(TSession &session) {
   // The only usage in the mentioned version is for logging purposes.
   // Because it's not critical for the regular usage of the driver
   // we send a hardcoded value for now.
-  std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+  map_t metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", std::move(*server_name)});
   }
