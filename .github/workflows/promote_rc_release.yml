@@ -27,10 +27,9 @@ env:
   # release_bucket: "download.memgraph.com"
   release_bucket: "deps.memgraph.io"
   release_dir: "memgraph-release-test/v2.18.0"
-  binary_base: "memgraph-2.18.0"
-  binary_rpm_ext: "_1-1.x86_64.rpm"
-  binary_deb_amd_ext: "-1_amd64.deb"
-  binary_deb_arm_ext: "-1_arm64.deb"
+  binary_rpm: "memgraph-2.18.0_1-1.x86_64.rpm"
+  binary_deb_amd: "memgraph_2.18.0-1_amd64.deb"
+  binary_deb_arm: "memgraph_2.18.0-1_arm64.deb"
 
 jobs:
   PromotePackage:
@@ -63,11 +62,11 @@ jobs:
         run: |
           os=${{ matrix.os }}
           if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
-            binary_name=${binary_base}${binary_rpm_ext}
+            binary_name=${binary_rpm}
           else
-            binary_name=${binary_base}${binary_deb_amd_ext}
+            binary_name=${binary_deb_amd}
             if [[ "${{ matrix.arch }}" == "arm" ]]; then
-              binary_name=${binary_base}${binary_deb_arm_ext}
+              binary_name=${binary_deb_arm}
             fi
           fi
           echo "binary_name=$binary_name" >> $GITHUB_ENV
