@@ -22,7 +22,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
-#include "coordination/data_management_server_handlers.hpp"
+#include "coordination/data_instance_management_server_handlers.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -490,7 +490,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
-  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  auto const coordination_setup = memgraph::flags::CoordinationSetupInstance();
 #endif
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
@@ -509,8 +509,7 @@ int main(int argc, char **argv) {
   using memgraph::coordination::ReplicationInstanceInitConfig;
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
 
-  auto try_init_coord_state = [&coordinator_state,
-                               &extracted_bolt_port](memgraph::flags::CoordinationSetup const &coordination_setup) {
+  auto try_init_coord_state = [&coordinator_state, &extracted_bolt_port](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
           coordination_setup.coordinator_id)) {
       spdlog::trace("Aborting coordinator initialization.");
@@ -518,21 +517,24 @@ int main(int argc, char **argv) {
     }
 
     spdlog::trace("Creating coordinator state.");
-    if (coordination_setup.management_port &&
-        (coordination_setup.coordinator_port || coordination_setup.coordinator_id)) {
+    auto valid_combinations =
+        coordination_setup.management_port && coordination_setup.coordinator_port && coordination_setup.coordinator_id;
+    valid_combinations |= coordination_setup.management_port && !coordination_setup.coordinator_port &&
+                          !coordination_setup.coordinator_id;
+    if (!valid_combinations) {
       throw std::runtime_error(
-          "Coordinator cannot be started with both coordinator_id/port and management_port. Specify coordinator_id "
-          "and "
-          "port for coordinator instance and management port for replication instance.");
+          "Coordinator must be started with both coordinator_id/port and management_port. Data instance must be "
+          "started with only management port.");
     }
 
-    if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
+    if (coordination_setup.coordinator_id && coordination_setup.coordinator_port &&
+        coordination_setup.management_port) {
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
-          high_availability_data_dir, coordination_setup.coordinator_hostname, coordination_setup.nuraft_log_file,
-          coordination_setup.ha_durability});
+          coordination_setup.management_port, high_availability_data_dir, coordination_setup.coordinator_hostname,
+          coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
@@ -568,8 +570,8 @@ int main(int argc, char **argv) {
   // MAIN or REPLICA instance
   if (coordination_setup.management_port != 0) {
     spdlog::trace("Starting coordinator server.");
-    memgraph::dbms::DataManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
-                                                           replication_handler);
+    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                                   replication_handler);
     MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
   } else {
   }

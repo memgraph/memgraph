@@ -23,7 +23,7 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
-class DataManagementServerHandlers {
+class DataInstanceManagementServerHandlers {
  public:
   static void Register(memgraph::coordination::DataInstanceManagementServer &server,
                        replication::ReplicationHandler &replication_handler);

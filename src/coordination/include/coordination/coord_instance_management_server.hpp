@@ -18,15 +18,15 @@
 
 namespace memgraph::coordination {
 
-class DataInstanceManagementServer {
+class CoordInstanceManagementServer {
  public:
-  explicit DataInstanceManagementServer(const DataInstanceManagementServerConfig &config);
-  DataInstanceManagementServer(const DataInstanceManagementServer &) = delete;
-  DataInstanceManagementServer(DataInstanceManagementServer &&) = delete;
-  DataInstanceManagementServer &operator=(const DataInstanceManagementServer &) = delete;
-  DataInstanceManagementServer &operator=(DataInstanceManagementServer &&) = delete;
+  explicit CoordInstanceManagementServer(const CoordinatorInstanceManagementServerConfig &config);
+  CoordInstanceManagementServer(const CoordInstanceManagementServer &) = delete;
+  CoordInstanceManagementServer(CoordInstanceManagementServer &&) = delete;
+  CoordInstanceManagementServer &operator=(const CoordInstanceManagementServer &) = delete;
+  CoordInstanceManagementServer &operator=(CoordInstanceManagementServer &&) = delete;
 
-  virtual ~DataInstanceManagementServer();
+  virtual ~CoordInstanceManagementServer();
 
   bool Start();
 
