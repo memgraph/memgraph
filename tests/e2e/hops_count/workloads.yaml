@@ -1,13 +1,13 @@
-hops_limit_cluster: &hops_limit_cluster
+hops_count_cluster: &hops_count_cluster
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges"]
-      log_file: "hops_limit.log"
+      log_file: "hops_count.log"
       setup_queries: []
       validation_queries: []
 
 workloads:
-  - name: "Count limit for hops"
+  - name: "Count number of hops"
     binary: "tests/e2e/pytest_runner.sh"
-    args: ["hops_limit/count_hops.py"]
-    <<: *hops_limit_cluster
+    args: ["hops_count/hops_count.py"]
+    <<: *hops_count_cluster
