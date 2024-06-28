@@ -15,8 +15,6 @@
 #include <span>
 #include <thread>
 #include <variant>
-
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
@@ -127,8 +125,7 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
 
   /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                             const absl::flat_hash_set<LabelId> &labels);
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
   void Clear() override;
 
