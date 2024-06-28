@@ -309,7 +309,8 @@ storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, 
       auto mg_type = BoltMapToMgType(valueMap, storage);
       if (mg_type) return *mg_type;
 
-      std::map<std::string, storage::PropertyValue> map;
+      auto map = storage::PropertyValue::map_t{};
+      map.reserve(valueMap.size());
       for (const auto &[k, v] : valueMap) {
         map.try_emplace(k, ToPropertyValue(v, storage));
       }
