@@ -60,8 +60,6 @@ class Memgraph:
             database_args += ["--bolt-num-workers", str(self.num_workers)]
         if self.args.data_directory:
             database_args += ["--data-directory", self.args.data_directory]
-        if self.args.storage_recover_on_startup:
-            database_args += ["--data-recovery-on-startup"]
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
 
