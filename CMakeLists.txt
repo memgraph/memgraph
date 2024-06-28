@@ -292,9 +292,6 @@ if (USE_READLINE)
   endif()
 endif()
 
-set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-add_subdirectory(libs EXCLUDE_FROM_ALL)
-
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
@@ -341,8 +338,8 @@ if (ASAN)
   # llvm-symbolizer version must match the version of ASan runtime library).
   # Just make sure llvm-symbolizer is in PATH before running the binary or
   # provide it in separate ASAN_SYMBOLIZER_PATH environment variable.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
   # To detect Stack-use-after-return bugs set run-time flag:
   #   ASAN_OPTIONS=detect_stack_use_after_return=1
   # To check initialization order bugs set run-time flag:
@@ -381,12 +378,17 @@ if (UBSAN)
   # Compile with UBSAN but disable vptr check. This is disabled because it
   # requires linking with clang++ to make sure C++ specific parts of the
   # runtime library and c++ standard libraries are present.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined -fno-sanitize=vptr")
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr)
+  add_link_options(-fsanitize=undefined -fno-sanitize=vptr)
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
   # Make sure llvm-symbolizer binary is in path.
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
+
+
+# absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
+set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
+add_subdirectory(libs EXCLUDE_FROM_ALL)
 
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")

@@ -260,8 +260,8 @@ cd ctre
 file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
 cd ..
 
-# abseil 20230125.3
-absl_ref="20230125.3"
+# abseil 20240116.2
+absl_ref="20240116.2"
 repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
 
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
