@@ -198,7 +198,7 @@ query : cypherQuery
       | alterEnumUpdateValueQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -269,7 +269,13 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+
+usingStatementItem: hopsLimit | indexHints ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 

@@ -65,6 +65,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
@@ -1935,7 +1936,8 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::optional<int64_t> hops_limit = {});
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1966,11 +1968,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit) {
+  ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -2083,6 +2087,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
+
+  if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
+    throw QueryException("Query exceeded the maximum number of hops.");
+  }
 
   return GetStatsWithTotalTime(ctx_);
 }
@@ -2229,6 +2237,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
+
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  if (hops_limit) {
+    spdlog::debug("Running query with hops limit of {}", *hops_limit);
+  }
+
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2278,7 +2292,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2398,6 +2412,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
@@ -2425,14 +2441,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer)](AnyStream *stream,
-                                       std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       tx_timer = std::move(tx_timer),
+       hops_limit](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
