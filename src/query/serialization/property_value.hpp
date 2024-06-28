@@ -24,7 +24,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
 nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values,
                                             memgraph::query::DbAccessor *db_accessor);
 
-nlohmann::json SerializePropertyValueMap(std::map<std::string, storage::PropertyValue> const &parameters,
+nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &parameters,
                                          memgraph::query::DbAccessor *db_accessor);
 
 storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAccessor *db_accessor);
@@ -32,7 +32,7 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAc
 std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data,
                                                                  DbAccessor *db_accessor);
 
-std::map<std::string, storage::PropertyValue> DeserializePropertyValueMap(nlohmann::json::object_t const &data,
-                                                                          DbAccessor *db_accessor);
+storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object_t const &data,
+                                                          DbAccessor *db_accessor);
 
 }  // namespace memgraph::query::serialization

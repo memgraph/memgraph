@@ -84,7 +84,7 @@ std::vector<memgraph::storage::PropertyValue> GetPropertyValueListWithBasicTypes
           memgraph::storage::PropertyValue{1.0}};
 }
 
-std::map<std::string, memgraph::storage::PropertyValue> GetPropertyValueMapWithBasicTypes() {
+memgraph::storage::PropertyValue::map_t GetPropertyValueMapWithBasicTypes() {
   return {{"null", memgraph::storage::PropertyValue{}},
           {"bool", memgraph::storage::PropertyValue{true}},
           {"int", memgraph::storage::PropertyValue{1}},

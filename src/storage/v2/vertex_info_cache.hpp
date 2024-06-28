@@ -13,6 +13,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/small_vector.hpp"
 #include "storage/v2/view.hpp"
 
@@ -35,7 +36,6 @@ using optref = std::optional<std::reference_wrapper<T>>;
 // forward declarations
 struct Vertex;
 struct Transaction;
-class PropertyValue;
 
 /** For vertices with long delta chains, its possible that its expensive
  * to rebuild state for the relevant transaction. This cache is used to
