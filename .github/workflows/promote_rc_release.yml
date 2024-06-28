@@ -37,7 +37,6 @@ env:
 
 jobs:
   PromotePackage:
-    if: false
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
