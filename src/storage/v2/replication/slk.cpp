@@ -187,7 +187,8 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
     case storage::PropertyValue::Type::Map: {
       size_t size;
       slk::Load(&size, reader);
-      std::map<std::string, storage::PropertyValue> map;
+      auto map = storage::PropertyValue::map_t{};
+      map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
         std::pair<std::string, storage::PropertyValue> kv;
         slk::Load(&kv, reader);

@@ -526,7 +526,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
                              const std::unordered_map<NodeId, memgraph::storage::Gid> &node_id_map) {
   std::optional<memgraph::storage::Gid> start_id;
   std::optional<memgraph::storage::Gid> end_id;
-  std::map<std::string, memgraph::storage::PropertyValue> properties;
+  auto properties = memgraph::storage::PropertyValue::map_t{};
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     const auto &value = row[i];
