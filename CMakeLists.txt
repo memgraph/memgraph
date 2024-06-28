@@ -292,6 +292,7 @@ if (USE_READLINE)
   endif()
 endif()
 
+
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
@@ -384,7 +385,6 @@ if (UBSAN)
   # Make sure llvm-symbolizer binary is in path.
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
-
 
 # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
