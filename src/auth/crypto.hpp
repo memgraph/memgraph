@@ -24,6 +24,8 @@ auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
 
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view;
 
+auto HashSize(PasswordHashAlgorithm hash_algo) -> size_t;
+
 struct HashedPassword {
   HashedPassword() = default;
   HashedPassword(PasswordHashAlgorithm hash_algo, std::string password_hash)
@@ -51,4 +53,6 @@ struct HashedPassword {
 
 /// @throw AuthException if unable to hash the password.
 HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
+
+std::optional<HashedPassword> UserDefinedHash(std::string_view password);
 }  // namespace memgraph::auth

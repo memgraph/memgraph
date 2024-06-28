@@ -619,6 +619,8 @@ void User::UpdatePassword(const std::optional<std::string> &password,
   password_hash_ = HashPassword(*password, algo_override);
 }
 
+void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
+
 void User::SetRole(const Role &role) { role_.emplace(role); }
 
 void User::ClearRole() { role_ = std::nullopt; }
