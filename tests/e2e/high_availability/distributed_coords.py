@@ -41,101 +41,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
 
-MEMGRAPH_INSTANCES_DESCRIPTION = {
-    "instance_1": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7687",
-            "--log-level",
-            "TRACE",
-            "--management-port",
-            "10011",
-        ],
-        "log_file": "high_availability/distributed_coords/instance_1.log",
-        "data_directory": f"{TEMP_DIR}/instance_1",
-        "setup_queries": [],
-    },
-    "instance_2": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7688",
-            "--log-level",
-            "TRACE",
-            "--management-port",
-            "10012",
-        ],
-        "log_file": "high_availability/distributed_coords/instance_2.log",
-        "data_directory": f"{TEMP_DIR}/instance_2",
-        "setup_queries": [],
-    },
-    "instance_3": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7689",
-            "--log-level",
-            "TRACE",
-            "--management-port",
-            "10013",
-        ],
-        "log_file": "high_availability/distributed_coords/instance_3.log",
-        "data_directory": f"{TEMP_DIR}/instance_3",
-        "setup_queries": [],
-    },
-    "coordinator_1": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7690",
-            "--log-level=TRACE",
-            "--coordinator-id=1",
-            "--coordinator-port=10111",
-            "--coordinator-hostname",
-            "localhost",
-        ],
-        "log_file": "high_availability/distributed_coords/coordinator1.log",
-        "setup_queries": [],
-    },
-    "coordinator_2": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7691",
-            "--log-level=TRACE",
-            "--coordinator-id=2",
-            "--coordinator-port=10112",
-            "--coordinator-hostname",
-            "localhost",
-        ],
-        "log_file": "high_availability/distributed_coords/coordinator2.log",
-        "setup_queries": [],
-    },
-    "coordinator_3": {
-        "args": [
-            "--experimental-enabled=high-availability",
-            "--bolt-port",
-            "7692",
-            "--log-level=TRACE",
-            "--coordinator-id=3",
-            "--coordinator-port=10113",
-            "--coordinator-hostname",
-            "localhost",
-        ],
-        "log_file": "high_availability/distributed_coords/coordinator3.log",
-        "setup_queries": [
-            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-            "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-            "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-            "SET INSTANCE instance_3 TO MAIN",
-        ],
-    },
-}
+TEMP_DIR = tempfile.TemporaryDirectory().name
 
 
 def get_instances_description_no_setup(use_durability: bool = True):
@@ -190,6 +97,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
+                "--management-port=10121",
                 f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
@@ -206,6 +114,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
+                "--management-port=10122",
                 f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
@@ -222,6 +131,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
+                "--management-port=10123",
                 f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
@@ -231,6 +141,17 @@ def get_instances_description_no_setup(use_durability: bool = True):
             "setup_queries": [],
         },
     }
+
+
+def get_default_setup_queries():
+    return [
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+        "SET INSTANCE instance_3 TO MAIN",
+    ]
 
 
 def get_instances_description_no_setup_4_coords(use_durability: bool = True):
@@ -663,16 +584,8 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
@@ -834,7 +747,13 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
 def test_distributed_automatic_failover():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start_all(inner_instances_description)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
 
     main_cursor = connect(host="localhost", port=7689).cursor()
     expected_data_on_main = [
@@ -859,7 +778,7 @@ def test_distributed_automatic_failover():
 
     mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
 
     coord_cursor = connect(host="localhost", port=7692).cursor()
 
@@ -900,7 +819,7 @@ def test_distributed_automatic_failover():
     ]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
+    interactive_mg_runner.start(inner_instances_description, "instance_3")
     expected_data_on_new_main_old_alive = [
         (
             "instance_2",
@@ -927,16 +846,8 @@ def test_distributed_automatic_failover_with_leadership_change():
 
     interactive_mg_runner.start_all(inner_instances_description)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
@@ -951,6 +862,8 @@ def test_distributed_automatic_failover_with_leadership_change():
 
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
+
+    # TODO FIX THIS
 
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
@@ -990,42 +903,6 @@ def test_distributed_automatic_failover_with_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    follower_data_inst1_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    follower_data_inst1_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    follower_data_inst2_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    follower_data_inst2_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
     mg_sleep_and_assert_multiple(
         [
             leader_data_inst1_main_coord1_leader,
@@ -1037,10 +914,10 @@ def test_distributed_automatic_failover_with_leadership_change():
     )
     mg_sleep_and_assert_multiple(
         [
-            follower_data_inst1_main_coord1_leader,
-            follower_data_inst1_main_coord2_leader,
-            follower_data_inst2_main_coord1_leader,
-            follower_data_inst2_main_coord2_leader,
+            leader_data_inst1_main_coord1_leader,
+            leader_data_inst1_main_coord2_leader,
+            leader_data_inst2_main_coord1_leader,
+            leader_data_inst2_main_coord2_leader,
         ],
         [show_instances_coord1, show_instances_coord2],
     )
@@ -1124,10 +1001,16 @@ def test_no_leader_after_leader_and_follower_die():
 
     safe_execute(shutil.rmtree, TEMP_DIR)
 
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    inner_memgraph_instances = get_instances_description_no_setup()
+    interactive_mg_runner.start_all(inner_memgraph_instances)
 
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_3")
+    interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_2")
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
@@ -1153,16 +1036,7 @@ def test_old_main_comes_back_on_new_leader_as_main():
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
-
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     interactive_mg_runner.kill(inner_memgraph_instances, "instance_1")
@@ -1200,29 +1074,11 @@ def test_old_main_comes_back_on_new_leader_as_main():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    coord1_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    coord2_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     mg_sleep_and_assert_multiple(
         [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
     mg_sleep_and_assert_multiple(
-        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
@@ -1316,8 +1172,8 @@ def test_registering_4_coords():
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                "--coordinator-hostname",
-                "localhost",
+                "--management-port=10121",
+                "--coordinator-hostname=localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator1.log",
             "setup_queries": [],
@@ -1330,8 +1186,8 @@ def test_registering_4_coords():
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                "--coordinator-hostname",
-                "localhost",
+                "--management-port=10122",
+                "--coordinator-hostname=localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator2.log",
             "setup_queries": [],
@@ -1344,8 +1200,8 @@ def test_registering_4_coords():
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
-                "--coordinator-hostname",
-                "localhost",
+                "--management-port=10123",
+                "--coordinator-hostname=localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator3.log",
             "setup_queries": [],
@@ -1358,14 +1214,14 @@ def test_registering_4_coords():
                 "--log-level=TRACE",
                 "--coordinator-id=4",
                 "--coordinator-port=10114",
-                "--coordinator-hostname",
-                "localhost",
+                "--management-port=10124",
+                "--coordinator-hostname=localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator4.log",
             "setup_queries": [
-                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113'}",
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -1461,6 +1317,7 @@ def test_registering_coord_log_store():
                 "--coordinator-port=10111",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10121",
             ],
             "log_file": "high_availability/distributed_coords/coordinator1.log",
             "setup_queries": [],
@@ -1475,6 +1332,7 @@ def test_registering_coord_log_store():
                 "--coordinator-port=10112",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10122",
             ],
             "log_file": "high_availability/distributed_coords/coordinator2.log",
             "setup_queries": [],
@@ -1489,6 +1347,7 @@ def test_registering_coord_log_store():
                 "--coordinator-port=10113",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10123",
             ],
             "log_file": "high_availability/distributed_coords/coordinator3.log",
             "setup_queries": [],
@@ -1503,12 +1362,13 @@ def test_registering_coord_log_store():
                 "--coordinator-port=10114",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10124",
             ],
             "log_file": "high_availability/distributed_coords/coordinator4.log",
             "setup_queries": [
-                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113'}",
+                "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+                "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+                "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113',  'management_server': 'localhost:10123'}",
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -1661,16 +1521,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
-
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -1681,7 +1532,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
         return show_instances_follower_coord
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1690,21 +1541,12 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 3
 
@@ -1712,7 +1554,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 4
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1721,24 +1563,15 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 5
     interactive_mg_runner.kill(inner_memgraph_instances, "instance_1")
 
     # 6
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1747,18 +1580,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 7
 
@@ -1766,7 +1590,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 8
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1775,24 +1599,15 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 9
     interactive_mg_runner.kill(inner_memgraph_instances, "instance_2")
 
     # 10
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1801,18 +1616,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "unknown"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 11
 
@@ -1827,7 +1633,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
     interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
 
     # 13
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1836,18 +1642,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_1))
-    mg_sleep_and_assert_collection(follower_data, get_func_show_instances(coord_cursor_2))
-    mg_sleep_and_assert_collection(leader_data, get_func_show_instances(coord_cursor_3))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_1))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_2))
+    mg_sleep_and_assert_collection(data, get_func_show_instances(coord_cursor_3))
 
     # 14.
 
@@ -1900,16 +1697,8 @@ def test_multiple_old_mains_single_failover():
 
     interactive_mg_runner.start_all(inner_instances_description)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     def retrieve_data_show_repl_cluster():
@@ -1992,29 +1781,11 @@ def test_multiple_old_mains_single_failover():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    coord1_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    coord2_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
     mg_sleep_and_assert_multiple(
         [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
     mg_sleep_and_assert_multiple(
-        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
 
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
@@ -2080,16 +1851,8 @@ def test_force_reset_works_after_failed_registration():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -2107,7 +1870,7 @@ def test_force_reset_works_after_failed_registration():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2116,17 +1879,9 @@ def test_force_reset_works_after_failed_registration():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -2171,7 +1926,7 @@ def test_force_reset_works_after_failed_registration():
         )
 
     # This will trigger force reset and choosing of new instance as MAIN
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2180,18 +1935,9 @@ def test_force_reset_works_after_failed_registration():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     vertex_count = 10
     for _ in range(vertex_count):
@@ -2232,16 +1978,8 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -2259,7 +1997,7 @@ def test_force_reset_works_after_failed_registration_and_main_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2268,17 +2006,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -2323,7 +2053,7 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         )
 
     # This will trigger force reset and choosing of new instance as MAIN
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2332,18 +2062,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     vertex_count = 10
     for _ in range(vertex_count):
@@ -2384,16 +2105,8 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -2411,7 +2124,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2420,17 +2133,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -2482,7 +2187,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
 
     # 5
     # This will trigger force reset and choosing of new instance as MAIN
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2491,25 +2196,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        (
-            "instance_2",
-            "localhost:7688",
-            "",
-            "localhost:10012",
-            "unknown",
-            "replica",
-        ),  # TODO(antoniofilipovic) What is logic behind unknown state
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     # 6
 
@@ -2517,7 +2206,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
 
     # 7
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2526,18 +2215,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     def show_replicas():
         return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
@@ -2598,16 +2278,8 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -2625,7 +2297,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2634,17 +2306,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -2710,6 +2374,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     # 7
 
+    # TODO FIX
     coord1_leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
@@ -2728,24 +2393,6 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    coord1_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    coord2_follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
@@ -2760,7 +2407,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
     mg_sleep_and_assert_multiple(
-        [coord1_follower_data, coord2_follower_data], [show_instances_coord1, show_instances_coord2]
+        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
 
     def show_replicas():
@@ -2822,16 +2469,8 @@ def test_coordinator_gets_info_on_other_coordinators():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -2849,7 +2488,7 @@ def test_coordinator_gets_info_on_other_coordinators():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -2858,17 +2497,9 @@ def test_coordinator_gets_info_on_other_coordinators():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -2930,6 +2561,7 @@ def test_coordinator_gets_info_on_other_coordinators():
                 "--log-level=TRACE",
                 "--coordinator-id=4",
                 "--coordinator-port=10114",
+                "--management-port=10124",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -2942,7 +2574,7 @@ def test_coordinator_gets_info_on_other_coordinators():
     interactive_mg_runner.start(other_instances, "coordinator_4")
     execute_and_fetch_all(
         coord_cursor_3,
-        "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114'}",
+        "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114', 'management_server': 'localhost:10124'};",
     )
 
     # 6
@@ -2952,28 +2584,18 @@ def test_coordinator_gets_info_on_other_coordinators():
     def show_instances_coord4():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "down", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord4)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord4)
 
     # 7
 
@@ -2983,7 +2605,7 @@ def test_coordinator_gets_info_on_other_coordinators():
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
 
 def test_registration_works_after_main_set():
@@ -2997,16 +2619,8 @@ def test_registration_works_after_main_set():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -3024,7 +2638,7 @@ def test_registration_works_after_main_set():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3033,17 +2647,9 @@ def test_registration_works_after_main_set():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -3094,16 +2700,8 @@ def test_coordinator_not_leader_registration_does_not_work():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -3121,7 +2719,7 @@ def test_coordinator_not_leader_registration_does_not_work():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3129,18 +2727,9 @@ def test_coordinator_not_leader_registration_does_not_work():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -3202,7 +2791,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = MEMGRAPH_INSTANCES_DESCRIPTION.copy()
+    inner_instances_description = get_instances_description_no_setup(use_durability=True)
 
     FAILOVER_PERIOD = 2
     inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
@@ -3212,6 +2801,8 @@ def test_coordinator_user_action_demote_instance_to_replica():
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
 
@@ -3228,7 +2819,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data_original = [
+    data_original = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3237,18 +2828,9 @@ def test_coordinator_user_action_demote_instance_to_replica():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data_original = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(leader_data_original, show_instances_coord3)
-    mg_sleep_and_assert(follower_data_original, show_instances_coord1)
-    mg_sleep_and_assert(follower_data_original, show_instances_coord2)
+    mg_sleep_and_assert(data_original, show_instances_coord3)
+    mg_sleep_and_assert(data_original, show_instances_coord1)
+    mg_sleep_and_assert(data_original, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -3295,7 +2877,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
 
     # 4.
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3304,31 +2886,23 @@ def test_coordinator_user_action_demote_instance_to_replica():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
 
-    mg_assert_until(leader_data, show_instances_coord3, FAILOVER_PERIOD + 1)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_assert_until(data, show_instances_coord3, FAILOVER_PERIOD + 1)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
 
-    mg_sleep_and_assert(leader_data_original, show_instances_coord3)
-    mg_sleep_and_assert(follower_data_original, show_instances_coord1)
-    mg_sleep_and_assert(follower_data_original, show_instances_coord2)
+    mg_sleep_and_assert(data_original, show_instances_coord3)
+    mg_sleep_and_assert(data_original, show_instances_coord1)
+    mg_sleep_and_assert(data_original, show_instances_coord2)
 
 
 def test_coordinator_user_action_force_reset_works():
@@ -3344,16 +2918,8 @@ def test_coordinator_user_action_force_reset_works():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -3371,7 +2937,7 @@ def test_coordinator_user_action_force_reset_works():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3380,17 +2946,9 @@ def test_coordinator_user_action_force_reset_works():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     instance_3_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -3437,7 +2995,7 @@ def test_coordinator_user_action_force_reset_works():
 
     # 4.
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3446,18 +3004,9 @@ def test_coordinator_user_action_force_reset_works():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
 
 def test_all_coords_down_resume():
@@ -3476,17 +3025,8 @@ def test_all_coords_down_resume():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
-
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -3503,7 +3043,7 @@ def test_all_coords_down_resume():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3512,18 +3052,9 @@ def test_all_coords_down_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     # 3
 
@@ -3539,6 +3070,7 @@ def test_all_coords_down_resume():
 
     # 5
 
+    # TODO(antoniofilipovic) - update when merged with master
     leader_data_1 = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
@@ -3557,30 +3089,12 @@ def test_all_coords_down_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    follower_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
 
-    mg_sleep_and_assert_multiple([follower_data_1, follower_data_2], [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
 
     # 6
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
@@ -3606,24 +3120,6 @@ def test_all_coords_down_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    follower_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    follower_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
     mg_sleep_and_assert_multiple(
@@ -3631,11 +3127,11 @@ def test_all_coords_down_resume():
     )
 
     mg_sleep_and_assert_multiple(
-        [follower_data_1, follower_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
+        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
     )
 
     mg_sleep_and_assert_multiple(
-        [follower_data_1, follower_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
+        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
     )
 
 
@@ -3655,17 +3151,9 @@ def test_one_coord_down_with_durability_resume():
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN",
-    ]
-
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in setup_queries:
+
+    for query in get_default_setup_queries():
         execute_and_fetch_all(coord_cursor_3, query)
 
     # 2
@@ -3682,7 +3170,7 @@ def test_one_coord_down_with_durability_resume():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3691,18 +3179,9 @@ def test_one_coord_down_with_durability_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     # 3
 
@@ -3723,7 +3202,7 @@ def test_one_coord_down_with_durability_resume():
 
     # 5
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3732,20 +3211,11 @@ def test_one_coord_down_with_durability_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
     # 6
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
@@ -3761,19 +3231,9 @@ def test_one_coord_down_with_durability_resume():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
     mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
-
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
 def test_registration_does_not_deadlock_when_instance_is_down():
     # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
@@ -3831,7 +3291,7 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -3840,18 +3300,59 @@ def test_registration_does_not_deadlock_when_instance_is_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    follower_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
+
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
+
+def test_follower_have_correct_health():
+    # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
+    # left off if all coordinators go down
+
+    # 1. Start cluster
+    # 2. Check everything works correctly
+    # 3. Stop all coordinators
+    # 4. Start 2 coordinators, one should be leader, and one follower
+    # 5. Check everything works correctly
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_instances_description = get_instances_description_no_setup(use_durability=True)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    setup_queries = get_default_setup_queries()
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in setup_queries:
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    # 2
+    def show_instances_coord3():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    mg_sleep_and_assert(leader_data, show_instances_coord3)
-    mg_sleep_and_assert(follower_data, show_instances_coord1)
-    mg_sleep_and_assert(follower_data, show_instances_coord2)
+    mg_sleep_and_assert(data, show_instances_coord3)
+    mg_sleep_and_assert(data, show_instances_coord1)
+    mg_sleep_and_assert(data, show_instances_coord2)
 
 
 if __name__ == "__main__":

@@ -99,8 +99,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=1",
             "--coordinator-port=10111",
-            "--coordinator-hostname",
-            "localhost",
+            "--coordinator-hostname=localhost",
+            "--management-port=10121",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator1.log",
         "setup_queries": [],
@@ -113,8 +113,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=2",
             "--coordinator-port=10112",
-            "--coordinator-hostname",
-            "localhost",
+            "--coordinator-hostname=localhost",
+            "--management-port=10122",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator2.log",
         "setup_queries": [],
@@ -128,8 +128,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=3",
             "--coordinator-port=10113",
             "--also-log-to-stderr",
-            "--coordinator-hostname",
-            "localhost",
+            "--coordinator-hostname=localhost",
+            "--management-port=10123",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator3.log",
         "setup_queries": [],
@@ -150,11 +150,11 @@ def test_writing_disabled_on_main_restart():
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
 
     def check_coordinator3():
