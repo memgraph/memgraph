@@ -319,7 +319,7 @@ Due to current [database compatibility](link) requirements, the only supported d
 
 Running configurations that differ from default configuration:
 
-- Memgraph - `storage_snapshot_on_exit=true`, `storage_recover_on_startup=true`
+- Memgraph - `storage_snapshot_on_exit=true`, `data_recovery_on_startup=true`
 - Neo4j - `dbms.security.auth_enabled=false`
 
 ## :raised_hands: Contributions
