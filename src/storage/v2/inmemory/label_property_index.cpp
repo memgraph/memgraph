@@ -239,7 +239,7 @@ static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int
 const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
 const PropertyValue kSmallestString = PropertyValue("");
 const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
+const PropertyValue kSmallestMap = PropertyValue(PropertyValue::map_t{});
 const PropertyValue kSmallestTemporalData =
     PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
 const PropertyValue kSmallestZonedTemporalData = PropertyValue(
@@ -285,8 +285,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   }
 
   // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ &&
-      !PropertyValue::AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
     bounds_valid_ = false;
     return;
   }
