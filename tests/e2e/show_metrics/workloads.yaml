@@ -1,0 +1,14 @@
+show_metrics_cluster: &show_metrics_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "show_metrics.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Show metrics info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics.py"]
+    <<: *show_metrics_cluster
