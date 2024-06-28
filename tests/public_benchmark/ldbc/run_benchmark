@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-'''
+"""
 Run the LDBC SNB interactive workload / benchmark.
 The benchmark is executed with:
     * ldbc_driver -> workload executor
     * ldbc-snb-impls/snb-interactive-neo4j -> workload implementation
-'''
+"""
 
 import argparse
 import os
@@ -38,16 +38,20 @@ class Memgraph:
         binary = os.path.join(BASE_DIR, "build", "memgraph")
 
         # database args
-        database_args = [binary,
-                         "--bolt-num-workers", self.num_workers,
-                         "--data-directory", os.path.join(self.dataset,
-                                                          "memgraph"),
-                         "--storage-recover-on-startup", "true",
-                         "--bolt-port", self.port]
+        database_args = [
+            binary,
+            "--bolt-num-workers",
+            self.num_workers,
+            "--data-directory",
+            os.path.join(self.dataset, "memgraph"),
+            "--data-recovery-on-startup",
+            "true",
+            "--bolt-port",
+            self.port,
+        ]
 
         # database env
-        env = {"MEMGRAPH_CONFIG": os.path.join(SCRIPT_DIR, "config",
-                                               "memgraph.conf")}
+        env = {"MEMGRAPH_CONFIG": os.path.join(SCRIPT_DIR, "config", "memgraph.conf")}
 
         # start memgraph
         self.proc = subprocess.Popen(database_args, env=env)
@@ -74,27 +78,20 @@ class Neo:
         neo4j_dir = os.path.join(BASE_DIR, "libs", "neo4j")
 
         try:
-            os.symlink(os.path.join(neo4j_dir, "lib"),
-                       os.path.join(self.home_dir, "lib"))
-            shutil.copytree(os.path.join(self.dataset, "neo4j"),
-                            os.path.join(self.home_dir, "data"))
+            os.symlink(os.path.join(neo4j_dir, "lib"), os.path.join(self.home_dir, "lib"))
+            shutil.copytree(os.path.join(self.dataset, "neo4j"), os.path.join(self.home_dir, "data"))
             conf_dir = os.path.join(self.home_dir, "conf")
             conf_file = os.path.join(conf_dir, "neo4j.conf")
             os.mkdir(conf_dir)
-            shutil.copyfile(os.path.join(SCRIPT_DIR, "config", "neo4j.conf"),
-                            conf_file)
+            shutil.copyfile(os.path.join(SCRIPT_DIR, "config", "neo4j.conf"), conf_file)
             with open(conf_file, "a") as f:
-                f.write("\ndbms.connector.bolt.listen_address=:" +
-                        self.port + "\n")
-                f.write("\ndbms.connector.http.listen_address=:" +
-                        self.http_port + "\n")
+                f.write("\ndbms.connector.bolt.listen_address=:" + self.port + "\n")
+                f.write("\ndbms.connector.http.listen_address=:" + self.http_port + "\n")
 
             # environment
             env = {"NEO4J_HOME": self.home_dir}
 
-            self.proc = subprocess.Popen([os.path.join(neo4j_dir, "bin",
-                                                       "neo4j"),
-                                          "console"], env=env, cwd=neo4j_dir)
+            self.proc = subprocess.Popen([os.path.join(neo4j_dir, "bin", "neo4j"), "console"], env=env, cwd=neo4j_dir)
         except:
             shutil.rmtree(self.home_dir)
             raise Exception("Couldn't run Neo4j!")
@@ -111,53 +108,58 @@ class Neo:
 
 
 def parse_args():
-    argp = argparse.ArgumentParser(
-            description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    argp.add_argument('--scale', type=int, default=1,
-                      help='Dataset scale to use for benchmarking.')
-    argp.add_argument('--host', default='127.0.0.1', help='Database host.')
-    argp.add_argument('--port', default='7687', help='Database port.')
-    argp.add_argument('--time-compression-ratio', type=float, default=0.001,
-                      help='Compress/stretch durations between operation start '
-                           'times to increase/decrease benchmark load. '
-                           'E.g. 2.0 = run benchmark 2x slower, 0.1 = run '
-                           'benchmark 10x faster. Default is 0.001.')
-    argp.add_argument('--operation-count', type=int, default=1000,
-                      help='Number of operations to generate during benchmark '
-                           'execution.')
-    argp.add_argument('--thread-count', type=int, default=8,
-                      help='Thread pool size to use for executing operation '
-                           'handlers.')
-    argp.add_argument('--time-unit', default='microseconds',
-                      choices=('nanoseconds', 'microseconds', 'milliseconds',
-                               'seconds', 'minutes'),
-                      help='Time unit to use for measuring performance metrics')
-    argp.add_argument('--result-file-prefix', default='',
-                      help='Result file name prefix')
-    argp.add_argument('--test-type', choices=('reads', 'updates'),
-                      default='reads', help='Test queries of type')
-    argp.add_argument('--run-db', choices=('memgraph', 'neo4j'),
-                      help='Run the database before starting LDBC')
-    argp.add_argument('--create-index', action='store_true', default=False,
-                      help='Create index in the running database.')
+    argp = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    argp.add_argument("--scale", type=int, default=1, help="Dataset scale to use for benchmarking.")
+    argp.add_argument("--host", default="127.0.0.1", help="Database host.")
+    argp.add_argument("--port", default="7687", help="Database port.")
+    argp.add_argument(
+        "--time-compression-ratio",
+        type=float,
+        default=0.001,
+        help="Compress/stretch durations between operation start "
+        "times to increase/decrease benchmark load. "
+        "E.g. 2.0 = run benchmark 2x slower, 0.1 = run "
+        "benchmark 10x faster. Default is 0.001.",
+    )
+    argp.add_argument(
+        "--operation-count",
+        type=int,
+        default=1000,
+        help="Number of operations to generate during benchmark " "execution.",
+    )
+    argp.add_argument(
+        "--thread-count", type=int, default=8, help="Thread pool size to use for executing operation " "handlers."
+    )
+    argp.add_argument(
+        "--time-unit",
+        default="microseconds",
+        choices=("nanoseconds", "microseconds", "milliseconds", "seconds", "minutes"),
+        help="Time unit to use for measuring performance metrics",
+    )
+    argp.add_argument("--result-file-prefix", default="", help="Result file name prefix")
+    argp.add_argument("--test-type", choices=("reads", "updates"), default="reads", help="Test queries of type")
+    argp.add_argument("--run-db", choices=("memgraph", "neo4j"), help="Run the database before starting LDBC")
+    argp.add_argument(
+        "--create-index", action="store_true", default=False, help="Create index in the running database."
+    )
     return argp.parse_args()
 
 
-LDBC_INTERACTIVE_NEO4J = \
-    os.path.join(SCRIPT_DIR,
-                 'ldbc-snb-impls', 'snb-interactive-neo4j', 'target',
-                 'snb-interactive-neo4j-1.0.0-jar-with-dependencies.jar')
-LDBC_DEFAULT_PROPERTIES = \
-    os.path.join(SCRIPT_DIR, 'ldbc_driver', 'configuration',
-                 'ldbc_driver_default.properties')
+LDBC_INTERACTIVE_NEO4J = os.path.join(
+    SCRIPT_DIR,
+    "ldbc-snb-impls",
+    "snb-interactive-neo4j",
+    "target",
+    "snb-interactive-neo4j-1.0.0-jar-with-dependencies.jar",
+)
+LDBC_DEFAULT_PROPERTIES = os.path.join(SCRIPT_DIR, "ldbc_driver", "configuration", "ldbc_driver_default.properties")
 
 
 def create_index(port, database):
-    index_file = os.path.join(SCRIPT_DIR, 'ldbc-snb-impls',
-                              'snb-interactive-neo4j', 'scripts', 'indexCreation.neo4j')
-    subprocess.check_call(('ve3/bin/python3', 'index_creation', '--port',
-                           port, '--database', database, index_file),
-                          cwd=SCRIPT_DIR)
+    index_file = os.path.join(SCRIPT_DIR, "ldbc-snb-impls", "snb-interactive-neo4j", "scripts", "indexCreation.neo4j")
+    subprocess.check_call(
+        ("ve3/bin/python3", "index_creation", "--port", port, "--database", database, index_file), cwd=SCRIPT_DIR
+    )
     time.sleep(1.0)
 
 
@@ -168,11 +170,10 @@ def main():
     db = None
     if args.run_db:
         if args.host != "127.0.0.1":
-            raise Exception("Host parameter must point to localhost when "
-                            "this script starts the database!")
-        if args.run_db.lower() == 'memgraph':
+            raise Exception("Host parameter must point to localhost when " "this script starts the database!")
+        if args.run_db.lower() == "memgraph":
             db = Memgraph(dataset, args.port, args.thread_count)
-        elif args.run_db.lower() == 'neo4j':
+        elif args.run_db.lower() == "neo4j":
             db = Neo(dataset, args.port)
 
     try:
@@ -185,27 +186,46 @@ def main():
             time.sleep(10.0)
 
         # Run LDBC driver.
-        cp = 'target/jeeves-0.3-SNAPSHOT.jar:{}'.format(LDBC_INTERACTIVE_NEO4J)
-        updates_dir = os.path.join(dataset, 'social_network')
-        parameters_dir = os.path.join(dataset, 'substitution_parameters')
-        java_cmd = ('java', '-cp', cp, 'com.ldbc.driver.Client',
-                    '-P', LDBC_DEFAULT_PROPERTIES,
-                    '-P', os.path.join(SCRIPT_DIR, "ldbc-snb-impls-{}."
-                                       "properties".format(args.test_type)),
-                    '-p', 'ldbc.snb.interactive.updates_dir', updates_dir,
-                    '-p', 'host', args.host, '-p', 'port', args.port,
-                    '-db', 'net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb',
-                    '-p', 'ldbc.snb.interactive.parameters_dir', parameters_dir,
-                    '--time_compression_ratio', str(args.time_compression_ratio),
-                    '--operation_count', str(args.operation_count),
-                    '--thread_count', str(args.thread_count),
-                    '--time_unit', args.time_unit.upper())
-        subprocess.check_call(java_cmd, cwd=os.path.join(SCRIPT_DIR, 'ldbc_driver'))
+        cp = "target/jeeves-0.3-SNAPSHOT.jar:{}".format(LDBC_INTERACTIVE_NEO4J)
+        updates_dir = os.path.join(dataset, "social_network")
+        parameters_dir = os.path.join(dataset, "substitution_parameters")
+        java_cmd = (
+            "java",
+            "-cp",
+            cp,
+            "com.ldbc.driver.Client",
+            "-P",
+            LDBC_DEFAULT_PROPERTIES,
+            "-P",
+            os.path.join(SCRIPT_DIR, "ldbc-snb-impls-{}." "properties".format(args.test_type)),
+            "-p",
+            "ldbc.snb.interactive.updates_dir",
+            updates_dir,
+            "-p",
+            "host",
+            args.host,
+            "-p",
+            "port",
+            args.port,
+            "-db",
+            "net.ellitron.ldbcsnbimpls.interactive.neo4j.Neo4jDb",
+            "-p",
+            "ldbc.snb.interactive.parameters_dir",
+            parameters_dir,
+            "--time_compression_ratio",
+            str(args.time_compression_ratio),
+            "--operation_count",
+            str(args.operation_count),
+            "--thread_count",
+            str(args.thread_count),
+            "--time_unit",
+            args.time_unit.upper(),
+        )
+        subprocess.check_call(java_cmd, cwd=os.path.join(SCRIPT_DIR, "ldbc_driver"))
 
         # Copy the results to results dir.
-        ldbc_results = os.path.join(SCRIPT_DIR, 'ldbc_driver', 'results',
-                                    'LDBC-results.json')
-        results_dir = os.path.join(SCRIPT_DIR, 'results')
+        ldbc_results = os.path.join(SCRIPT_DIR, "ldbc_driver", "results", "LDBC-results.json")
+        results_dir = os.path.join(SCRIPT_DIR, "results")
         results_name = []
         if args.result_file_prefix:
             results_name.append(args.result_file_prefix)
@@ -227,5 +247,5 @@ def main():
     print("Done!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

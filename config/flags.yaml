@@ -59,7 +59,7 @@ modifications:
     value: "true"
     override: true
 
-  - name: "storage_recover_on_startup"
+  - name: "data_recovery_on_startup"
     value: "true"
     override: true
 
@@ -106,10 +106,6 @@ modifications:
   - name: "allow_load_csv"
     value: "true"
     override: false
-
-  - name: "storage_parallel_index_recovery"
-    value: "false"
-    override: true
 
   - name: "storage_parallel_schema_recovery"
     value: "false"
