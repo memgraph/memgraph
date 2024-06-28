@@ -65,6 +65,7 @@ inline void Save(const InstanceStatus &obj, Builder *builder) {
   Save(obj.bolt_server, builder);
   Save(obj.health, builder);
   Save(obj.last_succ_resp_ms, builder);
+  Save(obj.cluster_role, builder);
 }
 
 inline void Load(InstanceStatus *obj, Reader *reader) {
@@ -74,6 +75,7 @@ inline void Load(InstanceStatus *obj, Reader *reader) {
   Load(&obj->bolt_server, reader);
   Load(&obj->health, reader);
   Load(&obj->last_succ_resp_ms, reader);
+  Load(&obj->cluster_role, reader);
 }
 
 }  // namespace memgraph::slk

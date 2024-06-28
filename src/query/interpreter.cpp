@@ -607,10 +607,16 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server) -> void override {
+                              std::string_view coordinator_server, std::string_view management_server)
+      -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
+    }
+
+    auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
+    if (!maybe_management_server) {
+      throw QueryRuntimeException("Invalid management socket address!");
     }
 
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
@@ -618,12 +624,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       throw QueryRuntimeException("Invalid bolt socket address!");
     }
 
-    auto const coord_coord_config = coordination::CoordinatorToCoordinatorConfig{
-        .coordinator_id = coordinator_id,
-        .bolt_server = *maybe_bolt_server,
-        .coordinator_server = *maybe_coordinator_server,
+    auto const coord_coord_config =
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
+                                                     .bolt_server = *maybe_bolt_server,
+                                                     .coordinator_server = *maybe_coordinator_server,
+                                                     .management_server = *maybe_management_server
 
-    };
+        };
 
     auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
     switch (status) {
@@ -1391,9 +1398,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Failed to parse config map!");
       }
 
-      if (config_map->size() != 2) {
-        throw QueryRuntimeException("Config map must contain exactly 2 entries: {} and !", kCoordinatorServer,
-                                    kBoltServer);
+      if (config_map->size() != 3) {
+        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and  {}!", kCoordinatorServer,
+                                    kBoltServer, kManagementServer);
       }
 
       auto const &coordinator_server_it = config_map->find(kCoordinatorServer);
@@ -1406,12 +1413,17 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
+      auto const &management_server_it = config_map->find(kManagementServer);
+      if (management_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kManagementServer);
+      }
+
       auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
-                     bolt_server = bolt_server_it->second,
-                     coordinator_server = coordinator_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server);
+                     bolt_server = bolt_server_it->second, coordinator_server = coordinator_server_it->second,
+                     management_server = management_server_it->second]() mutable {
+        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server);
         return std::vector<std::vector<TypedValue>>();
       };
 

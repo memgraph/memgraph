@@ -43,7 +43,9 @@ std::string CoordinationSetup::ToString() {
       management_port, coordinator_port, coordinator_id, nuraft_log_file, ha_durability, coordinator_hostname);
 }
 
-[[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool { return management_port != 0; }
+[[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool {
+  return management_port != 0 && coordinator_port == 0 && coordinator_id == 0;
+}
 
 auto CoordinationSetupInstance() -> CoordinationSetup & {
   static auto instance = CoordinationSetup{};

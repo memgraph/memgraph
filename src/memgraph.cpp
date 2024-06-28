@@ -568,7 +568,8 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // MAIN or REPLICA instance
-  if (coordination_setup.management_port != 0) {
+  if (coordination_setup.management_port != 0 && !coordination_setup.coordinator_port &&
+      !coordination_setup.coordinator_id) {
     spdlog::trace("Starting coordinator server.");
     memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
                                                                    replication_handler);

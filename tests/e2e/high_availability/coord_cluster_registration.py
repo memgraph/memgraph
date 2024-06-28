@@ -85,8 +85,8 @@ def get_instances_description():
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                "--coordinator-hostname",
-                "localhost",
+                "--coordinator-hostname=localhost",
+                "--management-port=10121",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
@@ -99,8 +99,8 @@ def get_instances_description():
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                "--coordinator-hostname",
-                "localhost",
+                "--coordinator-hostname=localhost",
+                "--management-port=10122",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
@@ -113,8 +113,8 @@ def get_instances_description():
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
-                "--coordinator-hostname",
-                "localhost",
+                "--coordinator-hostname=localhost",
+                "--management-port=10123",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
             "setup_queries": [],
@@ -180,8 +180,8 @@ def get_instances_description_no_coord():
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                "--coordinator-hostname",
-                "localhost",
+                "--coordinator-hostname=localhost",
+                "--management-port=10121",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
@@ -194,8 +194,8 @@ def get_instances_description_no_coord():
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                "--coordinator-hostname",
-                "localhost",
+                "--coordinator-hostname=localhost",
+                "--management-port=10122",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
@@ -235,11 +235,11 @@ def test_register_repl_instances_then_coordinators():
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
 
     def check_coordinator3():

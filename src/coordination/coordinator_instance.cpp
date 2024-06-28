@@ -105,9 +105,8 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
     // Start server for leader
     leader_follower_logic_.emplace<CoordLeader>(management_server_config_);
     auto &server = std::get<CoordLeader>(leader_follower_logic_).server_;
-    MG_ASSERT(server.Start());
-
     CoordinatorInstanceManagementServerHandlers::Register(server, *this);
+    MG_ASSERT(server.Start());
 
     spdlog::trace("Executing become leader callback in thread {}", std::this_thread::get_id());
     if (is_shutting_down_.load(std::memory_order_acquire)) {
@@ -204,10 +203,15 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   if (!raft_state_->IsLeader()) {
     auto const leader_id = raft_state_->GetLeaderId();
     auto const all_coordinators = raft_state_->GetCoordinatorInstances();
+    std::ranges::for_each(all_coordinators, [](auto const &coord_instance) {
+      spdlog::trace("Coord id: {}, coord mgmt server: {}", coord_instance.coordinator_id,
+                    coord_instance.management_server.GetResolvedIPAddress());
+    });
     auto const coord = std::ranges::find_if(
         all_coordinators, [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
 
     if (coord == all_coordinators.end()) {
+      spdlog::trace("Leader not found in coordinator instances");
       return {};
     }
 
@@ -1223,8 +1227,10 @@ auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeade
 auto CoordinatorInstance::SendShowInstancesRPC(rpc::Client &rpc_client_) const
     -> std::optional<std::vector<InstanceStatus>> {
   try {
+    spdlog::trace("Sending ShowInstancesRPC");
     auto stream{rpc_client_.Stream<ShowInstancesRpc>()};
     auto res = stream.AwaitResponse();
+    spdlog::trace("Received ShowInstancesRPC response {}", res.instances_status_.size());
     return res.instances_status_;
   } catch (std::exception const &e) {
     spdlog::error("Failed to send ShowInstancesRPC: {}", e.what());
