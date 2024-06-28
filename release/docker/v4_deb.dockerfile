@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN pip3 install networkx==2.4 numpy==1.21.4 scipy==1.7.3
-RUN pip3 install --break-system-packages -r /usr/lib/memgraph/auth_modules/requirements.txt
+RUN pip3 install --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
