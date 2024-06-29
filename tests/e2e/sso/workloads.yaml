@@ -5,3 +5,6 @@ workloads:
   - name: "SSO OIDC"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_oidc.py"]
+  - name: "SAML SSO module"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["sso/test_saml_sso_module.py"]

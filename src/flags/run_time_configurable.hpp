@@ -36,6 +36,13 @@ std::string GetServerName();
 double GetExecutionTimeout();
 
 /**
+ * @brief Get the hops limit partial results value
+ *
+ * @return bool
+ */
+bool GetHopsLimitPartialResults();
+
+/**
  * @brief Get the cartesian product enabled value
  *
  * @return bool

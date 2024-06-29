@@ -63,7 +63,7 @@ DEFINE_VALIDATED_HIDDEN_string(
     auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
       spdlog::warn(
           "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic: {your module's path}.");
+          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
       if (value.empty()) return true;
       // Check the file status, following symlinks.
       auto status = std::filesystem::status(value);
@@ -73,34 +73,6 @@ DEFINE_VALIDATED_HIDDEN_string(
       }
       return true;
     });
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(
-    auth_module_create_missing_user, true, "Set to false to disable creation of missing users.", {
-      spdlog::warn(
-          "The auth_module_create_missing_user flag is deprecated. It is no longer possible to create "
-          "users through the module.");
-      return true;
-    });
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(
-    auth_module_create_missing_role, true, "Set to false to disable creation of missing roles.", {
-      spdlog::warn(
-          "The auth_module_create_missing_role flag is deprecated. It is no longer possible to create "
-          "roles through the module.");
-      return true;
-    });
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_HIDDEN_bool(
-    auth_module_manage_roles, true, "Set to false to disable management of roles through the auth module.", {
-      spdlog::warn(
-          "The auth_module_manage_roles flag is deprecated. It is no longer possible to create roles "
-          "through the module.");
-      return true;
-    });
-
 namespace memgraph::auth {
 
 const Auth::Epoch Auth::kStartEpoch = 1;
