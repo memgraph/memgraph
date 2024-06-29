@@ -63,7 +63,7 @@ DEFINE_VALIDATED_HIDDEN_string(
     auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
       spdlog::warn(
           "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic: {your module's path}.");
+          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
       if (value.empty()) return true;
       // Check the file status, following symlinks.
       auto status = std::filesystem::status(value);
