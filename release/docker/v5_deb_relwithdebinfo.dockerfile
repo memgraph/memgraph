@@ -12,13 +12,14 @@ RUN apt-get update && apt-get install -y \
   && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 RUN pip3 install --break-system-packages  networkx==3.2.1 numpy==1.26.4 scipy==1.12.0
-RUN pip3 install --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 
 # Install memgraph package
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"
+
+RUN pip3 install --no-cache-dir --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687
