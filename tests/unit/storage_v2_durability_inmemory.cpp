@@ -2999,8 +2999,7 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
       .durability = {.storage_directory = storage_directory,
                      .recover_on_startup = true,
                      .snapshot_on_exit = false,
-                     .items_per_batch = 13,
-                     .allow_parallel_index_creation = true},
+                     .items_per_batch = 13},
       .salient = {.items = {.properties_on_edges = GetParam()}},
   };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};

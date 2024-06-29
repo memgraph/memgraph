@@ -134,9 +134,11 @@ struct opt_str {
   }
 
  private:
-  static auto new_cstr(std::string const &str) -> char const * {
-    auto *mem = new char[str.length() + 1];
-    strcpy(mem, str.c_str());
+  static auto new_cstr(std::string_view str) -> char const * {
+    auto const n = str.size() + 1;
+    auto *mem = new char[n];
+    std::copy(str.cbegin(), str.cend(), mem);
+    mem[n - 1] = '\0';
     return mem;
   }
 

@@ -1275,6 +1275,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
 int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
 
+std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
 

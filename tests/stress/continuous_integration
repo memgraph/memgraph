@@ -90,7 +90,7 @@ def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
         "--storage-snapshot-interval-sec=600",
         "--storage-snapshot-retention-count=1",
         "--storage-wal-enabled=true",
-        "--storage-recover-on-startup=false",
+        "--data-recovery-on-startup=false",
         "--query-execution-timeout-sec=1200",
         "--bolt-server-name-for-init=Neo4j/",
     ] + memgraph_options

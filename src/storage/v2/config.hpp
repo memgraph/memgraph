@@ -111,9 +111,6 @@ struct Config {
     uint64_t items_per_batch{1'000'000};  // PER DATABASE
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
-    // deprecated
-    bool allow_parallel_index_creation{false};  // KILL
-
     bool allow_parallel_schema_creation{false};  // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;

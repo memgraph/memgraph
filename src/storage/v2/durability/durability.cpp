@@ -321,7 +321,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
                                                                          const Config &config) {
-  return config.durability.allow_parallel_schema_creation || config.durability.allow_parallel_index_creation
+  return config.durability.allow_parallel_schema_creation
              ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
                                                                  config.durability.recovery_thread_count})
              : std::nullopt;
