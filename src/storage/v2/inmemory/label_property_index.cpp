@@ -14,7 +14,6 @@
 #include <limits>
 
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -149,17 +148,11 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
   return ret;
 }
 
-void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                                       const absl::flat_hash_set<LabelId> &labels) {
+void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &[label_property, index] : index_) {
     auto [label_id, prop_id] = label_property;
-
-    if (!labels.contains(label_id)) {
-      continue;
-    }
-
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
