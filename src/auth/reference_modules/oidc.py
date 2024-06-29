@@ -28,19 +28,18 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
 
     decoded_token = None
     for jwk in jwks["keys"]:
-        if kid == jwk["kid"]:
-            try:
-                public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-                if scheme == "oidc-okta" and token_type == "access":
-                    decoded_token = jwt.decode(
-                        token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
-                    )
-                else:
-                    decoded_token = jwt.decode(
-                        token, key=public_key, algorithms=["RS256"], audience=config["client_id"]
-                    )
-            except Exception as e:
-                return {"valid": False, "errors": e.args}
+        if kid != jwk["kid"]:
+            continue
+        try:
+            public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+            if scheme == "oidc-okta" and token_type == "access":
+                decoded_token = jwt.decode(
+                    token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
+                )
+            else:
+                decoded_token = jwt.decode(token, key=public_key, algorithms=["RS256"], audience=config["client_id"])
+        except Exception as e:
+            return {"valid": False, "errors": e.args}
 
     if decoded_token is None:
         return {"valid": False, "errors": "Matching kid not found"}
