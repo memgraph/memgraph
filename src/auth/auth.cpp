@@ -265,7 +265,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
 
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
-    if (ret.find("errors") != ret.end()) {
+    if (ret.find("errors") == ret.end()) {
       return default_error;
     }
     const auto &ret_errors = ret.at("errors");
