@@ -294,17 +294,25 @@ std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypePropertyInde
     }
   }
 
-  const auto &from_edges = from_vertex->out_edges;
-  const auto &to_edges = to_vertex->in_edges;
-
-  for (auto from_edge_it = from_edges.begin(), to_edge_it = to_edges.begin();
-       from_edge_it != from_edges.end() && to_edge_it != to_edges.end(); ++from_edge_it, ++to_edge_it) {
-    const auto &from_edge = std::get<kEdgeRefPos>(*from_edge_it);
-    const auto &to_edge = std::get<kEdgeRefPos>(*to_edge_it);
-
-    if (index_iterator_->edge->gid == from_edge.ptr->gid && index_iterator_->edge->gid == to_edge.ptr->gid) {
-      return std::make_tuple(from_edge, std::get<kEdgeTypeIdPos>(*from_edge_it), from_vertex, to_vertex);
+  auto find_edge = [this](const auto &edges) {
+    for (auto edge_it = edges.begin(); edge_it != edges.end(); ++edge_it) {
+      const auto &edge = std::get<kEdgeRefPos>(*edge_it);
+      if (index_iterator_->edge->gid == edge.ptr->gid) {
+        return edge_it;
+      }
     }
+    return edges.end();
+  };
+
+  auto &from_edges = from_vertex->out_edges;
+  auto from_edge_it = find_edge(from_edges);
+
+  auto &to_edges = to_vertex->in_edges;
+  auto to_edge_it = find_edge(to_edges);
+
+  if (from_edge_it != from_edges.end() && to_edge_it != to_edges.end()) {
+    const auto &edge_ref = std::get<kEdgeRefPos>(*from_edge_it);
+    return std::make_tuple(edge_ref, std::get<kEdgeTypeIdPos>(*from_edge_it), from_vertex, to_vertex);
   }
 
   return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};
