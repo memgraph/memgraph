@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <memory>
@@ -21,6 +22,7 @@
 
 #include "query/cypher_query_interpreter.hpp"
 #include "query/stream/streams.hpp"
+#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -159,6 +161,8 @@ class Database {
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
+  query::ttl::TTL &ttl() { return time_to_live_; }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
@@ -169,6 +173,8 @@ class Database {
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
 
   const replication::ReplicationState *repl_state_;
+
+  query::ttl::TTL time_to_live_;
 };
 
 }  // namespace memgraph::dbms

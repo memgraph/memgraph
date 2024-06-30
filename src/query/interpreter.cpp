@@ -57,6 +57,7 @@
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
+#include "query/discard_value_stream.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -82,6 +83,7 @@
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
+#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
@@ -96,6 +98,7 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/bound.hpp"
 #include "utils/build_info.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
@@ -3082,6 +3085,103 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                              std::vector<Notification> *notifications, CurrentDB &current_db,
+                              InterpreterContext *interpreter_context) {
+  if (in_explicit_transaction) {
+    // TODO Make another one
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *ttl_query = utils::Downcast<TtlQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel("TTL");
+  auto prop = storage->NameToProperty("ttl");
+
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  Notification notification(SeverityLevel::INFO);
+  switch (ttl_query->type_) {
+    case TtlQuery::Type::ENABLE: {
+      notification.code = NotificationCode::CREATE_INDEX;
+      notification.title = fmt::format("Created index on label TTL on property ttl.");
+
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) {
+        auto maybe_index_error = dba->CreateIndex(label, prop);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          notification.code = NotificationCode::EXISTENT_INDEX;
+          notification.title = fmt::format("Index on label TTL on properties ttl already exists.");
+          // ABORT?
+        }
+      };
+      break;
+    }
+    case TtlQuery::Type::DISABLE: {
+      notification.code = NotificationCode::DROP_INDEX;
+      notification.title = fmt::format("Dropped index on label TTL on property ttl.");
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) {
+        auto maybe_index_error = dba->DropIndex(label, prop);
+        utils::OnScopeExit invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          notification.code = NotificationCode::NONEXISTENT_INDEX;
+          notification.title = fmt::format("Index on label TTL on properties ttl doesn't exist.");
+        }
+      };
+      break;
+    }
+    case TtlQuery::Type::EXECUTE: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      TypedValue period{};
+      TypedValue specific_time{};
+      if (ttl_query->period_) period = ttl::TtlInfo::ParsePeriod(ttl_query->period_->Accept(evaluator).ValueString());
+      if (ttl_query->specific_time_) {
+        specific_time = ttl::TtlInfo::ParseStartTime(ttl_query->specific_time_->Accept(evaluator).ValueString());
+      }
+      ttl::TtlInfo ttl_info(std::move(period), std::move(specific_time));
+
+      handler = [db_acc = *current_db.db_acc_, ttl_info = std::move(ttl_info),
+                 interpreter_context](Notification &notification) mutable {
+        notification.code = NotificationCode::CREATE_INDEX;
+        notification.title = fmt::format("Created index on label TTL on property ttl.");
+        auto &ttl = db_acc->ttl();
+        ttl.Create(ttl_info, db_acc, interpreter_context);
+      };
+      break;
+    }
+    default: {
+      DMG_ASSERT(false, "Unknown ttl query type");
+    }
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), notifications, notification = std::move(notification)](
+                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                         handler(notification);
+                         notifications->push_back(notification);
+                         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+                       },
+                       RWType::W};
+}
+
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
@@ -3616,6 +3716,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
     auto *streams = db->streams();
     streams->DropAll();
+
+    auto &ttl = db->ttl();
+    ttl.Stop();
 
     return std::vector<std::vector<TypedValue>>();
   };
@@ -4903,7 +5006,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
         utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
         unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
@@ -4961,6 +5064,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
+      prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
+                                       &query_execution->notifications, current_db_, interpreter_context_);
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {

@@ -105,7 +105,7 @@ class AstStorage {
   AstStorage &operator=(AstStorage &&) = default;
 
   template <typename T, typename... Args>
-  T *Create(Args &&...args) {
+  T *Create(Args &&... args) {
     T *ptr = new T(std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
     storage_.emplace_back(std::move(tmp));
@@ -4051,6 +4051,31 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
 
   ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSchemaInfoQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class TtlQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  TtlQuery() = default;
+
+  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, EXECUTE } type_;
+  Expression *period_{};
+  Expression *specific_time_{};
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  TtlQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<TtlQuery>();
+    object->type_ = type_;
+    object->period_ = period_;
+    object->specific_time_ = specific_time_;
     return object;
   }
 

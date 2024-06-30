@@ -11,6 +11,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
+#include "query/interpreter.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 

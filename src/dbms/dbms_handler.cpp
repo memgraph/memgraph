@@ -401,6 +401,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     database.streams()->StopAll();
     database.streams()->DropAll();
     database.thread_pool()->ShutDown();
+    database.ttl().Stop();
   }
 
   // Remove from durability list

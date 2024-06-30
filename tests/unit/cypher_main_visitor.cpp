@@ -5037,3 +5037,7 @@ TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
   const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
   ASSERT_NE(query, nullptr);
 }
+
+TEST_P(CypherMainVisitorTest, TtlQuery) {
+  // TODO
+}

@@ -27,6 +27,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ALTER
                       | ANALYZE
                       | ASYNC
+                      | AT
                       | AUTH
                       | BAD
                       | BATCH_INTERVAL
@@ -57,13 +58,16 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DIRECTORY
                       | DO
+                      | DISABLE
                       | DROP
                       | DUMP
                       | DURABILITY
                       | EDGE
                       | EDGE_TYPES
+                      | ENABLE
                       | ENUM
                       | ENUMS
+                      | EVERY
                       | EXECUTE
                       | FAILOVER
                       | FOR
@@ -148,6 +152,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
+                      | TTL
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -203,6 +208,7 @@ query : cypherQuery
       | alterEnumRemoveValueQuery
       | dropEnumQuery
       | showSchemaInfoQuery
+      | ttlQuery
       ;
 
 cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -615,3 +621,14 @@ alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumVa
 dropEnumQuery: DROP ENUM enumName ;
 
 showSchemaInfoQuery : SHOW SCHEMA INFO ;
+
+enableTtlQuery: ENABLE TTL ;
+
+disableTtlQuery: DISABLE TTL ;
+
+ttlThreadQuery: EXECUTE TTL ( EVERY period=literal )? ( AT time=literal )? ;
+
+ttlQuery: enableTtlQuery
+        | disableTtlQuery
+        | ttlThreadQuery
+        ;
