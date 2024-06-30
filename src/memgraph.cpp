@@ -59,6 +59,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/signals.hpp"
@@ -69,6 +70,10 @@
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -247,11 +252,14 @@ int main(int argc, char **argv) {
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
+      mem_log_scheduler.Run("Memory check", std::chrono::seconds(3), [] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
                                                         *free_ram / 1024, "https://memgr.ph/ram"));
+
+        auto memory_res = memgraph::utils::GetMemoryRES();
+        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
