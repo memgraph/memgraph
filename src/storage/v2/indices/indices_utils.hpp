@@ -202,7 +202,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       auto resLabel = cache.GetHasLabel(view, &vertex, label);
       if (resLabel && *resLabel) {
         auto resProp = cache.GetProperty(view, &vertex, key);
-        if (resProp && *resProp == value) return true;
+        if (resProp && resProp->get() == value) return true;
       }
     }
 

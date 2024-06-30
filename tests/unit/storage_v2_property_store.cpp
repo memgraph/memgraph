@@ -53,8 +53,8 @@ const PropertyValue kSampleValues[] = {
     PropertyValue(
         std::vector<PropertyValue>{PropertyValue(33), PropertyValue(std::string("sample")), PropertyValue(-33.33)}),
     PropertyValue(std::vector<PropertyValue>{PropertyValue(), PropertyValue(false)}),
-    PropertyValue(std::map<std::string, PropertyValue>{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
-    PropertyValue(std::map<std::string, PropertyValue>{
+    PropertyValue(PropertyValue::map_t{{"sample", PropertyValue()}, {"key", PropertyValue(false)}}),
+    PropertyValue(PropertyValue::map_t{
         {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
     PropertyValue(TemporalData(TemporalType::Date, 23)),
     PropertyValue(GetSampleZonedTemporal()),
@@ -257,7 +257,7 @@ TEST(PropertyStore, MoveAssignLarge) {
 
 TEST(PropertyStore, EmptySet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
   const auto zoned_temporal = GetSampleZonedTemporal();
 
@@ -294,7 +294,7 @@ TEST(PropertyStore, EmptySet) {
 
 TEST(PropertyStore, FullSet) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
   const auto zoned_temporal = GetSampleZonedTemporal();
 
@@ -577,32 +577,30 @@ TEST(PropertyStore, IsPropertyEqualList) {
 TEST(PropertyStore, IsPropertyEqualMap) {
   PropertyStore props;
   auto prop = PropertyId::FromInt(42);
-  ASSERT_TRUE(props.SetProperty(prop, PropertyValue(std::map<std::string, PropertyValue>{
-                                          {"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
-  ASSERT_TRUE(props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{
-                                              {"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
+  ASSERT_TRUE(props.SetProperty(
+      prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
+  ASSERT_TRUE(props.IsPropertyEqual(
+      prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyx", PropertyValue("test")}})));
 
   // Different length.
-  ASSERT_FALSE(
-      props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{{"fgh", PropertyValue(24)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{"fgh", PropertyValue(24)}})));
 
   // Same length, different value.
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{
-                                               {"abc", PropertyValue(42)}, {"zyx", PropertyValue("testt")}})));
+  ASSERT_FALSE(props.IsPropertyEqual(
+      prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyx", PropertyValue("testt")}})));
 
   // Same length, different key (different length).
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{
-                                               {"abc", PropertyValue(42)}, {"zyxw", PropertyValue("test")}})));
+  ASSERT_FALSE(props.IsPropertyEqual(
+      prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyxw", PropertyValue("test")}})));
 
   // Same length, different key (same length).
-  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{
-                                               {"abc", PropertyValue(42)}, {"zyw", PropertyValue("test")}})));
+  ASSERT_FALSE(props.IsPropertyEqual(
+      prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}, {"zyw", PropertyValue("test")}})));
 
   // Shortened and extended.
-  ASSERT_FALSE(
-      props.IsPropertyEqual(prop, PropertyValue(std::map<std::string, PropertyValue>{{"abc", PropertyValue(42)}})));
+  ASSERT_FALSE(props.IsPropertyEqual(prop, PropertyValue(PropertyValue::map_t{{"abc", PropertyValue(42)}})));
   ASSERT_FALSE(props.IsPropertyEqual(
-      prop, PropertyValue(std::map<std::string, PropertyValue>{
+      prop, PropertyValue(PropertyValue::map_t{
                 {"abc", PropertyValue(42)}, {"sdf", PropertyValue(true)}, {"zyx", PropertyValue("test")}})));
 }
 
@@ -673,7 +671,7 @@ TEST(PropertyStore, IsPropertyEqualEnum) {
 
 TEST(PropertyStore, SetMultipleProperties) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123), PropertyValue()};
-  std::map<std::string, PropertyValue> map{{"nandare", PropertyValue(false)}};
+  PropertyValue::map_t map{{"nandare", PropertyValue(false)}};
   const TemporalData temporal{TemporalType::LocalDateTime, 23};
   const auto zoned_temporal = GetSampleZonedTemporal();
 

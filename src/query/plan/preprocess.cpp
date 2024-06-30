@@ -397,22 +397,22 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 
 // Adds the where filter expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table, AstStorage &storage) {
-  CollectFilterExpression(where.expression_, symbol_table, &storage);
+void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) {
+  CollectFilterExpression(where.expression_, symbol_table);
 }
 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
-void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
+void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
   auto filters = SplitExpressionOnAnd(expr);
   for (const auto &filter : filters) {
-    AnalyzeAndStoreFilter(filter, symbol_table, storage);
+    AnalyzeAndStoreFilter(filter, symbol_table);
   }
 }
 
 // Analyzes the filter expression by collecting information on filtering labels
 // and properties to be used with indexing.
-void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table, AstStorage *storage) {
+void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_table) {
   using Bound = PropertyFilter::Bound;
   UsedSymbolsCollector collector(symbol_table);
   expr->Accept(collector);
@@ -664,7 +664,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
     }
   }
   if (where) {
-    matching.filters.CollectWhereFilter(*where, symbol_table, storage);
+    matching.filters.CollectWhereFilter(*where, symbol_table);
   }
 }
 
@@ -827,7 +827,6 @@ std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
 Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {
   if (expression == old) return in;
 
-  std::vector<Expression *> expressions;
   std::stack<Expression *> pending_expressions;
   pending_expressions.push(expression);
 
