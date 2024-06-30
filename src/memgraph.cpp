@@ -73,7 +73,7 @@
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
-}
+}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -533,7 +533,8 @@ int main(int argc, char **argv) {
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
-          high_availability_data_dir, coordination_setup.coordinator_hostname, coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
+          high_availability_data_dir, coordination_setup.coordinator_hostname, coordination_setup.nuraft_log_file,
+          coordination_setup.ha_durability});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }

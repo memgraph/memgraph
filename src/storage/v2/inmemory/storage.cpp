@@ -41,7 +41,7 @@
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
-}
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
