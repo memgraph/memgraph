@@ -101,4 +101,12 @@ inline bool CheckRocksDBStatus(const auto &status) {
   return status.ok();
 }
 
+inline void LogHelp(const std::string &message) {
+  spdlog::debug(message);
+  auto help_logger = spdlog::get("help_logger");
+  if (help_logger) {
+    help_logger->info(message);
+  }
+}
+
 }  // namespace memgraph::logging

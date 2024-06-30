@@ -247,29 +247,35 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
     if (scan_type == ScanAll::kType) {
       if (!filtered_labels.empty() && !filtered_properties.empty()) {
-        hints_.push_back(
-            fmt::format("Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
-                        "properties {2}. Consider "
-                        "creating a label-property index.",
-                        scan_symbol.name(), filtered_labels, filtered_properties));
+        auto hint_message = fmt::format(
+            "Sequential scan will be used on symbol `{0}` although there is a filter on labels {1} and "
+            "properties {2}. Consider "
+            "creating a label-property index.",
+            scan_symbol.name(), filtered_labels, filtered_properties);
+        hints_.push_back(hint_message);
+        logging::LogHelp(hint_message);
         return;
       }
 
       if (!filtered_labels.empty()) {
-        hints_.push_back(fmt::format(
+        auto hint_message = fmt::format(
             "Sequential scan will be used on symbol `{0}` although there is a filter on labels {1}. Consider "
             "creating a label index.",
-            scan_symbol.name(), filtered_labels));
+            scan_symbol.name(), filtered_labels);
+        hints_.push_back(hint_message);
+        logging::LogHelp(hint_message);
         return;
       }
       return;
     }
 
     if (scan_type == ScanAllByLabel::kType && !filtered_properties.empty()) {
-      hints_.push_back(fmt::format(
+      auto hint_message = fmt::format(
           "Label index will be used on symbol `{0}` although there is also a filter on properties {1}. Consider "
           "creating a label-property index.",
-          scan_symbol.name(), filtered_properties));
+          scan_symbol.name(), filtered_properties);
+      hints_.push_back(hint_message);
+      logging::LogHelp(hint_message);
       return;
     }
   }
