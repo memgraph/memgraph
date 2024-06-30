@@ -24,7 +24,12 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/memory_tracker.hpp"
+
+namespace memgraph::metrics {
+extern const Event EdgePropertiesSet;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
@@ -155,6 +160,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         // transactions get a SERIALIZATION_ERROR.
         CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
         edge.ptr->properties.SetProperty(property, value);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::EdgePropertiesSet);
       });
 
   if (transaction_->IsDiskStorage()) {
@@ -179,6 +185,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   utils::AtomicMemoryBlock([&properties, transaction_ = transaction_, edge_ = edge_]() {
     for (const auto &[property, _] : properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+      memgraph::metrics::IncrementCounter(memgraph::metrics::EdgePropertiesSet);
     }
   });
 
@@ -205,6 +212,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
         for (auto &[property, old_value, new_value] : *id_old_new_change) {
           if (skip_duplicate_write && old_value == new_value) continue;
           CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+          memgraph::metrics::IncrementCounter(memgraph::metrics::EdgePropertiesSet);
         }
       });
 
@@ -226,6 +234,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
+      memgraph::metrics::IncrementCounter(memgraph::metrics::EdgePropertiesSet);
     }
 
     edge_.ptr->properties.ClearProperties();

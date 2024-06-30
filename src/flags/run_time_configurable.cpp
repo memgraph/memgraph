@@ -59,6 +59,13 @@ DEFINE_bool(hops_limit_partial_results, true,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_try_cleaning_after_every_transaction_enabled, true, "Clean memory after every transaction.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(query_advanced_summary_enabled, false,
+            "Turns on the advanced execution stats in the query result metadata.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -83,11 +90,21 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kTryCleaningAfterEveryTransactionEnabledSettingKey =
+    "storage-try-cleaning-after-every-transaction-enabled";
+constexpr auto kTryCleaningAfterEveryTransactionEnabledGFlagsKey =
+    "storage-try-cleaning-after-every-transaction-enabled";
+
+constexpr auto kQueryAdvancedSummaryEnabledSettingKey = "query-advanced-summary-enabled";
+constexpr auto kQueryAdvancedSummaryEnabledGFlagsKey = "query-advanced-summary-enabled";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
+std::atomic<bool> storage_try_cleaning_after_every_transaction_enabled_{true};
+std::atomic<bool> query_advanced_summary_enabled_{false};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -204,6 +221,15 @@ void Initialize() {
   register_flag(
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+
+  register_flag(
+      kTryCleaningAfterEveryTransactionEnabledGFlagsKey, kTryCleaningAfterEveryTransactionEnabledSettingKey, !kRestore,
+      [](const std::string &val) { storage_try_cleaning_after_every_transaction_enabled_ = val == "true"; },
+      ValidBoolStr);
+
+  register_flag(
+      kQueryAdvancedSummaryEnabledGFlagsKey, kQueryAdvancedSummaryEnabledSettingKey, !kRestore,
+      [](const std::string &val) { query_advanced_summary_enabled_ = val == "true"; }, ValidBoolStr);
 }
 
 std::string GetServerName() {
@@ -218,5 +244,9 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+bool GetTryCleaningAfterEveryTransactionEnabled() { return storage_try_cleaning_after_every_transaction_enabled_; }
+
+bool GetQueryAdvancedSummaryEnabled() { return query_advanced_summary_enabled_; }
 
 }  // namespace memgraph::flags::run_time

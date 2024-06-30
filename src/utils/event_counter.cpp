@@ -83,7 +83,22 @@
   M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
-  M(SuccessfulQuery, Transaction, "Number of successful queries.")
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
+                                                                                                                     \
+  M(NodesCreated, Workload, "Number of created nodes")                                                               \
+  M(NodePropertiesSet, Workload, "Number of modified nodes")                                                         \
+  M(NodesDeleted, Workload, "Number of deleted nodes")                                                               \
+  M(EdgesCreated, Workload, "Number of created edges")                                                               \
+  M(EdgePropertiesSet, Workload, "Number of modified edges")                                                         \
+  M(EdgesDeleted, Workload, "Number of deleted edges")                                                               \
+  M(EdgesAttached, Workload, "Number of attached edges to nodes")                                                    \
+  M(EdgesDetached, Workload, "Number of detached edges")                                                             \
+  M(LabelsAdded, Workload, "Number of added node labels")                                                            \
+  M(LabelsRemoved, Workload, "Number of removed node labels")                                                        \
+  M(TotalDeltaObjectsAllocated, Workload, "Total number of created delta objects")                                   \
+  M(TotalDeltaObjectsRead, Workload, "Total number of read delta objects")                                           \
+  M(SuccessfulFastDiscardOfDeltaObjects, Workload, "Number of times transaction was able to clean after commit.")    \
+  M(SkippedFastDiscardOfDeltaObjects, Workload, "Number of times transaction cleaning was skipped after commit.")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters

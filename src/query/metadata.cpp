@@ -125,6 +125,16 @@ std::string ExecutionStatsKeyToString(const ExecutionStats::Key key) {
       return std::string("labels-removed");
     case ExecutionStats::Key::UPDATED_PROPERTIES:
       return std::string("properties-set");
+    case ExecutionStats::Key::READ_DELTAS:
+      return std::string("read-deltas");
+    case ExecutionStats::Key::CREATED_DELTAS:
+      return std::string("created-deltas");
+    case ExecutionStats::Key::BOLT_MESSAGES:
+      return std::string("bolt-messages");
+    case ExecutionStats::Key::FILTERED_ROWS:
+      return std::string("filtered-rows");
+    case ExecutionStats::Key::EXPRESSIONS_EVALUATED:
+      return std::string("expressions-evaluated");
   }
 }
 
