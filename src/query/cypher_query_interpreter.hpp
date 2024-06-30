@@ -49,7 +49,7 @@ class LogicalPlan {
   virtual const AstStorage &GetAstStorage() const = 0;
 };
 
-using UserParameters = std::map<std::string, storage::PropertyValue>;
+using UserParameters = storage::PropertyValue::map_t;
 
 auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
     -> Parameters;

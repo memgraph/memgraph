@@ -37,7 +37,6 @@
 
 #include <mutex>
 #include <ranges>
-#include <unordered_set>
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
@@ -1021,15 +1020,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
-                                                            std::list<Gid> &current_deleted_edges,
-                                                            absl::flat_hash_set<LabelId> &modified_labels) {
+                                                            std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     for (auto &delta : deltas) {
-      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
-        modified_labels.insert(delta.label.value);
-      }
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::NULLPTR:
@@ -1042,7 +1037,6 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           if (vertex.deleted) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
-            modified_labels.insert(vertex.labels.cbegin(), vertex.labels.cend());
           }
           break;
         }
@@ -1092,17 +1086,16 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  absl::flat_hash_set<LabelId> modified_labels;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, modified_labels);
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
     // 3.a) clear from indexes first
     std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
+    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
+    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
 
     // 3.b) remove from veretex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
@@ -1767,9 +1760,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
 
-  // We will collect all labels that were modified in this GC cycle so we can delete them from indices
-  absl::flat_hash_set<LabelId> modified_labels;
-
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
 
@@ -1828,9 +1818,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // The chain can be only read without taking any locks.
 
     for (Delta &delta : linked_entry->deltas_) {
-      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
-        modified_labels.insert(delta.label.value);
-      }
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1846,7 +1833,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
-              modified_labels.insert(vertex->labels.cbegin(), vertex->labels.cend());
             }
             break;
           }
@@ -1949,9 +1935,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // in every index every time.
     auto token = stop_source.get_token();
     if (!token.stop_requested()) {
-      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token, modified_labels);
+      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token), modified_labels);
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
     }
   }
 

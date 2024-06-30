@@ -774,7 +774,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::MAP: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      std::map<std::string, PropertyValue> map;
+      auto map = PropertyValue::map_t{};
+      map.reserve(*size);
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
