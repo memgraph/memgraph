@@ -100,7 +100,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
     return false;
   }
 
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
     auto edge_acc = it->second.access();
     for (auto &from_vertex : vertices) {
@@ -122,7 +122,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
       }
     }
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
     index_.erase(it);
     throw;
   }
@@ -142,7 +142,7 @@ std::vector<std::pair<EdgeTypeId, PropertyId>> InMemoryEdgeTypePropertyIndex::Li
   std::vector<std::pair<EdgeTypeId, PropertyId>> ret;
   ret.reserve(index_.size());
   for (const auto &item : index_) {
-    ret.push_back({item.first.first, item.first.second});
+    ret.emplace_back(item.first.first, item.first.second);
   }
   return ret;
 }
@@ -173,8 +173,9 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
       // The way they are removed from the index is through this check. The entries should
       // be right next to each other(in terms of iterator semantics) and the older one
       // should be removed here.
-      bool redundant_duplicate = has_next && it->value == next_it->value && it->from_vertex == next_it->from_vertex &&
-                                 it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+      const bool redundant_duplicate = has_next && it->value == next_it->value &&
+                                       it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
+                                       it->edge == next_it->edge;
       if (redundant_duplicate || vertices_deleted ||
           !AnyVersionHasLabelProperty(*it->edge, specific_index.first.second, it->value,
                                       oldest_active_start_timestamp) ||

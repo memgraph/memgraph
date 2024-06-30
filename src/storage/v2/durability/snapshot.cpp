@@ -1757,7 +1757,7 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  const utils::OnScopeExit cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -1770,7 +1770,7 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
