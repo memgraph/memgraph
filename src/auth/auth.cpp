@@ -63,7 +63,7 @@ DEFINE_VALIDATED_HIDDEN_string(
     auth_module_executable, "", "Absolute path to the auth module executable that should be used.", {
       spdlog::warn(
           "The auth-module-executable flag is deprecated and superseded by auth-module-mappings. "
-          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic: {your module's path}.");
+          "To switch to the up-to-date flag, start Memgraph with auth-module-mappings=basic:{your module's path}.");
       if (value.empty()) return true;
       // Check the file status, following symlinks.
       auto status = std::filesystem::status(value);
@@ -265,7 +265,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
 
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
-    if (ret.find("errors") != ret.end()) {
+    if (ret.find("errors") == ret.end()) {
       return default_error;
     }
     const auto &ret_errors = ret.at("errors");

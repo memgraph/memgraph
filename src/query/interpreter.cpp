@@ -4027,6 +4027,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
             {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+            {TypedValue("peak_memory_res"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},
