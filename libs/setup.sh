@@ -17,6 +17,7 @@ function print_help () {
 use_cache=true
 if [[ "$local_cache_host" == "false" ]]; then
   use_cache=false
+  echo -e "\n--- Not using cache ---\n"
 fi
 
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
