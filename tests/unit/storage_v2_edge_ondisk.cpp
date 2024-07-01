@@ -38,7 +38,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -48,7 +48,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -122,7 +122,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -231,7 +231,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_to = acc->CreateVertex();
     auto vertex_from = acc->CreateVertex();
     gid_to = vertex_to.Gid();
@@ -241,7 +241,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -309,7 +309,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -405,7 +405,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
 
   // Create vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -413,7 +413,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -471,7 +471,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -554,7 +554,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -564,7 +564,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
   // Create edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -632,7 +632,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -661,7 +661,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -729,7 +729,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -826,7 +826,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_to = acc->CreateVertex();
     auto vertex_from = acc->CreateVertex();
     gid_to = vertex_to.Gid();
@@ -836,7 +836,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Create edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -904,7 +904,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -933,7 +933,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1001,7 +1001,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1097,7 +1097,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
   // Create vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1105,7 +1105,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
   // Create edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -1163,7 +1163,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -1182,7 +1182,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -1240,7 +1240,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -1327,7 +1327,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -1337,7 +1337,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1405,7 +1405,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1492,7 +1492,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
   // Delete edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1559,7 +1559,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1598,7 +1598,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_to = acc->CreateVertex();
     auto vertex_from = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -1608,7 +1608,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1676,7 +1676,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1763,7 +1763,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
   // Delete edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1830,7 +1830,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -1868,7 +1868,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
   // Create vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1876,7 +1876,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -1934,7 +1934,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -2011,7 +2011,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
   // Delete edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -2068,7 +2068,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -2097,7 +2097,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -2107,7 +2107,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2175,7 +2175,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2262,7 +2262,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Delete the edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2329,7 +2329,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2416,7 +2416,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Delete the edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2483,7 +2483,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2522,7 +2522,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Create vertices
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
@@ -2532,7 +2532,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2600,7 +2600,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2687,7 +2687,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Delete the edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2754,7 +2754,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2842,7 +2842,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Delete the edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2909,7 +2909,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -2947,7 +2947,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Create vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -2955,7 +2955,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Create edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3013,7 +3013,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3090,7 +3090,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Delete the edge, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3147,7 +3147,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3224,7 +3224,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Delete the edge
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3281,7 +3281,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
 
   // Check whether the edge exists
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid_vertex, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -3310,7 +3310,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
   // Create dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
 
@@ -3359,7 +3359,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
   // Detach delete vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -3423,7 +3423,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex_from);
@@ -3452,7 +3452,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
 
   // Create dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
 
@@ -3579,7 +3579,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
 
   // Detach delete vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
@@ -3717,7 +3717,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex1);
@@ -3784,7 +3784,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 
   // Create dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->CreateVertex();
     auto vertex_to = acc->CreateVertex();
 
@@ -3833,7 +3833,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 
   // Detach delete vertex, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -3897,7 +3897,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -3938,7 +3938,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 
   // Detach delete vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex_from);
@@ -4002,7 +4002,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex_from = acc->FindVertex(gid_from, memgraph::storage::View::NEW);
     auto vertex_to = acc->FindVertex(gid_to, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex_from);
@@ -4031,7 +4031,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 
   // Create dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->CreateVertex();
     auto vertex2 = acc->CreateVertex();
 
@@ -4158,7 +4158,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 
   // Detach delete vertex, but abort the transaction
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
@@ -4296,7 +4296,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
@@ -4474,7 +4474,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 
   // Detach delete vertex
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex1);
@@ -4612,7 +4612,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
 
   // Check dataset
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex1 = acc->FindVertex(gid_vertex1, memgraph::storage::View::NEW);
     auto vertex2 = acc->FindVertex(gid_vertex2, memgraph::storage::View::NEW);
     ASSERT_FALSE(vertex1);
@@ -4676,7 +4676,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     auto et = acc->NameToEdgeType("et5");
@@ -4719,7 +4719,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4749,7 +4749,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     acc->Abort();
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4782,7 +4782,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4814,7 +4814,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Create the vertex.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     auto et = acc->NameToEdgeType("et5");
@@ -4827,7 +4827,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Set property 5 to "nandare", but abort the transaction.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4869,7 +4869,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
     auto edge = vertex->OutEdges(memgraph::storage::View::NEW).GetValue().edges[0];
@@ -4891,7 +4891,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Set property 5 to "nandare".
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4933,7 +4933,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -4965,7 +4965,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Set property 5 to null, but abort the transaction.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5008,7 +5008,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5040,7 +5040,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Set property 5 to null.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5083,7 +5083,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5113,7 +5113,7 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     auto et = acc->NameToEdgeType("et5");
@@ -5124,8 +5124,8 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = store->Access(ReplicationRole::MAIN);
-  auto acc2 = store->Access(ReplicationRole::MAIN);
+  auto acc1 = store->Access();
+  auto acc2 = store->Access();
 
   // Set property 1 to 123 in accessor 1.
   {
@@ -5196,7 +5196,7 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
 
   // Check which properties exist.
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5234,7 +5234,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
   auto property1 = store->NameToProperty("property1");
   auto property2 = store->NameToProperty("property2");
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     auto et = acc->NameToEdgeType("et5");
@@ -5250,7 +5250,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5284,7 +5284,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     acc->Abort();
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5297,7 +5297,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5332,7 +5332,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5354,7 +5354,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     spdlog::trace("Created vertex with gid: {}", gid.AsInt());
@@ -5366,7 +5366,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5398,7 +5398,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     acc->Abort();
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5428,7 +5428,7 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
   std::unique_ptr<memgraph::storage::Storage> store(new memgraph::storage::DiskStorage(config));
   memgraph::storage::Gid gid;
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     auto et = acc->NameToEdgeType("et5");
@@ -5439,7 +5439,7 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -5459,7 +5459,7 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
 
   auto property = store->NameToProperty("property");
 
-  auto acc = store->Access(ReplicationRole::MAIN);
+  auto acc = store->Access();
   auto vertex = acc->CreateVertex();
   auto edge = acc->CreateEdge(&vertex, &vertex, acc->NameToEdgeType("edge"));
   ASSERT_TRUE(edge.HasValue());

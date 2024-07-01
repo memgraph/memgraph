@@ -41,7 +41,7 @@ static void MapLiteral(benchmark::State &state) {
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements;
   for (int64_t i = 0; i < state.range(0); ++i) {
@@ -72,7 +72,7 @@ static void AdditionOperator(benchmark::State &state) {
   TMemory memory;
   memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   memgraph::query::Expression *expr = ast.Create<memgraph::query::PrimitiveLiteral>(0);
   for (int64_t i = 0; i < state.range(0); ++i) {

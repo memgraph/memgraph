@@ -63,17 +63,17 @@ TYPED_TEST(InfoTest, InfoCheck) {
 
   {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     auto v3 = acc->CreateVertex();
@@ -93,49 +93,49 @@ TYPED_TEST(InfoTest, InfoCheck) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, prop2).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->DropIndex(lbl, prop).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  StorageInfo info = this->storage->GetInfo(ReplicationRole::MAIN);
+  StorageInfo info = this->storage->GetInfo();
 
   ASSERT_EQ(info.vertex_count, 5);
   ASSERT_EQ(info.edge_count, 2);

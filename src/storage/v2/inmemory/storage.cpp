@@ -236,11 +236,9 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(
-    auto tag, InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role)
-    : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
-      config_(storage->config_.salient.items) {}
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                                                    StorageMode storage_mode)
+    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -1688,9 +1686,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   return edge_accessor_from_info(maybe_edge_info);
 }
 
-Transaction InMemoryStorage::CreateTransaction(
-    IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -2097,10 +2093,10 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+StorageInfo InMemoryStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);  // TODO: override isolation level?
+    auto access = Access();  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -2420,7 +2416,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
-  // TODO: (andi) I think this should happen in reverse order
+  // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
+  // before than on main.
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
@@ -2440,10 +2437,9 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other txn can be in play
-      return UniqueAccess(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
-    } else {
-      return Access(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
+      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
     }
+    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
   utils::Timer timer;
@@ -2497,19 +2493,14 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
     std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

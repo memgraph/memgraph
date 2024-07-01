@@ -46,7 +46,7 @@ memgraph::query::Expression *GetExpression(memgraph::query::Query *query) {
 int main() {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
-  auto storage_acc = store->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+  auto storage_acc = store->Access();
   memgraph::query::DbAccessor db_acc(storage_acc.get());
 
   memgraph::query::AstStorage ast_storage;

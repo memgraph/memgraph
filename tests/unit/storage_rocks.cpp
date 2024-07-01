@@ -57,14 +57,14 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 };
 
 TEST_F(RocksDBStorageTest, SerializeVertexGID) {
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access();
   auto vertex = acc->CreateVertex();
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access();
   auto vertex = acc->CreateVertex();
   auto ser_player_label = acc->NameToLabel("Player");
   auto ser_user_label = acc->NameToLabel("User");

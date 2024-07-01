@@ -98,38 +98,38 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create enum.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // alter enum.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label index statistics.
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
       ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_id).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       acc->SetIndexStats(label_indexed, property_id, memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_id));
       ASSERT_FALSE(acc->Commit().HasError());
@@ -137,13 +137,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -151,7 +151,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     // Create vertices.
     auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       auto vertex = acc->CreateVertex();
       base_vertex_gids_[i] = vertex.Gid();
       if (i < kNumBaseVertices / 2) {
@@ -172,7 +172,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create edges.
     for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex1);
       auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
@@ -208,26 +208,26 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_unused).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label index statistics.
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
       ASSERT_TRUE(acc->GetIndexStats(label_unused));
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label+property index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label_indexed, property_count).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
     {
       // Create label+property index statistics.
-      auto acc = store->Access(ReplicationRole::MAIN);
+      auto acc = store->Access();
       acc->SetIndexStats(label_indexed, property_count,
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_count));
@@ -236,25 +236,25 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     {
       // Create existence constraint.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     {
       // Create unique constraint.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
     // Storage accessor.
     std::unique_ptr<memgraph::storage::Storage::Accessor> acc;
-    if (single_transaction) acc = store->Access(ReplicationRole::MAIN);
+    if (single_transaction) acc = store->Access();
 
     // Create vertices.
     for (uint64_t i = 0; i < kNumExtendedVertices; ++i) {
-      if (!single_transaction) acc = store->Access(ReplicationRole::MAIN);
+      if (!single_transaction) acc = store->Access();
       auto vertex = acc->CreateVertex();
       extended_vertex_gids_[i] = vertex.Gid();
       if (i < kNumExtendedVertices / 2) {
@@ -268,7 +268,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
     // Create edges.
     for (uint64_t i = 0; i < kNumExtendedEdges; ++i) {
-      if (!single_transaction) acc = store->Access(ReplicationRole::MAIN);
+      if (!single_transaction) acc = store->Access();
       auto vertex1 =
           acc->FindVertex(extended_vertex_gids_[(i / 5) % kNumExtendedVertices], memgraph::storage::View::NEW);
       ASSERT_TRUE(vertex1);
@@ -294,7 +294,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
   void CreateEdgeIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type) {
     {
       // Create edge-type index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(edge_type).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -304,7 +304,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                memgraph::storage::PropertyId prop) {
     {
       // Create edge-type index.
-      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(edge_type, prop).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -332,7 +332,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").HasValue());
 
     // Create storage accessor.
-    auto acc = store->Access(ReplicationRole::MAIN);
+    auto acc = store->Access();
 
     // Verify indices info.
     {

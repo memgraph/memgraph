@@ -83,7 +83,7 @@ class TriggerContextTest : public ::testing::Test {
   }
 
   memgraph::storage::Storage::Accessor *StartTransaction() {
-    accessors.emplace_back(db->Access(ReplicationRole::MAIN));
+    accessors.emplace_back(db->Access());
     return accessors.back().get();
   }
 
@@ -916,7 +916,7 @@ class TriggerStoreTest : public ::testing::Test {
 
     config = disk_test_utils::GenerateOnDiskConfig(testSuite);
     storage = std::make_unique<StorageType>(config);
-    storage_accessor = storage->Access(ReplicationRole::MAIN);
+    storage_accessor = storage->Access();
     dba.emplace(storage_accessor.get());
   }
 
