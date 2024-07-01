@@ -2952,6 +2952,7 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_ROLES,
     CREATE_USER,
     SET_PASSWORD,
+    CHANGE_PASSWORD,
     DROP_USER,
     SHOW_CURRENT_USER,
     SHOW_USERS,
@@ -3009,6 +3010,8 @@ class AuthQuery : public memgraph::query::Query {
   std::string user_;
   std::string role_;
   std::string user_or_role_;
+  memgraph::query::Expression *old_password_{nullptr};
+  memgraph::query::Expression *new_password_{nullptr};
   bool if_not_exists_;
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
@@ -3024,6 +3027,8 @@ class AuthQuery : public memgraph::query::Query {
     object->user_ = user_;
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
+    object->old_password_ = old_password_;
+    object->new_password_ = new_password_;
     object->if_not_exists_ = if_not_exists_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
