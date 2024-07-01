@@ -1578,6 +1578,23 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordCon
 /**
  * @return AuthQuery*
  */
+antlrcpp::Any CypherMainVisitor::visitChangePassword(MemgraphCypher::ChangePasswordContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::CHANGE_PASSWORD;
+  if (!ctx->newPassword->StringLiteral()) {
+    throw SyntaxException("New password should be a string literal or null.");
+  }
+  if (!ctx->oldPassword->StringLiteral()) {
+    throw SyntaxException("Old password should be a string literal or null.");
+  }
+  auth->new_password_ = std::any_cast<Expression *>(ctx->newPassword->accept(this));
+  auth->old_password_ = std::any_cast<Expression *>(ctx->oldPassword->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
 antlrcpp::Any CypherMainVisitor::visitDropUser(MemgraphCypher::DropUserContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_USER;
