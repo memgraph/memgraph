@@ -103,10 +103,12 @@ CoordinatorInstance::~CoordinatorInstance() {
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     // Start server for leader
-    leader_follower_logic_.emplace<CoordLeader>(management_server_config_);
-    auto &server = std::get<CoordLeader>(leader_follower_logic_).server_;
-    CoordinatorInstanceManagementServerHandlers::Register(server, *this);
-    MG_ASSERT(server.Start());
+    if (std::get_if<CoordFollower>(&leader_follower_logic_) || std::get_if<std::monostate>(&leader_follower_logic_)) {
+      leader_follower_logic_.emplace<CoordLeader>(management_server_config_);
+      auto &server = std::get<CoordLeader>(leader_follower_logic_).server_;
+      CoordinatorInstanceManagementServerHandlers::Register(server, *this);
+      MG_ASSERT(server.Start());
+    }
 
     spdlog::trace("Executing become leader callback in thread {}", std::this_thread::get_id());
     if (is_shutting_down_.load(std::memory_order_acquire)) {
@@ -214,8 +216,14 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       spdlog::trace("Leader not found in coordinator instances");
       return {};
     }
-
-    leader_follower_logic_.emplace<CoordFollower>(CoordinatorInstanceManagementServerConfig{coord->management_server});
+    if (std::get_if<CoordLeader>(&leader_follower_logic_) || std::get_if<std::monostate>(&leader_follower_logic_)) {
+      leader_follower_logic_.emplace<CoordFollower>(CoordinatorInstanceManagementServerConfig{coord->management_server},
+                                                    leader_id);
+    } else if (auto *follower = std::get_if<CoordFollower>(&leader_follower_logic_);
+               follower->leader_id_ != leader_id) {
+      leader_follower_logic_.emplace<CoordFollower>(CoordinatorInstanceManagementServerConfig{coord->management_server},
+                                                    leader_id);
+    }
 
     auto &follower = std::get<CoordFollower>(leader_follower_logic_);
 

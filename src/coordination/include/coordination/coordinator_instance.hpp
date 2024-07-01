@@ -181,9 +181,12 @@ class CoordinatorInstance {
     }
     communication::ClientContext rpc_context_;
     mutable rpc::Client rpc_client_;
+    const int leader_id_;
 
-    explicit CoordFollower(CoordinatorInstanceManagementServerConfig const &config)
-        : rpc_context_{CreateClientContext(config)}, rpc_client_{config.endpoint, &rpc_context_} {}
+    explicit CoordFollower(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
+        : rpc_context_{CreateClientContext(config)},
+          rpc_client_{config.endpoint, &rpc_context_},
+          leader_id_(leader_id) {}
   };
   mutable std::variant<std::monostate, CoordLeader, CoordFollower> leader_follower_logic_;
 };
