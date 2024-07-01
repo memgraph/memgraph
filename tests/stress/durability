@@ -53,7 +53,7 @@ cmd = [
     "--storage-snapshot-interval-sec=5",
     "--storage-snapshot-retention-count=2",
     "--storage-wal-enabled=true",
-    "--storage-recover-on-startup=true",
+    "--data-recovery-on-startup=true",
     "--query-execution-timeout-sec=600",
     "--bolt-server-name-for-init=Neo4j/v5.11.0 compatible graph database server - Memgraph",
 ]

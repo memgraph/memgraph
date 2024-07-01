@@ -18,6 +18,7 @@ PIP_DEPS=(
    "six==1.15.0"
    "networkx==2.4"
    "gqlalchemy==1.3.3"
+   "python3-saml==1.16.0"
 )
 
 # Remove old and create a new virtualenv.
@@ -37,6 +38,8 @@ pip --timeout 1000 install "pulsar-client==3.1.0"
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
+# https://github.com/SAML-Toolkits/python3-saml?tab=readme-ov-file#note
+pip --timeout 1000 install --upgrade lxml==5.2.1
 pip --timeout 1000 install "networkx==2.4"
 
 # Install mgclient from source becasue of full flexibility.

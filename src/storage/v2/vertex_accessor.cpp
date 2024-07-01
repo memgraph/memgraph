@@ -11,13 +11,18 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
@@ -586,7 +591,8 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 };
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination) const {
+                                                          const VertexAccessor *destination,
+                                                          query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -600,7 +606,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->in_edges.empty();
 
-    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
+    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
     if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
@@ -616,17 +622,10 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
-    // TODO: a better filter copy
     if (edge_types.empty() && !destination) {
-      in_edges = vertex_->in_edges;
+      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
     } else {
-      for (const auto &[edge_type, from_vertex, edge] : vertex_->in_edges) {
-        if (destination && from_vertex != destination_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        in_edges.emplace_back(edge_type, from_vertex, edge);
-      }
+      expanded_count = HandleExpansionsWithEdgeTypes(in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
     }
     delta = vertex_->delta;
   }
@@ -676,7 +675,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 }
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination) const {
+                                                           const VertexAccessor *destination,
+                                                           query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -689,7 +689,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->out_edges.empty();
 
-    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
+    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
 
     if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
@@ -706,16 +706,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
     if (edge_types.empty() && !destination) {
-      out_edges = vertex_->out_edges;
+      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
     } else {
-      for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-        if (destination && to_vertex != dst_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        out_edges.emplace_back(edge_type, to_vertex, edge);
-      }
+      expanded_count =
+          HandleExpansionsWithEdgeTypes(out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
     }
     delta = vertex_->delta;
   }
@@ -876,4 +871,41 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
+int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+                                                         EdgeDirection direction) const {
+  int64_t expanded_count = 0;
+  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  if (hops_limit && hops_limit->IsUsed()) {
+    if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(edges.size()) > 0) {
+      hops_limit->limit_reached = true;
+    } else {
+      expanded_count = std::min(hops_limit->LeftHops(), static_cast<int64_t>(edges.size()));
+      hops_limit->IncrementHopsCount(expanded_count);
+      std::copy_n(edges.begin(), expanded_count, std::back_inserter(result_edges));
+    }
+  } else {
+    expanded_count = static_cast<int64_t>(edges.size());
+    result_edges = edges;
+  }
+  return expanded_count;
+}
+
+int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
+                                                      const std::vector<EdgeTypeId> &edge_types,
+                                                      const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                                      EdgeDirection direction) const {
+  int64_t expanded_count = 0;
+  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  for (const auto &[edge_type, vertex, edge] : edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->IncrementHopsCount(1);
+      if (hops_limit->IsLimitReached()) break;
+    }
+    expanded_count++;
+    if (destination && vertex != destination->vertex_) continue;
+    if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end()) continue;
+    result_edges.emplace_back(edge_type, vertex, edge);
+  }
+  return expanded_count;
+}
 }  // namespace memgraph::storage

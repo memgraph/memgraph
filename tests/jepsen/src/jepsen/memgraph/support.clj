@@ -23,7 +23,7 @@
    (:local-binary test)
    :--log-level "TRACE"
    :--also-log-to-stderr
-   :--storage-recover-on-startup
+   :--data-recovery-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--data-recovery-on-startup
@@ -43,7 +43,7 @@
    :--log-level "TRACE"
    :--experimental-enabled "high-availability"
    :--also-log-to-stderr
-   :--storage-recover-on-startup
+   :--data-recovery-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
@@ -65,7 +65,7 @@
    :--log-level "TRACE"
    :--experimental-enabled "high-availability"
    :--also-log-to-stderr
-   :--storage-recover-on-startup
+   :--data-recovery-on-startup
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup

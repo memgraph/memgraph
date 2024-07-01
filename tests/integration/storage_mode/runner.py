@@ -90,7 +90,7 @@ def execute_test_analytical_mode(memgraph_binary: str, tester_binary: str) -> No
 
     # Start the memgraph binary
     memgraph = prepare_memgraph(
-        [memgraph_binary, "--data-directory", storage_directory.name, "--storage-recover-on-startup=true"]
+        [memgraph_binary, "--data-directory", storage_directory.name, "--data-recovery-on-startup=true"]
     )
 
     execute_queries(assertion_queries)
@@ -138,7 +138,7 @@ def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_bi
     print("\033[1;36m~~ Starting memgraph with snapshot recovery ~~\033[0m\n")
 
     memgraph = prepare_memgraph(
-        [memgraph_binary, "--data-directory", storage_directory.name, "--storage-recover-on-startup=true"]
+        [memgraph_binary, "--data-directory", storage_directory.name, "--data-recovery-on-startup=true"]
     )
 
     execute_queries(assertion_queries)
@@ -184,7 +184,7 @@ def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_bi
     print("\033[1;36m~~ Starting memgraph with snapshot recovery ~~\033[0m\n")
 
     memgraph = prepare_memgraph(
-        [memgraph_binary, "--data-directory", storage_directory.name, "--storage-recover-on-startup=true"]
+        [memgraph_binary, "--data-directory", storage_directory.name, "--data-recovery-on-startup=true"]
     )
 
     execute_queries(assertion_queries)
