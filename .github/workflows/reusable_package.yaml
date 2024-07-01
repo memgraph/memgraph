@@ -46,7 +46,7 @@ on:
 
 jobs:
   PackageAndUpload:
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    runs-on: ${{ inputs.arch == 'arm' && 'ubuntu-large-arm' || '[self-hosted, DockerMgBuild, X64]' }}
     timeout-minutes: ${{ inputs.arch == 'arm' && 120 || 60 }}
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && '100.116.34.131' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
@@ -57,7 +57,8 @@ jobs:
           fetch-depth: 0 # Required because of release/get_version.py
 
       - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
-        if: ${{ inputs.arch == 'arm' }}
+        # if: ${{ inputs.arch == 'arm' }}
+        if: false
         run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
 
       - name: "Log in to Docker Hub"
