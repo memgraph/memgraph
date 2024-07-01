@@ -1753,23 +1753,24 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
   if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
-
   if (!IsVersionSupported(*version)) throw RecoveryFailure(fmt::format("Invalid snapshot version {}", *version));
-  if (*version != 17U) throw RecoveryFailure(fmt::format("Expected snapshot version is 17, but got {}", *version));
 
   // Cleanup of loaded data in case of failure.
-  auto cleanup = utils::OnScopeExit{[&] {
-    edges->clear();
-    vertices->clear();
-    edges_metadata->clear();
-    epoch_history->clear();
-  }};
+  bool success = false;
+  const utils::OnScopeExit cleanup([&] {
+    if (!success) {
+      edges->clear();
+      vertices->clear();
+      edges_metadata->clear();
+      epoch_history->clear();
+    }
+  });
 
   // Read snapshot info.
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool const snapshot_has_edges = info.offset_edges != 0;
+  const bool snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -2118,16 +2119,16 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
 
-  // Success, disable cleanup
-  cleanup.Disable();
+  // Set success flag (to disable cleanup).
+  success = true;
 
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipList<Vertex> *vertices,
+RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
+                               NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -2425,7 +2426,6 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
       spdlog::info("Metadata of label+property indices are recovered.");
     }
 
-    // Recover edge-type indices.
     spdlog::info("Recovering metadata of indices.");
     if (!snapshot.SetPosition(info.offset_edge_indices)) throw RecoveryFailure("Couldn't read data from snapshot!");
 
@@ -2434,6 +2434,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
       throw RecoveryFailure("Couldn't read section edge-indices!");
 
     {
+      // Recover edge-type indices.
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
       spdlog::info("Recovering metadata of {} edge-type indices.", *size);
@@ -2446,6 +2447,25 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)));
       }
       spdlog::info("Metadata of edge-type indices are recovered.");
+    }
+    {
+      // Recover edge-type + property indices.
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of edge-type indices");
+      spdlog::info("Recovering metadata of {} edge-type indices.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto edge_type = snapshot.ReadUint();
+        if (!edge_type) throw RecoveryFailure("Couldn't read edge-type of edge-type + property index!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of edge-type + property index!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.edge_property,
+                                    {get_edge_type_from_id(*edge_type), get_property_from_id(*property)},
+                                    "The edge-type + property index already exists!");
+        SPDLOG_TRACE("Recovered metadata of edge-type index for :{}({})",
+                     name_id_mapper->IdToName(snapshot_id_map.at(*edge_type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of edge-type + property indices are recovered.");
     }
 
     // Recover text indices.
@@ -2961,6 +2981,16 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);
+      }
+    }
+
+    // Write edge-type + property indices.
+    {
+      auto edge_type = storage->indices_.edge_type_property_index_->ListIndices();
+      snapshot.WriteUint(edge_type.size());
+      for (const auto &item : edge_type) {
+        write_mapping(item.first);
+        write_mapping(item.second);
       }
     }
 

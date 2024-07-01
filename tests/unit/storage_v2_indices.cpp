@@ -46,6 +46,8 @@ class IndexTest : public testing::Test {
     this->label2 = acc->NameToLabel("label2");
     this->edge_type_id1 = acc->NameToEdgeType("edge_type_1");
     this->edge_type_id2 = acc->NameToEdgeType("edge_type_2");
+    this->edge_prop_id1 = acc->NameToProperty("edge_prop_id1");
+    this->edge_prop_id2 = acc->NameToProperty("edge_prop_id2");
     vertex_id = 0;
   }
 
@@ -65,6 +67,8 @@ class IndexTest : public testing::Test {
   LabelId label2;
   EdgeTypeId edge_type_id1;
   EdgeTypeId edge_type_id2;
+  PropertyId edge_prop_id1;
+  PropertyId edge_prop_id2;
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
@@ -1690,4 +1694,415 @@ TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
   }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    for (int i = 0; i < 10; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc =
+          this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    }
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    for (int i = 10; i < 20; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc =
+          this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    }
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc->AdvanceCommand();
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc->Abort();
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    for (int i = 10; i < 20; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc =
+          this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    }
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    acc->AdvanceCommand();
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    acc->AdvanceCommand();
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    for (int i = 0; i < 10; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc =
+          this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    }
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    for (int i = 10; i < 20; ++i) {
+      auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+      auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+      auto edge_acc =
+          this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    }
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    EXPECT_TRUE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_THAT(acc->ListAllIndices().edge_type_property,
+                UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
+  }
+
+  {
+    auto acc = this->storage->Access(ReplicationRole::MAIN);
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+
+    acc->AdvanceCommand();
+
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
+  // The following steps are performed and index correctness is validated after
+  // each step:
+  // 1. Create 10 edges numbered from 0 to 9.
+  // 2. Add EdgeType1 to odd numbered, and EdgeType2 to even numbered edges.
+  // 3. Delete even numbered edges.
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  EXPECT_THAT(acc->ListAllIndices().edge_type_property,
+              UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1),
+                                   std::make_pair(this->edge_type_id2, this->edge_prop_id2)));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW), IsEmpty());
+
+  for (int i = 0; i < 10; ++i) {
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    if (i % 2) {
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    } else {
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i));
+    }
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::OLD), View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    auto edges = vertex.OutEdges(View::OLD)->edges;
+    for (auto &edge : edges) {
+      int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
+      if (id % 2 == 0) {
+        ASSERT_NO_ERROR(acc->DetachDelete({}, {&edge}, false));
+      }
+    }
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::OLD), View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW), IsEmpty());
+
+  acc->AdvanceCommand();
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::OLD), View::OLD), IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, this->edge_prop_id2, View::NEW), View::NEW), IsEmpty());
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  // Check that transactions only see entries they are supposed to see.
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc_before = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_after = this->storage->Access(ReplicationRole::MAIN);
+
+  for (int i = 0; i < 5; ++i) {
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
+
+  EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              IsEmpty());
+
+  EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              IsEmpty());
+
+  ASSERT_NO_ERROR(acc->Commit());
+
+  auto acc_after_commit = this->storage->Access(ReplicationRole::MAIN);
+
+  EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              IsEmpty());
+
+  EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              IsEmpty());
+
+  EXPECT_THAT(this->GetIds(acc_after_commit->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  for (int i = 0; i < 20; ++i) {
+    auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+    auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+    if (i % 3) {
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+    } else {
+      auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id2, acc.get());
+      edge_acc.SetProperty(this->edge_prop_id2, memgraph::storage::PropertyValue(i));
+    }
+  }
+
+  EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 13);
+  EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id2, this->edge_prop_id2), 7);
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    return;
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
+  auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
+
+  for (int i = 0; i < 5; ++i) {
+    auto edge_acc = this->CreateEdge(&vertex_from, &vertex_to, this->edge_type_id1, acc.get());
+    edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
+  }
+
+  EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
+
+  auto edges = acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW);
+  for (auto edge : edges) {
+    auto prop_val = edge.GetProperty(this->prop_id, View::NEW)->ValueInt();
+    edge.SetProperty(this->prop_id, memgraph::storage::PropertyValue(prop_val + 1));
+  }
+
+  EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+              UnorderedElementsAre(1, 2, 3, 4, 5));
 }
