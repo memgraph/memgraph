@@ -774,11 +774,12 @@ def test_old_main_comes_back_on_new_leader_as_replica():
                 return result[0]
         return None
 
+    main_instance_name = find_main_instance()
+
     def connect_to_main_instance():
-        main_instance_name = find_main_instance()
         assert main_instance_name is not None
 
-        port_mapping = {"instance_1": 7687, "instance_2": 7688}
+        port_mapping = {"instance_1": 7687, "instance_2": 7688, "instance_3": 7689}
 
         assert main_instance_name in port_mapping, f"Main is not in mappings, but main is {main_instance_name}"
 
@@ -797,6 +798,13 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
     replicas = [
         (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
             "instance_2",
             "localhost:10002",
             "sync",
@@ -811,6 +819,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
+    replicas = [replica for replica in replicas if replica[0] != main_instance_name]
     mg_sleep_and_assert_collection(replicas, show_replicas)
 
     execute_and_fetch_all(new_main_cursor, "CREATE (n:Node {name: 'node'})")
