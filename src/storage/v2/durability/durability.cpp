@@ -32,6 +32,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
+#include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -211,6 +212,19 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
   }
   spdlog::info("Edge-type indices are recreated.");
+
+  // Recover edge-type + property indices.
+  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
+  for (const auto &item : indices_metadata.edge_property) {
+    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
+      throw RecoveryFailure("The edge-type property index must be created here!");
+    }
+    spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                 name_id_mapper->IdToName(item.second.AsUint()));
+  }
+  spdlog::info("Edge-type + property indices are recreated.");
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     // Recover text indices.
