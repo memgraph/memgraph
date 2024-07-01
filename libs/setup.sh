@@ -11,11 +11,11 @@ function print_help () {
     echo "Usage: $0 [OPTION]"
     echo -e "Setup libs for the project.\n"
     echo "Optonal environment variables:"
-    echo -e "  MGDEPS_CACHE_HOST_PORT\thost and port for mgdeps cache service, set to 'false' to not use mgdeps-cache (default: mgdeps-cache:8000) "
+    echo -e "  MGDEPS_CACHE_HOST_PORT\thost and port for mgdeps cache service, set host to 'false' to not use mgdeps-cache (default: mgdeps-cache:8000) "
 }
 
 use_cache=true
-if [[ "$local_cache_host" == "false" ]]; then
+if [[ "${local_cache_host%:*}" == "false" ]]; then
   use_cache=false
   echo -e "\n--- Not using cache ---\n"
 fi
