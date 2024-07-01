@@ -313,7 +313,6 @@ def find_instance_and_assert_instances(
         assert l == instance, "Leaders are not the same"
 
     assert instance is not None and instance != "" and len(all_instances) > 0, f"{instance_name} not found"
-
     return instance
 
 
