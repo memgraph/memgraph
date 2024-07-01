@@ -22,10 +22,6 @@ fi
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
-else
-    echo "Invalid argument provided: $1"
-    print_help
-    exit 1
 fi
 
 # Clones a git repository and optionally cherry picks additional commits. The
