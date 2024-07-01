@@ -867,6 +867,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
+  // TODO: (andi) If empty, then we just need to set is_transaction_active_ to false and return
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.
@@ -875,6 +876,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
 
+    // TODO:(andi) ExistenceConstraints validation block
     if (transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
@@ -902,6 +904,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     {
       auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
+      // TODO: (andi) LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
           for (auto &label : label_indices) {
@@ -917,6 +920,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         });
       }
 
+      // TODO: (andi) EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
           for (auto &edge_type : edge_type_indices) {
@@ -2424,6 +2428,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
+  // TODO: (andi) I think this should happen in reverse order
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 

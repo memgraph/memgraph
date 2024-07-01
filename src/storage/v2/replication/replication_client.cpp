@@ -256,7 +256,8 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     return false;
   }
 
-  auto task = [storage, db_acc = std::move(db_acc), this, replica_stream_obj = std::move(replica_stream)]() mutable {
+  auto task = [storage, db_acc = std::move(db_acc), this,
+               replica_stream_obj = std::move(replica_stream)]() mutable -> bool {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
@@ -264,8 +265,9 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
       return replica_state_.WithLock(
           [storage, response, db_acc = std::move(db_acc), this, &replica_stream_obj](auto &state) mutable {
             replica_stream_obj.reset();
+            // When async replica executes this part of the code, the state could've changes since the check
+            // at the beginning of the function happened.
             if (!response.success || state == replication::ReplicaState::RECOVERY) {
-              state = replication::ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
               client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
                 this->RecoverReplica(response.current_commit_timestamp, storage);
@@ -286,11 +288,15 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   };
 
   if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+    // When in ASYNC mode, we ignore the return value from task() and always return true
     client_.thread_pool_.AddTask(
         [task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { (void)task(); });
     return true;
   }
 
+  // If we are in SYNC mode, we return the result of task().
+  // If replica is in RECOVERY or stream wasn't correctly finalized, we return false
+  // If replica is READY, we return true
   return task();
 }
 
