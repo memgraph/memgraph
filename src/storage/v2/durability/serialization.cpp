@@ -386,7 +386,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::map<std::string, PropertyValue> value;
+      auto value = PropertyValue::map_t{};
+      value.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
@@ -441,8 +442,10 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+    case Marker::DELTA_EDGE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_INDEX_DROP:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
@@ -559,8 +562,10 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+    case Marker::DELTA_EDGE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_INDEX_DROP:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:

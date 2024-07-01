@@ -83,9 +83,10 @@ add_subdirectory(concurrency)
 add_subdirectory(execution_query_modules)
 add_subdirectory(index_auto_creation)
 add_subdirectory(text_search_modules)
+add_subdirectory(user_changing_its_own_password)
 add_subdirectory(sso)
 add_subdirectory(auth)
-add_subdirectory(hops_limit)
+add_subdirectory(hops_count)
 
 add_subdirectory(replication_experimental)
 

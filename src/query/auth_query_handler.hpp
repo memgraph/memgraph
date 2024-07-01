@@ -45,6 +45,10 @@ class AuthQueryHandler {
   virtual void SetPassword(const std::string &username, const std::optional<std::string> &password,
                            system::Transaction *system_tx) = 0;
 
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
+                              const std::optional<std::string> &newPassword, system::Transaction *system_tx) = 0;
+
 #ifdef MG_ENTERPRISE
   /// Return true if access granted successfully
   /// @throw QueryRuntimeException if an error ocurred.

@@ -97,6 +97,13 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph drivers-high-availability
 
+      - name: Save drivers test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "HA_drivers_report"
+          path: tests/drivers/test_report.tar.gz
+
       - name: Run cppcheck and clang-format
         run: |
           ./release/package/mgbuild.sh \

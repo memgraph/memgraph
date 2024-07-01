@@ -210,18 +210,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  if (auto *index_hints_ctx = ctx->indexHints()) {
-    for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
-      auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
-      if (!index_hint_ctx->propertyKeyName()) {
-        cypher_query->index_hints_.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
-        continue;
-      }
-      cypher_query->index_hints_.emplace_back(
-          IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
-                    .label_ = label,
-                    .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
-    }
+  if (auto *using_statement_ctx = ctx->usingStatement()) {
+    cypher_query->using_statement_ = std::any_cast<UsingStatement>(using_statement_ctx->accept(this));
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -234,6 +224,33 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
 
   query_ = cypher_query;
   return cypher_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitUsingStatement(MemgraphCypher::UsingStatementContext *ctx) {
+  UsingStatement using_statement;
+  for (auto *using_statement_item : ctx->usingStatementItem()) {
+    if (auto *index_hints_ctx = using_statement_item->indexHints()) {
+      for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
+        auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
+        if (!index_hint_ctx->propertyKeyName()) {
+          using_statement.index_hints_.emplace_back(
+              IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
+          continue;
+        }
+        using_statement.index_hints_.emplace_back(
+            IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
+                      .label_ = label,
+                      .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
+      }
+    } else {
+      if (using_statement.hops_limit_) {
+        throw SemanticException("Hops limit can be set only once in the USING statement.");
+      }
+      using_statement.hops_limit_ = std::any_cast<Expression *>(using_statement_item->hopsLimit()->accept(this));
+    }
+  }
+
+  return using_statement;
 }
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) {
@@ -283,12 +300,20 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  if (ctx->propertyKeyName()) {
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {name_key};
+  }
   return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) {
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::DROP;
+  if (ctx->propertyKeyName()) {
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {key};
+  }
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   return index_query;
 }
@@ -1547,6 +1572,23 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordCon
     throw SyntaxException("Password should be a string literal or null.");
   }
   auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitChangePassword(MemgraphCypher::ChangePasswordContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::CHANGE_PASSWORD;
+  if (!ctx->newPassword->StringLiteral()) {
+    throw SyntaxException("New password should be a string literal or null.");
+  }
+  if (!ctx->oldPassword->StringLiteral()) {
+    throw SyntaxException("Old password should be a string literal or null.");
+  }
+  auth->new_password_ = std::any_cast<Expression *>(ctx->newPassword->accept(this));
+  auth->old_password_ = std::any_cast<Expression *>(ctx->oldPassword->accept(this));
   return auth;
 }
 

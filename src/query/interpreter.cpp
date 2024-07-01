@@ -65,6 +65,7 @@
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpreter_context.hpp"
@@ -723,6 +724,9 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
 
+  auto oldPassword = EvaluateOptionalExpression(auth_query->old_password_, evaluator);
+  auto newPassword = EvaluateOptionalExpression(auth_query->new_password_, evaluator);
+
   Callback callback;
 
   const auto license_check_result = license::global_license_checker.IsEnterpriseValid(utils::global_settings);
@@ -832,6 +836,27 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         auth->SetPassword(username,
                           password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                           &*interpreter->system_transaction_);
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
+    case AuthQuery::Action::CHANGE_PASSWORD:
+      forbid_on_replica();
+      callback.fn = [auth, username, oldPassword, newPassword, interpreter = &interpreter] {
+        if (!interpreter->system_transaction_) {
+          throw QueryException("Expected to be in a system transaction");
+        }
+        const std::optional<std::string> username = interpreter->user_or_role_->username();
+        if (!username) {
+          throw QueryException("You need to be valid user to replace password");
+        }
+
+        MG_ASSERT(newPassword.IsString() || newPassword.IsNull());
+        MG_ASSERT(oldPassword.IsString() || oldPassword.IsNull());
+        auth->ChangePassword(
+            *username,
+            oldPassword.IsString() ? std::make_optional(std::string(oldPassword.ValueString())) : std::nullopt,
+            newPassword.IsString() ? std::make_optional(std::string(newPassword.ValueString())) : std::nullopt,
+            &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -1935,7 +1960,8 @@ struct PullPlan {
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr);
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::optional<int64_t> hops_limit = {});
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1966,11 +1992,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector)
+                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
+                   const std::optional<int64_t> hops_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
       memory_limit_(memory_limit) {
+  ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
   ctx_.evaluation_context.timestamp = QueryTimestamp();
@@ -2083,6 +2111,10 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   }
   cursor_->Shutdown();
   ctx_.profile_execution_time = execution_time_;
+
+  if (!flags::run_time::GetHopsLimitPartialResults() && ctx_.hops_limit.IsLimitReached()) {
+    throw QueryException("Query exceeded the maximum number of hops.");
+  }
 
   return GetStatsWithTotalTime(ctx_);
 }
@@ -2229,6 +2261,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (memory_limit) {
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
+
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  if (hops_limit) {
+    spdlog::debug("Running query with hops limit of {}", *hops_limit);
+  }
+
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
@@ -2278,7 +2316,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2398,6 +2436,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
@@ -2425,14 +2465,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer)](AnyStream *stream,
-                                       std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       tx_timer = std::move(tx_timer),
+       hops_limit](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
@@ -2796,11 +2836,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
-  auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
   }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
@@ -2882,20 +2923,45 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto *storage = db_acc->storage();
   auto edge_type = storage->NameToEdgeType(index_query->edge_type_.name);
 
+  std::vector<storage::PropertyId> properties;
+  std::vector<std::string> properties_string;
+  properties.reserve(index_query->properties_.size());
+  properties_string.reserve(index_query->properties_.size());
+  for (const auto &prop : index_query->properties_) {
+    properties.push_back(storage->NameToProperty(prop.name));
+    properties_string.push_back(prop.name);
+  }
+
+  if (properties.size() > 1) {
+    throw utils::NotYetImplemented("index on multiple properties");
+  }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
+
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+      const auto &ix_properties = index_query->properties_;
+      if (ix_properties.empty()) {
+        index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+      } else {
+        index_notification.title = fmt::format("Created index on edge-type {} on property {}.",
+                                               index_query->edge_type_.name, ix_properties.front().name);
+      }
 
       handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        auto maybe_index_error = dba->CreateIndex(edge_type);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error =
+            properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title = fmt::format("Index on edge-type {} already exists.", label_name);
+          index_notification.title =
+              fmt::format("Index on edge-type {} on properties {} already exists.", label_name, properties_stringified);
         }
       };
       break;
@@ -2904,13 +2970,17 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
       handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        auto maybe_index_error = dba->DropIndex(edge_type);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error =
+            properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-          index_notification.title = fmt::format("Index on edge-type {} doesn't exist.", label_name);
+          index_notification.title =
+              fmt::format("Index on edge-type {} on {} doesn't exist.", label_name, properties_stringified);
         }
       };
       break;
@@ -3233,8 +3303,7 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
   }
 }
 
-Callback CreateTrigger(TriggerQuery *trigger_query,
-                       const std::map<std::string, storage::PropertyValue> &user_parameters,
+Callback CreateTrigger(TriggerQuery *trigger_query, const storage::PropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
                        std::shared_ptr<QueryUserOrRole> user_or_role) {
   // Make a copy of the user and pass it to the subsystem
@@ -3857,6 +3926,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
+        const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
@@ -3875,6 +3945,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+        }
+        for (const auto &item : info.edge_type_property) {
+          results.push_back({TypedValue(edge_type_property_index_mark), TypedValue(storage->EdgeTypeToName(item.first)),
+                             TypedValue(storage->PropertyToName(item.second)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item.first, item.second)))});
         }
         for (const auto &[index_name, label] : info.text_indices) {
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
@@ -4012,6 +4087,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
             {TypedValue("average_degree"), TypedValue(info.average_degree)},
             {TypedValue("vm_max_map_count"), TypedValue(vm_max_map_count_storage_info)},
             {TypedValue("memory_res"), TypedValue(utils::GetReadableSize(static_cast<double>(info.memory_res)))},
+            {TypedValue("peak_memory_res"),
+             TypedValue(utils::GetReadableSize(static_cast<double>(info.peak_memory_res)))},
             {TypedValue("disk_usage"), TypedValue(utils::GetReadableSize(static_cast<double>(info.disk_usage)))},
             {TypedValue("memory_tracked"),
              TypedValue(utils::GetReadableSize(static_cast<double>(utils::total_memory_tracker.Amount())))},

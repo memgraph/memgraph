@@ -109,6 +109,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -198,13 +199,14 @@ query : cypherQuery
       | alterEnumUpdateValueQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
           | showCurrentUser
           | showUsers
@@ -269,7 +271,13 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+
+usingStatementItem: hopsLimit | indexHints ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
@@ -333,6 +341,8 @@ createUser : CREATE USER ifNotExists? user=userOrRoleName
 ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
+
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
 
 dropUser : DROP USER user=userOrRoleName ;
 
@@ -574,9 +584,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 

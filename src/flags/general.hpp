@@ -58,9 +58,6 @@ DECLARE_uint64(storage_python_gc_cycle_sec);
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(storage_recover_on_startup);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_interval_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

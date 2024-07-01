@@ -95,6 +95,7 @@ class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
 class ScanAllById;
 class ScanAllByEdgeType;
+class ScanAllByEdgeTypeProperty;
 class ScanAllByEdgeId;
 class Expand;
 class ExpandVariable;
@@ -129,12 +130,14 @@ class IndexedJoin;
 class HashJoin;
 class RollUpApply;
 
-using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
-    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType, ScanAllByEdgeId, Expand, ExpandVariable, ConstructNamedPath,
-    Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter,
-    Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure,
-    LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply>;
+using LogicalOperatorCompositeVisitor =
+    utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
+                            ScanAllByLabelPropertyValue, ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType,
+                            ScanAllByEdgeTypeProperty, ScanAllByEdgeId, Expand, ExpandVariable, ConstructNamedPath,
+                            Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
+                            RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
+                            Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
+                            EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -619,6 +622,42 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
     object->edge_type_ = edge_type_;
+    return object;
+  }
+};
+
+class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdgeTypeProperty() = default;
+  ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                            storage::EdgeTypeId edge_type, storage::PropertyId property,
+                            storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override {
+    return fmt::format("ScanAllByEdgeTypeProperty ({0} :{1} {{{2}}})", output_symbol_.name(),
+                       dba_->EdgeTypeToName(edge_type_), dba_->PropertyToName(property_));
+  }
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdgeTypeProperty>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->edge_type_ = edge_type_;
+    object->property_ = property_;
     return object;
   }
 };
