@@ -116,7 +116,7 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterFaker default_interpreter{&interpreter_context, db};
 
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query, const memgraph::storage::PropertyValue::map_t &params = {}) {
     return default_interpreter.Prepare(query, params);
   }
 
@@ -124,7 +124,7 @@ class InterpreterTest : public ::testing::Test {
     default_interpreter.Pull(stream, n, qid);
   }
 
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query, const memgraph::storage::PropertyValue::map_t &params = {}) {
     return default_interpreter.Interpret(query, params);
   }
 };
@@ -252,7 +252,8 @@ TYPED_TEST(InterpreterTest, Parameters) {
                                              memgraph::storage::PropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result =
+        memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0], nullptr));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
@@ -266,7 +267,7 @@ TYPED_TEST(InterpreterTest, Parameters) {
 // Run CREATE/MATCH/MERGE queries with property map
 TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
+    memgraph::storage::PropertyValue::map_t property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(25);
     auto stream =
@@ -282,7 +283,7 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
+    memgraph::storage::PropertyValue::map_t property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(25);
     this->Interpret("CREATE (:Person)");
@@ -299,7 +300,7 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
+    memgraph::storage::PropertyValue::map_t property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["weight"] = memgraph::storage::PropertyValue(121);
     auto stream = this->Interpret("CREATE ()-[r:TO $prop]->() RETURN r",
@@ -315,7 +316,7 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
+    memgraph::storage::PropertyValue::map_t property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(15);
     ASSERT_THROW(this->Interpret("MATCH (n $prop) RETURN n",
@@ -325,7 +326,7 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
                  memgraph::query::SemanticException);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
+    memgraph::storage::PropertyValue::map_t property_map{};
     property_map["name"] = memgraph::storage::PropertyValue("name1");
     property_map["age"] = memgraph::storage::PropertyValue(15);
     ASSERT_THROW(this->Interpret("MERGE (n $prop) RETURN n",
@@ -1187,7 +1188,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
   check_load_csv_queries(false);
 }
 
-void AssertAllValuesAreZero(const std::map<std::string, memgraph::communication::bolt::Value> &map,
+void AssertAllValuesAreZero(const memgraph::communication::bolt::map_t &map,
                             const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;

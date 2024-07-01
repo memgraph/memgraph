@@ -24,6 +24,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/plan/rewrite/edge_type_index_lookup.hpp"
+#include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rule_based_planner.hpp"
@@ -53,8 +54,10 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    auto index_lookup_plan =
-        RewriteWithIndexLookup(std::move(plan), context->symbol_table, context->ast_storage, context->db, index_hints_);
+    auto enum_constants_plan =
+        RewriteEnumAccess(std::move(plan), context->symbol_table, context->ast_storage, context->db);
+    auto index_lookup_plan = RewriteWithIndexLookup(std::move(enum_constants_plan), context->symbol_table,
+                                                    context->ast_storage, context->db, index_hints_);
     auto join_plan =
         RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
     auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
@@ -147,7 +150,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters, context->query->index_hints_, context->db);
+  PostProcessor post_processor(parameters, context->query->using_statement_.index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 

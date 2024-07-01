@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -12,15 +12,12 @@
 #include <filesystem>
 #include <optional>
 
+#include "communication/bolt/v1/value.hpp"
 #include "data_structures/ring_buffer.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/file.hpp"
 #include "utils/scheduler.hpp"
 
 namespace memgraph::audit {
-
-const uint64_t kBufferSizeDefault = 100000;
-const uint64_t kBufferFlushIntervalMillisDefault = 200;
 
 /// This class implements an audit log. Functions used for logging are
 /// thread-safe, functions used for setup aren't thread-safe.
@@ -31,7 +28,7 @@ class Log {
     std::string address;
     std::string username;
     std::string query;
-    storage::PropertyValue params;
+    memgraph::communication::bolt::map_t params;
     std::string db;
   };
 
@@ -52,7 +49,7 @@ class Log {
 
   /// Adds an entry to the audit log. Thread-safe.
   void Record(const std::string &address, const std::string &username, const std::string &query,
-              const storage::PropertyValue &params, const std::string &db);
+              const memgraph::communication::bolt::map_t &params, const std::string &db);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   void ReopenLog();

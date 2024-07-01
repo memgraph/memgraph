@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <functional>
 #include <stack>
-#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -22,6 +21,9 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/range.hpp"
+#include "utils/bound.hpp"
+#include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -184,24 +186,18 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
   }
 }
 
-auto SplitExpressionOnAnd(Expression *expression) {
-  // TODO: Think about converting all filtering expression into CNF to improve
-  // the granularity of filters which can be stand alone.
-  std::vector<Expression *> expressions;
-  std::stack<Expression *> pending_expressions;
-  pending_expressions.push(expression);
-  while (!pending_expressions.empty()) {
-    auto *current_expression = pending_expressions.top();
-    pending_expressions.pop();
-    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
-    }
-  }
-  return expressions;
-}
+auto MatchesIdentifier(Identifier *identifier) {
+  return [identifier](FilterInfo const &existing) {
+    auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
+    if (!existing_label_test) return false;
+
+    auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
+    if (!exisiting_identifier) return false;
+
+    // If are the same symbol position then they must be referring to the same identifer
+    return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
+  };
+};
 
 }  // namespace
 
@@ -366,10 +362,26 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       labels.push_back(std::get<LabelIx>(label));
     }
     if (!labels.empty()) {
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
-      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = labels;
-      all_filters_.emplace_back(label_filter);
+      // find existing LabelsTest that matched identifier
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
+        auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
+        label_filter.labels = labels;
+        all_filters_.emplace_back(label_filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels.begin(), labels.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     }
     add_properties(node);
   };
@@ -460,6 +472,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
     return is_prop_filter;
   };
+  auto add_prop_range = [&](RangeOperator *range) {
+    auto filter = RangeOpToFilter(range, symbol_table);
+    all_filters_.emplace_back(filter);
+    return;
+  };
   // Check if maybe_id_fun is ID invocation on an indentifier and add it as
   // IdFilter.
   auto add_id_equal = [&](auto *maybe_id_fun, auto *val_expr) -> bool {
@@ -523,10 +540,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
-    if (utils::Downcast<Identifier>(labels_test->expression_)) {
-      auto filter = make_filter(FilterInfo::Type::Label);
-      filter.labels = labels_test->labels_;
-      all_filters_.emplace_back(filter);
+    if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::Label);
+        filter.labels = labels_test->labels_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
@@ -556,6 +588,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
+  } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
+    // We only support property type ranges for now
+    add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
     if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -768,6 +803,50 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
   return QueryParts{query_parts, distinct};
+}
+
+std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
+  // TODO: Think about converting all filtering expression into CNF to improve
+  // the granularity of filters which can be stand alone.
+  std::vector<Expression *> expressions;
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    } else {
+      expressions.push_back(current_expression);
+    }
+  }
+  return expressions;
+}
+
+Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {
+  if (expression == old) return in;
+
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      if (and_op->expression1_ == old) {
+        and_op->expression1_ = in;
+        break;
+      }
+      if (and_op->expression2_ == old) {
+        and_op->expression2_ = in;
+        break;
+      }
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    }
+  }
+  return expression;
 }
 
 FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,

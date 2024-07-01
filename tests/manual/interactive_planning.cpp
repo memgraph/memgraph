@@ -28,6 +28,7 @@
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/fmt.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -145,6 +146,8 @@ class InteractiveDbAccessor {
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
 
+  auto GetEnumValue(std::string_view name, std::string_view value) { return dba_->GetEnumValue(name, value); }
+
   int64_t VerticesCount() { return vertices_count_; }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id) {
@@ -215,6 +218,10 @@ class InteractiveDbAccessor {
   }
 
   bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) { return true; }
+
+  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property) {
+    return true;
+  }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);

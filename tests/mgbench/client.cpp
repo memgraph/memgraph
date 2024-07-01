@@ -64,9 +64,11 @@ DEFINE_int64(time_dependent_execution, 0,
              "If all queries are executed, and there is still time, queries are rerun again."
              "If the time runs out, the client is done with the job and returning results.");
 
-std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t> ExecuteNTimesTillSuccess(
-    memgraph::communication::bolt::Client *client, const std::string &query,
-    const std::map<std::string, memgraph::communication::bolt::Value> &params, int max_attempts) {
+using bolt_map_t = memgraph::communication::bolt::map_t;
+
+std::pair<bolt_map_t, uint64_t> ExecuteNTimesTillSuccess(memgraph::communication::bolt::Client *client,
+                                                         const std::string &query, const bolt_map_t &params,
+                                                         int max_attempts) {
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
@@ -84,11 +86,9 @@ std::pair<std::map<std::string, memgraph::communication::bolt::Value>, uint64_t>
 }
 
 // Validation returns results and metadata
-std::pair<std::map<std::string, memgraph::communication::bolt::Value>,
-          std::vector<std::vector<memgraph::communication::bolt::Value>>>
+std::pair<bolt_map_t, std::vector<std::vector<memgraph::communication::bolt::Value>>>
 ExecuteValidationNTimesTillSuccess(memgraph::communication::bolt::Client *client, const std::string &query,
-                                   const std::map<std::string, memgraph::communication::bolt::Value> &params,
-                                   int max_attempts) {
+                                   const bolt_map_t &params, int max_attempts) {
   for (uint64_t i = 0; i < max_attempts; ++i) {
     try {
       auto ret = client->Execute(query, params);
@@ -127,7 +127,7 @@ memgraph::communication::bolt::Value JsonToBoltValue(const nlohmann::json &data)
       return {std::move(vec)};
     }
     case nlohmann::json::value_t::object: {
-      std::map<std::string, memgraph::communication::bolt::Value> map;
+      bolt_map_t map;
       for (const auto &item : data.get<nlohmann::json::object_t>()) {
         map.emplace(item.first, JsonToBoltValue(item.second));
       }
@@ -149,7 +149,7 @@ class Metadata final {
   };
 
  public:
-  void Append(const std::map<std::string, memgraph::communication::bolt::Value> &values) {
+  void Append(const bolt_map_t &values) {
     for (const auto &item : values) {
       if (!item.second.IsInt() && !item.second.IsDouble()) continue;
       auto [it, emplaced] = storage_.emplace(item.first, Record());
@@ -224,9 +224,8 @@ nlohmann::json LatencyStatistics(std::vector<std::vector<double>> &worker_query_
   return statistics;
 }
 
-void ExecuteTimeDependentWorkload(
-    const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
-    std::ostream *stream) {
+void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries,
+                                  std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -331,9 +330,7 @@ void ExecuteTimeDependentWorkload(
   (*stream) << summary.dump() << std::endl;
 }
 
-void ExecuteWorkload(
-    const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
-    std::ostream *stream) {
+void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
   std::vector<std::thread> threads;
   threads.reserve(FLAGS_num_workers);
 
@@ -428,9 +425,7 @@ nlohmann::json BoltRecordsToJSONStrings(std::vector<std::vector<memgraph::commun
 }
 
 /// Validation mode works on single thread with 1 query.
-void ExecuteValidation(
-    const std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> &queries,
-    std::ostream *stream) {
+void ExecuteValidation(const std::vector<std::pair<std::string, bolt_map_t>> &queries, std::ostream *stream) {
   spdlog::info("Running validation mode, number of workers forced to 1");
   FLAGS_num_workers = 1;
 
@@ -503,7 +498,7 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
-  std::vector<std::pair<std::string, std::map<std::string, memgraph::communication::bolt::Value>>> queries;
+  std::vector<std::pair<std::string, bolt_map_t>> queries;
   if (!FLAGS_queries_json) {
     // Load simple queries.
     std::string query;
@@ -514,7 +509,7 @@ int main(int argc, char **argv) {
         queries.clear();
         continue;
       }
-      queries.emplace_back(query, std::map<std::string, memgraph::communication::bolt::Value>{});
+      queries.emplace_back(query, bolt_map_t{});
     }
   } else {
     // Load advanced queries.

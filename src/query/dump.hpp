@@ -53,6 +53,7 @@ struct PullPlanDump {
   // function, otherwise std::nullopt is returned.
   std::vector<PullChunk> pull_chunks_;
 
+  PullChunk CreateEnumsPullChunk();
   PullChunk CreateLabelIndicesPullChunk();
   PullChunk CreateLabelPropertyIndicesPullChunk();
   PullChunk CreateTextIndicesPullChunk();
@@ -65,5 +66,6 @@ struct PullPlanDump {
   PullChunk CreateInternalIndexCleanupPullChunk();
   PullChunk CreateTriggersPullChunk();
   PullChunk CreateEdgeTypeIndicesPullChunk();
+  PullChunk CreateEdgeTypePropertyIndicesPullChunk();
 };
 }  // namespace memgraph::query

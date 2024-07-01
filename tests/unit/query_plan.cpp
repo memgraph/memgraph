@@ -14,6 +14,7 @@
 #include <iostream>
 #include <list>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <tuple>
 #include <typeinfo>
@@ -31,6 +32,7 @@
 #include "query/plan/planner.hpp"
 
 #include "query_common.hpp"
+#include "utils/bound.hpp"
 
 namespace memgraph::query {
 ::std::ostream &operator<<(::std::ostream &os, const Symbol &sym) {
@@ -866,6 +868,120 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
   }
 }
 
+TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
+  FakeDbAccessor dba;
+  auto edge_type = dba.EdgeType("indexed_edgetype");
+  auto prop = dba.Property("indexed_property");
+  dba.SetIndexCount(edge_type, prop, 1);
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->(b) WHERE r.prop IS NOT NULL RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("b"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->(b) WHERE r.prop IS NOT NULL RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(
+            PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:not_indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"not_indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+}
+
+TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
+  FakeDbAccessor dba;
+  auto edge_type = dba.EdgeType("indexed_edgetype");
+  auto prop = dba.Property("indexed_property");
+  dba.SetIndexCount(edge_type, prop, 1);
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}),
+                      NODE("b"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH (a)-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(
+            PATTERN(NODE("a"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("b"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH ()-[r:not_indexed_edgetype]->() WHERE r.prop=1 RETURN r;
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"not_indexed_edgetype"}),
+                      NODE("anon2"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+}
+
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
@@ -1047,12 +1163,14 @@ TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
 }
 
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
-  // Test RETURN sqrt(SUM(2)) AS result, 42 AS group_by
+  // Test WITH 42 AS group_by RETURN sqrt(SUM(2)) AS result, group_by AS group_by
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(FN("sqrt", sum), AS("result"), group_by, AS(group_by_ident))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
@@ -1062,107 +1180,124 @@ TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
 }
 
 TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
-  // Test RETURN [SUM(2)] AS result, 42 AS group_by
+  // Test WITH 42 AS group_by RETURN [SUM(2)] AS result, group_by AS group_by
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum), AS("result"), group_by_literal, AS("group_by"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(LIST(sum), AS("result"), group_by, AS(group_by_ident))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
-  // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
+  // Test WITH 42 AS group_by RETURN {sum: SUM(2)} AS result, group_by AS group_by
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(MAP({this->storage.GetPropertyIx("sum"), sum}), AS("result"), group_by_literal, AS("group_by"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(MAP({this->storage.GetPropertyIx("sum"), sum}), AS("result"),
+                                                         group_by, AS(group_by_ident))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MapProjectionLiteralAggregationReturn) {
-  // Test WITH {} as map RETURN map {sum: SUM(2)} AS result, 42 AS group_by
+  // Test WITH 42 AS group_by, {} as map RETURN map {sum: SUM(2)} AS result, group_by AS group_by
   AstStorage storage;
   FakeDbAccessor dba;
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_clause = WITH(LITERAL(42), AS(group_by_ident), MAP(), AS("map"));
   auto elements = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
       {storage.GetPropertyIx("sum"), sum}};
-  auto *query = QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), elements), AS("result"),
-                                                                  group_by_literal, AS("group_by"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+  auto *query = QUERY(SINGLE_QUERY(
+      with_clause, RETURN(MAP_PROJECTION(IDENT("map"), elements), AS("result"), group_by, AS(group_by_ident))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
   CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
-  // Test RETURN [][SUM(2)] AS result, 42 AS group_by
+  // Test WITH 42 AS group_by RETURN [][SUM(2)] AS result, group_by AS group_by
   auto sum = SUM(LITERAL(2), false);
   auto empty_list = LIST();
-  auto group_by_literal = LITERAL(42);
-  auto *query =
-      QUERY(SINGLE_QUERY(RETURN(this->storage.template Create<memgraph::query::SubscriptOperator>(empty_list, sum),
-                                AS("result"), group_by_literal, AS("group_by"))));
-  // We expect to group by '42' and the empty list, because it is a
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(
+      with_group_by, RETURN(this->storage.template Create<memgraph::query::SubscriptOperator>(empty_list, sum),
+                            AS("result"), group_by, AS(group_by_ident))));
+  // We expect to group by `group_by` and the empty list, because it is a
   // sub-expression of a binary operator which contains an aggregation. This is
   // similar to grouping by '1' in `RETURN 1 + SUM(2)`.
-  auto aggr = ExpectAggregate({sum}, {empty_list, group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  auto aggr = ExpectAggregate({sum}, {empty_list, group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
-  // Test RETURN [1, 2][0..SUM(2)] AS result, 42 AS group_by
+  // Test WITH 42 AS group_by RETURN [1, 2][0..SUM(2)] AS result, group_by AS group_by
   auto sum = SUM(LITERAL(2), false);
   auto list = LIST(LITERAL(1), LITERAL(2));
-  auto group_by_literal = LITERAL(42);
-  auto *query =
-      QUERY(SINGLE_QUERY(RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by_literal, AS("group_by"))));
+  const std::string group_by_ident = "group_by";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(
+      SINGLE_QUERY(with_group_by, RETURN(SLICE(list, LITERAL(0), sum), AS("result"), group_by, AS(group_by_ident))));
   // Similarly to EmptyListIndexAggregation test, we expect grouping by list and
-  // '42', because slicing is an operator.
-  auto aggr = ExpectAggregate({sum}, {list, group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  // `group_by`, because slicing is an operator.
+  auto aggr = ExpectAggregate({sum}, {list, group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
-  // Test RETURN [sum(2), 42]
+  // Test WITH 42 AS s RETURN [sum(2), s]
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "s";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(LIST(sum, group_by), AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, AggregationWithListWithAggregationAndGroupBy) {
-  // Test RETURN sum(2), [sum(3), 42]
+  // Test WITH 42 AS s RETURN sum(2), [sum(3), s]
   auto sum2 = SUM(LITERAL(2), false);
   auto sum3 = SUM(LITERAL(3), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(RETURN(sum2, AS("sum2"), LIST(sum3, group_by_literal), AS("list"))));
-  auto aggr = ExpectAggregate({sum2, sum3}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "s";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(sum2, AS("sum2"), LIST(sum3, group_by), AS("list"))));
+  auto aggr = ExpectAggregate({sum2, sum3}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
-  // Test RETURN {lit: 42, sum: sum(2)}
+  // Test WITH 42 as s RETURN {lit: s, sum: sum(2)}
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
-  auto *query = QUERY(SINGLE_QUERY(
-      RETURN(MAP({this->storage.GetPropertyIx("sum"), sum}, {this->storage.GetPropertyIx("lit"), group_by_literal}),
-             AS("result"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
-  CheckPlan<TypeParam>(query, this->storage, aggr, ExpectProduce());
+  const std::string group_by_ident = "s";
+  auto group_by = IDENT(group_by_ident);
+  auto with_group_by = WITH(LITERAL(42), AS(group_by_ident));
+  auto *query = QUERY(SINGLE_QUERY(with_group_by, RETURN(MAP({this->storage.GetPropertyIx("sum"), sum},
+                                                             {this->storage.GetPropertyIx("lit"), group_by}),
+                                                         AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
+  CheckPlan<TypeParam>(query, this->storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MapProjectionWithAggregationAndGroupBy) {
-  // Test WITH {} as map RETURN map {lit: 42, sum: SUM(2)} AS result
+  // Test WITH 42 as s, {} as map RETURN map {lit: s, sum: SUM(2)} AS result
   AstStorage storage;
   FakeDbAccessor dba;
   auto sum = SUM(LITERAL(2), false);
-  auto group_by_literal = LITERAL(42);
+  const std::string group_by_ident = "s";
+  auto group_by = IDENT(group_by_ident);
+  auto with_clause = WITH(LITERAL(42), AS(group_by_ident), MAP(), AS("map"));
   auto projection = std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{
-      {storage.GetPropertyIx("lit"), group_by_literal}, {storage.GetPropertyIx("sum"), sum}};
-  auto *query =
-      QUERY(SINGLE_QUERY(WITH(MAP(), AS("map")), RETURN(MAP_PROJECTION(IDENT("map"), projection), AS("result"))));
-  auto aggr = ExpectAggregate({sum}, {group_by_literal});
+      {storage.GetPropertyIx("lit"), group_by}, {storage.GetPropertyIx("sum"), sum}};
+  auto *query = QUERY(SINGLE_QUERY(with_clause, RETURN(MAP_PROJECTION(IDENT("map"), projection), AS("result"))));
+  auto aggr = ExpectAggregate({sum}, {group_by});
   CheckPlan<TypeParam>(query, storage, ExpectProduce(), aggr, ExpectProduce());
 }
 
@@ -2113,6 +2248,212 @@ TYPED_TEST(TestPlanner, PatternComprehensionInWith) {
 
   CheckPlan<TypeParam>(query, this->storage, ExpectRollUpApply(input_ops, list_collection_branch_ops), ExpectProduce(),
                        ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterNoIndex1) {
+  // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(LESS(LITERAL(1), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)))),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterWIndex1) {
+  // Test MATCH (n:Label) WHERE 1 < n.prop < 10 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(LESS(LITERAL(1), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                             LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)))),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, property.second,
+                                              Bound{LITERAL(1), memgraph::utils::BoundType::EXCLUSIVE},
+                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterNoIndex2) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop > 1 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                             GREATER(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)))),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterWIndex2) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop > 1 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                                   WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                             GREATER(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)))),
+                                   RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, property.second,
+                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterNoIndex3) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop > 1 AND n.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterWIndex3) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop > 1 AND n.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, property.second,
+                                              Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterNoIndex4) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop < 7 AND n.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterWIndex4) {
+  // Test MATCH (n:Label) WHERE 10 >= n.prop < 7 AND n.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, property.second, std::nullopt,
+                                              Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterNoIndex5) {
+  // Test MATCH (n:Label) WHERE 10 > n.prop < 7 AND n.prop >= 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       GREATER_EQ(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, RangeFilterWIndex5) {
+  // Test MATCH (n:Label) WHERE 10 > n.prop < 7 AND n.prop >= 5 RETURN n
+  FakeDbAccessor dba;
+  const auto label_name = "label";
+  const auto label = dba.Label(label_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label, property.second, 1);
+
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label_name))),
+                         WHERE(AND(GREATER(LITERAL(10), PROPERTY_LOOKUP(dba, "n", property.second)),
+                                   AND(LESS(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(2)),
+                                       GREATER_EQ(PROPERTY_LOOKUP(dba, "n", property.second), PARAMETER_LOOKUP(3))))),
+                         RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, property.second,
+                                              Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
+                                              Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
 }
 
 }  // namespace

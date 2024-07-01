@@ -22,6 +22,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -641,6 +642,35 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
+
+ private:
+  friend class AstStorage;
+};
+
+class RangeOperator : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  Expression *expr1_{};
+  Expression *expr2_{};
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expr1_->Accept(visitor) && expr2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  RangeOperator *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<RangeOperator>();
+    object->expr1_ = expr1_ ? expr1_->Clone(storage) : nullptr;
+    object->expr2_ = expr2_ ? expr2_->Clone(storage) : nullptr;
+    return object;
+  }
 
  private:
   friend class AstStorage;
@@ -2117,6 +2147,26 @@ struct IndexHint {
   }
 };
 
+struct UsingStatement {
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
+  /// Index hints
+  std::vector<memgraph::query::IndexHint> index_hints_;
+  /// Hops limit
+  memgraph::query::Expression *hops_limit_{nullptr};
+
+  UsingStatement Clone(AstStorage *storage) const {
+    UsingStatement object;
+    object.index_hints_.resize(index_hints_.size());
+    for (auto i = 0; i < index_hints_.size(); ++i) {
+      object.index_hints_[i] = index_hints_[i].Clone(storage);
+    }
+    object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
 class CypherQuery : public memgraph::query::Query, public utils::Visitable<HierarchicalTreeVisitor> {
  public:
   static const utils::TypeInfo kType;
@@ -2141,13 +2191,11 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::SingleQuery *single_query_{nullptr};
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
-  /// Index hint
-  /// Suggestion: If we’re going to have multiple pre-query directives (not only index_hints_), they need to be
-  /// contained within a dedicated class/struct
-  std::vector<memgraph::query::IndexHint> index_hints_;
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
+  /// Using statement
+  memgraph::query::UsingStatement using_statement_;
 
   CypherQuery *Clone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
@@ -2156,12 +2204,9 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
       object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
     }
-    object->index_hints_.resize(index_hints_.size());
-    for (auto i6 = 0; i6 < index_hints_.size(); ++i6) {
-      object->index_hints_[i6] = index_hints_[i6].Clone(storage);
-    }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
+    object->using_statement_ = using_statement_.Clone(storage);
     return object;
   }
 
@@ -2260,16 +2305,22 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
+  std::vector<memgraph::query::PropertyIx> properties_;
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
     object->action_ = action_;
     object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->properties_.resize(properties_.size());
+    for (auto i = 0; i < object->properties_.size(); ++i) {
+      object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
+    }
     return object;
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type) : action_(action), edge_type_(edge_type) {}
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<PropertyIx> properties)
+      : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
@@ -2901,7 +2952,9 @@ class AuthQuery : public memgraph::query::Query {
     SHOW_ROLES,
     CREATE_USER,
     SET_PASSWORD,
+    CHANGE_PASSWORD,
     DROP_USER,
+    SHOW_CURRENT_USER,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,
@@ -2957,6 +3010,8 @@ class AuthQuery : public memgraph::query::Query {
   std::string user_;
   std::string role_;
   std::string user_or_role_;
+  memgraph::query::Expression *old_password_{nullptr};
+  memgraph::query::Expression *new_password_{nullptr};
   bool if_not_exists_;
   memgraph::query::Expression *password_{nullptr};
   std::string database_;
@@ -2972,6 +3027,8 @@ class AuthQuery : public memgraph::query::Query {
     object->user_ = user_;
     object->role_ = role_;
     object->user_or_role_ = user_or_role_;
+    object->old_password_ = old_password_;
+    object->new_password_ = new_password_;
     object->if_not_exists_ = if_not_exists_;
     object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
@@ -3814,8 +3871,13 @@ class CreateEnumQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
+  std::string enum_name_;
+  std::vector<std::string> enum_values_;
+
   CreateEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateEnumQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_values_ = enum_values_;
     return object;
   }
 
@@ -3834,6 +3896,84 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   ShowEnumsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class EnumValueAccess : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  EnumValueAccess() = default;
+
+  EnumValueAccess(std::string enum_name, std::string enum_value)
+      : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  std::string enum_name_;
+  std::string enum_value_;
+  int32_t symbol_pos_{-1};
+
+  EnumValueAccess *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<EnumValueAccess>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumAddValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumAddValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string enum_value_;
+
+  AlterEnumAddValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumAddValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->enum_value_ = enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumUpdateValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumUpdateValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string old_enum_value_;
+  std::string new_enum_value_;
+
+  AlterEnumUpdateValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumUpdateValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->old_enum_value_ = old_enum_value_;
+    object->new_enum_value_ = new_enum_value_;
     return object;
   }
 

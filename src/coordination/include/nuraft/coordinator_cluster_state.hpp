@@ -88,13 +88,24 @@ class CoordinatorClusterState {
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+  auto GetAllReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+
+  auto GetReplicationInstances() const -> std::map<std::string, ReplicationInstanceState, std::less<>>;
+
+  auto GetIsLockOpened() const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
+  // Setter function used on parsing data from json
+  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>>);
 
-  auto IsLockOpened() const -> bool;
+  // Setter function used on parsing data from json
+  void SetIsLockOpened(bool);
+
+  // Setter function used on parsing data from json
+  void SetCurrentMainUUID(utils::UUID);
+
+  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
@@ -108,6 +119,9 @@ class CoordinatorClusterState {
   bool is_lock_opened_{false};
   mutable utils::ResourceLock log_lock_{};
 };
+
+void to_json(nlohmann::json &j, CoordinatorClusterState const &state);
+void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state);
 
 }  // namespace memgraph::coordination
 #endif

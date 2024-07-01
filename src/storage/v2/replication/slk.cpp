@@ -24,6 +24,21 @@
 
 namespace memgraph::slk {
 
+void Save(const storage::Enum &enum_val, slk::Builder *builder) {
+  slk::Save(enum_val.type_id().value_of(), builder);
+  slk::Save(enum_val.value_id().value_of(), builder);
+}
+
+void Load(storage::Enum *enum_val, slk::Reader *reader) {
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  strong::underlying_type_t<storage::EnumTypeId> etype;
+  slk::Load(&etype, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  strong::underlying_type_t<storage::EnumValueId> evalue;
+  slk::Load(&evalue, reader);
+  *enum_val = storage::Enum{storage::EnumTypeId{etype}, storage::EnumValueId{evalue}};
+}
+
 void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
 void Load(storage::Gid *gid, slk::Reader *reader) {
@@ -47,6 +62,7 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
     case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
     case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::Enum):
       valid = true;
       break;
     default:
@@ -119,6 +135,11 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
+    case storage::PropertyValue::Type::Enum: {
+      slk::Save(storage::PropertyValue::Type::Enum, builder);
+      slk::Save(value.ValueEnum(), builder);
+      return;
+    }
   }
 }
 
@@ -166,7 +187,8 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
     case storage::PropertyValue::Type::Map: {
       size_t size;
       slk::Load(&size, reader);
-      std::map<std::string, storage::PropertyValue> map;
+      auto map = storage::PropertyValue::map_t{};
+      map.reserve(size);
       for (size_t i = 0; i < size; ++i) {
         std::pair<std::string, storage::PropertyValue> kv;
         slk::Load(&kv, reader);
@@ -208,6 +230,12 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
         default:
           throw slk::SlkDecodeException("Trying to load ZonedTemporalData with invalid timezone representation!");
       }
+      return;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      storage::Enum v;
+      slk::Load(&v, reader);
+      *value = storage::PropertyValue(v);
       return;
     }
   }

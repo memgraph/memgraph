@@ -69,6 +69,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(GreaterOperator);
   UNSUCCESSFUL_VISIT(LessEqualOperator);
   UNSUCCESSFUL_VISIT(GreaterEqualOperator);
+  UNSUCCESSFUL_VISIT(RangeOperator);
 
   UNSUCCESSFUL_VISIT(NotOperator);
   UNSUCCESSFUL_VISIT(UnaryPlusOperator);
@@ -103,6 +104,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(RegexMatch);
   UNSUCCESSFUL_VISIT(Exists);
   UNSUCCESSFUL_VISIT(PatternComprehension);
+  UNSUCCESSFUL_VISIT(EnumValueAccess);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -147,6 +149,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(GreaterOperator)
   INVALID_VISIT(LessEqualOperator)
   INVALID_VISIT(GreaterEqualOperator)
+  INVALID_VISIT(RangeOperator)
   INVALID_VISIT(InListOperator)
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
@@ -173,6 +176,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(RegexMatch)
   INVALID_VISIT(Exists)
   INVALID_VISIT(PatternComprehension)
+  INVALID_VISIT(EnumValueAccess)
 
 #undef INVALID_VISIT
  private:
@@ -246,6 +250,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
+
+  TypedValue Visit(RangeOperator &op) override { return op.expr1_->Accept(*this) && op.expr2_->Accept(*this); }
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
@@ -1158,6 +1164,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return frame_pattern_comprehension_value;
   }
 
+  TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
+    if (maybe_enum.HasError()) [[unlikely]] {
+      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
+                                  enum_value_access.enum_name_);
+    }
+    return TypedValue(*maybe_enum, ctx_->memory);
+  }
+
  private:
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
@@ -1259,6 +1274,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
 int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
+
+std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);

@@ -59,6 +59,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/signals.hpp"
@@ -69,6 +70,10 @@
 
 #include <spdlog/spdlog.h>
 #include <boost/asio/ip/address.hpp>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}  // namespace memgraph::metrics
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
@@ -103,7 +108,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
       try {
         // TODO remove security issue
         spdlog::trace("Executing line: {}", line);
-        auto results = interpreter.Prepare(line, {}, {});
+        auto results = interpreter.Prepare(line, memgraph::query::no_params_fn, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
       } catch (std::exception const &e) {
@@ -169,7 +174,6 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  memgraph::flags::InitializeLogger();
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
   memgraph::flags::SetExperimental(flags_experimental);
   auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
@@ -177,6 +181,10 @@ int main(int argc, char **argv) {
     auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
     memgraph::flags::AppendExperimental(env_experimental);
   }
+  // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
+  // even if
+  // `--also-log-to-stderr` is set to false.
+  memgraph::flags::InitializeLogger();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
@@ -244,11 +252,14 @@ int main(int argc, char **argv) {
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
+      mem_log_scheduler.Run("Memory check", std::chrono::seconds(3), [] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
                                                         *free_ram / 1024, "https://memgr.ph/ram"));
+
+        auto memory_res = memgraph::utils::GetMemoryRES();
+        memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, memory_res);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -304,6 +315,7 @@ int main(int argc, char **argv) {
                                              memgraph::utils::global_settings);
   memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
 
+  // Has to be initialized after the storage
   memgraph::flags::run_time::Initialize();
 
   memgraph::license::global_license_checker.CheckEnvLicense();
@@ -347,7 +359,7 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
 
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
+                     .recover_on_startup = FLAGS_data_recovery_on_startup,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
@@ -355,8 +367,6 @@ int main(int argc, char **argv) {
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     // deprecated
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
@@ -386,8 +396,8 @@ int main(int argc, char **argv) {
         "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
         "extra metadata on edges, enable properties on edges as well.");
   }
-  spdlog::info("config recover on startup {}, flags {} {}", db_config.durability.recover_on_startup,
-               FLAGS_storage_recover_on_startup, FLAGS_data_recovery_on_startup);
+  spdlog::info("config recover on startup {}, flags {}", db_config.durability.recover_on_startup,
+               FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
   jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
                                [] { memgraph::memory::PurgeUnusedMemory(); });
@@ -418,6 +428,16 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_wal_mode = DISABLED;
     db_config.durability.snapshot_interval = 0s;
   }
+
+#ifdef MG_ENTERPRISE
+  if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
+      std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {
+    LOG_FATAL(
+        "Instance down timeout config option must be greater than or equal to instance health check frequency config "
+        "option!");
+  }
+
+#endif
 
   // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{
@@ -507,11 +527,12 @@ int main(int argc, char **argv) {
     }
 
     if (coordination_setup.coordinator_id && coordination_setup.coordinator_port) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability" + "/coordinator";
+      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
-      coordinator_state.emplace(CoordinatorInstanceInitConfig{coordination_setup.coordinator_id,
-                                                              coordination_setup.coordinator_port, extracted_bolt_port,
-                                                              high_availability_data_dir, FLAGS_nuraft_log_file});
+      coordinator_state.emplace(CoordinatorInstanceInitConfig{
+          coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
+          high_availability_data_dir, coordination_setup.coordinator_hostname, coordination_setup.nuraft_log_file,
+          coordination_setup.ha_durability});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
@@ -665,17 +686,16 @@ int main(int argc, char **argv) {
     spdlog::error("Skipping adding logger sync for websocket");
   }
 
+// TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  // TODO: Make multi-tenant
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-  spdlog::trace("Metrics server created!");
 #endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
-                      &metrics_server, &coordinator_state,
+                      &coordinator_state, &metrics_server,
 #endif
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
@@ -704,9 +724,7 @@ int main(int argc, char **argv) {
   websocket_server.Start();
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
-  }
+  metrics_server.Start();
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -728,11 +746,8 @@ int main(int argc, char **argv) {
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
-  }
+  metrics_server.AwaitShutdown();
 #endif
-
   memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
 
   python_gc_scheduler.Stop();

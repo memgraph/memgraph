@@ -14,9 +14,9 @@
 #include <memory>
 #include <span>
 
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
@@ -36,8 +36,7 @@ struct Indices {
   /// This function should be called from garbage collection to clean up the
   /// index.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                             const absl::flat_hash_set<LabelId> &labels) const;
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
   /// Surgical removal of entries that were inserted in this transaction
   /// TODO: unused in disk indices
@@ -70,12 +69,18 @@ struct Indices {
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                            const Transaction &tx) const;
 
+  /// This function should be called whenever a property is modified on an edge.
+  /// @throw std::bad_alloc
+  void UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, Vertex *from_vertex,
+                           Vertex *to_vertex, Edge *edge, const Transaction &tx) const;
+
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                             const Transaction &tx) const;
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
+  std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;
 };
 

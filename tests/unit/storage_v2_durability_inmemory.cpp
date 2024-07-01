@@ -24,6 +24,7 @@
 #include <iostream>
 #include <thread>
 #include <type_traits>
+#include <utility>
 
 #include "dbms/database.hpp"
 #include "replication/state.hpp"
@@ -51,6 +52,8 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
+using namespace std::string_literals;
+
 class DurabilityTest : public ::testing::TestWithParam<bool> {
  protected:
   const uint64_t kNumBaseVertices = 1000;
@@ -69,6 +72,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS,
     BASE_WITH_EXTENDED,
     BASE_WITH_EDGE_TYPE_INDEXED,
+    BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED
   };
 
  public:
@@ -92,6 +96,18 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
+    {
+      // Create enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // alter enum.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     {
       // Create label index.
       auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
@@ -133,6 +149,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     // Create vertices.
+    auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access(ReplicationRole::MAIN);
       auto vertex = acc->CreateVertex();
@@ -143,8 +160,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-        ASSERT_TRUE(
-            vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        if (i % 4 == 0) {
+          ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+        } else {
+          ASSERT_TRUE(
+              vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
+        }
       }
       ASSERT_FALSE(acc->Commit().HasError());
     }
@@ -279,6 +300,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
   }
 
+  void CreateEdgePropertyIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type,
+                               memgraph::storage::PropertyId prop) {
+    {
+      // Create edge-type index.
+      auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
+      ASSERT_FALSE(unique_acc->CreateIndex(edge_type, prop).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+  }
+
   void VerifyDataset(memgraph::storage::Storage *store, DatasetType type, bool properties_on_edges,
                      bool verify_info = true) {
     auto base_label_indexed = store->NameToLabel("base_indexed");
@@ -293,6 +324,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_count = store->NameToProperty("count");
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
+
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
+    ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum1", "v4").HasValue());
+    ASSERT_FALSE(store->enum_store_.ToEnum("enum2", "v1").HasValue());
 
     // Create storage accessor.
     auto acc = store->Access(ReplicationRole::MAIN);
@@ -324,6 +361,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           break;
+        case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
+          ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
+          ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
+          break;
       }
     }
 
@@ -332,6 +374,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       switch (type) {
         case DatasetType::ONLY_BASE:
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED: {
+          const auto l_stats = acc->GetIndexStats(base_label_unindexed);
+          ASSERT_TRUE(l_stats);
+          ASSERT_EQ(l_stats->count, 1);
+          ASSERT_EQ(l_stats->avg_degree, 2);
+          const auto lp_stats = acc->GetIndexStats(base_label_indexed, property_id);
+          ASSERT_TRUE(lp_stats);
+          ASSERT_EQ(lp_stats->count, 1);
+          ASSERT_EQ(lp_stats->distinct_values_count, 2);
+          ASSERT_EQ(lp_stats->statistic, 3.4);
+          ASSERT_EQ(lp_stats->avg_group_size, 5.6);
+          ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          break;
+        }
+        case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
           const auto l_stats = acc->GetIndexStats(base_label_unindexed);
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
@@ -395,6 +451,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       switch (type) {
         case DatasetType::ONLY_BASE:
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
+        case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
           ASSERT_THAT(info.unique, UnorderedElementsAre(
                                        std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
@@ -419,6 +476,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     bool have_base_dataset = false;
     bool have_extended_dataset = false;
     bool have_edge_type_indexed_dataset = false;
+    bool have_edge_type_property_indexed_dataset = false;
     switch (type) {
       case DatasetType::ONLY_BASE:
       case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
@@ -435,10 +493,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
         have_base_dataset = true;
         have_edge_type_indexed_dataset = true;
+        break;
+      case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
+        have_base_dataset = true;
+        have_edge_type_property_indexed_dataset = true;
+        break;
     }
 
     // Verify base dataset.
     if (have_base_dataset) {
+      auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
       // Verify vertices.
       for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
         auto vertex = acc->FindVertex(base_vertex_gids_[i], memgraph::storage::View::OLD);
@@ -454,7 +518,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          if (i % 4 == 0) {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+          } else {
+            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
+          }
+
         } else {
           ASSERT_EQ(properties->size(), 0);
         }
@@ -702,6 +771,19 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         std::vector<memgraph::storage::EdgeAccessor> edges;
         edges.reserve(kNumBaseEdges / 2);
         for (auto edge : acc->Edges(et1, memgraph::storage::View::OLD)) {
+          edges.push_back(edge);
+        }
+        ASSERT_EQ(edges.size(), kNumBaseEdges / 2);
+      }
+    }
+
+    if (have_edge_type_property_indexed_dataset) {
+      MG_ASSERT(properties_on_edges, "Edge-type + property indexing needs --properties-on-edges!");
+      // Verify edge-type + property indices.
+      {
+        std::vector<memgraph::storage::EdgeAccessor> edges;
+        edges.reserve(kNumBaseEdges / 2);
+        for (auto edge : acc->Edges(et1, property_id, memgraph::storage::View::OLD)) {
           edges.push_back(edge);
         }
         ASSERT_EQ(edges.size(), kNumBaseEdges / 2);
@@ -2917,8 +2999,7 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
       .durability = {.storage_directory = storage_directory,
                      .recover_on_startup = true,
                      .snapshot_on_exit = false,
-                     .items_per_batch = 13,
-                     .allow_parallel_index_creation = true},
+                     .items_per_batch = 13},
       .salient = {.items = {.properties_on_edges = GetParam()}},
   };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
@@ -2973,14 +3054,16 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
+  memgraph::storage::EnumStore enum_store;
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
-                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num);
+  const auto info =
+      recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
+                           name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num, &enum_store);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -3035,6 +3118,86 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
+
+  // Try to use the storage.
+  {
+    auto acc = db.Access();
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
+  if (GetParam() == false) {
+    return;
+  }
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam()}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateEdgeIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"));
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_INDEXED, GetParam());
+    CreateEdgePropertyIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("id"));
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam()}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam());
+
+  // Try to use the storage.
+  {
+    auto acc = db.Access();
+    auto vertex = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+}
+
+// // NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
+  if (GetParam() == false) {
+    return;
+  }
+  // Create snapshot.
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = GetParam()}};
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam());
+    CreateEdgePropertyIndex(db.storage(), db.storage()->NameToEdgeType("base_et1"), db.storage()->NameToProperty("id"));
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam());
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_EQ(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover snapshot.
+  memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                   .salient.items = {.properties_on_edges = GetParam()}};
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED, GetParam());
 
   // Try to use the storage.
   {
