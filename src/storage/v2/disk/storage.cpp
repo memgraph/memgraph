@@ -821,12 +821,22 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, View /*
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->vertex_count_.load(std::memory_order_acquire);
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return 0U;
+}
+
+uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
@@ -1664,8 +1674,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE: {
+        case MetadataDelta::Action::EDGE_INDEX_CREATE: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
@@ -1679,8 +1693,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
+        case MetadataDelta::Action::EDGE_INDEX_DROP: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
@@ -1995,6 +2013,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/,
+                                                                                             PropertyId /*property*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2024,6 +2048,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                           PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
@@ -2139,6 +2169,11 @@ bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) co
   return false;
 }
 
+bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2148,6 +2183,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   return {disk_label_index->ListIndices(),
           disk_label_property_index->ListIndices(),
           {/* edge type indices */},
+          {/* edge_type_property */},
           text_index.ListIndices()};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
