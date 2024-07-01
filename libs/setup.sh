@@ -72,7 +72,7 @@ file_get_try_double () {
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
     # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-    wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
+    wget --timeout=10 -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
 }
 
 repo_clone_try_double () {
