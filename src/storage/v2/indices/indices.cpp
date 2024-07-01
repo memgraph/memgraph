@@ -38,14 +38,17 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
       ->AbortEntries(label, vertices, exact_start_timestamp);
 }
 
-void Indices::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
+void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+}
+
+void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
-      ->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
 }
 
 void Indices::DropGraphClearIndices() const {

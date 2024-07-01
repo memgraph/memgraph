@@ -1105,14 +1105,14 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
-    // 3.a) clear from indexes first
+    // 3.a) clear from vertex indexes first
     std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
+    mem_storage->indices_.RemoveObsoleteVertexEntries(oldest_active_timestamp, dummy.get_token());
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
     mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
 
-    // 3.b) remove from veretex skip_list
+    // 3.b) remove from vertex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
     for (auto gid : current_deleted_vertices) {
       vertex_acc.remove(gid);
@@ -1120,7 +1120,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   }
 
   if (!current_deleted_edges.empty()) {
-    // 3.c) remove from edge skip_list
+    // 3.c) clear from edge indexes first
+    std::stop_source dummy;
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(oldest_active_timestamp, dummy.get_token());
+    // 3.d) remove from edge skip_list
     auto edge_acc = mem_storage->edges_.access();
     auto edge_metadata_acc = mem_storage->edges_metadata_.access();
     for (auto gid : current_deleted_edges) {
@@ -1982,7 +1985,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // in every index every time.
     auto token = stop_source.get_token();
     if (!token.stop_requested()) {
-      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
       mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
     }
