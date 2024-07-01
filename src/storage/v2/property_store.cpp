@@ -33,7 +33,7 @@
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(property_store_compression, true, "Enable property store compression.");
+DEFINE_bool(property_store_compression, false, "Enable property store compression.");
 
 namespace memgraph::storage {
 
@@ -1899,18 +1899,11 @@ void PropertyStore::CompressBuffer() {
     return;
   }
 
-  // spdlog::debug("Data before compression: {}",
-  //               std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
-
   auto *compressor = utils::ZlibCompressor::GetInstance();
   auto compressed_buffer = compressor->Compress(buffer_info.data, buffer_info.size);
   if (compressed_buffer.data.empty()) {
     throw PropertyValueException("Failed to compress buffer");
   }
-  // spdlog::debug("Compressing buffer of size: {}", compressed_buffer.data.size());
-  // spdlog::debug("Compressing buffer data: {}", std::string_view(reinterpret_cast<char
-  // *>(compressed_buffer.data.data()),
-  //                                                               compressed_buffer.data.size()));
 
   auto size_of_compressed_buffer = ToPowerOf8(compressed_buffer.data.size());
   if (size_of_compressed_buffer >= buffer_info.size) {
@@ -1919,7 +1912,7 @@ void PropertyStore::CompressBuffer() {
   }
   auto *data = new uint8_t[size_of_compressed_buffer];
 
-  memcpy(data, compressed_buffer.data.data(), compressed_buffer.data.size());
+  memmove(data, compressed_buffer.data.data(), compressed_buffer.data.size());
   delete[] buffer_info.data;
   SetSizeData(buffer_, size_of_compressed_buffer, data);
 }

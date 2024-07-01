@@ -358,7 +358,7 @@ target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
 
-add_unit_test(storage_v2_property_store.cpp)
+add_unit_test_with_custom_main(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
