@@ -32,11 +32,16 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
 #include <mutex>
 #include <ranges>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}  // namespace memgraph::metrics
 
 namespace memgraph::storage {
 
@@ -2068,6 +2073,9 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
+  memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
+  info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
 #ifdef MG_ENTERPRISE
