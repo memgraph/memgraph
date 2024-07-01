@@ -268,6 +268,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
             // When async replica executes this part of the code, the state could've changes since the check
             // at the beginning of the function happened.
             if (!response.success || state == replication::ReplicaState::RECOVERY) {
+              state = replication::ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
               client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
                 this->RecoverReplica(response.current_commit_timestamp, storage);

@@ -54,7 +54,7 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
 TYPED_TEST(QueryPlanTest, Skip) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -82,7 +82,7 @@ TYPED_TEST(QueryPlanTest, Skip) {
 }
 
 TYPED_TEST(QueryPlanTest, Limit) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -113,7 +113,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   dba.InsertVertex();
   dba.InsertVertex();
@@ -134,7 +134,7 @@ TYPED_TEST(QueryPlanTest, CreateLimit) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderBy) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
@@ -180,8 +180,11 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
     auto order_equal = [&values, &shuffled]() {
       return std::equal(values.begin(), values.end(), shuffled.begin(), TypedValue::BoolEqual{});
     };
+
+    std::random_device rd;
+    std::mt19937 g(rd());
     for (int i = 0; i < 50 && order_equal(); ++i) {
-      std::random_shuffle(shuffled.begin(), shuffled.end());
+      std::shuffle(shuffled.begin(), shuffled.end(), g);
     }
     ASSERT_FALSE(order_equal());
 
@@ -205,7 +208,7 @@ TYPED_TEST(QueryPlanTest, OrderBy) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByMultiple) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -218,8 +221,12 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
   // "right" sequence, but randomized
   const int N = 20;
   std::vector<std::pair<int, int>> prop_values;
+
   for (int i = 0; i < N * N; ++i) prop_values.emplace_back(i % N, i / N);
-  std::random_shuffle(prop_values.begin(), prop_values.end());
+
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::shuffle(prop_values.begin(), prop_values.end(), g);
   for (const auto &pair : prop_values) {
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.SetProperty(p1, memgraph::storage::PropertyValue(pair.first)).HasValue());
@@ -257,7 +264,7 @@ TYPED_TEST(QueryPlanTest, OrderByMultiple) {
 }
 
 TYPED_TEST(QueryPlanTest, OrderByExceptions) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   auto prop = dba.NameToProperty("prop");
