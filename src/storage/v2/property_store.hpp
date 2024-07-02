@@ -131,7 +131,7 @@ class PropertyStore {
   void CompressBuffer();
 
   /// Decompresses buffer
-  std::vector<uint8_t> DecompressBuffer() const;
+  utils::DataBuffer DecompressBuffer() const;
 
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 };

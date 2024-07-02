@@ -14,7 +14,7 @@
 #include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
-#include <vector>
+#include <cstring>
 
 #include "utils/compressor.hpp"
 
@@ -26,51 +26,51 @@
 
 namespace memgraph::utils {
 
-CompressedBuffer ZlibCompressor::Compress(uint8_t *input, size_t input_size) {
+DataBuffer ZlibCompressor::Compress(uint8_t *input, size_t input_size) {
   if (input_size == 0) {
     return {};
   }
 
-  CompressedBuffer compressed;
-  compressed.data.resize(compressBound(input_size));
+  DataBuffer compressed_buffer;
+  auto compress_bound = compressBound(input_size);
+  auto *compressed_data = new uint8_t[compress_bound];
 
-  uLongf compressed_size = compressed.data.size();
-  int result = compress(compressed.data.data(), &compressed_size, input, input_size);
+  int result = compress(compressed_data, &compress_bound, input, input_size);
 
   if (result != Z_OK) {
     // Handle compression error
     return {};
   }
 
-  compressed.data.resize(compressed_size);
-  compressed.original_size = input_size;
+  compressed_buffer.original_size = input_size;
+  compressed_buffer.compressed_size = compress_bound;
 
-  return compressed;
+  // first 4 bytes are the original size of the data
+  compressed_buffer.data = new uint8_t[compressed_buffer.compressed_size + sizeof(uint32_t)];
+  memcpy(compressed_buffer.data, &compressed_buffer.original_size, sizeof(uint32_t));
+  memcpy(compressed_buffer.data + sizeof(uint32_t), compressed_data, compressed_buffer.compressed_size);
+
+  delete[] compressed_data;
+
+  return compressed_buffer;
 }
 
-CompressedBuffer ZlibCompressor::Decompress(uint8_t *compressed_data, size_t compressed_size) {
-  CompressedBuffer decompressed;
+DataBuffer ZlibCompressor::Decompress(uint8_t *compressed_data, size_t compressed_size) {
+  DataBuffer decompressed_buffer;
+  decompressed_buffer.compressed_size = compressed_size;
 
-  uLongf decompressed_size = compressed_size * 2;
-  decompressed.data.resize(decompressed_size);
-  int result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
+  memcpy(&decompressed_buffer.original_size, compressed_data, sizeof(uint32_t));
+  decompressed_buffer.data = new uint8_t[decompressed_buffer.original_size];
 
-  while (result == Z_BUF_ERROR) {
-    // The decompressed buffer is not large enough, increase its size and retry
-    decompressed_size *= 2;  // Double the buffer size
-    decompressed.data.resize(decompressed_size);
-    result = uncompress(decompressed.data.data(), &decompressed_size, compressed_data, compressed_size);
-  }
+  int result = uncompress(decompressed_buffer.data, &decompressed_buffer.original_size,
+                          compressed_data + sizeof(uint32_t), compressed_size - sizeof(uint32_t));
 
   if (result != Z_OK) {
     // Handle decompression error
     return {};
   }
 
-  decompressed.data.resize(decompressed_size);
-  decompressed.original_size = decompressed_size;
-
-  return decompressed;
+  return decompressed_buffer;
 }
 
 bool ZlibCompressor::IsCompressed(uint8_t *data, size_t size) const {
