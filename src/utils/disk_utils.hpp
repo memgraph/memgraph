@@ -16,7 +16,7 @@
 
 namespace memgraph::utils {
 
-inline std::optional<std::string> GetOldDiskKeyOrNull(storage::Delta *head) {
+inline std::optional<std::string_view> GetOldDiskKeyOrNull(storage::Delta *head) {
   while (head->next != nullptr) {
     head = head->next;
   }

@@ -19,6 +19,7 @@
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
+#include "delta_container.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
@@ -91,7 +92,7 @@ struct Transaction {
   std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
   uint64_t command_id{};
 
-  std::deque<Delta> deltas;
+  delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort{};
   IsolationLevel isolation_level{};
@@ -114,10 +115,10 @@ struct Transaction {
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
-  std::vector<std::list<Delta>> index_deltas_storage_{};
+  std::vector<delta_container> index_deltas_storage_{};
   std::optional<utils::SkipList<Edge>> edges_{};
-  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
-  std::map<std::string, std::string> vertices_to_delete_{};
+  std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
+  std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;

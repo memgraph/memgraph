@@ -12,9 +12,9 @@
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/small_vector.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/small_vector.hpp"
 
 #include <functional>
 #include <optional>
@@ -88,8 +88,9 @@ void VertexInfoCache::Invalidate(Vertex const *vertex) {
 }
 
 auto VertexInfoCache::GetLabels(View view, Vertex const *vertex) const
-    -> std::optional<std::reference_wrapper<small_vector<LabelId> const>> {
-  return FetchHelper<small_vector<LabelId>>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
+    -> std::optional<std::reference_wrapper<utils::small_vector<LabelId> const>> {
+  return FetchHelper<utils::small_vector<LabelId>>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view,
+                                                   vertex);
 }
 void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res) {
   Store(res, *this, std::mem_fn(&Caches::labelCache_), view, vertex);
