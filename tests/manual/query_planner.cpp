@@ -21,7 +21,7 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   spdlog::set_level(spdlog::level::err);
   std::unique_ptr<memgraph::storage::Storage> db(new memgraph::storage::InMemoryStorage());
-  auto storage_dba = db->Access(ReplicationRole::MAIN);
+  auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   RunInteractivePlanning(&dba);
   return 0;

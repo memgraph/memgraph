@@ -204,12 +204,10 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
-                                   std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
 
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
-                                         std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   /// Flushing methods
   [[nodiscard]] utils::BasicResult<StorageManipulationError, void> FlushIndexCache(Transaction *transaction);
@@ -313,8 +311,7 @@ class DiskStorage final : public Storage {
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
   void SetEdgeImportMode(EdgeImportMode edge_import_status);
 
@@ -339,7 +336,7 @@ class DiskStorage final : public Storage {
                                                                                           PropertyId property);
 
   StorageInfo GetBaseInfo() override;
-  StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  StorageInfo GetInfo() override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 

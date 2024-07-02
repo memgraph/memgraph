@@ -44,7 +44,7 @@ class PrintToJsonTest : public ::testing::Test {
   PrintToJsonTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
+        dba_storage(db->Access()),
         dba(dba_storage.get()) {}
 
   void TearDown() override {

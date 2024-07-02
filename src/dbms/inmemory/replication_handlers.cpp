@@ -203,10 +203,12 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
     auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
-    repl_storage_state.AddEpochToHistoryForce(prev_epoch);
+    repl_storage_state.AddEpochToHistoryForce(std::move(prev_epoch));
   }
 
   if (storage->wal_file_) {
+    // epoch changed = replica to main promotion
+    // seq_num changed = new WAL file
     if (req.seq_num > storage->wal_file_->SequenceNumber() ||
         *maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
@@ -566,9 +568,9 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
-        acc = storage->UniqueAccess(ReplicationRole::REPLICA);
+        acc = storage->UniqueAccess();
       } else {
-        acc = storage->Access(ReplicationRole::REPLICA);
+        acc = storage->Access();
       }
       auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));

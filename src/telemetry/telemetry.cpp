@@ -151,9 +151,9 @@ void Telemetry::AddClientCollector() {
 }
 
 #ifdef MG_ENTERPRISE
-void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replication::ReplicationState &repl_state) {
-  AddCollector("database", [&dbms_handler, &repl_state]() -> nlohmann::json {
-    const auto &infos = dbms_handler.Info(repl_state.GetRole());
+void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
+  AddCollector("database", [&dbms_handler]() -> nlohmann::json {
+    const auto &infos = dbms_handler.Info();
     auto dbs = nlohmann::json::array();
     for (const auto &db_info : infos) {
       dbs.push_back(memgraph::dbms::ToJson(db_info));
@@ -164,10 +164,9 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replicatio
 #else
 #endif
 
-void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
-                                    memgraph::replication::ReplicationState &repl_state) {
-  AddCollector("storage", [&dbms_handler, &auth, &repl_state]() -> nlohmann::json {
-    auto stats = dbms_handler.Stats(repl_state.GetRole());
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth) {
+  AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
+    auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
     return ToJson(stats);
   });

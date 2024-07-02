@@ -55,7 +55,7 @@ TYPED_TEST_SUITE(StorageV2Test, StorageTypes);
 TYPED_TEST(StorageV2Test, Commit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -65,7 +65,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -73,7 +73,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     acc->Abort();
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -89,7 +89,7 @@ TYPED_TEST(StorageV2Test, Commit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -102,7 +102,7 @@ TYPED_TEST(StorageV2Test, Commit) {
 TYPED_TEST(StorageV2Test, Abort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -112,7 +112,7 @@ TYPED_TEST(StorageV2Test, Abort) {
     acc->Abort();
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -126,7 +126,7 @@ TYPED_TEST(StorageV2Test, AdvanceCommandCommit) {
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
 
     auto vertex1 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -150,7 +150,7 @@ TYPED_TEST(StorageV2Test, AdvanceCommandCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_TRUE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_TRUE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -166,7 +166,7 @@ TYPED_TEST(StorageV2Test, AdvanceCommandAbort) {
   memgraph::storage::Gid gid1 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   memgraph::storage::Gid gid2 = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
 
     auto vertex1 = acc->CreateVertex();
     gid1 = vertex1.Gid();
@@ -190,7 +190,7 @@ TYPED_TEST(StorageV2Test, AdvanceCommandAbort) {
     acc->Abort();
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -203,8 +203,8 @@ TYPED_TEST(StorageV2Test, AdvanceCommandAbort) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, SnapshotIsolation) {
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   auto vertex = acc1->CreateVertex();
   auto gid = vertex.Gid();
@@ -225,7 +225,7 @@ TYPED_TEST(StorageV2Test, SnapshotIsolation) {
 
   acc2->Abort();
 
-  auto acc3 = this->store->Access(ReplicationRole::MAIN);
+  auto acc3 = this->store->Access();
   ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::OLD).has_value());
   EXPECT_EQ(CountVertices(*acc3, memgraph::storage::View::OLD), 1U);
   ASSERT_TRUE(acc3->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -237,7 +237,7 @@ TYPED_TEST(StorageV2Test, SnapshotIsolation) {
 TYPED_TEST(StorageV2Test, AccessorMove) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -256,7 +256,7 @@ TYPED_TEST(StorageV2Test, AccessorMove) {
     ASSERT_FALSE(moved->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 1U);
     ASSERT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW).has_value());
@@ -268,8 +268,8 @@ TYPED_TEST(StorageV2Test, AccessorMove) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);  // read transaction
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);  // write transaction
+  auto acc1 = this->store->Access();  // read transaction
+  auto acc2 = this->store->Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
@@ -282,8 +282,8 @@ TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
-  auto acc3 = this->store->Access(ReplicationRole::MAIN);  // read transaction
-  auto acc4 = this->store->Access(ReplicationRole::MAIN);  // write transaction
+  auto acc3 = this->store->Access();  // read transaction
+  auto acc4 = this->store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -316,7 +316,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
     ASSERT_FALSE(acc4->Commit().HasError());
   }
 
-  auto acc5 = this->store->Access(ReplicationRole::MAIN);  // read transaction
+  auto acc5 = this->store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -341,8 +341,8 @@ TYPED_TEST(StorageV2Test, VertexDeleteCommit) {
 TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);  // read transaction
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);  // write transaction
+  auto acc1 = this->store->Access();  // read transaction
+  auto acc2 = this->store->Access();  // write transaction
 
   // Create the vertex in transaction 2
   {
@@ -355,8 +355,8 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
     ASSERT_FALSE(acc2->Commit().HasError());
   }
 
-  auto acc3 = this->store->Access(ReplicationRole::MAIN);  // read transaction
-  auto acc4 = this->store->Access(ReplicationRole::MAIN);  // write transaction (aborted)
+  auto acc3 = this->store->Access();  // read transaction
+  auto acc4 = this->store->Access();  // write transaction (aborted)
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -389,8 +389,8 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
     acc4->Abort();
   }
 
-  auto acc5 = this->store->Access(ReplicationRole::MAIN);  // read transaction
-  auto acc6 = this->store->Access(ReplicationRole::MAIN);  // write transaction
+  auto acc5 = this->store->Access();  // read transaction
+  auto acc6 = this->store->Access();  // write transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -429,7 +429,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteAbort) {
     ASSERT_FALSE(acc6->Commit().HasError());
   }
 
-  auto acc7 = this->store->Access(ReplicationRole::MAIN);  // read transaction
+  auto acc7 = this->store->Access();  // read transaction
 
   // Check whether the vertex exists in transaction 1
   ASSERT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -468,14 +468,14 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
 
   // Create vertex
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Delete vertex in accessor 1
   {
@@ -548,7 +548,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSerializationError) {
 
   // Check whether the vertex exists
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_FALSE(vertex);
     EXPECT_EQ(CountVertices(*acc, memgraph::storage::View::OLD), 0U);
@@ -565,7 +565,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSpecialCases) {
   // Create vertex and delete it in the same transaction, but abort the
   // transaction
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid1 = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
@@ -585,7 +585,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSpecialCases) {
 
   // Create vertex and delete it in the same transaction
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid2 = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -605,7 +605,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteSpecialCases) {
 
   // Check whether the vertices exist
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::OLD).has_value());
     ASSERT_FALSE(acc->FindVertex(gid1, memgraph::storage::View::NEW).has_value());
     ASSERT_FALSE(acc->FindVertex(gid2, memgraph::storage::View::OLD).has_value());
@@ -622,7 +622,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
 
   // Create the vertex
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -632,7 +632,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
 
   // Add label, delete the vertex and check the label API (same command)
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -686,7 +686,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteLabel) {
 
   // Add label, delete the vertex and check the label API (different command)
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -777,7 +777,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
 
   // Create the vertex
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD).has_value());
@@ -787,7 +787,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
 
   // Set property, delete the vertex and check the property API (same command)
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -835,7 +835,7 @@ TYPED_TEST(StorageV2Test, VertexDeleteProperty) {
   // Set property, delete the vertex and check the property API (different
   // command)
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(vertex);
 
@@ -918,7 +918,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
 
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -950,7 +950,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     spdlog::debug("Commit done");
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -979,7 +979,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     spdlog::debug("Abort done");
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1011,7 +1011,7 @@ TYPED_TEST(StorageV2Test, VertexLabelCommit) {
     spdlog::debug("Commit done");
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1038,7 +1038,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Create the vertex.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1046,7 +1046,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Add label 5, but abort the transaction.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1079,7 +1079,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Check that label 5 doesn't exist.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1100,7 +1100,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Add label 5.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1133,7 +1133,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Check that label 5 exists.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1163,7 +1163,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Remove label 5, but abort the transaction.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1196,7 +1196,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Check that label 5 exists.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1226,7 +1226,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Remove label 5.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1259,7 +1259,7 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 
   // Check that label 5 doesn't exist.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1283,14 +1283,14 @@ TYPED_TEST(StorageV2Test, VertexLabelAbort) {
 TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Add label 1 in accessor 1.
   {
@@ -1373,7 +1373,7 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
 
   // Check which labels exist.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1404,7 +1404,7 @@ TYPED_TEST(StorageV2Test, VertexLabelSerializationError) {
 TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -1442,7 +1442,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1470,7 +1470,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
     acc->Abort();
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1501,7 +1501,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyCommit) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1527,7 +1527,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Create the vertex.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
@@ -1535,7 +1535,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Set property 5 to "nandare", but abort the transaction.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1575,7 +1575,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1596,7 +1596,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Set property 5 to "nandare".
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1636,7 +1636,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1666,7 +1666,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Set property 5 to null, but abort the transaction.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1707,7 +1707,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Check that property 5 is "nandare".
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1737,7 +1737,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Set property 5 to null.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1778,7 +1778,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 
   // Check that property 5 is null.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1802,14 +1802,14 @@ TYPED_TEST(StorageV2Test, VertexPropertyAbort) {
 TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
   memgraph::storage::Gid gid = memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max());
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   // Set property 1 to 123 in accessor 1.
   {
@@ -1886,7 +1886,7 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
 
   // Check which properties exist.
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -1915,7 +1915,7 @@ TYPED_TEST(StorageV2Test, VertexPropertySerializationError) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(StorageV2Test, VertexLabelPropertyMixed) {
-  auto acc = this->store->Access(ReplicationRole::MAIN);
+  auto acc = this->store->Access();
   auto vertex = acc->CreateVertex();
 
   auto label = acc->NameToLabel("label5");
@@ -2157,7 +2157,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
   auto property1 = this->store->NameToProperty("property1");
   auto property2 = this->store->NameToProperty("property2");
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
 
@@ -2168,7 +2168,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2200,7 +2200,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     acc->Abort();
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2211,7 +2211,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2244,7 +2244,7 @@ TYPED_TEST(StorageV2Test, VertexPropertyClear) {
     ASSERT_FALSE(acc->Commit().HasError());
   }
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
@@ -2260,7 +2260,7 @@ TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
   auto label = this->store->NameToLabel("label");
   auto property = this->store->NameToProperty("property");
 
-  auto acc = this->store->Access(ReplicationRole::MAIN);
+  auto acc = this->store->Access();
   auto vertex = acc->CreateVertex();
 
   // Check state before (OLD view).
@@ -2316,8 +2316,8 @@ TYPED_TEST(StorageV2Test, VertexNonexistentLabelPropertyEdgeAPI) {
 }
 
 TYPED_TEST(StorageV2Test, VertexVisibilitySingleTransaction) {
-  auto acc1 = this->store->Access(ReplicationRole::MAIN);
-  auto acc2 = this->store->Access(ReplicationRole::MAIN);
+  auto acc1 = this->store->Access();
+  auto acc2 = this->store->Access();
 
   auto vertex = acc1->CreateVertex();
   auto gid = vertex.Gid();
@@ -2336,7 +2336,7 @@ TYPED_TEST(StorageV2Test, VertexVisibilitySingleTransaction) {
 
   ASSERT_TRUE(vertex.SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
 
-  auto acc3 = this->store->Access(ReplicationRole::MAIN);
+  auto acc3 = this->store->Access();
 
   EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
   EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2373,8 +2373,8 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   memgraph::storage::Gid gid;
 
   {
-    auto acc1 = this->store->Access(ReplicationRole::MAIN);
-    auto acc2 = this->store->Access(ReplicationRole::MAIN);
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->CreateVertex();
     gid = vertex.Gid();
@@ -2403,8 +2403,8 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = this->store->Access(ReplicationRole::MAIN);
-    auto acc2 = this->store->Access(ReplicationRole::MAIN);
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
@@ -2437,7 +2437,7 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
 
     ASSERT_TRUE(vertex->SetProperty(acc1->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
 
-    auto acc3 = this->store->Access(ReplicationRole::MAIN);
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2479,15 +2479,15 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = this->store->Access(ReplicationRole::MAIN);
-    auto acc2 = this->store->Access(ReplicationRole::MAIN);
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1->DeleteVertex(&*vertex).HasValue());
 
-    auto acc3 = this->store->Access(ReplicationRole::MAIN);
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2529,7 +2529,7 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
 
     EXPECT_TRUE(acc->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_TRUE(acc->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2543,15 +2543,15 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc1 = this->store->Access(ReplicationRole::MAIN);
-    auto acc2 = this->store->Access(ReplicationRole::MAIN);
+    auto acc1 = this->store->Access();
+    auto acc2 = this->store->Access();
 
     auto vertex = acc1->FindVertex(gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(vertex);
 
     ASSERT_TRUE(acc1->DeleteVertex(&*vertex).HasValue());
 
-    auto acc3 = this->store->Access(ReplicationRole::MAIN);
+    auto acc3 = this->store->Access();
 
     EXPECT_TRUE(acc1->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc1->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2593,7 +2593,7 @@ TYPED_TEST(StorageV2Test, VertexVisibilityMultipleTransactions) {
   }
 
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
 
     EXPECT_FALSE(acc->FindVertex(gid, memgraph::storage::View::OLD));
     EXPECT_FALSE(acc->FindVertex(gid, memgraph::storage::View::NEW));
@@ -2615,14 +2615,14 @@ TYPED_TEST(StorageV2Test, DeletedVertexAccessor) {
   std::optional<memgraph::storage::Gid> gid;
   // Create the vertex
   {
-    auto acc = this->store->Access(ReplicationRole::MAIN);
+    auto acc = this->store->Access();
     auto vertex = acc->CreateVertex();
     gid = vertex.Gid();
     ASSERT_FALSE(vertex.SetProperty(property, property_value).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
   }
 
-  auto acc = this->store->Access(ReplicationRole::MAIN);
+  auto acc = this->store->Access();
   auto vertex = acc->FindVertex(*gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   auto maybe_deleted_vertex = acc->DeleteVertex(&*vertex);

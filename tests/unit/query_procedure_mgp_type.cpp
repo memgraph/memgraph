@@ -246,7 +246,7 @@ TYPED_TEST(CypherType, MapSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, VertexSatisfiesType) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto vertex = dba.InsertVertex();
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
@@ -269,7 +269,7 @@ TYPED_TEST(CypherType, VertexSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, EdgeSatisfiesType) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -293,7 +293,7 @@ TYPED_TEST(CypherType, EdgeSatisfiesType) {
 }
 
 TYPED_TEST(CypherType, PathSatisfiesType) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();

@@ -24,6 +24,7 @@ auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
     -> std::vector<std::optional<ReplicaStream>> {
   std::vector<std::optional<ReplicaStream>> replica_streams;
   replication_clients_.WithLock([&, db_accessor = std::move(db_acc)](auto &clients) mutable {
+    replica_streams.reserve(clients.size());
     for (auto &client : clients) {
       replica_streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_accessor));
     }

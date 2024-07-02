@@ -40,7 +40,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   std::unordered_map<memgraph::storage::VertexAccessor, std::string> vertex_label_map;
   std::unordered_map<memgraph::storage::EdgeAccessor, std::string> edge_type_map;
 
-  auto dba = db->Access(ReplicationRole::MAIN);
+  auto dba = db->Access();
 
   for (auto label : vertex_labels) {
     auto vertex_accessor = dba->CreateVertex();

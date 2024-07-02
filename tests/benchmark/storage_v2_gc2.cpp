@@ -43,14 +43,14 @@ int main(int argc, char *argv[]) {
       std::array<memgraph::storage::Gid, 1> vertices;
       memgraph::storage::PropertyId pid;
       {
-        auto acc = storage->Access(ReplicationRole::MAIN);
+        auto acc = storage->Access();
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
         MG_ASSERT(!acc->Commit().HasError());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
-        auto acc = storage->Access(ReplicationRole::MAIN);
+        auto acc = storage->Access();
         auto vertex1 = acc->FindVertex(vertices[0], memgraph::storage::View::OLD);
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
           MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
