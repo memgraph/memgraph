@@ -3981,4 +3981,48 @@ class AlterEnumUpdateValueQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class AlterEnumRemoveValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumRemoveValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string removed_value_;
+
+  AlterEnumRemoveValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumRemoveValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->removed_value_ = removed_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropEnumQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropEnumQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+
+  DropEnumQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropEnumQuery>();
+    object->enum_name_ = enum_name_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query
