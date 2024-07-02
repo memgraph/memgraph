@@ -410,10 +410,10 @@ def test_even_number_coords(use_durability):
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     leader_data_original = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -488,10 +488,10 @@ def test_even_number_coords(use_durability):
     leader_coord_instance_3_demoted = find_leader_and_assert_leaders(N=3)
 
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -572,9 +572,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -612,9 +612,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     ), f"Leader is not same as before {leader_instance_3_down}, but {coordinator_leader_instance}"
 
     coord_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -743,9 +743,9 @@ def test_distributed_automatic_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -825,36 +825,36 @@ def test_distributed_automatic_failover_with_leadership_change():
     # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
     # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
     leader_data_inst1_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     leader_data_inst1_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     leader_data_inst2_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     leader_data_inst2_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -1014,18 +1014,18 @@ def test_old_main_comes_back_on_new_leader_as_main():
     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
 
     coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1195,10 +1195,10 @@ def test_registering_4_coords():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1344,10 +1344,10 @@ def test_registering_coord_log_store():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "leader"),
     ]
 
     basic_instances = [
@@ -1490,9 +1490,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
         return show_instances_follower_coord
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1512,9 +1512,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 4
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -1529,9 +1529,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 6
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -1548,9 +1548,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 8
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -1565,9 +1565,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 10
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1591,9 +1591,9 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     # 13
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1662,9 +1662,9 @@ def test_multiple_old_mains_single_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
     coordinators = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
     ]
 
     basic_instances = [
@@ -1721,18 +1721,18 @@ def test_multiple_old_mains_single_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -1828,9 +1828,9 @@ def test_force_reset_works_after_failed_registration():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1884,9 +1884,9 @@ def test_force_reset_works_after_failed_registration():
 
     # This will trigger force reset and choosing of new instance as MAIN
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -1955,9 +1955,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2011,9 +2011,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
     # This will trigger force reset and choosing of new instance as MAIN
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -2082,9 +2082,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2145,9 +2145,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 5
     # This will trigger force reset and choosing of new instance as MAIN
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -2164,9 +2164,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 7
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -2255,9 +2255,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2333,18 +2333,18 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     # TODO FIX
     coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
     coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -2446,9 +2446,9 @@ def test_coordinator_gets_info_on_other_coordinators():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2542,10 +2542,10 @@ def test_coordinator_gets_info_on_other_coordinators():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "", "up", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2596,9 +2596,9 @@ def test_registration_works_after_main_set():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2677,9 +2677,9 @@ def test_coordinator_not_leader_registration_does_not_work():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2777,9 +2777,9 @@ def test_coordinator_user_action_demote_instance_to_replica():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data_original = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2835,9 +2835,9 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 4.
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -2895,9 +2895,9 @@ def test_coordinator_user_action_force_reset_works():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -2953,9 +2953,9 @@ def test_coordinator_user_action_force_reset_works():
     # 4.
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
@@ -3001,9 +3001,9 @@ def test_all_coords_down_resume():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3029,18 +3029,18 @@ def test_all_coords_down_resume():
 
     # TODO(antoniofilipovic) - update when merged with master
     leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "down", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3060,18 +3060,18 @@ def test_all_coords_down_resume():
     # 7
 
     leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "follower"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -3128,9 +3128,9 @@ def test_one_coord_down_with_durability_resume():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3145,9 +3145,9 @@ def test_one_coord_down_with_durability_resume():
     interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
 
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "down", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "down", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3160,9 +3160,9 @@ def test_one_coord_down_with_durability_resume():
     # 5
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3180,9 +3180,9 @@ def test_one_coord_down_with_durability_resume():
     # 7
 
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -3250,9 +3250,9 @@ def test_registration_does_not_deadlock_when_instance_is_down():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -3300,9 +3300,9 @@ def test_follower_have_correct_health():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),

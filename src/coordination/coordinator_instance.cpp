@@ -277,16 +277,30 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       return instance.bolt_server.SocketAddress();
     };
 
+    auto const get_management_server = [](CoordinatorToCoordinatorConfig const &instance) -> std::string {
+      // If I am the 1st leader, I need separate processing. Only, the 1st leader will have management_server set to
+      // 0.0.0.0. Coordinators that have been registered after the 1st leader will have bolt_server set to the actual IP
+      // address so for them we can just retrieve their socket address.
+      if (instance.management_server.GetResolvedIPAddress() == "0.0.0.0") {
+        return fmt::format("{}:{}", instance.coordinator_hostname, instance.management_server.GetPort());
+      }
+      return instance.management_server.SocketAddress();
+    };
+
     auto const coord_instance_to_status =
-        [this, &stringify_coord_health, &get_coord_role, &get_coordinator_server,
-         &get_bolt_server](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+        [this, &stringify_coord_health, &get_coord_role, &get_coordinator_server, &get_bolt_server,
+         &get_management_server](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
       auto const curr_leader = raft_state_->GetLeaderId();
-      return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-              .coordinator_server = get_coordinator_server(instance),  // show non-resolved IP
-              .bolt_server = get_bolt_server(instance),                // show non-resolved IP
-              .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
-              .health = stringify_coord_health(instance),
-              .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
+      return {
+          .instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
+          .coordinator_server = get_coordinator_server(instance),  // show non-resolved IP
+          .management_server = get_management_server(instance),    // show non-resolved IP
+          .bolt_server = get_bolt_server(instance),                // show non-resolved IP
+          .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
+          .health = stringify_coord_health(instance),
+          .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count(),
+
+      };
     };
 
     auto instances_status = utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
