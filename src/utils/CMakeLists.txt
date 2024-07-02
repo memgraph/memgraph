@@ -18,17 +18,19 @@ set(utils_src_files
     query_memory_tracker.cpp
     exponential_backoff.hpp
     exponential_backoff.cpp
+    compressor.cpp
 )
 
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 
 add_library(mg-utils STATIC ${utils_src_files})
 add_library(mg::utils ALIAS mg-utils)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json ZLIB::ZLIB)
 target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt)
 
 set(settings_src_files

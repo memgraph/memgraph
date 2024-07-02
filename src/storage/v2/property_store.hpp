@@ -11,11 +11,17 @@
 
 #pragma once
 
+#include <gflags/gflags.h>
+#include <cstdint>
 #include <map>
 #include <set>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/compressor.hpp"
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(property_store_compression);
 
 namespace memgraph::storage {
 
@@ -60,7 +66,7 @@ class PropertyStore {
 
   /// Checks whether all property values in the vector `property_values` exist in the store. The time
   /// complexity of this function is O(n^2).
-  bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
+  bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values);
 
   /// Extracts property values for all property ids in the set `properties`. The time
   /// complexity of this function is O(n^2).
@@ -75,7 +81,7 @@ class PropertyStore {
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
   /// @throw std::bad_alloc
-  std::map<PropertyId, PropertyValue> Properties() const;
+  std::map<PropertyId, PropertyValue> Properties();
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is
@@ -119,7 +125,14 @@ class PropertyStore {
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
+  bool IsCompressed() const;
+
+  /// Compresses buffer
+  void CompressBuffer();
+
+  /// Decompresses buffer
+  std::vector<uint8_t> DecompressBuffer() const;
+
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 };
-
 }  // namespace memgraph::storage
