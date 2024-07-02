@@ -248,7 +248,9 @@ struct static_vector {
     return *this;
   }
 
-  ~static_vector() { std::destroy(begin(), end()); }
+  ~static_vector() requires(!std::is_trivially_destructible_v<value_type>) { std::destroy(begin(), end()); }
+
+  ~static_vector() requires(std::is_trivially_destructible_v<value_type>) = default;
 
   explicit static_vector(std::initializer_list<T> other) : static_vector(other.begin(), other.end()) {}
 
@@ -400,11 +402,16 @@ struct static_vector {
   }
 
   friend bool operator==(static_vector const &lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+  friend bool operator==(std::span<T const> lhs, static_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
+  friend bool operator==(static_vector const &lhs, std::span<T const> rhs) { return std::ranges::equal(lhs, rhs); }
 
  private:
   size_type size_{};  // max 4 billion
   uninitialised_storage<value_type> buffer_[N];
 };
+
+template <typename T, std::size_t N>
+static_vector(std::array<T, N> arr) -> static_vector<T, sizeof(T) * N + sizeof(uint32_t)>;
 
 static_assert(sizeof(static_vector<int, 15>) == 12);
 
