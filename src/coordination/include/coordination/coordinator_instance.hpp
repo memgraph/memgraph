@@ -19,8 +19,9 @@
 #include <optional>
 #include <string_view>
 
-#include "coordination/coord_instance_management_server.hpp"
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance_connector.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
@@ -84,8 +85,6 @@ class CoordinatorInstance {
   auto IsLeader() const -> bool;
 
   void ShuttingDown();
-
-  auto SendShowInstancesRPC(rpc::Client &rpc_client_) const -> std::optional<std::vector<InstanceStatus>>;
 
  private:
   template <ranges::forward_range R>
@@ -155,7 +154,6 @@ class CoordinatorInstance {
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
-  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
@@ -167,28 +165,8 @@ class CoordinatorInstance {
 
   CoordinatorInstanceManagementServerConfig management_server_config_;
 
-  struct CoordLeader {
-    CoordInstanceManagementServer server_;
-
-    explicit CoordLeader(CoordinatorInstanceManagementServerConfig const &config) : server_{config} {}
-  };
-
-  struct CoordFollower {
-    static auto CreateClientContext(CoordinatorInstanceManagementServerConfig const &config)
-        -> communication::ClientContext {
-      return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                          : communication::ClientContext{};
-    }
-    communication::ClientContext rpc_context_;
-    mutable rpc::Client rpc_client_;
-    const int leader_id_;
-
-    explicit CoordFollower(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
-        : rpc_context_{CreateClientContext(config)},
-          rpc_client_{config.endpoint, &rpc_context_},
-          leader_id_(leader_id) {}
-  };
-  mutable std::variant<std::monostate, CoordLeader, CoordFollower> leader_follower_logic_;
+  mutable std::variant<std::monostate, CoordinatorInstanceManagementServer, CoordinatorInstanceConnector>
+      coordinator_communication_stack_;
 };
 
 }  // namespace memgraph::coordination

@@ -3309,8 +3309,7 @@ if __name__ == "__main__":
         pytest.main(
             [
                 __file__,
-                "-k",
-                "test_old_main_comes_back_on_new_leader_as_replica",
+                "-rA",
                 "--log-cli-level=DEBUG",
                 "--capture=tee-sys",
             ]

@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coord_instance_management_server.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
 #include <spdlog/spdlog.h>
@@ -34,7 +34,8 @@ constexpr auto kCoordInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-CoordInstanceManagementServer::CoordInstanceManagementServer(const CoordinatorInstanceManagementServerConfig &config)
+CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(
+    const CoordinatorInstanceManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
@@ -43,7 +44,7 @@ CoordInstanceManagementServer::CoordInstanceManagementServer(const CoordinatorIn
   });
 }
 
-CoordInstanceManagementServer::~CoordInstanceManagementServer() {
+CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
     spdlog::trace("Closing coordinator instance management server on {}", endpoint.SocketAddress());
@@ -52,7 +53,7 @@ CoordInstanceManagementServer::~CoordInstanceManagementServer() {
   rpc_server_.AwaitShutdown();
 }
 
-bool CoordInstanceManagementServer::Start() { return rpc_server_.Start(); }
+bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
 }  // namespace memgraph::coordination
 #endif
