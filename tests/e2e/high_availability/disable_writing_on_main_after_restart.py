@@ -163,9 +163,9 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -173,9 +173,9 @@ def test_writing_disabled_on_main_restart():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
@@ -193,9 +193,9 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 

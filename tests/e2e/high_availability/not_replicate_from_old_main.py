@@ -206,7 +206,7 @@ def test_not_replicate_old_main_register_new_cluster():
         )
 
     expected_data_up_first_cluster = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("shared_instance", "localhost:7688", "", "localhost:10011", "up", "replica"),
     ]
@@ -266,7 +266,7 @@ def test_not_replicate_old_main_register_new_cluster():
         )
 
     expected_data_up_second_cluster = [
-        ("coordinator_1", "localhost:7691", "localhost:10112", "", "up", "leader"),
+        ("coordinator_1", "localhost:7691", "localhost:10112", "localhost:10121", "up", "leader"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
         ("shared_instance", "localhost:7688", "", "localhost:10011", "up", "replica"),
     ]

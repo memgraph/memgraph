@@ -255,7 +255,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -272,7 +272,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     new_expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -292,7 +292,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     new_expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "replica"),
@@ -483,7 +483,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -507,7 +507,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 6
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -532,7 +532,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 10
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -551,7 +551,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -574,7 +574,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "replica"),
@@ -754,7 +754,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -786,7 +786,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 7
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -820,7 +820,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     interactive_mg_runner.start(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -835,7 +835,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 13
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1040,7 +1040,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
 
     # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1072,7 +1072,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     # 7
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1098,7 +1098,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     interactive_mg_runner.kill(MEMGRAPH_INNER_INSTANCES_DESCRIPTION, "instance_4")
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1115,7 +1115,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     # 11
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1187,7 +1187,7 @@ def test_replication_works_on_failover_simple():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1307,7 +1307,7 @@ def test_replication_works_on_replica_instance_restart():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1373,7 +1373,7 @@ def test_replication_works_on_replica_instance_restart():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1421,7 +1421,7 @@ def test_show_instances():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1444,7 +1444,7 @@ def test_show_instances():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1454,7 +1454,7 @@ def test_show_instances():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1497,7 +1497,7 @@ def test_simple_automatic_failover():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1587,7 +1587,7 @@ def test_replica_instance_restarts():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
 
     expected_data_up = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1597,7 +1597,7 @@ def test_replica_instance_restarts():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
 
     expected_data_down = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1629,7 +1629,7 @@ def test_automatic_failover_main_back_as_replica():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_after_failover = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1637,7 +1637,7 @@ def test_automatic_failover_main_back_as_replica():
     mg_sleep_and_assert(expected_data_after_failover, retrieve_data_show_repl_cluster)
 
     expected_data_after_main_coming_back = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "replica"),
@@ -1668,7 +1668,7 @@ def test_automatic_failover_main_back_as_main():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
     expected_data_all_down = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
@@ -1678,7 +1678,7 @@ def test_automatic_failover_main_back_as_main():
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
     expected_data_main_back = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "down", "unknown"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
@@ -1696,7 +1696,7 @@ def test_automatic_failover_main_back_as_main():
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
 
     expected_data_replicas_back = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),

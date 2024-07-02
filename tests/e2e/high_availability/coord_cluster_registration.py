@@ -248,9 +248,9 @@ def test_register_repl_instances_then_coordinators():
         )
 
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -311,9 +311,9 @@ def test_register_coordinator_then_repl_instances():
         )
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -370,9 +370,9 @@ def test_coordinators_communication_with_restarts():
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -470,9 +470,9 @@ def test_unregister_replicas(kill_instance):
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -505,9 +505,9 @@ def test_unregister_replicas(kill_instance):
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
@@ -532,9 +532,9 @@ def test_unregister_replicas(kill_instance):
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
@@ -593,9 +593,9 @@ def test_unregister_main():
         )
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -616,9 +616,9 @@ def test_unregister_main():
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -631,9 +631,9 @@ def test_unregister_main():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
     ]
@@ -718,9 +718,9 @@ def test_register_one_coord_with_env_vars():
         )
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -741,9 +741,9 @@ def test_register_one_coord_with_env_vars():
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -756,9 +756,9 @@ def test_register_one_coord_with_env_vars():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
     ]
@@ -931,9 +931,9 @@ def test_register_one_data_with_env_vars():
         )
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1066,9 +1066,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
         )
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
@@ -1089,9 +1089,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
@@ -1104,9 +1104,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
     ]
