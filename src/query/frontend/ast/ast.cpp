@@ -331,4 +331,10 @@ constexpr utils::TypeInfo query::AlterEnumAddValueQuery::kType{utils::TypeId::AS
 constexpr utils::TypeInfo query::AlterEnumUpdateValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_UPDATE_VALUE_QUERY,
                                                                   "AlterEnumUpdateValueQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::AlterEnumRemoveValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_REMOVE_VALUE_QUERY,
+                                                                  "AlterEnumRemoveValueQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::DropEnumQuery::kType{utils::TypeId::AST_DROP_ENUM_QUERY, "DropEnumQuery",
+                                                      &query::Query::kType};
+
 }  // namespace memgraph

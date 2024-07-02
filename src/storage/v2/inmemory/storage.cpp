@@ -2159,6 +2159,115 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
+  // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
+  //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
+  //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
+  //            unique transaction to apply the index creation safely.
+  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
+    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
+      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+      encode_operation(encoder);
+    };
+
+    // durability
+    full_encode_operation(wal_file_->encoder());
+    wal_file_->UpdateStats(durability_commit_timestamp);
+    // replication
+    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+  };
+
+  // Handle metadata deltas
+  for (const auto &md_delta : transaction.md_deltas) {
+    auto const op = ActionToStorageOperation(md_delta.action);
+    switch (md_delta.action) {
+      case MetadataDelta::Action::LABEL_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_INDEX_DROP: {
+        apply_encode(op,
+                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
+                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
+                                      md_delta.edge_type_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+                              md_delta.label_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_CREATE:
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
+                                md_delta.label_properties.properties);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_ADD: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
+                                md_delta.enum_alter_update_info.old_value);
+        });
+        break;
+      }
+    }
+  }
+
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
     // delta that should be processed and then appends all discovered deltas.
@@ -2312,111 +2421,6 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       wal_file_->AppendDelta(delta, parent, timestamp);
       repl_storage_state_.AppendDelta(streams, delta, parent, timestamp);
     });
-  }
-
-  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
-    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
-      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
-      encode_operation(encoder);
-    };
-
-    // durability
-    full_encode_operation(wal_file_->encoder());
-    wal_file_->UpdateStats(durability_commit_timestamp);
-    // replication
-    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
-  };
-
-  // Handle metadata deltas
-  for (const auto &md_delta : transaction.md_deltas) {
-    auto const op = ActionToStorageOperation(md_delta.action);
-    switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        apply_encode(op,
-                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
-                                      md_delta.edge_type_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
-                              md_delta.label_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE:
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_ADD: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
-                                md_delta.enum_alter_update_info.old_value);
-        });
-        break;
-      }
-    }
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
