@@ -2159,6 +2159,10 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
+  // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
+  //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
+  //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
+  //            unique transaction to apply the index creation safely.
   auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
     auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
       EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
