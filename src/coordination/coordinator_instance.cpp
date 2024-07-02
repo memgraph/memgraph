@@ -168,6 +168,10 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
     thread_pool_.AddTask([this]() {
       spdlog::info("Leader changed, trying to stop all replication instances frequent checks in thread {}!",
                    std::this_thread::get_id());
+      if (auto leader = std::get_if<CoordinatorInstanceManagementServer>(&coordinator_communication_stack_);
+          leader != nullptr) {
+        coordinator_communication_stack_ = std::monostate{};  // call destructor for serer
+      }
       is_leader_ready_ = false;
       // We need to stop checks before taking a lock because deadlock can happen if instances waits
       // to take a lock in frequent check, and this thread already has a lock and waits for instance to
