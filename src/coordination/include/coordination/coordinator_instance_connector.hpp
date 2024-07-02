@@ -9,21 +9,23 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#include "coordination/coord_instance_management_server.hpp"
-#include "coordination/coordinator_instance.hpp"
+#include <memory>
+#include "coordination/coordinator_instance_client.hpp"
+#include "coordination/coordinator_rpc.hpp"
+#include "coordination/instance_status.hpp"
 
 namespace memgraph::coordination {
-
-class CoordinatorInstanceManagementServerHandlers {
+class CoordinatorInstanceConnector {
  public:
-  static void Register(memgraph::coordination::CoordInstanceManagementServer &server,
-                       CoordinatorInstance &coordinator_instance);
+  explicit CoordinatorInstanceConnector(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
+      : client_{std::make_unique<CoordinatorInstanceClient>(config)}, leader_id_(leader_id) {}
+
+  auto SendShowInstances() -> std::optional<std::vector<InstanceStatus>>;
+
+  [[nodiscard]] auto LeaderId() const -> int;
 
  private:
-  static void ShowInstancesHandler(CoordinatorInstance &coordinator_instance, slk::Reader *req_reader,
-                                   slk::Builder *res_builder);
+  std::unique_ptr<CoordinatorInstanceClient> client_;
+  const int leader_id_;
 };
-
 }  // namespace memgraph::coordination

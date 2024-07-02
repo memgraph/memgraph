@@ -9,12 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coord_instance_management_server_handlers.hpp"
+#include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_rpc.hpp"
 
 namespace memgraph::coordination {
 
-void CoordinatorInstanceManagementServerHandlers::Register(CoordInstanceManagementServer &server,
+void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance &coordinator_instance) {
   server.Register<coordination::ShowInstancesRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
     spdlog::info("Received ShowInstancesHandlerRpc");

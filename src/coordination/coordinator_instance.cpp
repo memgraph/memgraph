@@ -26,11 +26,11 @@
 #include <utility>
 #include <vector>
 
-#include "coordination/coord_instance_management_server.hpp"
-#include "coordination/coord_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
@@ -103,9 +103,9 @@ CoordinatorInstance::~CoordinatorInstance() {
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     // Start server for leader
-    if (std::get_if<CoordFollower>(&leader_follower_logic_) || std::get_if<std::monostate>(&leader_follower_logic_)) {
-      leader_follower_logic_.emplace<CoordLeader>(management_server_config_);
-      auto &server = std::get<CoordLeader>(leader_follower_logic_).server_;
+    if (std::get_if<CoordinatorInstanceManagementServer>(&coordinator_communication_stack_) == nullptr) {
+      coordinator_communication_stack_.emplace<CoordinatorInstanceManagementServer>(management_server_config_);
+      auto &server = std::get<CoordinatorInstanceManagementServer>(coordinator_communication_stack_);
       CoordinatorInstanceManagementServerHandlers::Register(server, *this);
       MG_ASSERT(server.Start());
     }
@@ -202,7 +202,7 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  if (!raft_state_->IsLeader()) {
+  if (!is_leader_ready_) {
     auto const leader_id = raft_state_->GetLeaderId();
     auto const all_coordinators = raft_state_->GetCoordinatorInstances();
     std::ranges::for_each(all_coordinators, [](auto const &coord_instance) {
@@ -216,18 +216,23 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       spdlog::trace("Leader not found in coordinator instances");
       return {};
     }
-    if (std::get_if<CoordLeader>(&leader_follower_logic_) || std::get_if<std::monostate>(&leader_follower_logic_)) {
-      leader_follower_logic_.emplace<CoordFollower>(CoordinatorInstanceManagementServerConfig{coord->management_server},
-                                                    leader_id);
-    } else if (auto *follower = std::get_if<CoordFollower>(&leader_follower_logic_);
-               follower->leader_id_ != leader_id) {
-      leader_follower_logic_.emplace<CoordFollower>(CoordinatorInstanceManagementServerConfig{coord->management_server},
-                                                    leader_id);
+
+    auto const create_connector = [&]() -> bool {
+      if (auto follower = std::get_if<CoordinatorInstanceConnector>(&coordinator_communication_stack_);
+          follower != nullptr && follower->LeaderId() == leader_id) {
+        return false;
+      }
+      return true;
+    }();  // iile
+
+    if (create_connector) {
+      coordinator_communication_stack_.emplace<CoordinatorInstanceConnector>(
+          CoordinatorInstanceManagementServerConfig{coord->management_server}, leader_id);
     }
 
-    auto &follower = std::get<CoordFollower>(leader_follower_logic_);
+    auto &follower = std::get<CoordinatorInstanceConnector>(coordinator_communication_stack_);
 
-    auto maybe_res = SendShowInstancesRPC(follower.rpc_client_);
+    auto maybe_res = follower.SendShowInstances();
 
     if (!maybe_res.has_value()) {
       return {};
@@ -1231,20 +1236,6 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
 auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
-
-auto CoordinatorInstance::SendShowInstancesRPC(rpc::Client &rpc_client_) const
-    -> std::optional<std::vector<InstanceStatus>> {
-  try {
-    spdlog::trace("Sending ShowInstancesRPC");
-    auto stream{rpc_client_.Stream<ShowInstancesRpc>()};
-    auto res = stream.AwaitResponse();
-    spdlog::trace("Received ShowInstancesRPC response {}", res.instances_status_.size());
-    return res.instances_status_;
-  } catch (std::exception const &e) {
-    spdlog::error("Failed to send ShowInstancesRPC: {}", e.what());
-    return std::nullopt;
-  }
-}
 
 }  // namespace memgraph::coordination
 #endif
