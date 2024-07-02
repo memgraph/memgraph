@@ -20,7 +20,9 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/coordinator_instance_connector.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -152,7 +154,6 @@ class CoordinatorInstance {
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
-  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
@@ -161,6 +162,11 @@ class CoordinatorInstance {
   // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
+
+  CoordinatorInstanceManagementServerConfig management_server_config_;
+
+  mutable std::variant<std::monostate, CoordinatorInstanceManagementServer, CoordinatorInstanceConnector>
+      coordinator_communication_stack_;
 };
 
 }  // namespace memgraph::coordination

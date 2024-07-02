@@ -13,7 +13,7 @@ ha_cluster: &ha_cluster
       log_file: "high_availability/coordinator/replication-e2e-main.log"
       setup_queries: []
     coordinator:
-      args: ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level=TRACE", "--coordinator-id=1", "--coordinator-port=10111", "--coordinator-hostname=localhost"]
+      args: ["--experimental-enabled=high-availability", "--bolt-port", "7690", "--log-level=TRACE", "--coordinator-id=1", "--coordinator-port=10111", "--coordinator-hostname=localhost", "--management-port=10121"]
       log_file: "high_availability/coordinator/replication-e2e-coordinator.log"
       setup_queries: [
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",

@@ -15,7 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_rpc.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "slk/streams.hpp"
 
@@ -23,9 +23,9 @@ namespace memgraph::dbms {
 
 class DbmsHandler;
 
-class CoordinatorHandlers {
+class DataInstanceManagementServerHandlers {
  public:
-  static void Register(memgraph::coordination::CoordinatorServer &server,
+  static void Register(memgraph::coordination::DataInstanceManagementServer &server,
                        replication::ReplicationHandler &replication_handler);
 
  private:
