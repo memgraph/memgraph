@@ -247,7 +247,7 @@ def test_register_repl_instances_then_coordinators():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster_coord3 = [
+    leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -255,7 +255,7 @@ def test_register_repl_instances_then_coordinators():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+    mg_sleep_and_assert(leader_data, check_coordinator3)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
@@ -264,16 +264,7 @@ def test_register_repl_instances_then_coordinators():
             sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(leader_data, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -282,7 +273,7 @@ def test_register_repl_instances_then_coordinators():
             sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(leader_data, check_coordinator2)
 
 
 def test_register_coordinator_then_repl_instances():
@@ -294,11 +285,11 @@ def test_register_coordinator_then_repl_instances():
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
@@ -319,7 +310,7 @@ def test_register_coordinator_then_repl_instances():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster_coord3 = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -327,7 +318,7 @@ def test_register_coordinator_then_repl_instances():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
@@ -336,16 +327,7 @@ def test_register_coordinator_then_repl_instances():
             sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -354,7 +336,7 @@ def test_register_coordinator_then_repl_instances():
             sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator2)
 
 
 def test_coordinators_communication_with_restarts():
@@ -367,11 +349,11 @@ def test_coordinators_communication_with_restarts():
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
@@ -387,13 +369,13 @@ def test_coordinators_communication_with_restarts():
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -403,7 +385,7 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -412,13 +394,13 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator2)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator1)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
@@ -428,8 +410,8 @@ def test_coordinators_communication_with_restarts():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
 
 
 @pytest.mark.parametrize(
@@ -447,11 +429,11 @@ def test_unregister_replicas(kill_instance):
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
@@ -487,22 +469,13 @@ def test_unregister_replicas(kill_instance):
     def check_main():
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
-
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
     ]
 
     expected_replicas = [
@@ -522,29 +495,21 @@ def test_unregister_replicas(kill_instance):
         ),
     ]
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
     if kill_instance:
         interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
-
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
     ]
 
     expected_replicas = [
@@ -557,33 +522,27 @@ def test_unregister_replicas(kill_instance):
         ),
     ]
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
     if kill_instance:
         interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
     expected_replicas = []
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
 
@@ -598,11 +557,11 @@ def test_unregister_main():
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
@@ -633,7 +592,7 @@ def test_unregister_main():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -642,18 +601,9 @@ def test_unregister_main():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     try:
         execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
@@ -665,7 +615,7 @@ def test_unregister_main():
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -674,35 +624,18 @@ def test_unregister_main():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-    ]
-
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
     ]
 
     expected_replicas = [
@@ -720,9 +653,9 @@ def test_unregister_main():
     def check_main():
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
 
@@ -736,13 +669,15 @@ def test_register_one_coord_with_env_vars():
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
     os.environ["MEMGRAPH_COORDINATOR_HOSTNAME"] = "localhost"
+    os.environ["MEMGRAPH_COORDINATOR_HOSTNAME"] = "localhost"
+    os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10123"
 
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
     setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'};",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'};",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'};",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'};",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -782,7 +717,7 @@ def test_register_one_coord_with_env_vars():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -791,18 +726,9 @@ def test_register_one_coord_with_env_vars():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     try:
         execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
@@ -814,7 +740,7 @@ def test_register_one_coord_with_env_vars():
 
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -823,35 +749,18 @@ def test_register_one_coord_with_env_vars():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-    ]
-
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
     ]
 
     expected_replicas = [
@@ -869,9 +778,9 @@ def test_register_one_coord_with_env_vars():
     def check_main():
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
     unset_env_flags()
@@ -887,6 +796,7 @@ def test_register_one_data_with_env_vars():
     4. check everything works
     """
     safe_execute(shutil.rmtree, TEMP_DIR)
+    unset_env_flags()
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -930,6 +840,7 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-port=10111",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10121",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
             "setup_queries": [],
@@ -944,6 +855,7 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-port=10112",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10122",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
             "setup_queries": [],
@@ -958,12 +870,13 @@ def test_register_one_data_with_env_vars():
                 "--coordinator-port=10113",
                 "--coordinator-hostname",
                 "localhost",
+                "--management-port=10123",
             ],
             "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
             "setup_queries": [],
         },
     }
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7689"
@@ -992,8 +905,8 @@ def test_register_one_data_with_env_vars():
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'};",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'};",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server':'localhost:10121'};",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server':'localhost:10122'};",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -1017,7 +930,7 @@ def test_register_one_data_with_env_vars():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1026,18 +939,9 @@ def test_register_one_data_with_env_vars():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     main_cursor = connect(host="localhost", port=7689).cursor()
     execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
@@ -1081,13 +985,14 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
     os.environ["MEMGRAPH_COORDINATOR_HOSTNAME"] = "localhost"
+    os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10123"
     safe_execute(os.mkdir, TEMP_DIR)
     file_path = os.path.join(TEMP_DIR, "ha_init.cypherl")
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
 
     setup_queries = [
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'};",
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'};",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'};",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'};",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -1137,6 +1042,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
     os.environ["MEMGRAPH_HA_CLUSTER_INIT_QUERIES"] = file_path
     os.environ["MEMGRAPH_COORDINATOR_HOSTNAME"] = "localhost"
+    os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10123"
 
     interactive_mg_runner.start(
         coordinator_3_description,
@@ -1159,7 +1065,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1168,18 +1074,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     try:
         execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
@@ -1191,7 +1088,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
 
     interactive_mg_runner.kill(memgraph_instances_desc, "instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
@@ -1200,35 +1097,18 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "unknown"),
-    ]
-
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
-    expected_cluster = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-    ]
-
-    expected_cluster_shared = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "", "unknown", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "", "unknown", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "", "unknown", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
     ]
 
     expected_replicas = [
@@ -1246,9 +1126,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     def check_main():
         return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
 
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator1)
-    mg_sleep_and_assert(expected_cluster_shared, check_coordinator2)
-    mg_sleep_and_assert(expected_cluster, check_coordinator3)
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
     mg_sleep_and_assert(expected_replicas, check_main)
 
     unset_env_flags()
@@ -1264,13 +1144,13 @@ def test_add_coord_instance_fails():
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
 
     try:
         execute_and_fetch_all(
             coordinator3_cursor,
-            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112'}",
+            "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10121'}",
         )
     except Exception as e:
         assert "Couldn't add coordinator since instance with such id already exists!" == str(e)
@@ -1278,7 +1158,7 @@ def test_add_coord_instance_fails():
     try:
         execute_and_fetch_all(
             coordinator3_cursor,
-            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10112'}",
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
         )
     except Exception as e:
         assert "Couldn't add coordinator since instance with such bolt endpoint already exists!" == str(e)
@@ -1286,7 +1166,7 @@ def test_add_coord_instance_fails():
     try:
         execute_and_fetch_all(
             coordinator3_cursor,
-            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10111'}",
+            "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10122'}",
         )
     except Exception as e:
         assert "Couldn't add coordinator since instance with such coordinator server already exists!" == str(e)
