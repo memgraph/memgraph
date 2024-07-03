@@ -27,8 +27,8 @@ env:
   s3_region: eu-west-1
   rc_bucket: deps.memgraph.io
   rc_dir: memgraph/v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
-  release_bucket: ${{ github.event.inputs.test == false && 'download.memgraph.com' || 'deps.memgraph.io' }}
-  release_dir: memgraph${{ github.event.inputs.test == true && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
+  release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
+  release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
   package_rpm: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
   package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
   package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
@@ -185,7 +185,7 @@ jobs:
           docker manifest create ${release_image} \
           --amend ${release_image_amd} \
           --amend ${release_image_arm}
-          docker manifest push${release_image}
+          docker manifest push ${release_image}
           # Setup manifest list for latest image
           docker manifest create ${release_image_latest} \
           --amend ${release_image_amd} \
