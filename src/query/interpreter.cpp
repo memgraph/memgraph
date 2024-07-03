@@ -1553,14 +1553,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
                          "health", "role",        "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, replica_nfields = callback.header.size(),
-                     &notifications]() mutable {
-        auto const [state, instances] = handler.ShowInstances();
-        if (state == coordination::ShowInstancesState::FOLLOWER) {
-          notifications->emplace_back(
-              SeverityLevel::WARNING, NotificationCode::SHOW_INSTANCES_FOLLOWER,
-              "SHOW INSTANCES didn't receive up to date info on instances' health, try contacting other coordinators.");
-        }
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
+                     replica_nfields = callback.header.size()]() mutable {
+        auto const [_, instances] = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
                   TypedValue{status.bolt_server},

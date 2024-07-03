@@ -262,7 +262,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
 
 auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
   auto instances_status = GetCoordinatorsInstanceStatus();
-
+  spdlog::trace("Processed all coordinators, processing replication instances as follower.");
   auto const stringify_inst_status = [raft_state_ptr =
                                           raft_state_.get()](ReplicationInstanceState const &instance) -> std::string {
     if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
@@ -285,7 +285,7 @@ auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector
 
   std::ranges::transform(raft_state_->GetReplicationInstances(), std::back_inserter(instances_status),
                          process_repl_instance_as_follower);
-
+  spdlog::trace("Processed all replication instances as follower, returning report as follower.");
   return instances_status;
 }
 
@@ -335,6 +335,7 @@ auto CoordinatorInstance::ShowInstances() -> std::pair<ShowInstancesState, std::
   }
   spdlog::trace("Processing show instances as leader");
   auto instances_status = GetCoordinatorsInstanceStatus();
+  spdlog::trace("processed all coordinators, processing replication instances as leader");
 
   auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
     if (!instance.IsAlive()) return "unknown";
@@ -361,6 +362,7 @@ auto CoordinatorInstance::ShowInstances() -> std::pair<ShowInstancesState, std::
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
     is_state_empty = repl_instances_.empty();
   }
+  spdlog::trace("Processed all replication instances as leader, returning report as leader.");
 
   return {!is_state_empty ? ShowInstancesState::LEADER : ShowInstancesState::FOLLOWER, instances_status};
 }
