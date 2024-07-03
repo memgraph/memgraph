@@ -1018,7 +1018,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     )
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
-    expected_cluster = [("coordinator_3", "localhost:7692", "localhost:10113", "", "up", "leader")]
+    expected_cluster = [("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader")]
 
     def check_coordinator3():
         return ignore_elapsed_time_from_results(
