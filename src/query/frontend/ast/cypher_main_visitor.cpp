@@ -3188,4 +3188,19 @@ antlrcpp::Any CypherMainVisitor::visitAlterEnumUpdateValueQuery(MemgraphCypher::
   return alter_enum_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitAlterEnumRemoveValueQuery(MemgraphCypher::AlterEnumRemoveValueQueryContext *ctx) {
+  auto *alter_enum_query = storage_->Create<AlterEnumRemoveValueQuery>();
+  alter_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  alter_enum_query->removed_value_ = std::any_cast<std::string>(ctx->removed_value->symbolicName()->accept(this));
+  query_ = alter_enum_query;
+  return alter_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQueryContext *ctx) {
+  auto *drop_enum_query = storage_->Create<DropEnumQuery>();
+  drop_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  query_ = drop_enum_query;
+  return drop_enum_query;
+}
+
 }  // namespace memgraph::query::frontend
