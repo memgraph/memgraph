@@ -38,8 +38,8 @@ constexpr std::string_view kElectionTimer = "election_timer";
 
 constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
 
-enum class StateManagerDurabilityVersion : int { kV1 = 1 };
-constexpr StateManagerDurabilityVersion kActiveStateManagerDurabilityVersion{StateManagerDurabilityVersion::kV1};
+enum class StateManagerDurabilityVersion : int { kV1 = 1, kV2 = 2 };
+constexpr StateManagerDurabilityVersion kActiveStateManagerDurabilityVersion{StateManagerDurabilityVersion::kV2};
 
 constexpr std::string_view kServers = "servers";
 constexpr std::string_view kPrevLogIdx = "prev_log_idx";
@@ -80,6 +80,16 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
                      {kUserCtx, cluster_config.get_user_ctx()}};
 }
 
+auto CoordinatorStateManager::HandleVersionMigration() -> void {
+  auto const version = memgraph::coordination::GetOrSetDefaultVersion(
+      durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
+
+  if (version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
+    throw VersionMigrationException(
+        "Version migration for state manager from V1 to V2 is not supported. Cleanup all high availability directories "
+        "and run queries to add instances and coordinators to cluster.");
+  }
+}
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
     : my_id_(static_cast<int>(config.coordinator_id_)),
       cur_log_store_(cs_new<CoordinatorLogStore>(logger, config.log_store_durability_)),
@@ -95,11 +105,7 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
 
-  auto const version = memgraph::coordination::GetOrSetDefaultVersion(
-      durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
-
-  MG_ASSERT(static_cast<StateManagerDurabilityVersion>(version) == kActiveStateManagerDurabilityVersion,
-            "Unsupported version of log store with durability");
+  HandleVersionMigration();
 }
 
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {

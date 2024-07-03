@@ -58,6 +58,8 @@ class CoordinatorStateManager : public state_mgr {
   auto GetSrvConfig() const -> ptr<srv_config>;
 
  private:
+  auto HandleVersionMigration() -> void;
+
   int my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;
   LoggerWrapper logger_;
