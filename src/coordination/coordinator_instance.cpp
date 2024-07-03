@@ -298,8 +298,10 @@ auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector
 
 auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
   if (!is_leader_ready_) {
+    spdlog::trace("Processing show instances as follower.");
     auto const leader_id = raft_state_->GetLeaderId();
     if (leader_id == raft_state_->GetCoordinatorId()) {
+      spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
       return {ShowInstancesState::FOLLOWER,
               GetAllInstancesStatusAsFollower()};  // We don't want to ask ourselves for instances, as coordinator is
                                                    // not ready still as leader
@@ -309,7 +311,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState,
         all_coordinators, [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
 
     if (coord == all_coordinators.end()) {
-      spdlog::trace("Leader not found in coordinator instances");
+      spdlog::trace("Leader not found in coordinator instances, returning report as follower");
       return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
     }
 
@@ -322,6 +324,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState,
     }();  // iile
 
     if (create_connector) {
+      spdlog::trace("Creating connector to leader coordinator with id {}", leader_id);
       coordinator_communication_stack_.emplace<CoordinatorInstanceConnector>(
           CoordinatorInstanceManagementServerConfig{coord->management_server}, leader_id);
     }
@@ -331,12 +334,13 @@ auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState,
     auto maybe_res = follower.SendShowInstances();
 
     if (!maybe_res.has_value()) {
+      spdlog::trace("Couldn't get instances from leader, returning report as follower.");
       return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
     }
-
+    spdlog::trace("Got instances from leader, returning report as leader.");
     return {ShowInstancesState::LEADER, std::move(maybe_res.value())};
   }
-
+  spdlog::trace("Processing show instances as leader");
   auto instances_status = GetCoordinatorsInstanceStatus();
 
   auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
