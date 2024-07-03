@@ -3097,7 +3097,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   std::function<void(Notification &)> handler;
 
   MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
-  auto &db_acc = *current_db.db_acc_;
+  auto db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
@@ -3113,56 +3113,67 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
     case TtlQuery::Type::ENABLE: {
-      notification.code = NotificationCode::CREATE_INDEX;
-      notification.title = fmt::format("Created index on label TTL on property ttl.");
-
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, prop,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) {
-        auto maybe_index_error = dba->CreateIndex(label, prop);
+      handler = [db_acc = std::move(db_acc), dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+        dba->CreateIndex(label, prop);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.HasError()) {
-          notification.code = NotificationCode::EXISTENT_INDEX;
-          notification.title = fmt::format("Index on label TTL on properties ttl already exists.");
-          // ABORT?
-        }
+        notification.code = NotificationCode::ENABLE_TTL;
+        notification.title = fmt::format("Enabled time-to-live feature.");
+        db_acc->ttl().Enable();
       };
       break;
     }
     case TtlQuery::Type::DISABLE: {
-      notification.code = NotificationCode::DROP_INDEX;
-      notification.title = fmt::format("Dropped index on label TTL on property ttl.");
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, prop,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) {
-        auto maybe_index_error = dba->DropIndex(label, prop);
+      handler = [db_acc = std::move(db_acc), dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+        dba->DropIndex(label, prop);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
-        if (maybe_index_error.HasError()) {
-          notification.code = NotificationCode::NONEXISTENT_INDEX;
-          notification.title = fmt::format("Index on label TTL on properties ttl doesn't exist.");
-        }
+        notification.code = NotificationCode::DISABLE_TTL;
+        notification.title = fmt::format("Disabled time-to-live feature.");
+        db_acc->ttl().Disable();
       };
       break;
     }
     case TtlQuery::Type::EXECUTE: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      TypedValue period{};
-      TypedValue specific_time{};
-      if (ttl_query->period_) period = ttl::TtlInfo::ParsePeriod(ttl_query->period_->Accept(evaluator).ValueString());
-      if (ttl_query->specific_time_) {
-        specific_time = ttl::TtlInfo::ParseStartTime(ttl_query->specific_time_->Accept(evaluator).ValueString());
-      }
-      ttl::TtlInfo ttl_info(std::move(period), std::move(specific_time));
+      std::optional<std::chrono::microseconds> period{};
+      std::optional<std::chrono::microseconds> start_time{};
+      try {
+        std::string info = "Starting time-to-live worker. Will be executed";
+        if (ttl_query->period_) {
+          const auto period_str = ttl_query->period_->Accept(evaluator).ValueString();
+          period = ttl::TtlInfo::ParsePeriod(period_str);
+          if (period) info += " every " + period_str;
+        }
+        if (ttl_query->specific_time_) {
+          const auto st_str = ttl_query->specific_time_->Accept(evaluator).ValueString();
+          start_time = ttl::TtlInfo::ParseStartTime(st_str);
+          if (start_time) info += " at " + st_str;
+        }
+        ttl::TtlInfo ttl_info(period, start_time);
 
-      handler = [db_acc = *current_db.db_acc_, ttl_info = std::move(ttl_info),
-                 interpreter_context](Notification &notification) mutable {
-        notification.code = NotificationCode::CREATE_INDEX;
-        notification.title = fmt::format("Created index on label TTL on property ttl.");
-        auto &ttl = db_acc->ttl();
-        ttl.Create(ttl_info, db_acc, interpreter_context);
+        handler = [db_acc = std::move(db_acc), ttl_info, interpreter_context,
+                   info = std::move(info)](Notification &notification) mutable {
+          notification.code = NotificationCode::EXECUTE_TTL;
+          notification.title = info;
+          auto &ttl = db_acc->ttl();
+          ttl.Execute(ttl_info, std::move(db_acc), interpreter_context);
+        };
+      } catch (const ttl::TtlException &e) {
+        throw utils::BasicException(e.what());
+      }
+      break;
+    }
+    case TtlQuery::Type::STOP: {
+      handler = [db_acc = std::move(db_acc)](Notification &notification) mutable {
+        notification.code = NotificationCode::STOP_TTL;
+        notification.title = fmt::format("Stopped time-to-live worker.");
+        db_acc->ttl().Stop();
       };
       break;
     }

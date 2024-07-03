@@ -624,11 +624,11 @@ showSchemaInfoQuery : SHOW SCHEMA INFO ;
 
 enableTtlQuery: ENABLE TTL ;
 
-disableTtlQuery: DISABLE TTL ;
+manipTtlQuery: ( ENABLE | DISABLE | STOP ) TTL ;
 
-ttlThreadQuery: EXECUTE TTL ( EVERY period=literal )? ( AT time=literal )? ;
+ttlThreadQuery: EXECUTE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                            | ( AT time=literal ) ( EVERY period=literal )? ) ;
 
-ttlQuery: enableTtlQuery
-        | disableTtlQuery
+ttlQuery: manipTtlQuery
         | ttlThreadQuery
         ;

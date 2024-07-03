@@ -90,6 +90,14 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "StopStream"sv;
     case NotificationCode::STOP_ALL_STREAMS:
       return "StopAllStreams"sv;
+    case NotificationCode::ENABLE_TTL:
+      return "EnableTTL"sv;
+    case NotificationCode::DISABLE_TTL:
+      return "DisableTTL"sv;
+    case NotificationCode::STOP_TTL:
+      return "StopTTL"sv;
+    case NotificationCode::EXECUTE_TTL:
+      return "ExecuteTTL"sv;
   }
 }
 }  // namespace

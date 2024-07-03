@@ -35,10 +35,12 @@ class TtlException : public utils::BasicException {
 };
 
 struct TtlInfo {
-  TypedValue period;
-  TypedValue start_time;
+  std::optional<std::chrono::microseconds> period;
+  std::optional<std::chrono::microseconds> start_time;  // from epoch
 
-  static TypedValue ParsePeriod(std::string_view sv) {
+  explicit operator bool() const { return period || start_time; }
+
+  static std::chrono::microseconds ParsePeriod(std::string_view sv) {
     if (sv.empty()) return {};
     utils::DurationParameters param;
     int val = 0;
@@ -65,12 +67,21 @@ struct TtlInfo {
         val = 0;
       }
     }
-    return TypedValue(utils::Duration(param));
+    return std::chrono::microseconds{utils::Duration(param).microseconds};
   }
 
-  static TypedValue ParseStartTime(std::string_view sv) {
-    auto [param, _] = utils::ParseLocalTimeParameters(sv);
-    return TypedValue(utils::LocalTime(param));
+  static std::chrono::microseconds ParseStartTime(std::string_view sv) {
+    try {
+      // Midnight might be a problem...
+      const auto now =
+          std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
+      utils::DateParameters today{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
+                                  static_cast<unsigned>(now.day())};
+      auto [param, _] = utils::ParseLocalTimeParameters(sv);
+      return std::chrono::microseconds{utils::LocalDateTime(today, param).MicrosecondsSinceEpoch()};
+    } catch (const utils::temporal::InvalidArgumentException &e) {
+      throw TtlException(e.what());
+    }
   }
 };
 
@@ -82,18 +93,26 @@ class TTL final {
   // void RestoreTTL(TDbAccess db, InterpreterContext *interpreter_context);
 
   template <typename TDbAccess>
-  void Create(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db,
-              InterpreterContext *interpreter_context);
+  void Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db,
+               InterpreterContext *interpreter_context);
 
   void Stop() {
     auto ttl_locked = ttl_.Lock();
     ttl_locked->Stop();
   }
 
+  void Enable() { enabled_ = true; }
+
+  void Disable() {
+    Stop();
+    enabled_ = false;
+  }
+
  private:
   using SynchronizedTtl = utils::Synchronized<utils::Scheduler, utils::WritePrioritizedRWLock>;
   SynchronizedTtl ttl_;
   TtlInfo info_;
+  bool enabled_{false};
 
   // void Persist() {
   // const std::string stream_name = status.name;

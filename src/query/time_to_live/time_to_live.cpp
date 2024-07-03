@@ -23,10 +23,15 @@
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Create(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db_acc,
-                 InterpreterContext *interpreter_context) {
+void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db_acc,
+                  InterpreterContext *interpreter_context) {
   auto ttl_locked = ttl_.Lock();
-  if (ttl_locked->IsRunning()) return;
+  if (!enabled_) {
+    throw TtlException("TTL not enabled!");
+  }
+  if (ttl_locked->IsRunning()) {
+    throw TtlException("TTL already running!");
+  }
 
   auto interpreter =
       std::shared_ptr<query::Interpreter>(new Interpreter(interpreter_context, db_acc), [interpreter_context](auto *p) {
@@ -97,20 +102,22 @@ void TTL::Create(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ T
   };
 
   std::chrono::microseconds period = std::chrono::days(1);  // Default period is a day
-  if (ttl_info.period.IsDuration()) {
-    period = std::chrono::microseconds(ttl_info.period.ValueDuration().microseconds);
+  if (ttl_info.period) {
+    period = *ttl_info.period;
   }
   std::optional<std::chrono::system_clock::time_point> start_time = std::nullopt;
-  if (ttl_info.start_time.IsLocalTime()) {
-    start_time = std::chrono::system_clock::time_point{
-        std::chrono::microseconds(ttl_info.start_time.ValueLocalTime().MicrosecondsSinceEpoch())};
+  if (ttl_info.start_time) {
+    start_time = std::chrono::system_clock::time_point{std::chrono::microseconds(*ttl_info.start_time)};
   }
 
-  ttl_locked->Run(db_acc->name() + "-ttl", period, std::move(TTL), start_time);
+  if (ttl_info)
+    ttl_locked->Run(db_acc->name() + "-ttl", period, std::move(TTL), start_time);
+  else  // one-shot
+    TTL();
 }
 
-template void TTL::Create<dbms::DatabaseAccess>(TtlInfo ttl_info,
-                                                /*std::shared_ptr<QueryUserOrRole> owner,*/ dbms::DatabaseAccess db_acc,
-                                                InterpreterContext *interpreter_context);
+template void TTL::Execute<dbms::DatabaseAccess>(
+    TtlInfo ttl_info,
+    /*std::shared_ptr<QueryUserOrRole> owner,*/ dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
 
 }  // namespace memgraph::query::ttl

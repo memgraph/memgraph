@@ -3217,10 +3217,16 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSc
 
 antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) {
   auto *ttl_query = storage_->Create<TtlQuery>();
-  if (ctx->enableTtlQuery()) {
-    ttl_query->type_ = TtlQuery::Type::ENABLE;
-  } else if (ctx->disableTtlQuery()) {
-    ttl_query->type_ = TtlQuery::Type::DISABLE;
+  if (auto *manip = ctx->manipTtlQuery()) {
+    if (manip->ENABLE()) {
+      ttl_query->type_ = TtlQuery::Type::ENABLE;
+    } else if (manip->DISABLE()) {
+      ttl_query->type_ = TtlQuery::Type::DISABLE;
+    } else if (manip->STOP()) {
+      ttl_query->type_ = TtlQuery::Type::STOP;
+    } else {
+      DMG_ASSERT(false, "Unknown TTL command");
+    }
   } else if (auto *execute = ctx->ttlThreadQuery()) {
     ttl_query->type_ = TtlQuery::Type::EXECUTE;
     if (execute->AT()) {
