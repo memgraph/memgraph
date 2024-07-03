@@ -1495,8 +1495,11 @@ bool PropertyStore::IsCompressed() const {
   if (in_local_buffer || size == 0) {
     return false;
   }
+  auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
+  auto compressed_size =
+      (mod != 0) ? (size - 8 + mod) : size;  // The size of the compressed data + size of the original data.
   const auto *compressor = utils::ZlibCompressor::GetInstance();
-  return compressor->IsCompressed(data + sizeof(uint32_t), size - sizeof(uint32_t));
+  return compressor->IsCompressed(data + sizeof(uint32_t) + 1, compressed_size - sizeof(uint32_t) - 1);
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
@@ -1905,14 +1908,22 @@ void PropertyStore::CompressBuffer() {
     throw PropertyValueException("Failed to compress buffer");
   }
 
-  auto compressed_size_to_power_of_8 = ToPowerOf8(compressed_buffer.compressed_size);
+  auto compressed_size_to_power_of_8 = ToPowerOf8(compressed_buffer.compressed_size + sizeof(uint32_t) + 1);
   if (compressed_size_to_power_of_8 >= buffer_info.size) {
     // Compressed buffer is larger than the original buffer, so we don't compress it.
     return;
   }
   auto *data = new uint8_t[compressed_size_to_power_of_8];
 
-  memcpy(data, compressed_buffer.data, compressed_buffer.compressed_size);
+  // first 4 bytes are the size of the original buffer
+  memcpy(data, &compressed_buffer.original_size, sizeof(uint32_t));
+
+  // next byte is the mod before power of 8
+  data[sizeof(uint32_t)] = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
+
+  // the rest of the buffer is the compressed data
+  memcpy(data + sizeof(uint32_t) + 1, compressed_buffer.data, compressed_buffer.compressed_size);
+
   SetSizeData(buffer_, compressed_size_to_power_of_8, data);
 }
 
@@ -1922,7 +1933,18 @@ utils::DataBuffer PropertyStore::DecompressBuffer() const {
   std::tie(size, data) = GetSizeData(buffer_);
 
   auto *compressor = utils::ZlibCompressor::GetInstance();
-  auto decompressed_buffer = compressor->Decompress(data, size);
+
+  uint32_t original_size = 0;
+  memcpy(&original_size, data, sizeof(uint32_t));
+
+  uint32_t mod = data[sizeof(uint32_t)];
+  auto compressed_size =
+      (mod != 0)
+          ? (size - 8 + mod)
+          : size;  // we have to restore the original size of the compressed buffer + the size of the original buffer
+
+  auto decompressed_buffer =
+      compressor->Decompress(data + sizeof(uint32_t) + 1, compressed_size - sizeof(uint32_t) - 1, original_size);
   if (decompressed_buffer.data == nullptr) {
     throw PropertyValueException("Failed to decompress buffer");
   }

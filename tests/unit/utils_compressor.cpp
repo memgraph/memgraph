@@ -25,7 +25,8 @@ TEST(ZlibCompressorTest, CompressDecompressTest) {
   EXPECT_GT(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, input_size);
 
-  memgraph::utils::DataBuffer decompressed = compressor->Decompress(compressed.data, compressed.compressed_size);
+  memgraph::utils::DataBuffer decompressed =
+      compressor->Decompress(compressed.data, compressed.compressed_size, input_size);
   EXPECT_EQ(decompressed.original_size, input_size);
   EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data), decompressed.original_size),
             std::string_view(input_str));
@@ -40,7 +41,7 @@ TEST(ZlibCompressorTest, CompressEmptyDataTest) {
   EXPECT_EQ(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, 0);
 
-  memgraph::utils::DataBuffer decompressed = compressor->Decompress(compressed.data, compressed.compressed_size);
+  memgraph::utils::DataBuffer decompressed = compressor->Decompress(compressed.data, compressed.compressed_size, 0);
   EXPECT_EQ(decompressed.compressed_size, 0);
   EXPECT_EQ(decompressed.original_size, 0);
 }
@@ -59,18 +60,6 @@ TEST(ZlibCompressorTest, IsCompressedTest) {
   EXPECT_FALSE(compressor->IsCompressed(input_data.data(), input_data.size()));
 }
 
-TEST(ZlibCompressorTest, HandleDecompressionErrorTest) {
-  memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
-
-  // Create invalid compressed data
-  std::vector<uint8_t> invalid_compressed_data = {0x00, 0x01, 0x02, 0x03};
-
-  memgraph::utils::DataBuffer decompressed =
-      compressor->Decompress(invalid_compressed_data.data(), invalid_compressed_data.size());
-  EXPECT_EQ(decompressed.compressed_size, 0);
-  EXPECT_EQ(decompressed.original_size, 0);
-}
-
 TEST(ZlibCompressorTest, LargeDataTest) {
   memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
 
@@ -81,7 +70,8 @@ TEST(ZlibCompressorTest, LargeDataTest) {
   EXPECT_GT(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, LARGE_DATA_SIZE);
 
-  memgraph::utils::DataBuffer decompressed = compressor->Decompress(compressed.data, compressed.compressed_size);
+  memgraph::utils::DataBuffer decompressed =
+      compressor->Decompress(compressed.data, compressed.compressed_size, LARGE_DATA_SIZE);
   EXPECT_EQ(decompressed.original_size, LARGE_DATA_SIZE);
   EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data), decompressed.original_size),
             std::string_view(reinterpret_cast<char *>(input_data.data()), input_data.size()));

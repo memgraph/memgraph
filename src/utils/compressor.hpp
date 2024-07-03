@@ -27,8 +27,8 @@ namespace memgraph::utils {
 
 struct DataBuffer {
   uint8_t *data{nullptr};
-  size_t compressed_size = 0;
-  size_t original_size = 0;
+  uint32_t compressed_size = 0;
+  uint32_t original_size = 0;
 
   // Default constructor
   DataBuffer() = default;
@@ -101,11 +101,11 @@ class Compressor {
   Compressor(Compressor &&) = default;
   Compressor &operator=(Compressor &&) = default;
 
-  virtual DataBuffer Compress(uint8_t *input, size_t input_size) = 0;
+  virtual DataBuffer Compress(uint8_t *input, uint32_t original_size) = 0;
 
-  virtual DataBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) = 0;
+  virtual DataBuffer Decompress(uint8_t *compressed_data, uint32_t compressed_size, uint32_t original_size) = 0;
 
-  virtual bool IsCompressed(uint8_t *data, size_t size) const = 0;
+  virtual bool IsCompressed(uint8_t *data, uint32_t size) const = 0;
 };
 
 class ZlibCompressor : public Compressor {
@@ -123,11 +123,11 @@ class ZlibCompressor : public Compressor {
   ZlibCompressor(ZlibCompressor &&) = delete;
   ZlibCompressor &operator=(ZlibCompressor &&) = delete;
 
-  DataBuffer Compress(uint8_t *input, size_t input_size) override;
+  DataBuffer Compress(uint8_t *input, uint32_t original_size) override;
 
-  DataBuffer Decompress(uint8_t *compressed_data, size_t compressed_size) override;
+  DataBuffer Decompress(uint8_t *compressed_data, uint32_t compressed_size, uint32_t original_size) override;
 
-  bool IsCompressed(uint8_t *data, size_t size) const override;
+  bool IsCompressed(uint8_t *data, uint32_t size) const override;
 };
 
 }  // namespace memgraph::utils
