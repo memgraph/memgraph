@@ -1497,6 +1497,9 @@ bool PropertyStore::IsCompressed() const {
     return false;
   }
   auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
+  if (mod > 7 || mod <= 0) {
+    return false;
+  }
   auto compressed_size =
       (mod != 0) ? (size - 8 + mod) : size;  // The size of the compressed data + size of the original data.
   const auto *compressor = utils::ZlibCompressor::GetInstance();
@@ -1690,7 +1693,10 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     auto new_size_to_power_of_8 = ToPowerOf8(new_size);
     if (new_size_to_power_of_8 == 0) {
       // We don't have any data to encode anymore.
-      if (!in_local_buffer) delete[] data;
+      if (!in_local_buffer) {
+        delete[] data;
+        decompressed_buffer.data = nullptr;
+      }
       SetSizeData(buffer_, 0, nullptr);
       data = nullptr;
       size = 0;
