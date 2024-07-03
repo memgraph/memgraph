@@ -1496,7 +1496,7 @@ bool PropertyStore::IsCompressed() const {
   if (in_local_buffer || size == 0) {
     return false;
   }
-  auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
+  int mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
   if (mod > 7 || mod <= 0) {
     return false;
   }
