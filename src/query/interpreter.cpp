@@ -2836,11 +2836,12 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties.push_back(storage->NameToProperty(prop.name));
     properties_string.push_back(prop.name);
   }
-  auto properties_stringified = utils::Join(properties_string, ", ");
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
   }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
@@ -2922,20 +2923,45 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto *storage = db_acc->storage();
   auto edge_type = storage->NameToEdgeType(index_query->edge_type_.name);
 
+  std::vector<storage::PropertyId> properties;
+  std::vector<std::string> properties_string;
+  properties.reserve(index_query->properties_.size());
+  properties_string.reserve(index_query->properties_.size());
+  for (const auto &prop : index_query->properties_) {
+    properties.push_back(storage->NameToProperty(prop.name));
+    properties_string.push_back(prop.name);
+  }
+
+  if (properties.size() > 1) {
+    throw utils::NotYetImplemented("index on multiple properties");
+  }
+
+  auto properties_stringified = utils::Join(properties_string, ", ");
+
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+      const auto &ix_properties = index_query->properties_;
+      if (ix_properties.empty()) {
+        index_notification.title = fmt::format("Created index on edge-type {}.", index_query->edge_type_.name);
+      } else {
+        index_notification.title = fmt::format("Created index on edge-type {} on property {}.",
+                                               index_query->edge_type_.name, ix_properties.front().name);
+      }
 
       handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        auto maybe_index_error = dba->CreateIndex(edge_type);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error =
+            properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title = fmt::format("Index on edge-type {} already exists.", label_name);
+          index_notification.title =
+              fmt::format("Index on edge-type {} on properties {} already exists.", label_name, properties_stringified);
         }
       };
       break;
@@ -2944,13 +2970,17 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
       handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        auto maybe_index_error = dba->DropIndex(edge_type);
+        MG_ASSERT(properties.size() <= 1U);
+        auto maybe_index_error =
+            properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
-          index_notification.title = fmt::format("Index on edge-type {} doesn't exist.", label_name);
+          index_notification.title =
+              fmt::format("Index on edge-type {} on {} doesn't exist.", label_name, properties_stringified);
         }
       };
       break;
@@ -3896,6 +3926,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
+        const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
@@ -3914,6 +3945,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &item : info.edge_type) {
           results.push_back({TypedValue(edge_type_index_mark), TypedValue(storage->EdgeTypeToName(item)), TypedValue(),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
+        }
+        for (const auto &item : info.edge_type_property) {
+          results.push_back({TypedValue(edge_type_property_index_mark), TypedValue(storage->EdgeTypeToName(item.first)),
+                             TypedValue(storage->PropertyToName(item.second)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item.first, item.second)))});
         }
         for (const auto &[index_name, label] : info.text_indices) {
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
@@ -4983,6 +5019,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EnumModificationInMulticommandTxException();
       }
       prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<AlterEnumRemoveValueQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("Alter enum remove value");
+    } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("Drop enum");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

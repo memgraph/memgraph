@@ -31,6 +31,11 @@ constexpr auto v2 = Version{2023'12'07'0'2'14};
 // To each RPC main uuid was added
 constexpr auto v3 = Version{2024'02'02'0'2'14};
 
-constexpr auto current_version = v3;
+// The order of metadata and data deltas has been changed
+// It is now possible that both can be sent in one commit
+// this is due to auto index creation
+constexpr auto v4 = Version{2024'07'02'0'2'18};
+
+constexpr auto current_version = v4;
 
 }  // namespace memgraph::rpc

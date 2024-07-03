@@ -2305,16 +2305,22 @@ class EdgeIndexQuery : public memgraph::query::Query {
 
   memgraph::query::EdgeIndexQuery::Action action_;
   memgraph::query::EdgeTypeIx edge_type_;
+  std::vector<memgraph::query::PropertyIx> properties_;
 
   EdgeIndexQuery *Clone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
     object->action_ = action_;
     object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->properties_.resize(properties_.size());
+    for (auto i = 0; i < object->properties_.size(); ++i) {
+      object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
+    }
     return object;
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type) : action_(action), edge_type_(edge_type) {}
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<PropertyIx> properties)
+      : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
   friend class AstStorage;
@@ -3968,6 +3974,50 @@ class AlterEnumUpdateValueQuery : public memgraph::query::Query {
     object->enum_name_ = enum_name_;
     object->old_enum_value_ = old_enum_value_;
     object->new_enum_value_ = new_enum_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class AlterEnumRemoveValueQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  AlterEnumRemoveValueQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+  std::string removed_value_;
+
+  AlterEnumRemoveValueQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<AlterEnumRemoveValueQuery>();
+    object->enum_name_ = enum_name_;
+    object->removed_value_ = removed_value_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropEnumQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropEnumQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string enum_name_;
+
+  DropEnumQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropEnumQuery>();
+    object->enum_name_ = enum_name_;
     return object;
   }
 

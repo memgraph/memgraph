@@ -208,3 +208,19 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | result1 | result2 |
             | false   | true    |
+
+    Scenario: Alter enum remove value:
+        Given an empty graph
+        When executing query:
+            """
+            ALTER ENUM Status REMOVE VALUE Good;
+            """
+        Then an error should be raised
+
+    Scenario: Drop enum:
+        Given an empty graph
+        When executing query:
+            """
+            DROP ENUM Status;
+            """
+        Then an error should be raised

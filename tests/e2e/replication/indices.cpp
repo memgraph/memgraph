@@ -63,33 +63,42 @@ int main(int argc, char **argv) {
     client->Execute("CREATE INDEX ON :Node2;");
     client->DiscardAll();
 
-    // Sleep a bit so the constraints get replicated.
+    client->Execute("CREATE (n:Node_autoindex)-[:Edge_autoindex]->(m:Node_autoindex);");
+    client->DiscardAll();
+
+    // Sleep a bit so that the data gets replicated.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
       auto client = mg::e2e::replication::Connect(database_endpoint);
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
-        if (data->size() != 4) {
+        if (data->size() != 6) {
           LOG_FATAL("Missing indices!");
         }
-        check_index(data, 0, "Node");
-        check_index(data, 1, "Node2");
-        check_index(data, 2, "Node", "id");
-        check_index(data, 3, "Node", "id2");
+        check_index(data, 0, "Edge_autoindex");
+        check_index(data, 1, "Node");
+        check_index(data, 2, "Node2");
+        check_index(data, 3, "Node_autoindex");
+        check_index(data, 4, "Node", "id");
+        check_index(data, 5, "Node", "id2");
       } else {
         LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
       }
     }
-    spdlog::info("All indices are in-place.");
+    spdlog::info("All indices are in place.");
 
-    for (int i = 0; i < FLAGS_nodes; ++i) {
+    // We used 2 when making some :Node_autoindex
+    auto remaining_nodes = FLAGS_nodes - 2;
+    for (int i = 0; i < remaining_nodes; ++i) {
       client->Execute("CREATE (:Node {id:" + std::to_string(i) + "});");
       client->DiscardAll();
     }
-    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0, FLAGS_nodes - 1);
-    for (int i = 0; i < FLAGS_edges; ++i) {
+    mg::e2e::replication::IntGenerator edge_generator("EdgeCreateGenerator", 0, remaining_nodes - 1);
+    // We used 1 when making some :Edge_autoindex
+    auto remaining_edges = FLAGS_edges - 1;
+    for (int i = 0; i < remaining_edges; ++i) {
       client->Execute("MATCH (n {id:" + std::to_string(edge_generator.Next()) +
-                      "}), (m {id:" + std::to_string(edge_generator.Next()) + "}) CREATE (n)-[:Edge]->(m);");
+                      "}), (m {id:" + std::to_string(edge_generator.Next()) + "}) CREATE (n)-[:Edge_autoindex]->(m);");
       client->DiscardAll();
     }
 
@@ -105,14 +114,16 @@ int main(int argc, char **argv) {
         // Hacky way to determine if the statistics were replicated
         client->Execute("ANALYZE GRAPH DELETE STATISTICS;");
         const auto data = client->FetchAll();
-        if (data->size() != 4) {
+        if (data->size() != 5) {
           LOG_FATAL("Not all statistics were replicated! Failed endpoint {}:{}",
                     database_endpoint.GetResolvedIPAddress(), database_endpoint.GetPort());
         }
+        // We do not currently do analysis for edges, hence no edge entry here
         check_delete_stats(data, 0, "Node");
         check_delete_stats(data, 1, "Node2");
-        check_delete_stats(data, 2, "Node", "id");
-        check_delete_stats(data, 3, "Node", "id2");
+        check_delete_stats(data, 2, "Node_autoindex");
+        check_delete_stats(data, 3, "Node", "id");
+        check_delete_stats(data, 4, "Node", "id2");
       } catch (const std::exception &e) {
         LOG_FATAL(e.what());
         break;
@@ -126,7 +137,7 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("ANALYZE GRAPH DELETE STATISTICS;");
     client->DiscardAll();
-    // Sleep a bit so the drop constraints get replicated.
+    // Sleep a bit so that the statistics get replicated.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (int i = 1; i < database_endpoints.size(); ++i) {
       auto &database_endpoint = database_endpoints[i];
@@ -155,7 +166,12 @@ int main(int argc, char **argv) {
     client->Execute("DROP INDEX ON :Node2;");
     client->DiscardAll();
 
-    // Sleep a bit so the constraints get replicated.
+    client->Execute("DROP INDEX ON :Node_autoindex;");
+    client->DiscardAll();
+    client->Execute("DROP EDGE INDEX ON :Edge_autoindex;");
+    client->DiscardAll();
+
+    // Sleep a bit so that the index deletion gets replicated.
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     for (const auto &database_endpoint : database_endpoints) {
       auto client = mg::e2e::replication::Connect(database_endpoint);

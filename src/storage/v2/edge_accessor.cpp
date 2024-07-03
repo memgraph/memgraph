@@ -142,7 +142,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   utils::AtomicMemoryBlock(
-      [&current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
+      [this, &current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
         current_value.emplace(edge.ptr->properties.GetProperty(property));
         if (skip_duplicate_write && current_value == value) {
           return;
@@ -155,6 +155,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         // transactions get a SERIALIZATION_ERROR.
         CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
         edge.ptr->properties.SetProperty(property, value);
+        storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
+                                               *transaction_);
       });
 
   if (transaction_->IsDiskStorage()) {
@@ -176,9 +178,11 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  utils::AtomicMemoryBlock([&properties, transaction_ = transaction_, edge_ = edge_]() {
-    for (const auto &[property, _] : properties) {
+  utils::AtomicMemoryBlock([this, &properties, transaction_ = transaction_, edge_ = edge_]() {
+    for (const auto &[property, value] : properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+      storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
+                                             *transaction_);
     }
   });
 
@@ -199,14 +203,15 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock(
-      [transaction_ = transaction_, edge_ = edge_, &properties, &id_old_new_change, skip_duplicate_write]() {
-        id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
-        for (auto &[property, old_value, new_value] : *id_old_new_change) {
-          if (skip_duplicate_write && old_value == new_value) continue;
-          CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
-        }
-      });
+  utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write]() {
+    id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
+    for (auto &[property, old_value, new_value] : *id_old_new_change) {
+      if (skip_duplicate_write && old_value == new_value) continue;
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+      storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
+                                             *transaction_);
+    }
+  });
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
@@ -222,10 +227,12 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([&properties, transaction_ = transaction_, edge_ = edge_]() {
+  utils::AtomicMemoryBlock([&properties, this]() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
+      storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
+                                             edge_.ptr, *transaction_);
     }
 
     edge_.ptr->properties.ClearProperties();

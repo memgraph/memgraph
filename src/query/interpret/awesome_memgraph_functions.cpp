@@ -604,7 +604,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
-           ZonedDateTime, Duration, Graph>>("type", args, nargs);
+           ZonedDateTime, Duration, Graph, Enum>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
