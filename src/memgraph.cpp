@@ -570,7 +570,7 @@ int main(int argc, char **argv) {
   // MAIN or REPLICA instance
   if (coordination_setup.management_port != 0 && !coordination_setup.coordinator_port &&
       !coordination_setup.coordinator_id) {
-    spdlog::trace("Starting coordinator server.");
+    spdlog::trace("Starting data instance management server.");
     memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
                                                                    replication_handler);
     MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");

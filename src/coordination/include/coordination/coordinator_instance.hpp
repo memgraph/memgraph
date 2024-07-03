@@ -42,6 +42,8 @@ struct NewMainRes {
   std::string latest_epoch;
   uint64_t latest_commit_timestamp;
 };
+
+enum class ShowInstancesState : uint8_t { LEADER = 0, FOLLOWER = 1 };
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
 class CoordinatorInstance {
@@ -60,7 +62,7 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<InstanceStatus>;
+  auto ShowInstances() const -> std::pair<ShowInstancesState, std::vector<InstanceStatus>>;
 
   auto TryFailover() -> void;
 

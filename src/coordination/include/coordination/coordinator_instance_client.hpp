@@ -14,6 +14,7 @@
 
 namespace memgraph::coordination {
 
+#ifdef MG_ENTERPRISE
 namespace {
 static auto CreateClientContext(CoordinatorInstanceManagementServerConfig const &config)
     -> communication::ClientContext {
@@ -32,4 +33,5 @@ class CoordinatorInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 };
+#endif
 }  // namespace memgraph::coordination

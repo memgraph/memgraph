@@ -29,8 +29,11 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
 
-  auto instances = coordinator_instance.ShowInstances();
+  auto [state, instances] = coordinator_instance.ShowInstances();
 
+  if (state == ShowInstancesState::FOLLOWER) {
+    slk::Save(coordination::ShowInstancesRes{}, res_builder);
+  }
   coordination::ShowInstancesRes const res{instances};
   slk::Save(res, res_builder);
 }

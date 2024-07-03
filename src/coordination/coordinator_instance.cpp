@@ -296,12 +296,13 @@ auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
   if (!is_leader_ready_) {
     auto const leader_id = raft_state_->GetLeaderId();
     if (leader_id == raft_state_->GetCoordinatorId()) {
-      return GetAllInstancesStatusAsFollower();  // We don't want to ask ourselves for instances, as coordinator is not
-                                                 // ready still as leader
+      return {ShowInstancesState::FOLLOWER,
+              GetAllInstancesStatusAsFollower()};  // We don't want to ask ourselves for instances, as coordinator is
+                                                   // not ready still as leader
     }
     auto const all_coordinators = raft_state_->GetCoordinatorInstances();
     auto const coord = std::ranges::find_if(
@@ -309,7 +310,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
 
     if (coord == all_coordinators.end()) {
       spdlog::trace("Leader not found in coordinator instances");
-      return GetAllInstancesStatusAsFollower();
+      return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
     }
 
     auto const create_connector = [&]() -> bool {
@@ -330,10 +331,10 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     auto maybe_res = follower.SendShowInstances();
 
     if (!maybe_res.has_value()) {
-      return GetAllInstancesStatusAsFollower();
+      return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
     }
 
-    return std::move(maybe_res.value());
+    return {ShowInstancesState::LEADER, std::move(maybe_res.value())};
   }
 
   auto instances_status = GetCoordinatorsInstanceStatus();
@@ -363,7 +364,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
   }
 
-  return instances_status;
+  return {ShowInstancesState::LEADER, instances_status};
 }
 
 auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
