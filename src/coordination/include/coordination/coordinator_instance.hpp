@@ -147,6 +147,9 @@ class CoordinatorInstance {
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
+  auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
+  auto GetAllInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
+
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
   // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to

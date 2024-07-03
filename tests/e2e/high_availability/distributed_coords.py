@@ -471,7 +471,16 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.kill(inner_instances_description, "coordinator_2")
 
     # 5
-    follower_data = []
+    # no leader, we get default output
+    follower_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "unknown", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "replica"),
+    ]
 
     mg_sleep_and_assert(follower_data, show_instances_coord3)
 

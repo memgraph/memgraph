@@ -30,7 +30,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
 
   auto instances = coordinator_instance.ShowInstances();
 
-  coordination::ShowInstancesRes res{instances};
+  coordination::ShowInstancesRes const res{instances};
   slk::Save(res, res_builder);
 }
 
