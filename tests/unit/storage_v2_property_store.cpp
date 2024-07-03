@@ -177,8 +177,7 @@ TEST(PropertyStore, MoveConstructLarge) {
   auto prop = PropertyId::FromInt(42);
   auto value = PropertyValue(std::string(10000, 'a'));
   ASSERT_TRUE(props1.SetProperty(prop, value));
-  auto lhs = props1.GetProperty(prop);
-  ASSERT_EQ(lhs, value);
+  ASSERT_EQ(props1.GetProperty(prop), value);
   ASSERT_TRUE(props1.HasProperty(prop));
   TestIsPropertyEqual(props1, prop, value);
   ASSERT_THAT(props1.Properties(), UnorderedElementsAre(std::pair(prop, value)));
