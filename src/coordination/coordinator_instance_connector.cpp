@@ -14,7 +14,7 @@
 namespace memgraph::coordination {
 
 #ifdef MG_ENTERPRISE
-auto CoordinatorInstanceConnector::SendShowInstances() -> std::optional<std::vector<InstanceStatus>> {
+auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   try {
     spdlog::trace("Sending ShowInstancesRPC");
     auto stream{client_->RpcClient().Stream<ShowInstancesRpc>()};

@@ -62,7 +62,7 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::pair<ShowInstancesState, std::vector<InstanceStatus>>;
+  auto ShowInstances() -> std::pair<ShowInstancesState, std::vector<InstanceStatus>>;
 
   auto TryFailover() -> void;
 
@@ -170,8 +170,9 @@ class CoordinatorInstance {
 
   CoordinatorInstanceManagementServerConfig management_server_config_;
 
-  mutable std::variant<std::monostate, CoordinatorInstanceManagementServer, CoordinatorInstanceConnector>
-      coordinator_communication_stack_;
+  CoordinatorInstanceManagementServer coordinator_management_server_;
+  utils::Synchronized<std::unordered_map<uint32_t, CoordinatorInstanceConnector>, utils::SpinLock>
+      coordinator_connectors_;
 };
 
 }  // namespace memgraph::coordination

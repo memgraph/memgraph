@@ -21,7 +21,7 @@ class CoordinatorInstanceConnector {
   explicit CoordinatorInstanceConnector(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
       : client_{std::make_unique<CoordinatorInstanceClient>(config)}, leader_id_(leader_id) {}
 
-  auto SendShowInstances() -> std::optional<std::vector<InstanceStatus>>;
+  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
   [[nodiscard]] auto LeaderId() const -> int;
 

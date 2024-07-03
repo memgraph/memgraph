@@ -693,7 +693,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   [[nodiscard]] std::pair<coordination::ShowInstancesState, std::vector<coordination::InstanceStatus>> ShowInstances()
-      const override {
+      override {
     return coordinator_handler_.ShowInstances();
   }
 

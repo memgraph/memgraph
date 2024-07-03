@@ -56,7 +56,8 @@ using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : management_server_config_(
-          io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)}) {
+          io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)}),
+      coordinator_management_server_{management_server_config_} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
                   repl_instance_name);
@@ -77,6 +78,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                   repl_instance_name);
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
+
+  CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
+  MG_ASSERT(coordinator_management_server_.Start());
 
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
@@ -102,14 +106,6 @@ CoordinatorInstance::~CoordinatorInstance() {
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
-    // Start server for leader
-    if (!std::holds_alternative<CoordinatorInstanceManagementServer>(coordinator_communication_stack_)) {
-      coordinator_communication_stack_.emplace<CoordinatorInstanceManagementServer>(management_server_config_);
-      auto &server = std::get<CoordinatorInstanceManagementServer>(coordinator_communication_stack_);
-      CoordinatorInstanceManagementServerHandlers::Register(server, *this);
-      MG_ASSERT(server.Start());
-    }
-
     spdlog::trace("Executing become leader callback in thread {}", std::this_thread::get_id());
     if (is_shutting_down_.load(std::memory_order_acquire)) {
       return;
@@ -168,9 +164,6 @@ auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
     thread_pool_.AddTask([this]() {
       spdlog::info("Leader changed, trying to stop all replication instances frequent checks in thread {}!",
                    std::this_thread::get_id());
-      if (std::holds_alternative<CoordinatorInstanceManagementServer>(coordinator_communication_stack_)) {
-        coordinator_communication_stack_ = std::monostate{};  // call destructor for serer
-      }
       is_leader_ready_ = false;
       // We need to stop checks before taking a lock because deadlock can happen if instances waits
       // to take a lock in frequent check, and this thread already has a lock and waits for instance to
@@ -296,7 +289,7 @@ auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
+auto CoordinatorInstance::ShowInstances() -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
   if (!is_leader_ready_) {
     spdlog::trace("Processing show instances as follower.");
     auto const leader_id = raft_state_->GetLeaderId();
@@ -306,32 +299,32 @@ auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState,
               GetAllInstancesStatusAsFollower()};  // We don't want to ask ourselves for instances, as coordinator is
                                                    // not ready still as leader
     }
-    auto const all_coordinators = raft_state_->GetCoordinatorInstances();
-    auto const coord = std::ranges::find_if(
-        all_coordinators, [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
 
-    if (coord == all_coordinators.end()) {
-      spdlog::trace("Leader not found in coordinator instances, returning report as follower");
+    if (leader_id == -1) {
+      spdlog::trace("No leader found, returning report as follower.");
       return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
     }
+    CoordinatorInstanceConnector *follower{nullptr};
+    // TODO(antoniofilipovic) move this part to separate function
+    {
+      auto connectors = coordinator_connectors_.Lock();
+      if (!connectors->contains(leader_id)) {
+        auto all_coordinators = raft_state_->GetCoordinatorInstances();
 
-    auto const create_connector = [&]() -> bool {
-      if (auto const *follower = std::get_if<CoordinatorInstanceConnector>(&coordinator_communication_stack_);
-          follower != nullptr && follower->LeaderId() == leader_id) {
-        return false;
+        auto coord = std::ranges::find_if(all_coordinators,
+                                          [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
+
+        MG_ASSERT(coord != all_coordinators.end());
+        connectors->emplace(
+            leader_id, CoordinatorInstanceConnector{CoordinatorInstanceManagementServerConfig{coord->management_server},
+                                                    static_cast<int>(leader_id)});
       }
-      return true;
-    }();  // iile
-
-    if (create_connector) {
-      spdlog::trace("Creating connector to leader coordinator with id {}", leader_id);
-      coordinator_communication_stack_.emplace<CoordinatorInstanceConnector>(
-          CoordinatorInstanceManagementServerConfig{coord->management_server}, leader_id);
+      follower = &connectors->at(leader_id);
     }
 
-    auto &follower = std::get<CoordinatorInstanceConnector>(coordinator_communication_stack_);
+    MG_ASSERT(follower != nullptr, "Follower is not nullptr");
 
-    auto maybe_res = follower.SendShowInstances();
+    auto maybe_res = follower->SendShowInstances();
 
     if (!maybe_res.has_value()) {
       spdlog::trace("Couldn't get instances from leader, returning report as follower.");
@@ -362,13 +355,14 @@ auto CoordinatorInstance::ShowInstances() const -> std::pair<ShowInstancesState,
             .health = stringify_repl_health(instance),
             .last_succ_resp_ms = instance.LastSuccRespMs().count()};
   };
-
+  bool is_state_empty{false};
   {
     auto lock = std::shared_lock{coord_instance_lock_};
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+    is_state_empty = repl_instances_.empty();
   }
 
-  return {ShowInstancesState::LEADER, instances_status};
+  return {!is_state_empty ? ShowInstancesState::LEADER : ShowInstancesState::FOLLOWER, instances_status};
 }
 
 auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
