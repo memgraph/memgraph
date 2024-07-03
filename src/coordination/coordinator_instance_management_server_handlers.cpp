@@ -14,6 +14,7 @@
 
 namespace memgraph::coordination {
 
+#ifdef MG_ENTERPRISE
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance &coordinator_instance) {
   server.Register<coordination::ShowInstancesRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
@@ -33,5 +34,5 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   coordination::ShowInstancesRes const res{instances};
   slk::Save(res, res_builder);
 }
-
+#endif
 }  // namespace memgraph::coordination

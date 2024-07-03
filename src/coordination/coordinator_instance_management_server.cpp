@@ -9,15 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
 #include <spdlog/spdlog.h>
 
 namespace memgraph::coordination {
-
+#ifdef MG_ENTERPRISE
 namespace {
 
 auto CreateServerContext(const memgraph::coordination::CoordinatorInstanceManagementServerConfig &config)
@@ -55,5 +53,5 @@ CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
 
 bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
-}  // namespace memgraph::coordination
 #endif
+}  // namespace memgraph::coordination

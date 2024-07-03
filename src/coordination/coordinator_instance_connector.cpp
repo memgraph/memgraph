@@ -13,6 +13,7 @@
 
 namespace memgraph::coordination {
 
+#ifdef MG_ENTERPRISE
 auto CoordinatorInstanceConnector::SendShowInstances() -> std::optional<std::vector<InstanceStatus>> {
   try {
     spdlog::trace("Sending ShowInstancesRPC");
@@ -28,4 +29,5 @@ auto CoordinatorInstanceConnector::SendShowInstances() -> std::optional<std::vec
 
 [[nodiscard]] auto CoordinatorInstanceConnector::LeaderId() const -> int { return leader_id_; }
 
+#endif
 }  // namespace memgraph::coordination

@@ -15,6 +15,7 @@
 #include "coordination/instance_status.hpp"
 
 namespace memgraph::coordination {
+#ifdef MG_ENTERPRISE
 class CoordinatorInstanceConnector {
  public:
   explicit CoordinatorInstanceConnector(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
@@ -28,4 +29,5 @@ class CoordinatorInstanceConnector {
   std::unique_ptr<CoordinatorInstanceClient> client_;
   const int leader_id_;
 };
+#endif
 }  // namespace memgraph::coordination

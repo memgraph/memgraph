@@ -11,13 +11,11 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
 
 namespace memgraph::coordination {
-
+#ifdef MG_ENTERPRISE
 class CoordinatorInstanceManagementServer {
  public:
   explicit CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServerConfig &config);
@@ -39,6 +37,5 @@ class CoordinatorInstanceManagementServer {
   communication::ServerContext rpc_server_context_;
   rpc::Server rpc_server_;
 };
-
-}  // namespace memgraph::coordination
 #endif
+}  // namespace memgraph::coordination

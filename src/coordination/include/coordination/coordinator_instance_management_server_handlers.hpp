@@ -15,7 +15,7 @@
 #include "coordination/coordinator_instance_management_server.hpp"
 
 namespace memgraph::coordination {
-
+#ifdef MG_ENTERPRISE
 class CoordinatorInstanceManagementServerHandlers {
  public:
   static void Register(memgraph::coordination::CoordinatorInstanceManagementServer &server,
@@ -25,5 +25,5 @@ class CoordinatorInstanceManagementServerHandlers {
   static void ShowInstancesHandler(CoordinatorInstance &coordinator_instance, slk::Reader *req_reader,
                                    slk::Builder *res_builder);
 };
-
+#endif
 }  // namespace memgraph::coordination
