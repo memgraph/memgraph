@@ -208,6 +208,9 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   if (!is_leader_ready_) {
     auto const leader_id = raft_state_->GetLeaderId();
+    if (leader_id == raft_state_->GetCoordinatorId()) {
+      return {};  // We don't want to ask ourselves for instances, as coordinator is not ready still as leader
+    }
     auto const all_coordinators = raft_state_->GetCoordinatorInstances();
     std::ranges::for_each(all_coordinators, [](auto const &coord_instance) {
       spdlog::trace("Coord id: {}, coord mgmt server: {}", coord_instance.coordinator_id,

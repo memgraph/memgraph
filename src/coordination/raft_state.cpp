@@ -228,6 +228,8 @@ RaftState::~RaftState() {
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
+auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
+
 auto RaftState::RaftSocketAddress() const -> std::string {
   return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
 }

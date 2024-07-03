@@ -67,6 +67,8 @@ class RaftState {
 
   auto IsLeader() const -> bool;
 
+  auto GetCoordinatorId() const -> uint32_t;
+
   auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
   auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
   auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
