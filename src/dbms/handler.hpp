@@ -41,6 +41,8 @@ class Handler {
    */
   Handler() = default;
 
+  virtual ~Handler() = default;
+
   /**
    * @brief Generate a new context and corresponding configuration.
    *

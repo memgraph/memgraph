@@ -568,6 +568,11 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         }
         ++i;
         std::this_thread::sleep_for(retry_interval);
+      } catch (const DatabaseContextRequiredException &e) {
+        // No database; we are shutting down
+        interpreter->Abort();
+        spdlog::trace("No database associated with stream '{}'; shuting down...", stream_name);
+        break;
       }
     }
   };

@@ -163,6 +163,19 @@ class Database {
 
   query::ttl::TTL &ttl() { return time_to_live_; }
 
+  /**
+   * @brief Useful when trying to gracefully destroy Database.
+   *
+   * Tasks might have an accessor to the database, and so, might forbid it from being destroyed.
+   * Call this function before attempting to destroy a database object.
+   *
+   */
+  void StopAllBackgroundTasks() {
+    streams()->StopAll();
+    thread_pool()->ShutDown();
+    ttl().Stop();
+  }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage

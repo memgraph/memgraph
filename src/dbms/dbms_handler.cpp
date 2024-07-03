@@ -398,10 +398,8 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
     //       can occur while we are dropping the database
     db->prepare_for_deletion();
     auto &database = *db->get();
-    database.streams()->StopAll();
+    database.StopAllBackgroundTasks();
     database.streams()->DropAll();
-    database.thread_pool()->ShutDown();
-    database.ttl().Stop();
   }
 
   // Remove from durability list
