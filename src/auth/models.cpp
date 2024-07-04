@@ -604,7 +604,7 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
 #endif
 
 bool User::CheckPassword(const std::string &password) {
-  if (!password_hash_ && !username_.empty()) {
+  if (!password_hash_) {
     if (password.empty()) {
       return true;
     }
