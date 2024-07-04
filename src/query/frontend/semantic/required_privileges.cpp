@@ -138,7 +138,12 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     AddPrivilege(AuthQuery::Privilege::CREATE);
   }
 
-  void Visit(TtlQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
+  void Visit(TtlQuery & /*ttl_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONFIG);
+    AddPrivilege(AuthQuery::Privilege::INDEX);
+    AddPrivilege(AuthQuery::Privilege::MATCH);
+    AddPrivilege(AuthQuery::Privilege::DELETE);
+  }
 
   void Visit(AlterEnumRemoveValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
 
