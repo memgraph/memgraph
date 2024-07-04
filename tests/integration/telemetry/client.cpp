@@ -71,9 +71,9 @@ int main(int argc, char **argv) {
   });
 
   // Memgraph specific collectors
-  telemetry.AddStorageCollector(dbms_handler, auth_, repl_state);
+  telemetry.AddStorageCollector(dbms_handler, auth_);
 #ifdef MG_ENTERPRISE
-  telemetry.AddDatabaseCollector(dbms_handler, repl_state);
+  telemetry.AddDatabaseCollector(dbms_handler);
 #else
   telemetry.AddDatabaseCollector();
 #endif

@@ -432,7 +432,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
                     const std::vector<Field> &fields, const std::vector<std::string> &additional_labels,
                     std::unordered_map<NodeId, memgraph::storage::Gid> *node_id_map) {
   std::optional<NodeId> id;
-  auto acc = store->Access(ReplicationRole::MAIN);
+  auto acc = store->Access();
   auto node = acc->CreateVertex();
   for (size_t i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
@@ -578,7 +578,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
   if (!end_id) throw LoadException("END_ID must be set");
   if (!relationship_type) throw LoadException("Relationship TYPE must be set");
 
-  auto acc = store->Access(ReplicationRole::MAIN);
+  auto acc = store->Access();
   auto from_node = acc->FindVertex(*start_id, memgraph::storage::View::NEW);
   if (!from_node) throw LoadException("From node must be in the storage");
   auto to_node = acc->FindVertex(*end_id, memgraph::storage::View::NEW);

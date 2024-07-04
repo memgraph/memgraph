@@ -291,7 +291,7 @@ class DbmsHandler {
    *
    * @return Statistics
    */
-  Statistics Stats(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  Statistics Stats() {
     Statistics stats{};
     // TODO: Handle overflow?
 #ifdef MG_ENTERPRISE
@@ -304,7 +304,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        const auto &info = db_acc->GetInfo(replication_role);
+        const auto &info = db_acc->GetInfo();
         const auto &storage_info = info.storage_info;
         stats.num_vertex += storage_info.vertex_count;
         stats.num_edges += storage_info.edge_count;
@@ -327,7 +327,7 @@ class DbmsHandler {
    *
    * @return std::vector<DatabaseInfo>
    */
-  std::vector<DatabaseInfo> Info(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  std::vector<DatabaseInfo> Info() {
     std::vector<DatabaseInfo> res;
 #ifdef MG_ENTERPRISE
     auto rd = std::shared_lock{lock_};
@@ -340,7 +340,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        res.push_back(db_acc->GetInfo(replication_role));
+        res.push_back(db_acc->GetInfo());
       }
     }
     return res;
