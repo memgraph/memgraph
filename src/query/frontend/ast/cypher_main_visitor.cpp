@@ -10,17 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+
 #include <support/Any.h>
 #include <tree/ParseTreeVisitor.h>
 
 #include <algorithm>
 #include <any>
-#include <chrono>
-#include <climits>
-#include <codecvt>
 #include <cstring>
 #include <iterator>
-#include <limits>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -34,16 +31,13 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
-#include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
-#include "utils/temporal.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::frontend {
@@ -758,7 +752,7 @@ std::vector<std::string> TopicNamesFromSymbols(
 }
 
 template <typename T>
-concept EnumUint8 = std::is_enum_v<T> &&std::same_as<uint8_t, std::underlying_type_t<T>>;
+concept EnumUint8 = std::is_enum_v<T> && std::same_as<uint8_t, std::underlying_type_t<T>>;
 
 template <bool required, typename... ValueTypes>
 void MapConfig(auto &memory, const EnumUint8 auto &enum_key, auto &destination) {
