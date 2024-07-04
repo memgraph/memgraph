@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include "spdlog/spdlog.h"
 
 #include "utils/compressor.hpp"
 
@@ -40,6 +41,7 @@ DataBuffer ZlibCompressor::Compress(uint8_t *input, uint32_t original_size) {
 
   if (result != Z_OK) {
     // Handle compression error
+    delete[] compressed_data;
     return {};
   }
 
@@ -66,8 +68,11 @@ DataBuffer ZlibCompressor::Decompress(uint8_t *compressed_data, uint32_t compres
 
   if (result != Z_OK) {
     // Handle decompression error
+    delete[] decompressed_buffer.data;
     return {};
   }
+
+  spdlog::debug("Decompressed data size: {}", decompressed_buffer.original_size);
 
   return decompressed_buffer;
 }

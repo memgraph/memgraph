@@ -15,7 +15,9 @@
 #include <zlib.h>
 #include <cstdint>
 #include <cstring>
+#include <string_view>
 #include <vector>
+#include "spdlog/spdlog.h"
 
 #define ZLIB_HEADER 0x78
 #define ZLIB_LOW_COMPRESSION 0x01
@@ -37,33 +39,10 @@ struct DataBuffer {
   ~DataBuffer() { delete[] data; }
 
   // Copy constructor
-  DataBuffer(const DataBuffer &other) : compressed_size(other.compressed_size), original_size(other.original_size) {
-    if (other.data) {
-      data = new uint8_t[compressed_size];
-      memcpy(data, other.data, compressed_size);
-    }
-  }
+  DataBuffer(const DataBuffer &other) = delete;
 
   // Copy assignment operator
-  DataBuffer &operator=(const DataBuffer &other) {
-    if (this == &other) {
-      return *this;
-    }
-
-    // Clean up existing data
-    delete[] data;
-
-    compressed_size = other.compressed_size;
-    original_size = other.original_size;
-    data = nullptr;
-
-    if (other.data) {
-      data = new uint8_t[compressed_size];
-      memcpy(data, other.data, compressed_size);
-    }
-
-    return *this;
-  }
+  DataBuffer &operator=(const DataBuffer &other) = delete;
 
   // Move constructor
   DataBuffer(DataBuffer &&other) noexcept
@@ -71,6 +50,11 @@ struct DataBuffer {
     other.data = nullptr;
     other.compressed_size = 0;
     other.original_size = 0;
+    spdlog::debug("DataBuffer move constructor");
+    spdlog::debug("DataBuffer move constructor data: {}",
+                  std::string_view(reinterpret_cast<char *>(data), original_size));
+    spdlog::debug("DataBuffer move constructor compressed_size: {}", compressed_size);
+    spdlog::debug("DataBuffer move constructor original_size: {}", original_size);
   }
 
   // Move assignment operator
