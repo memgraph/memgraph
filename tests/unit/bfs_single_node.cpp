@@ -31,9 +31,7 @@ class SingleNodeDb : public Database {
     }
   }
 
-  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override {
-    return db_->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
-  }
+  std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
   std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
                                                    EdgeAtom::Direction direction,

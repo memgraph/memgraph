@@ -25,8 +25,6 @@ on:
         default: debian-11
         options:
           - all
-          - amzn-2
-          - centos-7
           - centos-9
           - debian-11
           - debian-12
@@ -53,7 +51,7 @@ jobs:
     if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
@@ -69,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         build_type: [Release]
         include: # Add arm builds and RelwithDebInfo builds

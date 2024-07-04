@@ -9,36 +9,136 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import os
+import shutil
 import sys
+import tempfile
 
+import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, ignore_elapsed_time_from_results
+from common import (
+    connect,
+    execute_and_fetch_all,
+    ignore_elapsed_time_from_results,
+    safe_execute,
+)
 from mg_utils import mg_sleep_and_assert
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+TEMP_DIR = tempfile.TemporaryDirectory().name
+
+
+MEMGRAPH_INSTANCES_DESCRIPTION = {
+    "instance_1": {
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7688",
+            "--log-level",
+            "TRACE",
+            "--management-port",
+            "10011",
+        ],
+        "log_file": "high_availability/coordinator/instance_1.log",
+        "data_directory": f"{TEMP_DIR}/instance_1",
+        "setup_queries": [],
+    },
+    "instance_2": {
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7689",
+            "--log-level",
+            "TRACE",
+            "--management-port",
+            "10012",
+        ],
+        "log_file": "high_availability/coordinator/instance_2.log",
+        "data_directory": f"{TEMP_DIR}/instance_2",
+        "setup_queries": [],
+    },
+    "instance_3": {
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7687",
+            "--log-level",
+            "TRACE",
+            "--management-port",
+            "10013",
+        ],
+        "log_file": "high_availability/coordinator/instance_3.log",
+        "data_directory": f"{TEMP_DIR}/instance_3",
+        "setup_queries": [],
+    },
+    "coordinator_1": {
+        "args": [
+            "--experimental-enabled=high-availability",
+            "--bolt-port",
+            "7690",
+            "--log-level=TRACE",
+            "--coordinator-id=1",
+            "--coordinator-port=10111",
+            "--coordinator-hostname",
+            "localhost",
+            "--management-port",
+            "10121",
+        ],
+        "log_file": "high_availability/coordinator/coordinator1.log",
+        "setup_queries": [],
+    },
+}
+
+
+def setup_test():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    setup_queries = [
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+        "SET INSTANCE instance_3 TO MAIN;",
+    ]
+
+    cursor = connect(host="localhost", port=7690).cursor()
+
+    for query in setup_queries:
+        execute_and_fetch_all(cursor, query)
+
+    return cursor
 
 
 def test_disable_cypher_queries():
-    cursor = connect(host="localhost", port=7690).cursor()
+    cursor = setup_test()
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "CREATE (n:TestNode {prop: 'test'})")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_cannot_be_replica_role():
-    cursor = connect(host="localhost", port=7690).cursor()
+    cursor = setup_test()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_cannot_run_show_repl_role():
-    cursor = connect(host="localhost", port=7690).cursor()
+    cursor = setup_test()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
 def test_coordinator_show_instances():
-    cursor = connect(host="localhost", port=7690).cursor()
+    cursor = setup_test()
 
     def retrieve_data():
         return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
@@ -53,7 +153,7 @@ def test_coordinator_show_instances():
 
 
 def test_coordinator_cannot_call_show_replicas():
-    cursor = connect(host="localhost", port=7690).cursor()
+    cursor = setup_test()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
@@ -64,6 +164,7 @@ def test_coordinator_cannot_call_show_replicas():
     [7687, 7688, 7689],
 )
 def test_main_and_replicas_cannot_call_show_repl_cluster(port):
+    setup_test()
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW INSTANCES;")
@@ -75,6 +176,7 @@ def test_main_and_replicas_cannot_call_show_repl_cluster(port):
     [7687, 7688, 7689],
 )
 def test_main_and_replicas_cannot_register_coord_server(port):
+    setup_test()
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(

@@ -16,8 +16,6 @@ on:
         default: 'debian-12'
         options:
           - all
-          - amzn-2
-          - centos-7
           - centos-9
           - debian-10
           - debian-11
@@ -70,36 +68,6 @@ on:
         default: ''
 
 jobs:
-  AmazonLinux2:
-    if: ${{ github.event.inputs.os == 'amzn-2' || github.event.inputs.os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "amzn-2"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      build_type: ${{ github.event.inputs.build_type }}
-      push_to_github: ${{ github.event.inputs.push_to_github }}
-      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
-      s3_bucket: ${{ github.event.inputs.s3_bucket }}
-      s3_region: ${{ github.event.inputs.s3_region }}
-      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-    secrets: inherit
-
-  CentOS7:
-    if: ${{ github.event.inputs.os == 'centos-7' || github.event.inputs.os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "centos-7"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      build_type: ${{ github.event.inputs.build_type }}
-      push_to_github: ${{ github.event.inputs.push_to_github }}
-      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
-      s3_bucket: ${{ github.event.inputs.s3_bucket }}
-      s3_region: ${{ github.event.inputs.s3_region }}
-      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-    secrets: inherit
-
   CentOS9:
     if: ${{ github.event.inputs.os == 'centos-9' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml

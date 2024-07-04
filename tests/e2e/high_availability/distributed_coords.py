@@ -28,7 +28,6 @@ from common import (
 from mg_utils import (
     mg_assert_until,
     mg_sleep_and_assert,
-    mg_sleep_and_assert_any_function,
     mg_sleep_and_assert_collection,
     mg_sleep_and_assert_multiple,
     wait_for_status_change,

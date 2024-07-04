@@ -662,9 +662,9 @@ int main(int argc, char **argv) {
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
                       service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-    telemetry->AddStorageCollector(dbms_handler, *auth_, repl_state);
+    telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
-    telemetry->AddDatabaseCollector(dbms_handler, repl_state);
+    telemetry->AddDatabaseCollector(dbms_handler);
 #else
     telemetry->AddDatabaseCollector();
 #endif
