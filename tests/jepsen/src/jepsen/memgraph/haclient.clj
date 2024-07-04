@@ -56,7 +56,7 @@
               ":7687', "
               "'coordinator_server': '"
               name
-              ":" (str (:coordinator-port node-config)) ", "
+              ":" (str (:coordinator-port node-config)) "', "
               "'management_server': '"
               name
               ":" (str (:management-port node-config))

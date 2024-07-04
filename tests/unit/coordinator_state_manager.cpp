@@ -90,8 +90,11 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
-        CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
-                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346}};
+        CoordinatorToCoordinatorConfig{.coordinator_id = config.coordinator_id_,
+                                       .bolt_server = memgraph::io::network::Endpoint("0.0.0.0", 9091),
+                                       .coordinator_server = memgraph::io::network::Endpoint{"0.0.0.0", 12346},
+                                       .management_server = memgraph::io::network::Endpoint("0.0.0.0", 2320),
+                                       .coordinator_hostname = "localhost"};
     auto temp_srv_config =
         cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
     // second coord stored here
