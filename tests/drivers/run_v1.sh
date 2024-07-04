@@ -27,10 +27,7 @@ binary_dir="$DIR/../../build"
 # Start memgraph.
 $binary_dir/memgraph \
     --data-directory=$tmpdir \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
     --log-level ERROR &

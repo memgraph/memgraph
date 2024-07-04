@@ -12,10 +12,9 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import sys
 import threading
 
-from neo4j import GraphDatabase, basic_auth
+from neo4j import GraphDatabase
 
 driver = GraphDatabase.driver("bolt://localhost:7687", auth=("", ""), encrypted=False)
 session = driver.session()
@@ -24,8 +23,7 @@ node_count = 100
 
 
 def add_edge_tx(tx):
-    result = tx.run("MATCH (root:Root) CREATE (n:Node) CREATE (n)-[:TROUBLING_EDGE]->(root) RETURN root").single()
-    pass
+    tx.run("MATCH (root:Root) CREATE (n:Node) CREATE (n)-[:TROUBLING_EDGE]->(root) RETURN root").single()
 
 
 def add_edge():
@@ -41,7 +39,7 @@ print("Database cleared.")
 session.run("MERGE (root:Root);").consume()
 print("Root created.")
 
-threads = [threading.Thread(target=add_edge) for x in range(node_count - 1)]
+threads = [threading.Thread(target=add_edge) for _ in range(node_count - 1)]
 [x.start() for x in threads]
 [x.join() for x in threads]
 
