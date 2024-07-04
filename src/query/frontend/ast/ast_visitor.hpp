@@ -118,6 +118,8 @@ class ShowEnumsQuery;
 class EnumValueAccess;
 class AlterEnumAddValueQuery;
 class AlterEnumUpdateValueQuery;
+class AlterEnumRemoveValueQuery;
+class DropEnumQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -152,12 +154,12 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery,
-                            TextIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery,
-                            ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery,
-                            CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
-                            TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
-                            ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
-                            ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery> {};
+    : public utils::Visitor<
+          TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, TextIndexQuery, AuthQuery,
+          DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
+          FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery,
+          VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
+          ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
+          AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery> {};
 
 }  // namespace memgraph::query

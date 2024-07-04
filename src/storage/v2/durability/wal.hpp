@@ -67,8 +67,10 @@ struct WalDeltaData {
     LABEL_PROPERTY_INDEX_DROP,
     LABEL_PROPERTY_INDEX_STATS_SET,
     LABEL_PROPERTY_INDEX_STATS_CLEAR,
-    EDGE_TYPE_INDEX_CREATE,
-    EDGE_TYPE_INDEX_DROP,
+    EDGE_INDEX_CREATE,
+    EDGE_INDEX_DROP,
+    EDGE_PROPERTY_INDEX_CREATE,
+    EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
@@ -122,6 +124,11 @@ struct WalDeltaData {
   struct {
     std::string edge_type;
   } operation_edge_type;
+
+  struct {
+    std::string edge_type;
+    std::string property;
+  } operation_edge_type_property;
 
   struct {
     std::string label;
@@ -188,8 +195,10 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::EDGE_TYPE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_TYPE_INDEX_DROP:
+    case WalDeltaData::Type::EDGE_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_INDEX_DROP:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
     case WalDeltaData::Type::TEXT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
@@ -204,7 +213,7 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
 }
 
 constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 17U) {
+  if (version < 18U) {
     return IsWalDeltaDataTypeTransactionEndVersion15(type);
   }
   // All deltas are now handled in a transactional scope
@@ -245,6 +254,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
 // Common to WAL & replication
 void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
+void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                 PropertyId prop);
 void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
 void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
                            std::string enum_value_old);
@@ -289,6 +300,13 @@ class WalFile {
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
 
   void AppendTransactionEnd(uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
+                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, const std::set<PropertyId> &properties,
+                       uint64_t timestamp);
 
   void Sync();
 

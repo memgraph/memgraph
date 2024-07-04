@@ -36,6 +36,9 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void SetPassword(const std::string &username, const std::optional<std::string> &password,
                    system::Transaction *system_tx) override;
 
+  void ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
+                      const std::optional<std::string> &newPassword, system::Transaction *system_tx) override;
+
 #ifdef MG_ENTERPRISE
   void GrantDatabase(const std::string &db_name, const std::string &user_or_role,
                      system::Transaction *system_tx) override;

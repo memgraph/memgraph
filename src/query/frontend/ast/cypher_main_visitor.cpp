@@ -300,12 +300,20 @@ antlrcpp::Any CypherMainVisitor::visitCreateEdgeIndex(MemgraphCypher::CreateEdge
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::CREATE;
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  if (ctx->propertyKeyName()) {
+    const auto name_key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {name_key};
+  }
   return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) {
   auto *index_query = storage_->Create<EdgeIndexQuery>();
   index_query->action_ = EdgeIndexQuery::Action::DROP;
+  if (ctx->propertyKeyName()) {
+    auto key = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+    index_query->properties_ = {key};
+  }
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   return index_query;
 }
@@ -1564,6 +1572,23 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(MemgraphCypher::SetPasswordCon
     throw SyntaxException("Password should be a string literal or null.");
   }
   auth->password_ = std::any_cast<Expression *>(ctx->password->accept(this));
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitChangePassword(MemgraphCypher::ChangePasswordContext *ctx) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::CHANGE_PASSWORD;
+  if (!ctx->newPassword->StringLiteral()) {
+    throw SyntaxException("New password should be a string literal or null.");
+  }
+  if (!ctx->oldPassword->StringLiteral()) {
+    throw SyntaxException("Old password should be a string literal or null.");
+  }
+  auth->new_password_ = std::any_cast<Expression *>(ctx->newPassword->accept(this));
+  auth->old_password_ = std::any_cast<Expression *>(ctx->oldPassword->accept(this));
   return auth;
 }
 
@@ -3161,6 +3186,21 @@ antlrcpp::Any CypherMainVisitor::visitAlterEnumUpdateValueQuery(MemgraphCypher::
   alter_enum_query->new_enum_value_ = std::any_cast<std::string>(ctx->new_value->symbolicName()->accept(this));
   query_ = alter_enum_query;
   return alter_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitAlterEnumRemoveValueQuery(MemgraphCypher::AlterEnumRemoveValueQueryContext *ctx) {
+  auto *alter_enum_query = storage_->Create<AlterEnumRemoveValueQuery>();
+  alter_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  alter_enum_query->removed_value_ = std::any_cast<std::string>(ctx->removed_value->symbolicName()->accept(this));
+  query_ = alter_enum_query;
+  return alter_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQueryContext *ctx) {
+  auto *drop_enum_query = storage_->Create<DropEnumQuery>();
+  drop_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
+  query_ = drop_enum_query;
+  return drop_enum_query;
 }
 
 }  // namespace memgraph::query::frontend

@@ -109,6 +109,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -196,6 +197,8 @@ query : cypherQuery
       | showEnumsQuery
       | alterEnumAddValueQuery
       | alterEnumUpdateValueQuery
+      | alterEnumRemoveValueQuery
+      | dropEnumQuery
       ;
 
 cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -205,6 +208,7 @@ authQuery : createRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
           | showCurrentUser
           | showUsers
@@ -339,6 +343,8 @@ createUser : CREATE USER ifNotExists? user=userOrRoleName
 ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
+
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
 
 dropUser : DROP USER user=userOrRoleName ;
 
@@ -580,9 +586,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
@@ -599,3 +605,7 @@ showEnumsQuery : SHOW ENUMS ;
 alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
 
 alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;
+
+alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
+
+dropEnumQuery: DROP ENUM enumName ;

@@ -281,6 +281,12 @@ void DumpEdgeTypeIndex(std::ostream *os, query::DbAccessor *dba, const storage::
   *os << "CREATE EDGE INDEX ON :" << EscapeName(dba->EdgeTypeToName(edge_type)) << ";";
 }
 
+void DumpEdgeTypePropertyIndex(std::ostream *os, query::DbAccessor *dba, const storage::EdgeTypeId edge_type,
+                               storage::PropertyId property) {
+  *os << "CREATE EDGE INDEX ON :" << EscapeName(dba->EdgeTypeToName(edge_type)) << "("
+      << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
 void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                             storage::PropertyId property) {
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
@@ -346,7 +352,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all triggers
                    CreateTriggersPullChunk(),
                    // Dump all edge-type indices
-                   CreateEdgeTypeIndicesPullChunk()} {}
+                   CreateEdgeTypeIndicesPullChunk(),
+                   // Dump all edge-type property indices
+                   CreateEdgeTypePropertyIndicesPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -428,7 +436,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
-  // Dump all label indices
+  // Dump all edge type indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
@@ -447,6 +455,34 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
     }
 
     if (global_index == edge_type.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
+  // Dump all edge type property indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &edge_type_property = indices_info_->edge_type_property;
+
+    size_t local_counter = 0;
+    while (global_index < edge_type_property.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto edge_type_property_index = edge_type_property[global_index];
+      DumpEdgeTypePropertyIndex(&os, dba_, edge_type_property_index.first, edge_type_property_index.second);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_type_property.size()) {
       return local_counter;
     }
 
