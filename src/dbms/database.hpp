@@ -11,14 +11,8 @@
 
 #pragma once
 
-#include <algorithm>
-#include <chrono>
-#include <filesystem>
-#include <iterator>
 #include <memory>
 #include <optional>
-#include <string_view>
-#include <unordered_map>
 
 #include "query/cypher_query_interpreter.hpp"
 #include "query/stream/streams.hpp"
@@ -26,8 +20,6 @@
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/lru_cache.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
 
