@@ -3114,8 +3114,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        dba->CreateIndex(label, prop);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+        (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+        const utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         notification.code = NotificationCode::ENABLE_TTL;
         notification.title = fmt::format("Enabled time-to-live feature.");
@@ -3127,8 +3127,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba, label, prop,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        dba->DropIndex(label, prop);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+        (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
+        const utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         notification.code = NotificationCode::DISABLE_TTL;
         notification.title = fmt::format("Disabled time-to-live feature.");
@@ -3153,9 +3153,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           start_time = ttl::TtlInfo::ParseStartTime(st_str);
           if (start_time) info += " at " + st_str;
         }
-        ttl::TtlInfo ttl_info(period, start_time);
 
-        handler = [db_acc = std::move(db_acc), ttl_info, interpreter_context,
+        handler = [db_acc = std::move(db_acc), ttl_info = ttl::TtlInfo{period, start_time}, interpreter_context,
                    info = std::move(info)](Notification &notification) mutable {
           notification.code = NotificationCode::EXECUTE_TTL;
           notification.title = info;
