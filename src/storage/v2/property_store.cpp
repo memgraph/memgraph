@@ -1496,7 +1496,7 @@ bool PropertyStore::IsCompressed() const {
   if (in_local_buffer || size == 0) {
     return false;
   }
-  int mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
+  auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
   if (mod > 7 || mod <= 0) {
     return false;
   }
@@ -1509,7 +1509,7 @@ bool PropertyStore::IsCompressed() const {
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1525,7 +1525,7 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
 uint32_t PropertyStore::PropertySize(PropertyId property) const {
   BufferInfo data_size_localbuffer;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
   } else {
@@ -1541,7 +1541,7 @@ uint32_t PropertyStore::PropertySize(PropertyId property) const {
 bool PropertyStore::HasProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1585,7 +1585,7 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1604,7 +1604,7 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1635,7 +1635,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   uint8_t *data = nullptr;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
 
-  if (IsCompressed()) {
+  if (FLAGS_property_store_compression && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     size = decompressed_buffer.original_size;
     data = decompressed_buffer.data;
