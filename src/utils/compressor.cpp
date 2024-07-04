@@ -72,8 +72,6 @@ DataBuffer ZlibCompressor::Decompress(uint8_t *compressed_data, uint32_t compres
     return {};
   }
 
-  spdlog::debug("Decompressed data size: {}", decompressed_buffer.original_size);
-
   return decompressed_buffer;
 }
 

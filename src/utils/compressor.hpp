@@ -50,11 +50,6 @@ struct DataBuffer {
     other.data = nullptr;
     other.compressed_size = 0;
     other.original_size = 0;
-    spdlog::debug("DataBuffer move constructor");
-    spdlog::debug("DataBuffer move constructor data: {}",
-                  std::string_view(reinterpret_cast<char *>(data), original_size));
-    spdlog::debug("DataBuffer move constructor compressed_size: {}", compressed_size);
-    spdlog::debug("DataBuffer move constructor original_size: {}", original_size);
   }
 
   // Move assignment operator
