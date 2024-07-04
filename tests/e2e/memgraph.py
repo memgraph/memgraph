@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 import copy
-import datetime
 import logging
 import os
 import shutil
