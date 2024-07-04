@@ -1497,7 +1497,7 @@ bool PropertyStore::IsCompressed() const {
     return false;
   }
   auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
-  if (mod > 7 || mod <= 0) {
+  if (mod > 7 || mod < 0) {
     return false;
   }
   auto compressed_size =
@@ -1723,7 +1723,10 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       memmove(current_data + info.property_begin + property_size, data + info.property_end,
               info.all_end - info.property_end);
       // Free the old buffer.
-      if (!in_local_buffer) delete[] data;
+      if (!in_local_buffer) {
+        delete[] data;
+        decompressed_buffer.data = nullptr;
+      }
       // Permanently remember the new buffer.
       if (!current_in_local_buffer) {
         SetSizeData(buffer_, current_size, current_data);
@@ -1928,7 +1931,8 @@ void PropertyStore::CompressBuffer() {
   memcpy(data, &compressed_buffer.original_size, sizeof(uint32_t));
 
   // next byte is the mod before power of 8
-  data[sizeof(uint32_t)] = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
+  uint8_t mod = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
+  data[sizeof(uint32_t)] = mod;
 
   // the rest of the buffer is the compressed data
   memcpy(data + sizeof(uint32_t) + 1, compressed_buffer.data, compressed_buffer.compressed_size);
