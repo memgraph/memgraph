@@ -18,29 +18,20 @@ namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
 namespace {
 
-auto CreateServerContext(const memgraph::coordination::CoordinatorInstanceManagementServerConfig &config)
-    -> communication::ServerContext {
+auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &config) -> communication::ServerContext {
   return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
                                                      config.ssl->verify_peer}
                       : communication::ServerContext{};
 }
 
-// NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
-// have only a single coordinator server. Also, the single-threaded guarantee
-// simplifies the rest of the implementation.
+// NOTE: The coordinator server doesn't need more than 1 processing thread - it's not a bottleneck
 constexpr auto kCoordInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(
-    const CoordinatorInstanceManagementServerConfig &config)
+CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {
-  rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received FrequentHeartbeatRpc on coordinator instance management server");
-    replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
-  });
-}
+      rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {}
 
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {

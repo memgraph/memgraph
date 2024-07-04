@@ -31,7 +31,7 @@ CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) 
 }
 
 CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
-  auto const mgmt_config = DataInstanceManagementServerConfig{
+  auto const mgmt_config = ManagementServerConfig{
       .endpoint = io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)},
   };
   data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
@@ -112,7 +112,7 @@ auto CoordinatorState::SetReplicationInstanceToMain(std::string_view instance_na
       data_);
 }
 
-auto CoordinatorState::ShowInstances() -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
+auto CoordinatorState::ShowInstances() -> std::vector<InstanceStatus> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).ShowInstances();

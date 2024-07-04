@@ -20,7 +20,7 @@ namespace memgraph::coordination {
 
 class DataInstanceManagementServer {
  public:
-  explicit DataInstanceManagementServer(const DataInstanceManagementServerConfig &config);
+  explicit DataInstanceManagementServer(const ManagementServerConfig &config);
   DataInstanceManagementServer(const DataInstanceManagementServer &) = delete;
   DataInstanceManagementServer(DataInstanceManagementServer &&) = delete;
   DataInstanceManagementServer &operator=(const DataInstanceManagementServer &) = delete;

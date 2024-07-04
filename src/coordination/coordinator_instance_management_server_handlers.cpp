@@ -18,7 +18,7 @@ namespace memgraph::coordination {
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance &coordinator_instance) {
   server.Register<coordination::ShowInstancesRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::info("Received ShowInstancesHandlerRpc");
+    spdlog::info("Received ShowInstancesRpc");
     CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, req_reader, res_builder);
   });
 }
@@ -29,11 +29,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
 
-  auto [state, instances] = coordinator_instance.ShowInstances();
-
-  if (state == ShowInstancesState::FOLLOWER) {
-    slk::Save(coordination::ShowInstancesRes{}, res_builder);
-  }
+  auto const instances = coordinator_instance.ShowInstancesAsLeader();
   coordination::ShowInstancesRes const res{instances};
   slk::Save(res, res_builder);
 }

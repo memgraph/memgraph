@@ -18,7 +18,7 @@ namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
 class CoordinatorInstanceManagementServer {
  public:
-  explicit CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServerConfig &config);
+  explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config);
   CoordinatorInstanceManagementServer(const CoordinatorInstanceManagementServer &) = delete;
   CoordinatorInstanceManagementServer(CoordinatorInstanceManagementServer &&) = delete;
   CoordinatorInstanceManagementServer &operator=(const CoordinatorInstanceManagementServer &) = delete;

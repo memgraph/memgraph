@@ -45,7 +45,7 @@ class CoordinatorHandler {
 
   auto ForceResetClusterState() -> coordination::ForceResetClusterStateStatus;
 
-  auto ShowInstances() -> std::pair<coordination::ShowInstancesState, std::vector<coordination::InstanceStatus>>;
+  auto ShowInstances() -> std::vector<coordination::InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;

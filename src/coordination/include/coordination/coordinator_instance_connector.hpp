@@ -14,20 +14,18 @@
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 
-namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
+
 class CoordinatorInstanceConnector {
  public:
-  explicit CoordinatorInstanceConnector(CoordinatorInstanceManagementServerConfig const &config, int leader_id)
-      : client_{std::make_unique<CoordinatorInstanceClient>(config)}, leader_id_(leader_id) {}
+  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
 
   auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
-  [[nodiscard]] auto LeaderId() const -> int;
-
  private:
-  std::unique_ptr<CoordinatorInstanceClient> client_;
-  const int leader_id_;
+  mutable CoordinatorInstanceClient client_;
 };
-#endif
+
 }  // namespace memgraph::coordination
+#endif

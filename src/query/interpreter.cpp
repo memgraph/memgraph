@@ -692,8 +692,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  [[nodiscard]] std::pair<coordination::ShowInstancesState, std::vector<coordination::InstanceStatus>> ShowInstances()
-      override {
+  [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() override {
     return coordinator_handler_.ShowInstances();
   }
 
@@ -1555,7 +1554,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                          "health", "role",        "last_succ_resp_ms"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state},
                      replica_nfields = callback.header.size()]() mutable {
-        auto const [_, instances] = handler.ShowInstances();
+        auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
                   TypedValue{status.bolt_server},

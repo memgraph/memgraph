@@ -147,8 +147,7 @@ struct CoordinatorToCoordinatorConfig {
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
 
-// TODO(antoniofilipovic) remove this
-struct DataInstanceManagementServerConfig {
+struct ManagementServerConfig {
   struct SSL {
     std::string key_file;
     std::string cert_file;
@@ -160,27 +159,7 @@ struct DataInstanceManagementServerConfig {
   io::network::Endpoint endpoint;
   std::optional<SSL> ssl;
 
-  friend bool operator==(DataInstanceManagementServerConfig const &,
-                         DataInstanceManagementServerConfig const &) = default;
-};
-
-struct CoordinatorInstanceManagementServerConfig {
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    std::string ca_file;
-    bool verify_peer{};
-    friend bool operator==(SSL const &, SSL const &) = default;
-  };
-
-  io::network::Endpoint endpoint;
-  std::optional<SSL> ssl;
-
-  explicit CoordinatorInstanceManagementServerConfig(io::network::Endpoint endpoint, std::optional<SSL> ssl = {})
-      : endpoint(std::move(endpoint)), ssl(std::move(ssl)) {}
-
-  friend bool operator==(CoordinatorInstanceManagementServerConfig const &,
-                         CoordinatorInstanceManagementServerConfig const &) = default;
+  friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
 struct InstanceUUIDUpdate {

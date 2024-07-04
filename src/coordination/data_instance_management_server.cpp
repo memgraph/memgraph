@@ -20,8 +20,7 @@ namespace memgraph::coordination {
 
 namespace {
 
-auto CreateServerContext(const memgraph::coordination::DataInstanceManagementServerConfig &config)
-    -> communication::ServerContext {
+auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &config) -> communication::ServerContext {
   return (config.ssl) ? communication::ServerContext{config.ssl->key_file, config.ssl->cert_file, config.ssl->ca_file,
                                                      config.ssl->verify_peer}
                       : communication::ServerContext{};
@@ -34,7 +33,7 @@ constexpr auto kDataInstanceManagementServerThreads = 1;
 
 }  // namespace
 
-DataInstanceManagementServer::DataInstanceManagementServer(const DataInstanceManagementServerConfig &config)
+DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {

@@ -11,13 +11,13 @@
 
 #include "coordination/coordinator_instance_connector.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
-#ifdef MG_ENTERPRISE
 auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   try {
     spdlog::trace("Sending ShowInstancesRPC {}", std::this_thread::get_id());
-    auto stream{client_->RpcClient().Stream<ShowInstancesRpc>()};
+    auto stream{client_.RpcClient().Stream<ShowInstancesRpc>()};
     auto res = stream.AwaitResponse();
     spdlog::trace("Received ShowInstancesRPC response {}", res.instances_status_.size());
     return res.instances_status_;
@@ -27,7 +27,5 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
   }
 }
 
-[[nodiscard]] auto CoordinatorInstanceConnector::LeaderId() const -> int { return leader_id_; }
-
-#endif
 }  // namespace memgraph::coordination
+#endif

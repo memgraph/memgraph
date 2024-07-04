@@ -55,9 +55,8 @@ namespace memgraph::coordination {
 using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : management_server_config_(
-          io::network::Endpoint{kDefaultReplicationServerIp, static_cast<uint16_t>(config.management_port)}),
-      coordinator_management_server_{management_server_config_} {
+    : coordinator_management_server_{
+          ManagementServerConfig{io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.management_port)}}} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
                   repl_instance_name);
@@ -260,7 +259,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   return utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
 }
 
-auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstancesStatusAsFollower() -> std::vector<InstanceStatus> {
   auto instances_status = GetCoordinatorsInstanceStatus();
   spdlog::trace("Processed all coordinators, processing replication instances as follower.");
   auto const stringify_inst_status = [raft_state_ptr =
@@ -289,50 +288,7 @@ auto CoordinatorInstance::GetAllInstancesStatusAsFollower() const -> std::vector
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstances() -> std::pair<ShowInstancesState, std::vector<InstanceStatus>> {
-  if (!is_leader_ready_) {
-    spdlog::trace("Processing show instances as follower {}", std::this_thread::get_id());
-    auto const leader_id = raft_state_->GetLeaderId();
-    if (leader_id == raft_state_->GetCoordinatorId()) {
-      spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
-      return {ShowInstancesState::FOLLOWER,
-              GetAllInstancesStatusAsFollower()};  // We don't want to ask ourselves for instances, as coordinator is
-                                                   // not ready still as leader
-    }
-
-    if (leader_id == -1) {
-      spdlog::trace("No leader found, returning report as follower {}", std::this_thread::get_id());
-      return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
-    }
-    CoordinatorInstanceConnector *follower{nullptr};
-    // TODO(antoniofilipovic) move this part to separate function
-    {
-      auto connectors = coordinator_connectors_.Lock();
-      if (!connectors->contains(leader_id)) {
-        auto all_coordinators = raft_state_->GetCoordinatorInstances();
-
-        auto coord = std::ranges::find_if(all_coordinators,
-                                          [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
-
-        MG_ASSERT(coord != all_coordinators.end());
-        connectors->emplace(
-            leader_id, CoordinatorInstanceConnector{CoordinatorInstanceManagementServerConfig{coord->management_server},
-                                                    static_cast<int>(leader_id)});
-      }
-      follower = &connectors->at(leader_id);
-    }
-
-    MG_ASSERT(follower != nullptr, "Follower not found");
-
-    auto maybe_res = follower->SendShowInstances();
-
-    if (!maybe_res.has_value()) {
-      spdlog::trace("Couldn't get instances from leader, returning report as follower {}", std::this_thread::get_id());
-      return {ShowInstancesState::FOLLOWER, GetAllInstancesStatusAsFollower()};
-    }
-    spdlog::trace("Got instances from leader, returning report as leader.");
-    return {ShowInstancesState::LEADER, std::move(maybe_res.value())};
-  }
+auto CoordinatorInstance::ShowInstancesAsLeader() -> std::vector<InstanceStatus> {
   spdlog::trace("Processing show instances as leader {}", std::this_thread::get_id());
   auto instances_status = GetCoordinatorsInstanceStatus();
   spdlog::trace("processed all coordinators, processing replication instances as leader {}",
@@ -364,7 +320,53 @@ auto CoordinatorInstance::ShowInstances() -> std::pair<ShowInstancesState, std::
   }
   spdlog::trace("Processed all replication instances as leader, returning report as leader.");
 
-  return {ShowInstancesState::LEADER, instances_status};
+  return instances_status;
+}
+
+auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
+  if (is_leader_ready_) {
+    return ShowInstancesAsLeader();
+  }
+
+  spdlog::trace("Processing show instances as follower {}", std::this_thread::get_id());
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (leader_id == raft_state_->GetCoordinatorId()) {
+    spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
+    return ShowInstancesStatusAsFollower();  // We don't want to ask ourselves for instances, as coordinator is
+                                             // not ready still as leader
+  }
+
+  if (leader_id == -1) {
+    spdlog::trace("No leader found, returning report as follower");
+    return ShowInstancesStatusAsFollower();
+  }
+  CoordinatorInstanceConnector *follower{nullptr};
+  // TODO(antoniofilipovic) move this part to separate function
+  {
+    auto connectors = coordinator_connectors_.Lock();
+    if (!connectors->contains(leader_id)) {
+      auto all_coordinators = raft_state_->GetCoordinatorInstances();
+
+      auto coord = std::ranges::find_if(all_coordinators,
+                                        [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
+
+      MG_ASSERT(coord != all_coordinators.end());
+      connectors->emplace(leader_id, ManagementServerConfig{coord->management_server});
+    }
+    follower = &connectors->at(leader_id);
+  }
+
+  MG_ASSERT(follower != nullptr, "Follower not found");
+
+  spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
+  auto maybe_res = follower->SendShowInstances();
+
+  if (!maybe_res.has_value()) {
+    spdlog::trace("Couldn't get instances from leader {}", leader_id);
+    return ShowInstancesStatusAsFollower();
+  }
+  spdlog::trace("Got instances from leader {}.", leader_id);
+  return std::move(maybe_res.value());
 }
 
 auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {

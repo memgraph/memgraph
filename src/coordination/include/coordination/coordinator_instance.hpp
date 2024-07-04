@@ -43,7 +43,6 @@ struct NewMainRes {
   uint64_t latest_commit_timestamp;
 };
 
-enum class ShowInstancesState : uint8_t { LEADER = 0, FOLLOWER = 1 };
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
 class CoordinatorInstance {
@@ -62,7 +61,11 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() -> std::pair<ShowInstancesState, std::vector<InstanceStatus>>;
+  auto ShowInstances() -> std::vector<InstanceStatus>;
+
+  auto ShowInstancesAsLeader() -> std::vector<InstanceStatus>;
+
+  auto ShowInstancesStatusAsFollower() -> std::vector<InstanceStatus>;
 
   auto TryFailover() -> void;
 
@@ -150,7 +153,6 @@ class CoordinatorInstance {
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
-  auto GetAllInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
@@ -167,8 +169,6 @@ class CoordinatorInstance {
   // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
-
-  CoordinatorInstanceManagementServerConfig management_server_config_;
 
   CoordinatorInstanceManagementServer coordinator_management_server_;
   utils::Synchronized<std::unordered_map<uint32_t, CoordinatorInstanceConnector>, utils::SpinLock>

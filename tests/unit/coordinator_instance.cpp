@@ -58,17 +58,13 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
                                                          "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config};
-  auto const [_, instances] = instance1.ShowInstances();
+  auto const instances = instance1.ShowInstances();
   ASSERT_EQ(instances.size(), 1);
 }
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   auto const wait_until_added = [](auto &instance) {
-    auto [_, instances] = instance.ShowInstances();
-    while (instances.size() != 3) {
-      auto res = instance.ShowInstances();
-      instances = res.second;
-      spdlog::trace("Instaces size {}", instances.size());
+    while (instance.ShowInstances().size() != 3) {
     }
   };
 
@@ -114,7 +110,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                      .coordinator_hostname = "localhost"});
   {
     wait_until_added(instance1);
-    auto [_, instances] = instance1.ShowInstances();
+    auto const instances = instance1.ShowInstances();
     auto const coord1_it = std::ranges::find_if(instances, [this](auto &instance) {
       return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
     });
@@ -130,7 +126,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   }
   {
     wait_until_added(instance2);
-    auto [_, instances] = instance2.ShowInstances();
+    auto const instances = instance2.ShowInstances();
     auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
       return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
     });
@@ -146,7 +142,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   }
   {
     wait_until_added(instance3);
-    auto const [_, instances] = instance3.ShowInstances();
+    auto const instances = instance3.ShowInstances();
     auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
       return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
     });
@@ -164,10 +160,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 
 TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   auto const wait_until_added = [](auto &instance) {
-    auto [_, instances] = instance.ShowInstances();
-    while (instances.size() != 3) {
-      auto res = instance.ShowInstances();
-      instances = res.second;
+    while (instance.ShowInstances().size() != 3) {
     }
   };
 
