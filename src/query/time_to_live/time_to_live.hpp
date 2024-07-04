@@ -75,10 +75,13 @@ struct TtlInfo {
       // Midnight might be a problem...
       const auto now =
           std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
-      utils::DateParameters today{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
-                                  static_cast<unsigned>(now.day())};
-      auto [param, _] = utils::ParseLocalTimeParameters(sv);
-      return std::chrono::microseconds{utils::LocalDateTime(today, param).MicrosecondsSinceEpoch()};
+      utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
+                                 static_cast<unsigned>(now.day())};
+      auto [time, _] = utils::ParseLocalTimeParameters(sv);
+      utils::ZonedDateTimeParameters zdt{date, time, utils::Timezone(std::chrono::current_zone()->name())};
+      // Have to convert user's input (his local time) to system time
+      // Using microseconds in order to be aligned with timestamp()
+      return std::chrono::microseconds{utils::ZonedDateTime(zdt).SysMicrosecondsSinceEpoch()};
     } catch (const utils::temporal::InvalidArgumentException &e) {
       throw TtlException(e.what());
     }

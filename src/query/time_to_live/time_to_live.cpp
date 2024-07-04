@@ -58,16 +58,16 @@ void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ 
 
     bool finished = false;
     while (!finished) {
+      // Using microseconds to be aligned with timestamp() query, could just use seconds
+      const auto now =
+          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
       try {
         interpreter->BeginTransaction();
         auto prepare_result =
             interpreter->Prepare("MATCH (n:TTL) WHERE n.ttl < $now WITH n LIMIT $batch DETACH DELETE n;",
-                                 [](auto) {
+                                 [now](auto) {
                                    UserParameters params;
-                                   // Using microseconds to be aligned with timestamp() query, could just use seconds
-                                   params.emplace("now", std::chrono::duration_cast<std::chrono::microseconds>(
-                                                             std::chrono::system_clock::now().time_since_epoch())
-                                                             .count());
+                                   params.emplace("now", now.count());
                                    params.emplace("batch", 10000);
                                    return params;
                                  },
