@@ -1303,15 +1303,11 @@ namespace {
 /// 2. <ModuleName,  TransformationName>
 std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
     const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
-  utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_name, ".");
-  if (name_parts.size() == 1U) return std::nullopt;
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
-  MG_ASSERT(last_dot_pos != std::string_view::npos);
-
-  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
-  const auto &name = name_parts.back();
-  return std::make_pair(module_name, name);
+  if (last_dot_pos == std::string_view::npos) return std::nullopt;
+  auto module_name = fully_qualified_name.substr(0, last_dot_pos);
+  auto name = fully_qualified_name.substr(last_dot_pos + 1);
+  return std::pair{module_name, name};
 }
 
 template <typename T>
