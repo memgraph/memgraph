@@ -23,8 +23,7 @@
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db_acc,
-                  InterpreterContext *interpreter_context) {
+void TTL::Execute(TtlInfo ttl_info, TDbAccess db_acc, InterpreterContext *interpreter_context) {
   auto ttl_locked = ttl_.Lock();
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
@@ -40,9 +39,8 @@ void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ 
         delete p;
       });
 
-  // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control and rely only
-  // on the global auth_checker used in the stream itself
-  // TODO: Fix auth inconsistency
+  // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control.
+  // The TTL query already protects who is configuring it, so no need to auth here
   interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
 #ifdef MG_ENTERPRISE
   interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
@@ -51,11 +49,7 @@ void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ 
   interpreter_context->interpreters->insert(interpreter.get());
 
   auto TTL = [interpreter = std::move(interpreter)]() {
-    // TODO
-    // auto ownername = owner->username();
-    // auto rolename = owner->rolename();
     memgraph::query::DiscardValueResultStream result_stream;
-
     bool finished = false;
     while (!finished) {
       // Using microseconds to be aligned with timestamp() query, could just use seconds
@@ -72,12 +66,6 @@ void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ 
                                    return params;
                                  },
                                  {});
-        // if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
-        //   throw StreamsException{
-        //       "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
-        //       "query!",
-        //       query, stream_name};
-        // }
         const auto pull_res = interpreter->PullAll(&result_stream);
         finished = !pull_res.at("has_more").ValueBool() && std::invoke([&]() -> bool {
           // Empty set will not have a stats field (nothing happened, so nothing to report)
@@ -110,14 +98,15 @@ void TTL::Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ 
     start_time = std::chrono::system_clock::time_point{std::chrono::microseconds(*ttl_info.start_time)};
   }
 
-  if (ttl_info)
+  if (ttl_info) {
     ttl_locked->Run(db_acc->name() + "-ttl", period, std::move(TTL), start_time);
-  else  // one-shot
+  } else {
+    // one-shot
     TTL();
+  }
 }
 
-template void TTL::Execute<dbms::DatabaseAccess>(
-    TtlInfo ttl_info,
-    /*std::shared_ptr<QueryUserOrRole> owner,*/ dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
+template void TTL::Execute<dbms::DatabaseAccess>(TtlInfo ttl_info, dbms::DatabaseAccess db_acc,
+                                                 InterpreterContext *interpreter_context);
 
 }  // namespace memgraph::query::ttl

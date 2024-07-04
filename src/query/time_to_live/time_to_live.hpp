@@ -96,8 +96,7 @@ class TTL final {
   // void RestoreTTL(TDbAccess db, InterpreterContext *interpreter_context);
 
   template <typename TDbAccess>
-  void Execute(TtlInfo ttl_info, /*std::shared_ptr<QueryUserOrRole> owner,*/ TDbAccess db,
-               InterpreterContext *interpreter_context);
+  void Execute(TtlInfo ttl_info, TDbAccess db, InterpreterContext *interpreter_context);
 
   void Stop() {
     auto ttl_locked = ttl_.Lock();
