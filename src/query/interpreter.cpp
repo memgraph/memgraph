@@ -5019,6 +5019,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw EnumModificationInMulticommandTxException();
       }
       prepared_query = PrepareEnumAlterUpdateQuery(std::move(parsed_query), current_db_);
+    } else if (utils::Downcast<AlterEnumRemoveValueQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("Alter enum remove value");
+    } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("Drop enum");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

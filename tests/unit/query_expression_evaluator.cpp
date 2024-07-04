@@ -31,6 +31,7 @@
 #include "query/path.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/exceptions.hpp"
@@ -1796,6 +1797,9 @@ TYPED_TEST(FunctionTest, Type) {
 }
 
 TYPED_TEST(FunctionTest, ValueType) {
+  using memgraph::storage::Enum;
+  using memgraph::storage::EnumTypeId;
+  using memgraph::storage::EnumValueId;
   ASSERT_THROW(this->EvaluateFunction("VALUETYPE"), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("VALUETYPE", TypedValue(), TypedValue()), QueryRuntimeException);
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue()).ValueString(), "NULL");
@@ -1817,6 +1821,7 @@ TYPED_TEST(FunctionTest, ValueType) {
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", *e).ValueString(), "RELATIONSHIP");
   Path p(v1, *e, v2);
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", p).ValueString(), "PATH");
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Enum{EnumTypeId{0}, EnumValueId{0}})).ValueString(), "ENUM");
 }
 
 TYPED_TEST(FunctionTest, Labels) {

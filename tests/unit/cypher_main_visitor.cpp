@@ -4986,3 +4986,35 @@ TEST_P(CypherMainVisitorTest, AlterEnumUpdateValueQuery) {
   ASSERT_THROW(ast_generator.ParseQuery("ALTER Status UPDATE VALUE { Good } TO Bad;"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("ALTER ENUM Status UPDATE VALUE Good Bad;"), SyntaxException);
 }
+
+TEST_P(CypherMainVisitorTest, AlterEnumRemoveValueQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumRemoveValueQuery *>(ast_generator.ParseQuery("ALTER ENUM Status REMOVE VALUE Good;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->removed_value_, "Good");
+  }
+  {
+    const auto *query =
+        dynamic_cast<AlterEnumRemoveValueQuery *>(ast_generator.ParseQuery("ALTER ENUM `Status` REMOVE VALUE `Good`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+    ASSERT_EQ(query->removed_value_, "Good");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, DropEnumQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<DropEnumQuery *>(ast_generator.ParseQuery("DROP ENUM Status;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+  }
+  {
+    const auto *query = dynamic_cast<DropEnumQuery *>(ast_generator.ParseQuery("DROP ENUM `Status`;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->enum_name_, "Status");
+  }
+}
