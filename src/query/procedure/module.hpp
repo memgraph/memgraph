@@ -230,21 +230,14 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
 
   auto is_not_optional_arg = [c_args_sz](int i) { return c_args_sz > i; };
   for (size_t i = 0; i < n_args; ++i) {
-    auto arg = args[i];
-    std::string_view name;
-    const query::procedure::CypherType *type = nullptr;
-    if (is_not_optional_arg(i)) {
-      name = callable.args[i].first;
-      type = callable.args[i].second;
-    } else {
-      name = std::get<0>(callable.opt_args[i - c_args_sz]);
-      type = std::get<1>(callable.opt_args[i - c_args_sz]);
-    }
-    if (!type->SatisfiesType(arg)) {
+    auto const *type = is_not_optional_arg(i) ? callable.args[i].second : std::get<1>(callable.opt_args[i - c_args_sz]);
+    if (!type->SatisfiesType(args[i])) {
+      auto name = std::string_view{is_not_optional_arg(i) ? callable.args[i].first
+                                                          : std::get<0>(callable.opt_args[i - c_args_sz])};
       throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
                                   name, i, type->GetPresentableName());
     }
-    args_list.elems.emplace_back(std::move(arg), &graph);
+    args_list.elems.emplace_back(args[i], &graph);
   }
   // Fill missing optional arguments with their default values.
   const size_t passed_in_opt_args = n_args - c_args_sz;

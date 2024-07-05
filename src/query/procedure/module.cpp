@@ -1301,8 +1301,8 @@ namespace {
 //      ModuleName | Prop
 /// 1. <ModuleName,  ProcedureName>
 /// 2. <ModuleName,  TransformationName>
-std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
+auto FindModuleNameAndProp(std::string_view fully_qualified_name)
+    -> std::optional<std::pair<std::string_view, std::string_view>> {
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
   if (last_dot_pos == std::string_view::npos) return std::nullopt;
   auto module_name = fully_qualified_name.substr(0, last_dot_pos);
@@ -1326,18 +1326,20 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
       return module->Functions();
     }
   };
-  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  auto result = FindModuleNameAndProp(fully_qualified_name);
   if (!result) {
     return std::nullopt;
   }
   auto [module_name, module_prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  auto prop_name = std::string(module_prop_name);
-  if (!module) {
+  std::string prop_name;
+  if (module) {
+    prop_name = std::string(module_prop_name);
+  } else {
     // Check for possible callable aliases.
-    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(fully_qualified_name);
     if (maybe_valid_alias) {
-      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
+      result = FindModuleNameAndProp(*maybe_valid_alias);
       auto [module_name, module_prop_name] = *result;
       module = module_registry.GetModuleNamed(module_name);
       prop_name = std::string(module_prop_name);

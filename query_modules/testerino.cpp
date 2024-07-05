@@ -12,16 +12,31 @@
 #include <mgp.hpp>
 #include <string>
 
+thread_local std::optional<mgp_memory *> mgp::MemoryDispatcher::current_memory;
+
 void isEqual(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
 
-  const auto arguments = mgp::List(args);
+  // Using C API
+  auto arg0 = mgp::list_at(args, 0);
+  auto arg1 = mgp::list_at(args, 1);
+  // validation
+  mgp::value_is_string(arg0) && mgp::value_is_string(arg1);
+
+  auto s1 = std::string_view{mgp::value_get_string(arg0)};
+  auto s2 = std::string_view{mgp::value_get_string(arg1)};
   auto result = mgp::Result(res);
+  result.SetValue(s1 == s2);
 
-  std::string output = std::string(arguments[0].ValueString());
-  std::string input = std::string(arguments[1].ValueString());
+  // Using C++ API
 
-  result.SetValue(output == input);
+  // const auto arguments = mgp::List(args);
+  // auto result = mgp::Result(res);
+  //
+  // std::string output = std::string(arguments[0].ValueString());
+  // std::string input = std::string(arguments[1].ValueString());
+  //
+  // result.SetValue(output == input);
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
