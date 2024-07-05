@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 
 #include <gflags/gflags.h>
 
+#include "flags/general.hpp"
 #include "utils/logging.hpp"
 
 /// Reads the memgraph configuration files.
@@ -28,7 +29,9 @@
 ///   3) env - MEMGRAPH_CONFIG
 inline void LoadConfig(const std::string &product_name) {
   namespace fs = std::filesystem;
-  std::vector<fs::path> configs = {fs::path("/etc/memgraph/memgraph.conf")};
+  std::string const etc_config_path = "/etc/memgraph/memgraph.conf";
+  std::vector<fs::path> configs = {fs::path(etc_config_path)};
+
   if (getenv("HOME") != nullptr) configs.emplace_back(fs::path(getenv("HOME")) / fs::path(".memgraph/config"));
   {
     auto *memgraph_config = getenv("MEMGRAPH_CONFIG");
@@ -56,6 +59,18 @@ inline void LoadConfig(const std::string &product_name) {
 
   // setup flags from config flags
   gflags::ParseCommandLineFlags(&custom_argc, &custom_argv, false);
+
+  // Migration from 2.17 -> 2.18
+  if (!FLAGS_data_recovery_on_startup) {
+    std::string line;
+    std::ifstream etc_config_file(etc_config_path);
+    while (std::getline(etc_config_file, line)) {
+      if (line.find("--storage-recover-on-startup=true") != std::string::npos) {
+        FLAGS_data_recovery_on_startup = true;
+        break;
+      }
+    }
+  }
 
   // unconsumed arguments have to be freed to avoid memory leak since they are
   // strdup-ed.
