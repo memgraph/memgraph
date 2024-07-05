@@ -25,6 +25,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -3618,6 +3619,25 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
+std::vector<std::string> GetActiveUsers(InterpreterContext *interpreter_context) {
+  std::vector<std::string> active_users = interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+    std::vector<std::string> usernames;
+    usernames.reserve(interpreters_.size());
+    for (const auto &interpreter : interpreters_) {
+      auto username = interpreter->user_or_role_->username();
+      if (username) {
+        usernames.push_back(*username);
+      } else {
+        usernames.push_back("");
+      }
+    }
+
+    return usernames;
+  });
+
+  return active_users;
+}
+
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       CurrentDB &current_db, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
@@ -4061,7 +4081,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
 PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                      std::optional<storage::IsolationLevel> interpreter_isolation_level,
-                                     std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
+                                     std::optional<storage::IsolationLevel> next_transaction_isolation_level,
+                                     InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -4107,6 +4128,16 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       handler = [] {
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+    } break;
+    case SystemInfoQuery::InfoType::ACTIVE_USERS: {
+      header = {"username"};
+      handler = [interpreter_context] {
+        std::vector<std::vector<TypedValue>> results;
+        for (const auto result : GetActiveUsers(interpreter_context)) {
+          results.push_back({TypedValue(result)});
+        }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
@@ -4917,8 +4948,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
-                                              interpreter_isolation_level, next_transaction_isolation_level);
+      prepared_query =
+          PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
+                                 interpreter_isolation_level, next_transaction_isolation_level, interpreter_context_);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);
