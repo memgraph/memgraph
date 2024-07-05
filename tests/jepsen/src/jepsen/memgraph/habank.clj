@@ -228,10 +228,15 @@
               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                 (utils/process-service-unavilable-exc op node))
               (catch Exception e
-                (if (or (utils/query-forbidden-on-replica? e)
-                        (utils/query-forbidden-on-main? e))
-                  (assoc op :type :info :value (str e))
-                  (assoc op :type :fail :value (str e))))))
+                (if (utils/sync-replica-down? e)
+                  ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
+                  ; replica and transaction will commit on main.
+                  (assoc op :type :ok)
+
+                  (if (or (utils/query-forbidden-on-replica? e)
+                          (utils/query-forbidden-on-main? e))
+                    (assoc op :type :info :value (str e))
+                    (assoc op :type :fail :value (str e)))))))
 
           (assoc op :type :info :value "Not data instance")))))
 
