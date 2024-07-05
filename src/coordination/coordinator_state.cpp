@@ -36,7 +36,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
   };
   data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
                                          std::make_unique<DataInstanceManagementServer>(mgmt_config)};
-  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
+  spdlog::trace("Created data instance management server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
                 mgmt_config.endpoint.GetPort());
 }
 

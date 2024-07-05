@@ -9,12 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include <memory>
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
 class CoordinatorInstanceConnector {

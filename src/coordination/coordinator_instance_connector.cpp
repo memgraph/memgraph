@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
 #include "coordination/coordinator_instance_connector.hpp"
 
-#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
 auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<std::vector<InstanceStatus>> {

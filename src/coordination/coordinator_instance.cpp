@@ -55,8 +55,8 @@ namespace memgraph::coordination {
 using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : coordinator_management_server_{
-          ManagementServerConfig{io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.management_port)}}} {
+    : coordinator_management_server_{ManagementServerConfig{
+          io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port)}}} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
                   repl_instance_name);
