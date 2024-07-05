@@ -605,13 +605,9 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
 
 bool User::CheckPassword(const std::string &password) {
   if (!password_hash_) {
-    if (password.empty()) {
-      return true;
-    }
-    return false;
-  } else {
-    return password_hash_ ? password_hash_->VerifyPassword(password) : true;
+    return password.empty();
   }
+  return password_hash_ ? password_hash_->VerifyPassword(password) : true;
 }
 
 void User::UpdatePassword(const std::optional<std::string> &password,
