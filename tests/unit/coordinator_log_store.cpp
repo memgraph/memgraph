@@ -308,11 +308,11 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto entry2 = log_store2.entry_at(i);
       auto maybe_decoded_log_1 = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
       ASSERT_TRUE(maybe_decoded_log_1.has_value());
-      auto [payload1, action1] = *maybe_decoded_log_1;
+      auto const &[payload1, action1] = *maybe_decoded_log_1;
 
-      auto maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      auto const maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
       ASSERT_TRUE(maybe_decoded_log_2.has_value());
-      auto [payload2, action2] = *maybe_decoded_log_2;
+      auto const [payload2, action2] = *maybe_decoded_log_2;
       ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
                 std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
@@ -330,15 +330,15 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
     CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
     for (int i = 1; i != log_store1.next_slot(); ++i) {
-      auto entry1 = log_store1.entry_at(i);
-      auto entry2 = log_store2.entry_at(i);
-      auto maybe_decoded_log_1 = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto const entry1 = log_store1.entry_at(i);
+      auto const entry2 = log_store2.entry_at(i);
+      auto const maybe_decoded_log_1 = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
       ASSERT_TRUE(maybe_decoded_log_1.has_value());
-      auto [payload1, action1] = *maybe_decoded_log_1;
+      auto const &[payload1, action1] = *maybe_decoded_log_1;
 
-      auto maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      auto const maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
       ASSERT_TRUE(maybe_decoded_log_2.has_value());
-      auto [payload2, action2] = *maybe_decoded_log_2;
+      auto const &[payload2, action2] = *maybe_decoded_log_2;
 
       ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
                 std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));

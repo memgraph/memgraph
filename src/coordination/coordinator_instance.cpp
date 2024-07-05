@@ -56,6 +56,8 @@ using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : coordinator_management_server_{ManagementServerConfig{
+          // management server endpoint for leader coord must have coordinator hostname, otherwise
+          // other coordinators won't know where to ping it
           io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port)}}} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
@@ -360,7 +362,7 @@ auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
   auto maybe_res = follower->SendShowInstances();
 
   if (!maybe_res.has_value()) {
-    spdlog::trace("Couldn't get instances from leader {}", leader_id);
+    spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
     return ShowInstancesStatusAsFollower();
   }
   spdlog::trace("Got instances from leader {}.", leader_id);
