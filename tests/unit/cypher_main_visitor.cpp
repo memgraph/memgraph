@@ -5018,3 +5018,22 @@ TEST_P(CypherMainVisitorTest, DropEnumQuery) {
     ASSERT_EQ(query->enum_name_, "Status");
   }
 }
+
+TEST_P(CypherMainVisitorTest, PeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
+  }
+}
