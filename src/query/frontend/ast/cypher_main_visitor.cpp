@@ -243,6 +243,9 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
                       .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
+      if (pre_query_directives.commit_frequency_) {
+        throw SemanticException("Commit frequency can be set only once in the USING statement.");
+      }
       auto periodic_commit_number = periodic_commit->periodicCommitNumber;
       if (!periodic_commit_number->numberLiteral()) {
         throw SyntaxException("Periodic commit should be a number variable.");
@@ -252,11 +255,13 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
       }
 
       pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
-    } else {
+    } else if (pre_query_directive->hopsLimit()) {
       if (pre_query_directives.hops_limit_) {
         throw SemanticException("Hops limit can be set only once in the USING statement.");
       }
       pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
+    } else {
+      throw SemanticException("Unknown pre query directive!");
     }
   }
 
