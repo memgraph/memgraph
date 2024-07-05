@@ -260,10 +260,11 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
 }
 
 auto CoordinatorInstance::ShowInstancesStatusAsFollower() -> std::vector<InstanceStatus> {
+  spdlog::trace("Processing show instances as follower");
   auto instances_status = GetCoordinatorsInstanceStatus();
-  spdlog::trace("Processed all coordinators, processing replication instances as follower.");
   auto const stringify_inst_status = [raft_state_ptr =
                                           raft_state_.get()](ReplicationInstanceState const &instance) -> std::string {
+    // Instance is down and it was not yet demoted
     if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
       return "main";
     }
@@ -284,15 +285,12 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() -> std::vector<Instanc
 
   std::ranges::transform(raft_state_->GetReplicationInstances(), std::back_inserter(instances_status),
                          process_repl_instance_as_follower);
-  spdlog::trace("Processed all replication instances as follower, returning report as follower.");
   return instances_status;
 }
 
 auto CoordinatorInstance::ShowInstancesAsLeader() -> std::vector<InstanceStatus> {
-  spdlog::trace("Processing show instances as leader {}", std::this_thread::get_id());
+  spdlog::trace("Processing show instances as leader");
   auto instances_status = GetCoordinatorsInstanceStatus();
-  spdlog::trace("processed all coordinators, processing replication instances as leader {}",
-                std::this_thread::get_id());
 
   auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
     if (!instance.IsAlive()) return "unknown";
@@ -318,7 +316,6 @@ auto CoordinatorInstance::ShowInstancesAsLeader() -> std::vector<InstanceStatus>
     auto lock = std::shared_lock{coord_instance_lock_};
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
   }
-  spdlog::trace("Processed all replication instances as leader, returning report as leader.");
 
   return instances_status;
 }
@@ -328,7 +325,6 @@ auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
     return ShowInstancesAsLeader();
   }
 
-  spdlog::trace("Processing show instances as follower {}", std::this_thread::get_id());
   auto const leader_id = raft_state_->GetLeaderId();
   if (leader_id == raft_state_->GetCoordinatorId()) {
     spdlog::trace("Coordinator itself not yet leader, returning report as follower.");

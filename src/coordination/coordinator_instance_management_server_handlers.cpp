@@ -28,10 +28,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
                                                                        slk::Builder *res_builder) {
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
-
-  auto const instances = coordinator_instance.ShowInstancesAsLeader();
-  coordination::ShowInstancesRes const res{instances};
-  slk::Save(res, res_builder);
+  slk::Save(coordination::ShowInstancesRes{coordinator_instance.ShowInstancesAsLeader()}, res_builder);
 }
 #endif
 }  // namespace memgraph::coordination

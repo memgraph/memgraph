@@ -10,9 +10,9 @@
 // licenses/APL.txt.
 #include "coordination/coordinator_instance_client.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
-#ifdef MG_ENTERPRISE
 auto CoordinatorInstanceClient::RpcClient() -> rpc::Client & { return rpc_client_; }
-#endif
 }  // namespace memgraph::coordination
+#endif

@@ -490,7 +490,7 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
-  auto const coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 #endif
   // singleton replication state
   memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
@@ -517,13 +517,13 @@ int main(int argc, char **argv) {
     }
 
     spdlog::trace("Creating coordinator state.");
-    auto valid_combinations =
+    auto is_valid_coordinator_instance =
         coordination_setup.management_port && coordination_setup.coordinator_port && coordination_setup.coordinator_id;
-    valid_combinations |= coordination_setup.management_port && !coordination_setup.coordinator_port &&
-                          !coordination_setup.coordinator_id;
-    if (!valid_combinations) {
+    auto is_valid_data_instance = coordination_setup.management_port && !coordination_setup.coordinator_port &&
+                                  !coordination_setup.coordinator_id;
+    if (!(is_valid_coordinator_instance || is_valid_data_instance)) {
       throw std::runtime_error(
-          "Coordinator must be started with both coordinator_id/port and management_port. Data instance must be "
+          "Coordinator must be started with coordinator_id, port and management_port. Data instance must be "
           "started with only management port.");
     }
 

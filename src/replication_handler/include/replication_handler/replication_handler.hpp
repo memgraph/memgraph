@@ -208,7 +208,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-          [is_coordinator_managed = flags::CoordinationSetupInstance().IsCoordinatorManaged(), storage,
+          [is_coordinator_managed = flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator(), storage,
            &instance_client_ptr, db_acc = std::move(db_acc),
            main_uuid](auto &storage_clients) mutable {  // NOLINT
             auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);

@@ -234,8 +234,8 @@ struct ShowInstancesRes {
   static void Load(ShowInstancesRes *self, memgraph::slk::Reader *reader);
   static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
 
-  explicit ShowInstancesRes(const std::vector<InstanceStatus> &instances_status)
-      : instances_status_(instances_status) {}
+  explicit ShowInstancesRes(std::vector<InstanceStatus> instances_status)
+      : instances_status_(std::move(instances_status)) {}
 
   ShowInstancesRes() = default;
 

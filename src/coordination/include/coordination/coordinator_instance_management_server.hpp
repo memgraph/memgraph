@@ -14,8 +14,9 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/server.hpp"
 
-namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
+
 class CoordinatorInstanceManagementServer {
  public:
   explicit CoordinatorInstanceManagementServer(const ManagementServerConfig &config);
@@ -24,7 +25,7 @@ class CoordinatorInstanceManagementServer {
   CoordinatorInstanceManagementServer &operator=(const CoordinatorInstanceManagementServer &) = delete;
   CoordinatorInstanceManagementServer &operator=(CoordinatorInstanceManagementServer &&) = delete;
 
-  virtual ~CoordinatorInstanceManagementServer();
+  ~CoordinatorInstanceManagementServer();
 
   bool Start();
 
@@ -37,5 +38,5 @@ class CoordinatorInstanceManagementServer {
   communication::ServerContext rpc_server_context_;
   rpc::Server rpc_server_;
 };
-#endif
 }  // namespace memgraph::coordination
+#endif

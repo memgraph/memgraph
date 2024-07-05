@@ -12,9 +12,9 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "rpc/client.hpp"
 
+#ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
-#ifdef MG_ENTERPRISE
 namespace {
 static auto CreateClientContext(ManagementServerConfig const &config) -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
@@ -32,5 +32,5 @@ class CoordinatorInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 };
-#endif
 }  // namespace memgraph::coordination
+#endif

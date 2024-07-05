@@ -38,7 +38,8 @@ constexpr std::string_view kElectionTimer = "election_timer";
 
 constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
 
-enum class StateManagerDurabilityVersion : int { kV1 = 1, kV2 = 2 };
+// kV2 includes changes to management server on coordinators
+enum class StateManagerDurabilityVersion : uint8_t { kV1 = 1, kV2 = 2 };  // update kV3 for new version
 constexpr StateManagerDurabilityVersion kActiveStateManagerDurabilityVersion{StateManagerDurabilityVersion::kV2};
 
 constexpr std::string_view kServers = "servers";
@@ -84,7 +85,9 @@ auto CoordinatorStateManager::HandleVersionMigration() -> void {
   auto const version = memgraph::coordination::GetOrSetDefaultVersion(
       durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
-  if (version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
+  // TODO update when changed
+  if (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2 &&
+      version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
     throw VersionMigrationException(
         "Version migration for state manager from V1 to V2 is not supported. Cleanup all high availability directories "
         "and run queries to add instances and coordinators to cluster.");

@@ -26,7 +26,7 @@ class DataInstanceManagementServer {
   DataInstanceManagementServer &operator=(const DataInstanceManagementServer &) = delete;
   DataInstanceManagementServer &operator=(DataInstanceManagementServer &&) = delete;
 
-  virtual ~DataInstanceManagementServer();
+  ~DataInstanceManagementServer();
 
   bool Start();
 

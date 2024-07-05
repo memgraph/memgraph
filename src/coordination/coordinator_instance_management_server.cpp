@@ -13,9 +13,9 @@
 #include "replication_coordination_glue/handler.hpp"
 
 #include <spdlog/spdlog.h>
-
-namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
+
 namespace {
 
 auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &config) -> communication::ServerContext {
@@ -36,7 +36,6 @@ CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const M
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
-    spdlog::trace("Closing coordinator instance management server on {}", endpoint.SocketAddress());
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();
@@ -44,5 +43,5 @@ CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
 
 bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
-#endif
 }  // namespace memgraph::coordination
+#endif
