@@ -4135,7 +4135,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"username"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
-        for (const auto result : GetActiveUsers(interpreter_context)) {
+        for (const auto &result : GetActiveUsers(interpreter_context)) {
           results.push_back({TypedValue(result)});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
