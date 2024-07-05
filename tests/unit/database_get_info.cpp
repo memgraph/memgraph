@@ -191,8 +191,7 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &info = db_acc->GetInfo(
-      memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
+  const auto &info = db_acc->GetInfo();  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);

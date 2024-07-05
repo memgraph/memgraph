@@ -566,9 +566,9 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
-        acc = storage->UniqueAccess(ReplicationRole::REPLICA);
+        acc = storage->UniqueAccess();
       } else {
-        acc = storage->Access(ReplicationRole::REPLICA);
+        acc = storage->Access();
       }
       auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));

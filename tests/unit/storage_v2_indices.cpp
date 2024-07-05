@@ -25,7 +25,6 @@
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
-using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::IsEmpty;
 using testing::Types;
 using testing::UnorderedElementsAre;
@@ -39,7 +38,7 @@ class IndexTest : public testing::Test {
   void SetUp() override {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     this->storage = std::make_unique<StorageType>(config_);
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     this->prop_id = acc->NameToProperty("id");
     this->prop_val = acc->NameToProperty("val");
     this->label1 = acc->NameToLabel("label1");
@@ -109,13 +108,13 @@ TYPED_TEST_SUITE(IndexTest, StorageTypes);
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -124,19 +123,19 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -158,7 +157,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -179,7 +178,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
@@ -199,13 +198,13 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -214,41 +213,41 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->DropIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_TRUE(unique_acc->DropIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelIndexExists(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
@@ -257,18 +256,18 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelIndexExists(this->label1));
     EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -294,17 +293,17 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   //    vertices.
   // 4. Delete even numbered vertices.
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access();
   EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1, this->label2));
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), IsEmpty());
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, View::OLD), View::OLD), IsEmpty());
@@ -367,18 +366,18 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -390,7 +389,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::OLD), View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
@@ -415,19 +414,19 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc_before = this->storage->Access(ReplicationRole::MAIN);
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
-  auto acc_after = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_before = this->storage->Access();
+  auto acc = this->storage->Access();
+  auto acc_after = this->storage->Access();
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -442,7 +441,7 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->Commit());
 
-  auto acc_after_commit = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_after_commit = this->storage->Access();
 
   EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 
@@ -456,17 +455,17 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 20; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 3 ? this->label1 : this->label2));
@@ -480,23 +479,23 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
 TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->Commit());
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
 }
@@ -504,23 +503,23 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc1->Commit());
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
 }
@@ -528,17 +527,17 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     ASSERT_NO_ERROR(acc1->Commit());
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res_remove = vertex_to_delete->RemoveLabel(this->label1);
@@ -546,7 +545,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     auto res_add = vertex_to_delete->AddLabel(this->label1);
     ASSERT_FALSE(res_add.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
   }
 }
@@ -557,11 +556,11 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelIndex *>(this->storage->indices_.label_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
@@ -570,14 +569,14 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto *tx_db = disk_label_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
     ASSERT_FALSE(acc2->Commit().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
     ASSERT_FALSE(acc3->Commit().HasError());
@@ -589,92 +588,92 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(acc->ListAllIndices().label_property,
                 UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_TRUE(unique_acc->CreateIndex(this->label1, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(acc->ListAllIndices().label_property,
                 UnorderedElementsAre(std::make_pair(this->label1, this->prop_id)));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(
         acc->ListAllIndices().label_property,
         UnorderedElementsAre(std::make_pair(this->label1, this->prop_id), std::make_pair(this->label2, this->prop_id)));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, this->prop_id));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(acc->ListAllIndices().label_property,
                 UnorderedElementsAre(std::make_pair(this->label2, this->prop_id)));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_TRUE(unique_acc->DropIndex(this->label1, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->DropIndex(this->label2, this->prop_id).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, this->prop_id));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllIndices().label_property.size(), 0);
   }
 }
@@ -687,17 +686,17 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label2, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access();
   EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD), IsEmpty());
 
   for (int i = 0; i < 10; ++i) {
@@ -782,13 +781,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
@@ -802,7 +801,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
 
@@ -829,14 +828,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc_before = this->storage->Access(ReplicationRole::MAIN);
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
-  auto acc_after = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_before = this->storage->Access();
+  auto acc = this->storage->Access();
+  auto acc_after = this->storage->Access();
 
   for (int i = 0; i < 5; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -853,7 +852,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->Commit());
 
-  auto acc_after_commit = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_after_commit = this->storage->Access();
 
   EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, this->prop_val, View::NEW), View::NEW), IsEmpty());
 
@@ -872,13 +871,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   // properly.
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
 
     for (int i = 0; i < 10; ++i) {
       auto vertex = this->CreateVertex(acc.get());
@@ -888,7 +887,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
     ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
       EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, this->prop_val, PropertyValue(i), View::OLD)),
                   UnorderedElementsAre(2 * i, 2 * i + 1));
@@ -946,12 +945,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 1; i <= 10; ++i) {
       for (int j = 0; j < i; ++j) {
         auto vertex = this->CreateVertex(acc.get());
@@ -974,7 +973,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
@@ -1023,7 +1022,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Create vertices, each with one of the values above.
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (const auto &value : values) {
       auto v = acc->CreateVertex();
       ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
@@ -1034,7 +1033,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 
   // Verify that all nodes are in the index.
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     auto iterable = acc->Vertices(this->label1, this->prop_val, View::OLD);
     auto it = iterable.begin();
     for (const auto &value : values) {
@@ -1051,7 +1050,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   auto verify = [&](const std::optional<memgraph::utils::Bound<PropertyValue>> &from,
                     const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
                     const std::vector<PropertyValue> &expected) {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     auto iterable = acc->Vertices(this->label1, this->prop_val, from, to, View::OLD);
     size_t i = 0;
     for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
@@ -1204,11 +1203,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -1221,13 +1220,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
 
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
                 UnorderedElementsAre(1));
   }
@@ -1237,11 +1236,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -1254,13 +1253,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
     ASSERT_NO_ERROR(acc2->Commit());
 
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, this->prop_val, View::NEW), View::NEW),
                 UnorderedElementsAre(1));
   }
@@ -1269,11 +1268,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
 
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
@@ -1286,7 +1285,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     ASSERT_NO_ERROR(acc1->Commit());
 
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto remove_res = target_vertex->RemoveLabel(this->label1);
     ASSERT_FALSE(remove_res.HasError());
@@ -1302,11 +1301,11 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
-    auto acc1 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
@@ -1315,14 +1314,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto *tx_db = disk_label_property_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc2 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
     ASSERT_FALSE(acc2->Commit().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
-    auto acc3 = this->storage->Access(ReplicationRole::MAIN);
+    auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
     ASSERT_FALSE(acc3->Commit().HasError());
@@ -1335,13 +1334,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       for (int i = 0; i < 10; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1351,13 +1350,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -1365,7 +1364,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1388,7 +1387,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1411,7 +1410,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -1433,13 +1432,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       for (int i = 0; i < 10; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1449,13 +1448,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -1463,29 +1462,29 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       for (int i = 10; i < 20; ++i) {
         auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1495,18 +1494,18 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
       EXPECT_TRUE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1));
     }
 
     {
-      auto acc = this->storage->Access(ReplicationRole::MAIN);
+      auto acc = this->storage->Access();
 
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -1532,17 +1531,17 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   // 3. Delete even numbered edges.
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1, this->edge_type_id2));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD), IsEmpty());
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id2, View::OLD), View::OLD), IsEmpty());
@@ -1606,19 +1605,19 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     // Check that transactions only see entries they are supposed to see.
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc_before = this->storage->Access(ReplicationRole::MAIN);
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
-    auto acc_after = this->storage->Access(ReplicationRole::MAIN);
+    auto acc_before = this->storage->Access();
+    auto acc = this->storage->Access();
+    auto acc_after = this->storage->Access();
 
     for (int i = 0; i < 5; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
@@ -1635,7 +1634,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 
     ASSERT_NO_ERROR(acc->Commit());
 
-    auto acc_after_commit = this->storage->Access(ReplicationRole::MAIN);
+    auto acc_after_commit = this->storage->Access();
 
     EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
 
@@ -1650,17 +1649,17 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1676,12 +1675,12 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+      auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
     }
 
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
 
@@ -1702,13 +1701,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     return;
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1720,13 +1719,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -1734,7 +1733,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1759,7 +1758,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1784,7 +1783,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -1807,13 +1806,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
     return;
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 0; i < 10; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1825,13 +1824,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -1839,29 +1838,29 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     for (int i = 10; i < 20; ++i) {
       auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
       auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -1873,19 +1872,19 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
     EXPECT_TRUE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_type_property,
                 UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
   }
 
   {
-    auto acc = this->storage->Access(ReplicationRole::MAIN);
+    auto acc = this->storage->Access();
 
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
@@ -1912,17 +1911,17 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access();
   EXPECT_THAT(acc->ListAllIndices().edge_type_property,
               UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1),
                                    std::make_pair(this->edge_type_id2, this->edge_prop_id2)));
@@ -1995,19 +1994,19 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc_before = this->storage->Access(ReplicationRole::MAIN);
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
-  auto acc_after = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_before = this->storage->Access();
+  auto acc = this->storage->Access();
+  auto acc_after = this->storage->Access();
 
   for (int i = 0; i < 5; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
@@ -2027,7 +2026,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
 
   ASSERT_NO_ERROR(acc->Commit());
 
-  auto acc_after_commit = this->storage->Access(ReplicationRole::MAIN);
+  auto acc_after_commit = this->storage->Access();
 
   EXPECT_THAT(this->GetIds(acc_before->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               IsEmpty());
@@ -2045,17 +2044,17 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access();
   for (int i = 0; i < 20; ++i) {
     auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
     auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
@@ -2078,12 +2077,12 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
-  auto acc = this->storage->Access(ReplicationRole::MAIN);
+  auto acc = this->storage->Access();
   auto vertex_from = this->CreateVertexWithoutProperties(acc.get());
   auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
 
