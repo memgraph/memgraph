@@ -210,8 +210,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  if (auto *using_statement_ctx = ctx->usingStatement()) {
-    cypher_query->using_statement_ = std::any_cast<UsingStatement>(using_statement_ctx->accept(this));
+  if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
+    cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -226,23 +226,23 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
   return cypher_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitUsingStatement(MemgraphCypher::UsingStatementContext *ctx) {
-  UsingStatement using_statement;
-  for (auto *using_statement_item : ctx->usingStatementItem()) {
-    if (auto *index_hints_ctx = using_statement_item->indexHints()) {
+antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
+  PreQueryDirectives pre_query_directives;
+  for (auto *pre_query_directive : ctx->preQueryDirective()) {
+    if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         if (!index_hint_ctx->propertyKeyName()) {
-          using_statement.index_hints_.emplace_back(
+          pre_query_directives.index_hints_.emplace_back(
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
           continue;
         }
-        using_statement.index_hints_.emplace_back(
+        pre_query_directives.index_hints_.emplace_back(
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
                       .label_ = label,
                       .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
       }
-    } else if (auto *periodic_commit = using_statement_item->periodicCommit()) {
+    } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       auto periodic_commit_number = periodic_commit->periodicCommitNumber;
       if (!periodic_commit_number->numberLiteral()) {
         throw SyntaxException("Periodic commit should be a number variable.");
@@ -251,16 +251,16 @@ antlrcpp::Any CypherMainVisitor::visitUsingStatement(MemgraphCypher::UsingStatem
         throw SyntaxException("Periodic commit should be an integer.");
       }
 
-      using_statement.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+      pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
     } else {
-      if (using_statement.hops_limit_) {
+      if (pre_query_directives.hops_limit_) {
         throw SemanticException("Hops limit can be set only once in the USING statement.");
       }
-      using_statement.hops_limit_ = std::any_cast<Expression *>(using_statement_item->hopsLimit()->accept(this));
+      pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
     }
   }
 
-  return using_statement;
+  return pre_query_directives;
 }
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) {

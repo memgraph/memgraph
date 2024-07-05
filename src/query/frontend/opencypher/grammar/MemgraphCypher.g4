@@ -204,7 +204,7 @@ query : cypherQuery
       | dropEnumQuery
       ;
 
-cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -276,9 +276,9 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-usingStatementItem: hopsLimit | indexHints  | periodicCommit ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
 
 hopsLimit: HOPS LIMIT literal ;
 

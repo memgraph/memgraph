@@ -150,7 +150,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters, context->query->using_statement_.index_hints_, context->db);
+  PostProcessor post_processor(parameters, context->query->pre_query_directives_.index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 
