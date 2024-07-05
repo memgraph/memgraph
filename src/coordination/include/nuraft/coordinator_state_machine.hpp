@@ -71,7 +71,7 @@ class CoordinatorStateMachine : public state_machine {
   static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
   static auto SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
+  static auto DecodeLog(buffer &data) -> std::optional<std::pair<TRaftLog, RaftLogAction>>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
