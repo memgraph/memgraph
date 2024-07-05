@@ -24,6 +24,26 @@ constexpr uint8_t kZlibFastCompression = 0x5E;
 constexpr uint8_t kZlibDefaultCompression = 0x9C;
 constexpr uint8_t kZlibBestCompression = 0xDA;
 
+DataBuffer::DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size)
+    : data(data), compressed_size(compressed_size), original_size(original_size) {}
+
+DataBuffer::~DataBuffer() { delete[] data; }
+
+DataBuffer::DataBuffer(DataBuffer &&other) noexcept
+    : data(std::exchange(other.data, nullptr)),
+      compressed_size(std::exchange(other.compressed_size, 0)),
+      original_size(std::exchange(other.original_size, 0)) {}
+
+DataBuffer &DataBuffer::operator=(DataBuffer &&other) noexcept {
+  if (this != &other) {
+    delete[] data;
+    data = std::exchange(other.data, nullptr);
+    compressed_size = std::exchange(other.compressed_size, 0);
+    original_size = std::exchange(other.original_size, 0);
+  }
+  return *this;
+}
+
 DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size) {
   if (original_size == 0) {
     return {};
@@ -53,21 +73,13 @@ DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size
 
 DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t compressed_size,
                                       uint32_t original_size) {
-  DataBuffer decompressed_buffer;
-  decompressed_buffer.compressed_size = compressed_size;
-  decompressed_buffer.original_size = original_size;
+  auto *data = new uint8_t[original_size];
 
-  auto *data = new uint8_t[decompressed_buffer.original_size];
+  uLongf original_size_ = original_size;
+  const int result = uncompress(data, &original_size_, compressed_data, compressed_size);
 
-  const int result = uncompress(data, reinterpret_cast<uLongf *>(&decompressed_buffer.original_size), compressed_data,
-                                compressed_size);
+  if (result == Z_OK) return {data, compressed_size, original_size};
 
-  if (result == Z_OK) {
-    decompressed_buffer.data = data;
-    return decompressed_buffer;
-  }
-
-  delete[] data;
   return {};
 }
 

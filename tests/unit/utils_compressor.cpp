@@ -37,10 +37,10 @@ TEST(ZlibCompressorTest, CompressDecompressTest) {
 TEST(ZlibCompressorTest, CompressEmptyDataTest) {
   memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
 
-  std::string input_data;
+  const char *input_str = "";
 
   memgraph::utils::DataBuffer compressed =
-      compressor->Compress(reinterpret_cast<const uint8_t *>(input_data.data()), input_data.size());
+      compressor->Compress(reinterpret_cast<const uint8_t *>(input_str), std::strlen(input_str));
   EXPECT_EQ(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, 0);
 

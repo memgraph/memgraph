@@ -15,6 +15,7 @@
 #include <zlib.h>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <string_view>
 #include <vector>
 #include "spdlog/spdlog.h"
@@ -35,8 +36,10 @@ struct DataBuffer {
   // Default constructor
   DataBuffer() = default;
 
+  DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size);
+
   // Destructor
-  ~DataBuffer() { delete[] data; }
+  ~DataBuffer();
 
   // Copy constructor
   DataBuffer(const DataBuffer &other) = delete;
@@ -45,29 +48,10 @@ struct DataBuffer {
   DataBuffer &operator=(const DataBuffer &other) = delete;
 
   // Move constructor
-  DataBuffer(DataBuffer &&other) noexcept
-      : data(other.data), compressed_size(other.compressed_size), original_size(other.original_size) {
-    other.data = nullptr;
-    other.compressed_size = 0;
-    other.original_size = 0;
-  }
+  DataBuffer(DataBuffer &&other) noexcept;
 
   // Move assignment operator
-  DataBuffer &operator=(DataBuffer &&other) noexcept {
-    if (this != &other) {
-      // Clean up existing data
-      delete[] data;
-
-      data = other.data;
-      compressed_size = other.compressed_size;
-      original_size = other.original_size;
-
-      other.data = nullptr;
-      other.compressed_size = 0;
-      other.original_size = 0;
-    }
-    return *this;
-  }
+  DataBuffer &operator=(DataBuffer &&other) noexcept;
 };
 
 class Compressor {

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -1911,8 +1912,6 @@ void PropertyStore::CompressBuffer() {
   if (buffer_info.size == 0 || buffer_info.in_local_buffer) {
     return;
   }
-  spdlog::debug("data before compression: {}",
-                std::string_view(reinterpret_cast<char *>(buffer_info.data), buffer_info.size));
 
   auto *compressor = utils::ZlibCompressor::GetInstance();
   auto compressed_buffer = compressor->Compress(buffer_info.data, buffer_info.size);
@@ -1956,14 +1955,12 @@ utils::DataBuffer PropertyStore::DecompressBuffer() const {
           ? (size - 8 + mod)
           : size;  // we have to restore the original size of the compressed buffer + the size of the original buffer
 
-  auto decompressed_buffer =
+  utils::DataBuffer decompressed_buffer =
       compressor->Decompress(data + sizeof(uint32_t) + 1, compressed_size - sizeof(uint32_t) - 1, original_size);
-  if (decompressed_buffer.data == nullptr) {
-    throw PropertyValueException("Failed to decompress buffer");
-  }
 
-  spdlog::debug("data after decompression: {}", std::string_view(reinterpret_cast<char *>(decompressed_buffer.data),
-                                                                 decompressed_buffer.original_size));
+  if (decompressed_buffer.data == nullptr) {
+    throw PropertyValueException("Failed to decompress buffer");  // 0x00007fffea985000
+  }
 
   return decompressed_buffer;
 }
