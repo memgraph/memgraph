@@ -35,7 +35,6 @@ CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(const M
 
 CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {
-    auto const &endpoint = rpc_server_.endpoint();
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();
