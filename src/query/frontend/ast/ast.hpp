@@ -105,7 +105,7 @@ class AstStorage {
   AstStorage &operator=(AstStorage &&) = default;
 
   template <typename T, typename... Args>
-  T *Create(Args &&... args) {
+  T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
     storage_.emplace_back(std::move(tmp));
@@ -4074,8 +4074,8 @@ class TtlQuery : public memgraph::query::Query {
   TtlQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TtlQuery>();
     object->type_ = type_;
-    object->period_ = period_;
-    object->specific_time_ = specific_time_;
+    object->period_ = period_ ? period_->Clone(storage) : nullptr;
+    object->specific_time_ = specific_time_ ? specific_time_->Clone(storage) : nullptr;
     return object;
   }
 
