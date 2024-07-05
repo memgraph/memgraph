@@ -864,6 +864,7 @@ StorageInfo DiskStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
@@ -1877,7 +1878,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
-    PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
+    PropertyStore const property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
         utils::Contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
@@ -1894,6 +1895,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
+  auto delta_size = transaction_.deltas.size();
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -1942,6 +1944,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
         break;
     }
   }
+  memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 }
 
 void DiskStorage::DiskAccessor::Abort() {
