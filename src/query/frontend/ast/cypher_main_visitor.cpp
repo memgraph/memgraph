@@ -244,7 +244,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
       }
     } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
       if (pre_query_directives.commit_frequency_) {
-        throw SemanticException("Commit frequency can be set only once in the USING statement.");
+        throw SyntaxException("Commit frequency can be set only once in the USING statement.");
       }
       auto periodic_commit_number = periodic_commit->periodicCommitNumber;
       if (!periodic_commit_number->numberLiteral()) {
@@ -257,11 +257,11 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
       pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
     } else if (pre_query_directive->hopsLimit()) {
       if (pre_query_directives.hops_limit_) {
-        throw SemanticException("Hops limit can be set only once in the USING statement.");
+        throw SyntaxException("Hops limit can be set only once in the USING statement.");
       }
       pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
     } else {
-      throw SemanticException("Unknown pre query directive!");
+      throw SyntaxException("Unknown pre query directive!");
     }
   }
 
@@ -3123,6 +3123,20 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+
+  PreQueryDirectives pre_query_directives;
+  if (auto *periodic_commit = ctx->periodicSubquery()) {
+    auto periodic_commit_number = periodic_commit->periodicCommitNumber;
+    if (!periodic_commit_number->numberLiteral()) {
+      throw SyntaxException("Periodic commit should be a number variable.");
+    }
+    if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+      throw SyntaxException("Periodic commit should be an integer.");
+    }
+    pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+
+    call_subquery->cypher_query_->pre_query_directives_ = pre_query_directives;
+  }
 
   return call_subquery;
 }
