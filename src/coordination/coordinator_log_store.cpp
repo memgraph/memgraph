@@ -308,10 +308,15 @@ bool CoordinatorLogStore::flush() {
 bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry) {
   buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
   auto data_str = bs.get_str();
+  if (data_str.size() == 1 && data_str[0] == '\0') {  // empty string but bug in buffer_serializer
+    data_str = "";
+  }
   auto clone_val = static_cast<int>(clone->get_val_type());
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
-  durability_->Put(fmt::format("{}{}", kLogEntryPrefix, key_id), log_term_json.dump());
+  std::string log_term_str = log_term_json.dump();
+  std::string key = fmt::format("{}{}", kLogEntryPrefix, key_id);
+  durability_->Put(key, log_term_str);
 
   if (is_newest_entry) {
     durability_->Put(kLastLogEntry, std::to_string(key_id));

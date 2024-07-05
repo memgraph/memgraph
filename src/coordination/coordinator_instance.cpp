@@ -351,6 +351,8 @@ auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
                                         [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
 
       MG_ASSERT(coord != all_coordinators.end());
+      spdlog::trace("Creating new connector for leader with id {}, endpoint {}", leader_id,
+                    coord->coordinator_server.SocketAddress());
       connectors->emplace(leader_id, ManagementServerConfig{coord->management_server});
     }
     follower = &connectors->at(leader_id);
