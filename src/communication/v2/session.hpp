@@ -450,7 +450,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     if (ec == boost::asio::error::eof) {
-      spdlog::info("Session closed by peer");
+      spdlog::info("Session closed by peer {}", remote_endpoint_);
     } else {
       spdlog::error("Session error: {}", ec.message());
     }

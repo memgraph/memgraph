@@ -149,8 +149,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, endpoint_,
-                                          inactivity_timeout_, service_name_);
+    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_,
+                                          socket.lowest_layer().remote_endpoint(), inactivity_timeout_, service_name_);
     session->Start();
     DoAccept();
   }
