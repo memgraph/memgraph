@@ -34,8 +34,6 @@ $binary_dir/memgraph \
     --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/memgarph.log \
     --also-log-to-stderr \
     --telemetry-enabled=false \
