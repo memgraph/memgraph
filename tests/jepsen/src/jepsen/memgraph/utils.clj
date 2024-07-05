@@ -106,6 +106,11 @@
   [e]
   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
 
+(defn conflicting-txns?
+  "Conflicting transactions error message is allowed."
+  [e]
+  (string/includes? (str e) "Cannot resolve conflicting transactions."))
+
 (defn analyze-bank-data-reads
   "Checks whether balances always sum to the correctnumber"
   [ok-data-reads account-num starting-balance]

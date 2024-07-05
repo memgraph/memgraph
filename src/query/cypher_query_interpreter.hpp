@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,11 @@ class LogicalPlan {
   virtual const AstStorage &GetAstStorage() const = 0;
 };
 
+using UserParameters = storage::PropertyValue::map_t;
+
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters;
+
 class PlanWrapper {
  public:
   explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
@@ -85,16 +90,16 @@ struct QueryCacheEntry {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
-  Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cacheable{true};
+  UserParameters user_parameters;
+  Parameters parameters;
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {

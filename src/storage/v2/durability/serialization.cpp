@@ -87,6 +87,14 @@ void Encoder::WriteString(const std::string_view value) {
   Write(reinterpret_cast<const uint8_t *>(value.data()), value.size());
 }
 
+void Encoder::WriteEnum(storage::Enum value) {
+  WriteMarker(Marker::TYPE_ENUM);
+  auto etype = utils::HostToLittleEndian(value.type_id().value_of());
+  Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
+  auto evalue = utils::HostToLittleEndian(value.value_id().value_of());
+  Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
+}
+
 void Encoder::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
@@ -146,6 +154,10 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       } else {
         WriteUint(zoned_temporal_data.timezone.DefiningOffset());
       }
+      break;
+    }
+    case PropertyValue::Type::Enum: {
+      WriteEnum(value.ValueEnum());
       break;
     }
   }
@@ -261,6 +273,20 @@ std::optional<std::string> Decoder::ReadString() {
   return value;
 }
 
+std::optional<Enum> Decoder::ReadEnumValue() {
+  auto marker = ReadMarker();
+  if (!marker || *marker != Marker::TYPE_ENUM) return std::nullopt;
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  uint64_t etype;
+  if (!Read(reinterpret_cast<uint8_t *>(&etype), sizeof(etype))) return std::nullopt;
+  etype = utils::LittleEndianToHost(etype);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  uint64_t evalue;
+  if (!Read(reinterpret_cast<uint8_t *>(&evalue), sizeof(evalue))) return std::nullopt;
+  evalue = utils::LittleEndianToHost(evalue);
+  return Enum{EnumTypeId{etype}, EnumValueId{evalue}};
+}
+
 namespace {
 std::optional<TemporalData> ReadTemporalData(Decoder &decoder) {
   const auto inner_marker = decoder.ReadMarker();
@@ -360,7 +386,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::map<std::string, PropertyValue> value;
+      auto value = PropertyValue::map_t{};
+      value.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
@@ -380,6 +407,11 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
       if (!maybe_zoned_temporal_data) return std::nullopt;
       return PropertyValue(*maybe_zoned_temporal_data);
     }
+    case Marker::TYPE_ENUM: {
+      const auto maybe_enum_value = ReadEnumValue();
+      if (!maybe_enum_value) return std::nullopt;
+      return PropertyValue(*maybe_enum_value);
+    }
 
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
@@ -392,6 +424,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -409,14 +442,19 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+    case Marker::DELTA_EDGE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_INDEX_DROP:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
     case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+    case Marker::DELTA_ENUM_CREATE:
+    case Marker::DELTA_ENUM_ALTER_ADD:
+    case Marker::DELTA_ENUM_ALTER_UPDATE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -491,6 +529,9 @@ bool Decoder::SkipPropertyValue() {
     case Marker::TYPE_ZONED_TEMPORAL_DATA: {
       return !!ReadZonedTemporalData(*this);
     }
+    case Marker::TYPE_ENUM: {
+      return !!ReadEnumValue();
+    }
 
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::SECTION_VERTEX:
@@ -503,6 +544,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_EPOCH_HISTORY:
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
+    case Marker::SECTION_ENUMS:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -520,14 +562,19 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
-    case Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-    case Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+    case Marker::DELTA_EDGE_INDEX_CREATE:
+    case Marker::DELTA_EDGE_INDEX_DROP:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+    case Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
     case Marker::DELTA_TEXT_INDEX_CREATE:
     case Marker::DELTA_TEXT_INDEX_DROP:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
     case Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
     case Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+    case Marker::DELTA_ENUM_CREATE:
+    case Marker::DELTA_ENUM_ALTER_ADD:
+    case Marker::DELTA_ENUM_ALTER_UPDATE:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;

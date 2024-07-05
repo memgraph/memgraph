@@ -77,6 +77,8 @@ class DiskStorage final : public Storage {
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
@@ -95,6 +97,8 @@ class DiskStorage final : public Storage {
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
@@ -149,6 +153,8 @@ class DiskStorage final : public Storage {
 
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
 
+    bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
@@ -173,11 +179,16 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                      PropertyId property) override;
+
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -295,11 +306,12 @@ class DiskStorage final : public Storage {
 
   std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
                                      const std::vector<EdgeTypeId> &possible_edge_types,
-                                     const VertexAccessor *destination, Transaction *transaction, View view);
+                                     const VertexAccessor *destination, Transaction *transaction, View view,
+                                     query::HopsLimit *hops_limit = nullptr);
 
   std::vector<EdgeAccessor> InEdges(const VertexAccessor *dst_vertex,
                                     const std::vector<EdgeTypeId> &possible_edge_types, const VertexAccessor *source,
-                                    Transaction *transaction, View view);
+                                    Transaction *transaction, View view, query::HopsLimit *hops_limit = nullptr);
 
   RocksDBStorage *GetRocksDBStorage() const { return kvstore_.get(); }
 

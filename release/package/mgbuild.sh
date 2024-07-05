@@ -13,23 +13,20 @@ SUPPORTED_TOOLCHAINS=(
 DEFAULT_OS="all"
 SUPPORTED_OS=(
     all
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
     rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
 SUPPORTED_OS_V4=(
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-10 debian-11 debian-11-arm
     fedora-36
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
 SUPPORTED_OS_V5=(
-    amzn-2
-    centos-7 centos-9
+    centos-9
     debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-38 fedora-39
     rocky-9.3
@@ -99,6 +96,7 @@ print_help () {
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
+  echo -e "  --cmake-only                  Only run cmake configure command"
   echo -e "  --community                   Build community version"
   echo -e "  --coverage                    Build with code coverage"
   echo -e "  --for-docker                  Add flag -DMG_TELEMETRY_ID_OVERRIDE=DOCKER to cmake"
@@ -254,6 +252,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local init_only=false
+  local cmake_only=false
   local for_docker=false
   local for_platform=false
   local copy_from_host=true
@@ -265,6 +264,10 @@ build_memgraph () {
       ;;
       --init-only)
         init_only=true
+        shift 1
+      ;;
+      --cmake-only)
+        cmake_only=true
         shift 1
       ;;
       --for-docker)
@@ -356,6 +359,15 @@ build_memgraph () {
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $skip_rpath_flags $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  if [[ "$cmake_only" == "true" ]]; then
+    build_target(){
+      target=$1
+      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+    }
+    # Force build that generate the header files needed by analysis (ie. clang-tidy)
+    build_target generated_code
+    return
+  fi
   # ' is used instead of " because we need to run make within the allowed
   # container resources.
   # Default value for $threads is 0 instead of $(nproc) because macos

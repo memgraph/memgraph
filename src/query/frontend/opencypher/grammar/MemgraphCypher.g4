@@ -47,6 +47,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
                       | DO
                       | DELIMITER
@@ -110,6 +111,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -154,6 +156,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
                       | VALUES
                       | VERSION
                       | WEBSOCKET
@@ -195,16 +198,22 @@ query : cypherQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
+      | alterEnumRemoveValueQuery
+      | dropEnumQuery
       ;
 
-cypherQuery : ( indexHints )? ( periodicCommit )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
+          | showCurrentUser
           | showUsers
           | setRole
           | clearRole
@@ -267,11 +276,17 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+
+usingStatementItem: hopsLimit | indexHints  | periodicCommit ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-periodicCommit : USING PERIODIC COMMIT periodicCommitNumber=literal ;
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
 periodicSubquery : IN TRANSACTIONS OF periodicCommitNumber=literal ROWS ;
 
@@ -336,7 +351,11 @@ ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
+
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
@@ -574,9 +593,9 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
@@ -586,8 +605,14 @@ enumName : symbolicName ;
 
 enumValue : symbolicName ;
 
-enumValuesList : enumValue ( ',' enumValue )* ;
-
-createEnumQuery : CREATE ENUM enumName VALUES '{' enumValuesList '}' ;
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
 
 showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;
+
+alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
+
+dropEnumQuery: DROP ENUM enumName ;

@@ -80,17 +80,12 @@ std::vector<LabelId> InMemoryLabelIndex::ListIndices() const {
   return ret;
 }
 
-void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token,
-                                               const absl::flat_hash_set<LabelId> &labels) {
+void InMemoryLabelIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
   for (auto &label_storage : index_) {
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
-
-    if (!labels.contains(label_storage.first)) {
-      continue;
-    }
 
     auto vertices_acc = label_storage.second.access();
     for (auto it = vertices_acc.begin(); it != vertices_acc.end();) {

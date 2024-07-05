@@ -12,6 +12,7 @@
 #include <optional>
 #include <utility>
 #include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
 #include "gflags/gflags.h"
 
 #include "audit/log.hpp"
@@ -36,14 +37,14 @@ extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
 namespace {
-auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgraph::query::QueryExtras {
+auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
-  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
+  auto metadata_pv = memgraph::storage::PropertyValue::map_t{};
 
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md, nullptr));
     }
   }
 
@@ -61,12 +62,12 @@ class TypedValueResultStreamBase {
 
   void DecodeValues(const std::vector<memgraph::query::TypedValue> &values);
 
-  auto AccessValues() const -> std::vector<memgraph::communication::bolt::Value> const & { return decoded_values_; }
+  auto AccessValues() const -> std::vector<memgraph::glue::bolt_value_t> const & { return decoded_values_; }
 
  protected:
   // NOTE: Needed only for ToBoltValue conversions
   memgraph::storage::Storage *storage_;
-  std::vector<memgraph::communication::bolt::Value> decoded_values_;
+  std::vector<memgraph::glue::bolt_value_t> decoded_values_;
 };
 
 /// Wrapper around TEncoder which converts TypedValue to Value
@@ -111,7 +112,7 @@ TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storag
 
 #ifdef MG_ENTERPRISE
 void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
-  if (user && !user->IsAuthorized({}, std::string(db), &memgraph::query::session_long_policy)) {
+  if (user && !user->IsAuthorized({}, db, &memgraph::query::session_long_policy)) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
@@ -121,9 +122,14 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
 namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
-std::string SessionHL::GetDefaultDB() {
+std::optional<std::string> SessionHL::GetDefaultDB() {
   if (user_or_role_) {
-    return user_or_role_->GetDefaultDB();
+    try {
+      return user_or_role_->GetDefaultDB();
+    } catch (auth::AuthException &) {
+      // Support non-db connection
+      return {};
+    }
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
@@ -140,6 +146,25 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
   return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
+void SessionHL::TryDefaultDB() {
+#ifdef MG_ENTERPRISE
+  const auto default_db = GetDefaultDB();
+  if (default_db) {
+    // Start off with the default database
+    interpreter_.SetCurrentDB(*default_db, false);
+  } else {
+    // Failed to get default db, connect without db
+    interpreter_.ResetDB();
+  }
+#endif
+  auto db = GetCurrentDB();
+  if (db.empty())
+    implicit_db_.reset();
+  else
+    implicit_db_.emplace(std::move(db));
+}
+
+// This is called on connection establishment
 bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
   bool res = true;
   interpreter_.ResetUser();
@@ -159,18 +184,31 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
     }
   }
-#ifdef MG_ENTERPRISE
-  // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
-#endif
-  implicit_db_.emplace(GetCurrentDB());
+
+  TryDefaultDB();
   return res;
+}
+
+bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) {
+  interpreter_.ResetUser();
+
+  auto locked_auth = auth_->Lock();
+
+  const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
+  if (!user_or_role.has_value()) {
+    return false;
+  }
+
+  user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+
+  TryDefaultDB();
+  return true;
 }
 
 void SessionHL::Abort() { interpreter_.Abort(); }
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(std::optional<int> n,
-                                                                               std::optional<int> qid) {
+bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
     memgraph::query::DiscardValueResultStream stream;
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
@@ -182,9 +220,7 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(s
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(SessionHL::TEncoder *encoder,
-                                                                            std::optional<int> n,
-                                                                            std::optional<int> qid) {
+bolt_map_t SessionHL::Pull(SessionHL::TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
   try {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
@@ -204,24 +240,28 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
-    const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-    const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-  for (const auto &[key, bolt_param] : params) {
-    params_pv.emplace(key, ToPropertyValue(bolt_param));
-  }
+std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(const std::string &query,
+                                                                             const bolt_map_t &params,
+                                                                             const bolt_map_t &extra) {
+  auto get_params_pv = [params](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
+    auto params_pv = memgraph::storage::PropertyValue::map_t{};
+    params_pv.reserve(params.size());
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.try_emplace(key, ToPropertyValue(bolt_param, storage));
+    }
+    return params_pv;
+  };
 
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
-    audit_log_->Record(endpoint_.address().to_string(), username, query, memgraph::storage::PropertyValue(params_pv),
+    audit_log_->Record(endpoint_.address().to_string(), username, query, params,
                        db ? db->get()->name() : "no known database");
   }
 #endif
   try {
-    auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
+    auto result = interpreter_.Prepare(query, get_params_pv, ToQueryExtras(extra));
     const std::string db_name = result.db ? *result.db : "";
     if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
       interpreter_.Abort();
@@ -249,37 +289,35 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
   }
 }
 
-using memgraph::communication::bolt::Value;
-
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(std::map<std::string, Value> const &routing,
-                      std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-                      std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> {
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, bolt_map_t const &
+                      /*extra*/) -> bolt_map_t {
   auto routing_map = ranges::views::transform(
                          routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
                      ranges::to<std::map<std::string, std::string>>();
 
   auto routing_table_res = interpreter_.Route(routing_map);
 
-  auto create_server = [](auto const &server_info) -> Value {
+  auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
-    std::map<std::string, Value> server_map;
-    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return Value{addr}; }) |
-                          ranges::to<std::vector<Value>>();
+    bolt_map_t server_map;
+    auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
+                          ranges::to<std::vector<bolt_value_t>>();
 
     server_map["addresses"] = std::move(bolt_addresses);
-    server_map["role"] = memgraph::communication::bolt::Value{role};
-    return Value{std::move(server_map)};
+    server_map["role"] = bolt_value_t{role};
+    return bolt_value_t{std::move(server_map)};
   };
 
-  std::map<std::string, Value> communication_res;
-  communication_res["ttl"] = Value{routing_table_res.ttl};
-  communication_res["db"] = Value{};
+  bolt_map_t communication_res;
+  communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
+  communication_res["db"] = bolt_value_t{};
 
-  auto servers = ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<Value>>();
-  communication_res["servers"] = memgraph::communication::bolt::Value{std::move(servers)};
+  auto servers =
+      ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
+  communication_res["servers"] = bolt_value_t{std::move(servers)};
 
-  return {{"rt", memgraph::communication::bolt::Value{std::move(communication_res)}}};
+  return {{"rt", bolt_value_t{std::move(communication_res)}}};
 }
 #endif
 
@@ -315,7 +353,7 @@ void SessionHL::CommitTransaction() {
   }
 }
 
-void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
+void SessionHL::BeginTransaction(const bolt_map_t &extra) {
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra));
   } catch (const memgraph::query::QueryException &e) {
@@ -331,9 +369,9 @@ void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communica
   }
 }
 
-void SessionHL::Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) {
+void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  std::string db;
+  std::optional<std::string> db{};
   bool update = false;
   // Check if user explicitly defined the database to use
   if (run_time_info.contains("db")) {
@@ -344,7 +382,10 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     db = db_info.ValueString();
     const auto &current = GetCurrentDB();
     update = db != current;
-    if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+    if (!in_explicit_db_) {
+      implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
+      update = true;
+    }
     in_explicit_db_ = true;
     // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
   } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
@@ -353,14 +394,18 @@ void SessionHL::Configure(const std::map<std::string, memgraph::communication::b
     } else {
       db = GetDefaultDB();
     }
-    update = db != GetCurrentDB();
+    update = true;  // We have to update in order to update the explicit flag
     in_explicit_db_ = false;
   }
 
   // Check if the underlying database needs to be updated
   if (update) {
-    MultiDatabaseAuth(user_or_role_.get(), db);
-    interpreter_.SetCurrentDB(db, in_explicit_db_);
+    if (db) {  // Db connection
+      MultiDatabaseAuth(user_or_role_.get(), *db);
+      interpreter_.SetCurrentDB(*db, in_explicit_db_);
+    } else {  // Non-db connection
+      interpreter_.ResetDB();
+    }
   }
 #endif
 }
@@ -382,7 +427,7 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
 #endif
       auth_(auth),
       endpoint_(std::move(endpoint)),
-      implicit_db_(dbms::kDefaultDB) {
+      implicit_db_(std::nullopt) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
@@ -396,11 +441,10 @@ SessionHL::~SessionHL() {
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
 }
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
-    const std::map<std::string, memgraph::query::TypedValue> &summary) {
+bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
   auto &db_acc = interpreter_.current_db_.db_acc_;
   auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
-  std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
+  bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
     auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
     if (maybe_value.HasError()) {

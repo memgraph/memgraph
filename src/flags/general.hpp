@@ -58,9 +58,6 @@ DECLARE_uint64(storage_python_gc_cycle_sec);
 // `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(storage_recover_on_startup);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_snapshot_interval_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -124,9 +121,3 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(auth_user_or_role_name_regex);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(auth_password_permit_null);
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(auth_password_strength_regex);

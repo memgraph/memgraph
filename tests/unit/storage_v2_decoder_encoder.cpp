@@ -133,7 +133,7 @@ GENERATE_READ_TEST(
     memgraph::storage::PropertyValue("nandare"),
     memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
     memgraph::storage::PropertyValue(
@@ -186,7 +186,7 @@ GENERATE_SKIP_TEST(
     memgraph::storage::PropertyValue("nandare"),
     memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
     memgraph::storage::PropertyValue(
@@ -260,7 +260,7 @@ GENERATE_PARTIAL_READ_TEST(
         memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
-            std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
+            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
         memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
         memgraph::storage::PropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
@@ -319,7 +319,7 @@ GENERATE_PARTIAL_SKIP_TEST(
         memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
-            std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
+            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
         memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
         memgraph::storage::PropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
@@ -352,6 +352,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_ZONED_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_PROPERTY_VALUE:
+        case memgraph::storage::durability::Marker::TYPE_ENUM:
           valid_marker = true;
           break;
 
@@ -365,6 +366,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::SECTION_EPOCH_HISTORY:
         case memgraph::storage::durability::Marker::SECTION_EDGE_INDICES:
         case memgraph::storage::durability::Marker::SECTION_OFFSETS:
+        case memgraph::storage::durability::Marker::SECTION_ENUMS:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_DELETE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_ADD_LABEL:
@@ -382,14 +384,19 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
-        case memgraph::storage::durability::Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-        case memgraph::storage::durability::Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;

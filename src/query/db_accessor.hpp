@@ -19,6 +19,7 @@
 
 #include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -29,6 +30,7 @@
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/pmr/unordered_set.hpp"
+#include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
@@ -159,8 +161,9 @@ class VertexAccessor final {
   }
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
-                                                    const std::vector<storage::EdgeTypeId> &edge_types) const {
-    auto maybe_result = impl_.InEdges(view, edge_types);
+                                                    const std::vector<storage::EdgeTypeId> &edge_types,
+                                                    query::HopsLimit *hops_limit = nullptr) const {
+    auto maybe_result = impl_.InEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -175,8 +178,9 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> InEdges(storage::View view,
                                                     const std::vector<storage::EdgeTypeId> &edge_types,
-                                                    const VertexAccessor &dest) const {
-    auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_);
+                                                    const VertexAccessor &dest,
+                                                    query::HopsLimit *hops_limit = nullptr) const {
+    auto maybe_result = impl_.InEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -188,8 +192,9 @@ class VertexAccessor final {
   }
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
-                                                     const std::vector<storage::EdgeTypeId> &edge_types) const {
-    auto maybe_result = impl_.OutEdges(view, edge_types);
+                                                     const std::vector<storage::EdgeTypeId> &edge_types,
+                                                     query::HopsLimit *hops_limit = nullptr) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types, nullptr, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -204,8 +209,9 @@ class VertexAccessor final {
 
   storage::Result<EdgeVertexAccessorResult> OutEdges(storage::View view,
                                                      const std::vector<storage::EdgeTypeId> &edge_types,
-                                                     const VertexAccessor &dest) const {
-    auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_);
+                                                     const VertexAccessor &dest,
+                                                     query::HopsLimit *hops_limit = nullptr) const {
+    auto maybe_result = impl_.OutEdges(view, edge_types, &dest.impl_, hops_limit);
     if (maybe_result.HasError()) return maybe_result.GetError();
 
     std::vector<EdgeAccessor> edges;
@@ -482,6 +488,10 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
 
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, view));
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
@@ -647,6 +657,10 @@ class DbAccessor final {
 
   bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexExists(edge_type); }
 
+  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+    return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
+  }
+
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
@@ -735,6 +749,11 @@ class DbAccessor final {
     return accessor_->CreateIndex(edge_type);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type,
+                                                                             storage::PropertyId property) {
+    return accessor_->CreateIndex(edge_type, property);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
     return accessor_->DropIndex(label);
   }
@@ -746,6 +765,11 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
     return accessor_->DropIndex(edge_type);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(edge_type, property);
   }
 
   void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
@@ -775,6 +799,35 @@ class DbAccessor final {
   }
 
   void DropGraph() { return accessor_->DropGraph(); }
+
+  auto CreateEnum(std::string_view name, std::span<std::string const> values)
+      -> utils::BasicResult<storage::EnumStorageError, storage::EnumTypeId> {
+    return accessor_->CreateEnum(name, values);
+  }
+
+  auto ShowEnums() { return accessor_->ShowEnums(); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->GetEnumValue(name, value);
+  }
+  auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->GetEnumValue(enum_str);
+  }
+
+  auto EnumToName(storage::Enum value) const -> memgraph::utils::BasicResult<storage::EnumStorageError, std::string> {
+    return accessor_->GetEnumStoreShared().ToString(value);
+  }
+
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->EnumAlterAdd(name, value);
+  }
+
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    return accessor_->EnumAlterUpdate(name, old_value, new_value);
+  }
 };
 
 class SubgraphDbAccessor final {

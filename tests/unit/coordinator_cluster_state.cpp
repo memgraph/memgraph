@@ -39,9 +39,6 @@ class CoordinatorClusterStateTest : public ::testing::Test {
   void SetUp() override {}
 
   void TearDown() override {}
-
-  std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
-                                     "MG_tests_unit_coordinator_cluster_state"};
 };
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
@@ -61,7 +58,7 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
 
   cluster_state.DoAction(config, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
 
-  auto instances = cluster_state.GetReplicationInstances();
+  auto instances = cluster_state.GetAllReplicationInstances();
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
@@ -123,7 +120,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
 
   cluster_state.DoAction(InstanceUUIDUpdate{.instance_name = "instance3", .uuid = UUID{}},
                          RaftLogAction::SET_INSTANCE_AS_MAIN);
-  auto const repl_instances = cluster_state.GetReplicationInstances();
+  auto const repl_instances = cluster_state.GetAllReplicationInstances();
   ASSERT_EQ(repl_instances.size(), 2);
   ASSERT_EQ(repl_instances[0].status, ReplicationRole::REPLICA);
   ASSERT_EQ(repl_instances[1].status, ReplicationRole::MAIN);
@@ -172,7 +169,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   cluster_state.DoAction(InstanceUUIDUpdate{.instance_name = "instance2", .uuid = new_main_uuid},
                          RaftLogAction::SET_INSTANCE_AS_MAIN);
   cluster_state.DoAction(new_main_uuid, RaftLogAction::UPDATE_UUID_OF_NEW_MAIN);
-  auto const repl_instances = cluster_state.GetReplicationInstances();
+  auto const repl_instances = cluster_state.GetAllReplicationInstances();
   ASSERT_EQ(repl_instances.size(), 2);
   ASSERT_EQ(repl_instances[0].status, ReplicationRole::MAIN);
   ASSERT_EQ(repl_instances[1].status, ReplicationRole::REPLICA);

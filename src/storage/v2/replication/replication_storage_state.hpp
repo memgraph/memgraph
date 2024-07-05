@@ -32,6 +32,7 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/synchronized.hpp"
 
+#include <range/v3/view.hpp>
 #include <span>
 
 namespace memgraph::storage {
@@ -45,16 +46,30 @@ struct ReplicationStorageState {
   // Only MAIN can send
   auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
       -> std::vector<std::optional<ReplicaStream>>;
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp,
-                   std::span<std::optional<ReplicaStream>> replica_streams);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp,
-                   std::span<std::optional<ReplicaStream>> replica_streams);
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp,
-                       std::span<std::optional<ReplicaStream>> replica_streams);
-  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                       uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> replica_streams);
+
+  template <typename... Args>
+  void AppendDelta(std::span<std::optional<ReplicaStream>> replica_streams, Args &&...args) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
+        client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(args...); }, replica_stream);
+      }
+    });
+  }
+
+  template <typename Func>
+  void EncodeToReplicas(std::span<std::optional<ReplicaStream>> replica_streams, Func &&func) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
+        client->IfStreamingTransaction(
+            [&](auto &stream) {
+              auto encoder = stream.encoder();
+              func(encoder);
+            },
+            replica_stream);
+      }
+    });
+  }
+
   bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                            std::vector<std::optional<ReplicaStream>> replica_stream);
 

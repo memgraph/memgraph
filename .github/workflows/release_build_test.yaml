@@ -25,8 +25,6 @@ on:
         default: debian-11
         options:
           - all
-          - amzn-2
-          - centos-7
           - centos-9
           - debian-11
           - debian-12
@@ -53,7 +51,7 @@ jobs:
     if: ${{ github.event.inputs.os == 'all' }}
     strategy:
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
@@ -69,23 +67,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [amzn-2, centos-7, centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
-        arch: [amd, arm]
+        os: [centos-9, debian-11, debian-12, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        arch: [amd]
         build_type: [Release]
-        exclude: # Exclude unsupported combinations
-          - os: amzn-2
+        include: # Add arm builds and RelwithDebInfo builds
+          - os: debian-11
+            build_type: Release
             arch: arm
-          - os: centos-7
+          - os: debian-12
+            build_type: Release
             arch: arm
-          - os: centos-9
+          - os: ubuntu-22.04
+            build_type: Release
             arch: arm
-          - os: fedora-38
+          - os: ubuntu-24.04
+            build_type: Release
             arch: arm
-          - os: fedora-39
-            arch: arm
-          - os: rocky-9.3
-            arch: arm
-          - os: ubuntu-20.04
+          - os: debian-11
+            build_type: RelWithDebInfo
+            arch: amd
+          - os: debian-11
+            build_type: RelWithDebInfo
             arch: arm
     uses: ./.github/workflows/reusable_package.yaml
     with:
@@ -108,9 +110,10 @@ jobs:
       matrix:
         os: [debian-12]
         arch: [amd, arm]
-        build_type: [Release, RelWithDebInfo]
-        exclude:
-          - arch: arm
+        build_type: [Release]
+        include: # Add RelwithDebInfo build for amd docker image
+          - os: debian-12
+            arch: amd
             build_type: RelWithDebInfo
     uses: ./.github/workflows/reusable_package.yaml
     with:

@@ -13,23 +13,26 @@
 
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
+#include "storage/v2/inmemory/edge_type_property_index.hpp"
 
 namespace memgraph::storage {
 
 class InMemoryEdgeTypeIndex;
 
 class EdgesIterable final {
-  enum class Type { BY_EDGE_TYPE_IN_MEMORY };
+  enum class Type { BY_EDGE_TYPE_IN_MEMORY, BY_EDGE_TYPE_PROPERTY_IN_MEMORY };
 
   Type type_;
   union {
     InMemoryEdgeTypeIndex::Iterable in_memory_edges_by_edge_type_;
+    InMemoryEdgeTypePropertyIndex::Iterable in_memory_edges_by_edge_type_property_;
   };
 
   void Destroy() noexcept;
 
  public:
   explicit EdgesIterable(InMemoryEdgeTypeIndex::Iterable);
+  explicit EdgesIterable(InMemoryEdgeTypePropertyIndex::Iterable);
 
   EdgesIterable(const EdgesIterable &) = delete;
   EdgesIterable &operator=(const EdgesIterable &) = delete;
@@ -43,12 +46,14 @@ class EdgesIterable final {
     Type type_;
     union {
       InMemoryEdgeTypeIndex::Iterable::Iterator in_memory_edges_by_edge_type_;
+      InMemoryEdgeTypePropertyIndex::Iterable::Iterator in_memory_edges_by_edge_type_property_;
     };
 
     void Destroy() noexcept;
 
    public:
     explicit Iterator(InMemoryEdgeTypeIndex::Iterable::Iterator);
+    explicit Iterator(InMemoryEdgeTypePropertyIndex::Iterable::Iterator);
 
     Iterator(const Iterator &);
     Iterator &operator=(const Iterator &);

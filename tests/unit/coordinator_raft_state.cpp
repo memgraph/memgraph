@@ -19,6 +19,7 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorInstanceInitConfig;
+using memgraph::coordination::CoordinatorStateManagerConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::RaftState;
 using memgraph::coordination::ReplicationClientInfo;
@@ -51,10 +52,14 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const config = CoordinatorInstanceInitConfig{coordinator_id, coordinator_port, bolt_port,
-                                                    test_folder_ / "high_availability" / "coordinator"};
+  auto const instance_config = CoordinatorInstanceInitConfig{
+      coordinator_id, coordinator_port,
+      bolt_port,      test_folder_ / "high_availability" / "coordinator" / "state_manager",
+      "localhost",    "",
+      false};
 
-  auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
+  auto raft_state =
+      std::make_unique<RaftState>(instance_config, std::move(become_leader_cb), std::move(become_follower_cb));
   raft_state->InitRaftServer();
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
@@ -69,11 +74,12 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config = CoordinatorInstanceInitConfig{coordinator_id, coordinator_port, bolt_port,
-                                                         test_folder_ / "high_availability" / "coordinator"};
 
-  auto const raft_state =
-      std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
+  auto const config = CoordinatorInstanceInitConfig{
+      coordinator_id, coordinator_port, bolt_port, test_folder_ / "high_availability" / "coordinator", "localhost", "",
+      false};
+
+  auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
   raft_state->InitRaftServer();
   auto routing_table = raft_state->GetRoutingTable();
 
@@ -88,8 +94,10 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
 TEST_F(RaftStateTest, GetMixedRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config = CoordinatorInstanceInitConfig{coordinator_id, coordinator_port, bolt_port,
-                                                         test_folder_ / "high_availability" / "coordinator"};
+  auto const init_config = CoordinatorInstanceInitConfig{
+      coordinator_id, coordinator_port, bolt_port, test_folder_ / "high_availability" / "coordinator", "localhost", "",
+      false};
+
   auto raft_state_leader =
       std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
@@ -119,7 +127,10 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                        .replication_mode = ReplicationMode::ASYNC,
                                                        .replication_server = Endpoint{"0.0.0.0", 10003}}});
 
-  raft_state_leader->AppendSetInstanceAsMainLog("instance1", UUID{});
+  auto const curr_uuid = UUID{};
+
+  raft_state_leader->AppendSetInstanceAsMainLog("instance1", curr_uuid);
+  raft_state_leader->AppendUpdateUUIDForNewMainLog(curr_uuid);
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 

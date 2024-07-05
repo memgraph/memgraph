@@ -1,0 +1,7 @@
+copy_e2e_files(sso dummy_cert.txt)
+copy_e2e_files(sso entra_id_response_missing_role.txt)
+copy_e2e_files(sso entra_id_response_timed_out.txt)
+copy_e2e_files(sso entra_id_response.txt)
+copy_e2e_files(sso okta_response_missing_role.txt)
+copy_e2e_files(sso okta_response_timed_out.txt)
+copy_e2e_files(sso okta_response.txt)

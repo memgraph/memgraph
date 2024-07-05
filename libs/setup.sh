@@ -7,6 +7,24 @@ local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
 
+function print_help () {
+    echo "Usage: $0 [OPTION]"
+    echo -e "Setup libs for the project.\n"
+    echo "Optonal environment variables:"
+    echo -e "  MGDEPS_CACHE_HOST_PORT\thost and port for mgdeps cache service, set host to 'false' to not use mgdeps-cache (default: mgdeps-cache:8000) "
+}
+
+use_cache=true
+if [[ "${local_cache_host%:*}" == "false" ]]; then
+  use_cache=false
+  echo -e "\n--- Not using cache ---\n"
+fi
+
+if [[ $# -eq 1 && "$1" == "-h" ]]; then
+    print_help
+    exit 0
+fi
+
 # Clones a git repository and optionally cherry picks additional commits. The
 # function will try to preserve any local changes in the repo.
 # clone GIT_REPO DIR_NAME CHECKOUT_ID [CHERRY_PICK_ID]...
@@ -67,12 +85,17 @@ clone () {
 file_get_try_double () {
     primary_url="$1"
     secondary_url="$2"
-    echo "Download primary from $primary_url secondary from $secondary_url"
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     filename="$(basename "$secondary_url")"
-    # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-    wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
+    if [[ "$use_cache" == true ]]; then
+      echo "Download primary from $primary_url secondary from $secondary_url"
+      # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
+      timeout 15 wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
+    else
+      echo "Download from $secondary_url"
+      wget -nv "$secondary_url" -O "$filename" || exit 1
+    fi
 }
 
 repo_clone_try_double () {
@@ -81,13 +104,18 @@ repo_clone_try_double () {
     folder_name="$3"
     ref="$4"
     shallow="${5:-false}"
-    echo "Cloning primary from $primary_url secondary from $secondary_url"
     if [ -z "$primary_url" ]; then echo "Primary should not be empty." && exit 1; fi
     if [ -z "$secondary_url" ]; then echo "Secondary should not be empty." && exit 1; fi
     if [ -z "$folder_name" ]; then echo "Clone folder should not be empty." && exit 1; fi
     if [ -z "$ref" ]; then echo "Git clone ref should not be empty." && exit 1; fi
-    # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-    clone "$primary_url" "$folder_name" "$ref" "$shallow" >/dev/null 2>&1 || clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
+    if [[ "$use_cache" == true ]]; then
+      echo "Cloning primary from $primary_url secondary from $secondary_url"
+      # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
+      clone "$primary_url" "$folder_name" "$ref" "$shallow" >/dev/null 2>&1 || clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
+    else
+      echo "Cloning from $secondary_url"
+      clone "$secondary_url" "$folder_name" "$ref" "$shallow" || exit 1
+    fi
 }
 
 # List all dependencies.
@@ -129,6 +157,7 @@ declare -A primary_urls=(
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
+  ["strong_type"]="http://$local_cache_host/git/strong_type.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -160,7 +189,8 @@ declare -A secondary_urls=(
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
-  ["mgcxx"]="http://github.com/memgraph/mgcxx.git"
+  ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
+  ["strong_type"]="https://github.com/rollbear/strong_type.git"
 )
 
 # antlr
@@ -303,3 +333,7 @@ popd
 # mgcxx (text search)
 mgcxx_tag="v0.0.6"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+
+# strong_type v14
+strong_type_ref="v14"
+repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
