@@ -22,7 +22,8 @@ TEST(ZlibCompressorTest, CompressDecompressTest) {
   const char *input_str = "Hello, Zlib Compression!";
   size_t input_size = std::strlen(input_str);
 
-  memgraph::utils::DataBuffer compressed = compressor->Compress((uint8_t *)input_str, input_size);
+  memgraph::utils::DataBuffer compressed =
+      compressor->Compress(reinterpret_cast<const uint8_t *>(input_str), input_size);
   EXPECT_GT(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, input_size);
 
@@ -36,9 +37,10 @@ TEST(ZlibCompressorTest, CompressDecompressTest) {
 TEST(ZlibCompressorTest, CompressEmptyDataTest) {
   memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
 
-  std::vector<uint8_t> input_data = {};
+  std::string input_data;
 
-  memgraph::utils::DataBuffer compressed = compressor->Compress(input_data.data(), input_data.size());
+  memgraph::utils::DataBuffer compressed =
+      compressor->Compress(reinterpret_cast<const uint8_t *>(input_data.data()), input_data.size());
   EXPECT_EQ(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, 0);
 
@@ -52,13 +54,13 @@ TEST(ZlibCompressorTest, IsCompressedTest) {
 
   const char *input_str = "Hello, Zlib Compression!";
   size_t input_size = std::strlen(input_str);
-  std::vector<uint8_t> input_data(input_str, input_str + input_size);
 
-  memgraph::utils::DataBuffer compressed = compressor->Compress(input_data.data(), input_size);
+  memgraph::utils::DataBuffer compressed =
+      compressor->Compress(reinterpret_cast<const uint8_t *>(input_str), input_size);
   EXPECT_TRUE(compressor->IsCompressed(compressed.data, compressed.compressed_size));
 
   // Test with uncompressed data
-  EXPECT_FALSE(compressor->IsCompressed(input_data.data(), input_data.size()));
+  EXPECT_FALSE(compressor->IsCompressed((uint8_t *)input_str, input_size));
 }
 
 TEST(ZlibCompressorTest, LargeDataTest) {
@@ -67,7 +69,8 @@ TEST(ZlibCompressorTest, LargeDataTest) {
   const size_t LARGE_DATA_SIZE = 100000;
   std::string input_data(LARGE_DATA_SIZE, 'A');
 
-  memgraph::utils::DataBuffer compressed = compressor->Compress((uint8_t *)input_data.data(), input_data.size());
+  memgraph::utils::DataBuffer compressed =
+      compressor->Compress(reinterpret_cast<const uint8_t *>(input_data.data()), LARGE_DATA_SIZE);
   EXPECT_GT(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, LARGE_DATA_SIZE);
 

@@ -1492,7 +1492,7 @@ bool PropertyStore::IsCompressed() const {
   uint32_t size = 0;
   uint8_t *data = nullptr;
   std::tie(size, data) = GetSizeData(buffer_);
-  bool in_local_buffer = size % 8 != 0;
+  const bool in_local_buffer = size % 8 != 0;
   if (in_local_buffer || size == 0) {
     return false;
   }
@@ -1907,7 +1907,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
 }
 
 void PropertyStore::CompressBuffer() {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  const BufferInfo buffer_info = GetBufferInfo(buffer_);
   if (buffer_info.size == 0 || buffer_info.in_local_buffer) {
     return;
   }
@@ -1931,7 +1931,7 @@ void PropertyStore::CompressBuffer() {
   memcpy(data, &compressed_buffer.original_size, sizeof(uint32_t));
 
   // next byte is the mod before power of 8
-  uint8_t mod = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
+  const uint8_t mod = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
   data[sizeof(uint32_t)] = mod;
 
   // the rest of the buffer is the compressed data
@@ -1950,7 +1950,7 @@ utils::DataBuffer PropertyStore::DecompressBuffer() const {
   uint32_t original_size = 0;
   memcpy(&original_size, data, sizeof(uint32_t));
 
-  uint32_t mod = data[sizeof(uint32_t)];
+  const uint8_t mod = data[sizeof(uint32_t)];
   auto compressed_size =
       (mod != 0)
           ? (size - 8 + mod)
