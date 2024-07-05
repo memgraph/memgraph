@@ -179,7 +179,8 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
     old_config = state_manager_->load_config();
     auto const c2c =
         CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
-                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346}, "localhost"};
+                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346},
+                                       memgraph::io::network::Endpoint("0.0.0.0", 20223), "localhost"};
     auto temp_srv_config =
         cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
     // second coord stored here

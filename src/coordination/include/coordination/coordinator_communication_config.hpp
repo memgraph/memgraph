@@ -158,7 +158,8 @@ struct ManagementServerConfig {
 
   io::network::Endpoint endpoint;
   std::optional<SSL> ssl;
-
+  explicit ManagementServerConfig(io::network::Endpoint endpoint, std::optional<SSL> ssl = std::nullopt)
+      : endpoint(std::move(endpoint)), ssl(std::move(ssl)) {}
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
