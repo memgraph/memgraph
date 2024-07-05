@@ -2155,6 +2155,8 @@ struct UsingStatement {
   std::vector<memgraph::query::IndexHint> index_hints_;
   /// Hops limit
   memgraph::query::Expression *hops_limit_{nullptr};
+  /// Commit frequency
+  memgraph::query::Expression *commit_frequency_{nullptr};
 
   UsingStatement Clone(AstStorage *storage) const {
     UsingStatement object;
@@ -2163,6 +2165,7 @@ struct UsingStatement {
       object.index_hints_[i] = index_hints_[i].Clone(storage);
     }
     object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
+    object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -2191,6 +2194,8 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::SingleQuery *single_query_{nullptr};
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
+  /// Commit frequency
+  memgraph::query::Expression *commit_frequency_{nullptr};
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
@@ -2204,6 +2209,8 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
       object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
     }
+    object->commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
+
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->using_statement_ = using_statement_.Clone(storage);

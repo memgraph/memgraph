@@ -242,6 +242,16 @@ antlrcpp::Any CypherMainVisitor::visitUsingStatement(MemgraphCypher::UsingStatem
                       .label_ = label,
                       .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
       }
+    } else if (auto *periodic_commit = using_statement_item->periodicCommit()) {
+      auto periodic_commit_number = periodic_commit->periodicCommitNumber;
+      if (!periodic_commit_number->numberLiteral()) {
+        throw SyntaxException("Periodic commit should be a number variable.");
+      }
+      if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+        throw SyntaxException("Periodic commit should be an integer.");
+      }
+
+      using_statement.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
     } else {
       if (using_statement.hops_limit_) {
         throw SemanticException("Hops limit can be set only once in the USING statement.");
