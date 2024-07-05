@@ -120,33 +120,16 @@ class MemoryDispatcher final {
   MemoryDispatcher &operator=(const MemoryDispatcher &) = delete;
   MemoryDispatcher &operator=(MemoryDispatcher &&) = delete;
 
-  mgp_memory *GetMemoryResource() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::shared_lock lock(mut_);
-    return map_[this_id];
-  }
+  mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-  void Register(mgp_memory *mem) noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::unique_lock lock(mut_);
-    map_[this_id] = mem;
-  }
+  void Register(mgp_memory *mem) noexcept { current_memory = mem; }
 
-  void UnRegister() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::unique_lock lock(mut_);
-    map_.erase(this_id);
-  }
+  void UnRegister() noexcept { current_memory.reset(); }
 
-  bool IsThisThreadRegistered() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::shared_lock lock(mut_);
-    return map_.contains(this_id);
-  }
+  bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 
  private:
-  std::unordered_map<std::thread::id, mgp_memory *> map_;
-  std::shared_mutex mut_;
+  static thread_local std::optional<mgp_memory *> current_memory;
 };
 
 // The use of this object, with the help of MemoryDispatcherGuard

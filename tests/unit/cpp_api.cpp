@@ -24,6 +24,8 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
 
+thread_local std::optional<mgp_memory *> mgp::MemoryDispatcher::current_memory;
+
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:

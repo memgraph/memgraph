@@ -1384,8 +1384,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
 
-std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const mgp_func &func, const std::string &fully_qualified_name) {
+auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
     const auto &maybe_found =
@@ -1399,27 +1398,26 @@ std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContex
     // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
     const auto &module_ptr = (*maybe_found).first;
 
-    const auto &func_cb = func.cb;
-    mgp_memory memory{ctx.memory};
-    mgp_func_context functx{ctx.db_accessor, ctx.view};
-    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-
     std::vector<TypedValue> args_list;
     args_list.reserve(nargs);
     for (std::size_t i = 0; i < nargs; ++i) {
       args_list.emplace_back(args[i]);
     }
 
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
     auto function_argument_list = mgp_list(ctx.memory);
     procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
 
     mgp_func_result maybe_res;
-    func_cb(&function_argument_list, &functx, &maybe_res, &memory);
-    if (maybe_res.error_msg) {
+
+    mgp_memory memory{ctx.memory};
+    mgp_func_context functx{ctx.db_accessor, ctx.view};
+    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
     }
 
-    if (!maybe_res.value) {
+    if (!maybe_res.value) [[unlikely]] {
       throw QueryRuntimeException(
           "Function '{}' didn't set the result nor the error message. Please either set the result by using "
           "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
