@@ -101,8 +101,6 @@ class MemgraphInstanceRunner:
         return data
 
     def execute_setup_queries(self, conn, setup_queries):
-        if setup_queries is None:
-            return
         conn.autocommit = True
         cursor = conn.cursor()
         for query_coll in setup_queries:
@@ -143,11 +141,11 @@ class MemgraphInstanceRunner:
             self.bolt_port = extract_bolt_port(args_mg)
         self.proc_mg = subprocess.Popen(args_mg)
         log.info(f"Subprocess started with args {args_mg}")
-        conn = self.wait_for_succesful_connection(ignore_auth_failure=skip_auth)
-        log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        if not skip_auth:
+        if not skip_auth and setup_queries is not None:
+            conn = self.wait_for_succesful_connection(ignore_auth_failure=skip_auth)
             self.execute_setup_queries(conn, setup_queries)
         assert self.is_running(), "The Memgraph process died!"
+        log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
 
     def is_running(self):
         if self.proc_mg is None:
