@@ -2194,8 +2194,6 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::SingleQuery *single_query_{nullptr};
   /// Contains remaining queries that should form and union with `single_query_`.
   std::vector<memgraph::query::CypherUnion *> cypher_unions_;
-  /// Commit frequency
-  memgraph::query::Expression *commit_frequency_{nullptr};
   /// Memory limit
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
@@ -2209,8 +2207,6 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
       object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
     }
-    object->commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
-
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->pre_query_directives_ = pre_query_directives_.Clone(storage);
