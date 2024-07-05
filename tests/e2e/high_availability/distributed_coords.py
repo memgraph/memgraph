@@ -3327,8 +3327,6 @@ if __name__ == "__main__":
             [
                 __file__,
                 "-rA",
-                "--log-cli-level=DEBUG",
-                "--capture=tee-sys",
             ]
         )
     )

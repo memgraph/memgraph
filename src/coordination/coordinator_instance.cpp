@@ -346,7 +346,7 @@ auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
       auto all_coordinators = raft_state_->GetCoordinatorInstances();
 
       auto coord = std::ranges::find_if(all_coordinators,
-                                        [leader_id](auto const &coord) { return coord.coordinator_id == leader_id; });
+                                        [leader_id](auto &&coord) { return coord.coordinator_id == leader_id; });
 
       MG_ASSERT(coord != all_coordinators.end());
       spdlog::trace("Creating new connector for leader with id {}, endpoint {}", leader_id,

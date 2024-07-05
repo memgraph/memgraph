@@ -161,8 +161,6 @@ class MemgraphInstanceRunner:
             return
 
         pid = self.proc_mg.pid
-        args = "".join(self.args)
-        print(f"Stopping Memgraph instance {args}")
         try:
             os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
