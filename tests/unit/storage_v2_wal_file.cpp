@@ -39,8 +39,10 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
   switch (operation) {
     add_case(LABEL_INDEX_CREATE);
     add_case(LABEL_INDEX_DROP);
-    add_case(EDGE_TYPE_INDEX_CREATE);
-    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(EDGE_INDEX_CREATE);
+    add_case(EDGE_INDEX_DROP);
+    add_case(EDGE_PROPERTY_INDEX_CREATE);
+    add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(LABEL_INDEX_STATS_SET);
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_PROPERTY_INDEX_CREATE);
@@ -298,11 +300,19 @@ class DeltaGenerator final {
         });
         break;
       }
-      case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-      case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP: {
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP: {
         ASSERT_TRUE(edge_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeEdgeTypeIndex(encoder, mapper_, *edge_type_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP: {
+        ASSERT_TRUE(edge_type_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEdgeTypePropertyIndex(encoder, mapper_, *edge_type_id, *property_ids.begin());
         });
         break;
       }
@@ -394,9 +404,14 @@ class DeltaGenerator final {
           data.operation_text.index_name = name;
           data.operation_text.label = label;
           break;
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP:
           data.operation_edge_type.edge_type = edge_type;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP:
+          data.operation_edge_type_property.edge_type = edge_type;
+          data.operation_edge_type_property.property = *properties.begin();
           break;
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
           data.operation_enum_create.etype = enum_type;
@@ -668,6 +683,12 @@ GENERATE_SIMPLE_TEST(TransactionsWithOperation10_, {
 });
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(TransactionsWithOperation11_, {
+  TRANSACTION(true, { tx.CreateVertex(); });
+  TRANSACTION(true, { tx.CreateVertex(); });
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
+});
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(TransactionsWithOperation12_, {
   TRANSACTION(true, { tx.CreateVertex(); });
   TRANSACTION(true, { tx.CreateVertex(); });
   OPERATION_TX(LABEL_INDEX_CREATE, "hello");

@@ -146,6 +146,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) override;
 
   /**
+   * @return UsingStatement*
+   */
+  antlrcpp::Any visitUsingStatement(MemgraphCypher::UsingStatementContext *ctx) override;
+
+  /**
    * @return IndexQuery*
    */
   antlrcpp::Any visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) override;
@@ -556,6 +561,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitSetPassword(MemgraphCypher::SetPasswordContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitChangePassword(MemgraphCypher::ChangePasswordContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -1120,6 +1130,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AlterEnumUpdateValueQuery*
    */
   antlrcpp::Any visitAlterEnumUpdateValueQuery(MemgraphCypher::AlterEnumUpdateValueQueryContext *ctx) override;
+
+  /**
+   * @return AlterEnumRemoveValueQuery*
+   */
+  antlrcpp::Any visitAlterEnumRemoveValueQuery(MemgraphCypher::AlterEnumRemoveValueQueryContext *ctx) override;
+
+  /**
+   * @return DropEnumQuery*
+   */
+  antlrcpp::Any visitDropEnumQuery(MemgraphCypher::DropEnumQueryContext *ctx) override;
 
  public:
   Query *query() { return query_; }

@@ -1,0 +1,7 @@
+cryptography==3.4.8
+PyJWT==2.3.0
+requests==2.32.2
+ldap3==2.6
+pyyaml==6.0.1
+python3-saml==1.16.0
+lxml==5.2.1

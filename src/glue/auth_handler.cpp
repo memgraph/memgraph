@@ -354,6 +354,25 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
   }
 }
 
+void AuthQueryHandler::ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
+                                      const std::optional<std::string> &newPassword, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+    if (user->CheckPassword(*oldPassword)) {
+      locked_auth->UpdatePassword(*user, newPassword);
+      locked_auth->SaveUser(*user, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("Old password is not corrrect.");
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
 bool AuthQueryHandler::CreateRole(const std::string &rolename, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();

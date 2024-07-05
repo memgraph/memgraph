@@ -19,6 +19,8 @@ COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 # Install memgraph package
 RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"
 
+RUN pip3 install --no-cache-dir --break-system-packages -r /usr/lib/memgraph/auth_module/requirements.txt
+
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687
 # Snapshots and logging volumes

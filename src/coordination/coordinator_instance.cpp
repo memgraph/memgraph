@@ -344,6 +344,15 @@ auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
 
   auto const instances = raft_state_->GetReplicationInstances();
 
+  // There is nothing to do if we don't have any instances
+  if (instances.empty()) {
+    if (!raft_state_->AppendCloseLock()) {
+      spdlog::error("Aborting force reset as we failed to close lock on action.");
+      return ForceResetClusterStateStatus::FAILED_TO_CLOSE_LOCK;
+    }
+    return ForceResetClusterStateStatus::SUCCESS;
+  }
+
   // To each instance we send RPC
   // If RPC fails we consider instance dead
   // Otherwise we consider instance alive

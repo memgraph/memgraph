@@ -488,7 +488,7 @@ class Memgraph(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_recover_on_startup=True, **self._vendor_args)
+        self._start(data_recovery_on_startup=True, **self._vendor_args)
 
     def stop_db(self, workload):
         if self._performance_tracking:
@@ -815,7 +815,7 @@ class MemgraphDocker(BaseRunner):
                 self._bolt_port + ":" + self._bolt_port,
                 "memgraph/memgraph:2.7.0",
                 "--storage_wal_enabled=false",
-                "--storage_recover_on_startup=true",
+                "--data_recovery_on_startup=true",
                 "--storage_snapshot_interval_sec",
                 "0",
             ]

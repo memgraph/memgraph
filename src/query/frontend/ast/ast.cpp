@@ -178,6 +178,11 @@ constexpr utils::TypeInfo query::CypherUnion::kType{utils::TypeId::AST_CYPHER_UN
 
 constexpr utils::TypeInfo query::Query::kType{utils::TypeId::AST_QUERY, "Query", &query::Tree::kType};
 
+constexpr utils::TypeInfo query::IndexHint::kType{utils::TypeId::AST_INDEX_HINT, "IndexHint", &query::Tree::kType};
+
+constexpr utils::TypeInfo query::UsingStatement::kType{utils::TypeId::AST_USING_STATEMENT, "UsingStatement",
+                                                       &query::Tree::kType};
+
 constexpr utils::TypeInfo query::CypherQuery::kType{utils::TypeId::AST_CYPHER_QUERY, "CypherQuery",
                                                     &query::Query::kType};
 
@@ -325,5 +330,11 @@ constexpr utils::TypeInfo query::AlterEnumAddValueQuery::kType{utils::TypeId::AS
 
 constexpr utils::TypeInfo query::AlterEnumUpdateValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_UPDATE_VALUE_QUERY,
                                                                   "AlterEnumUpdateValueQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::AlterEnumRemoveValueQuery::kType{utils::TypeId::AST_ALTER_ENUM_REMOVE_VALUE_QUERY,
+                                                                  "AlterEnumRemoveValueQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::DropEnumQuery::kType{utils::TypeId::AST_DROP_ENUM_QUERY, "DropEnumQuery",
+                                                      &query::Query::kType};
 
 }  // namespace memgraph

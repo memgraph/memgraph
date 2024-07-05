@@ -225,12 +225,12 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if (lower_bound && (!PropertyValue::AreComparableTypes(value.type(), lower_bound->value().type()) ||
-                      value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
+  if (lower_bound && (!AreComparableTypes(value.type(), lower_bound->value().type()) || value < lower_bound->value() ||
+                      (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if (upper_bound && (!PropertyValue::AreComparableTypes(value.type(), upper_bound->value().type()) ||
-                      value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
+  if (upper_bound && (!AreComparableTypes(value.type(), upper_bound->value().type()) || value > upper_bound->value() ||
+                      (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }
   return true;
@@ -298,8 +298,7 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
                                         StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode,
-               memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
+    : Accessor(tag, storage, isolation_level, storage_mode) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -822,12 +821,22 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, View /*
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->vertex_count_.load(std::memory_order_acquire);
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId /*edge_type*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return 0U;
+}
+
+uint64_t DiskStorage::DiskAccessor::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
@@ -862,10 +871,10 @@ StorageInfo DiskStorage::GetBaseInfo() {
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+StorageInfo DiskStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);
+    auto access = Access();
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -1456,8 +1465,8 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 
 std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex,
                                                 const std::vector<EdgeTypeId> &edge_types,
-                                                const VertexAccessor *destination, Transaction *transaction,
-                                                View view) {
+                                                const VertexAccessor *destination, Transaction *transaction, View view,
+                                                query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && src_vertex->vertex_->deleted) return {};
 
@@ -1479,6 +1488,10 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   std::vector<EdgeAccessor> result;
   auto out_edges = utils::Split(out_edges_str, ",");
   for (const std::string &edge_gid_str : out_edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->IncrementHopsCount(1);
+      if (hops_limit->IsLimitReached()) break;
+    }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
@@ -1521,7 +1534,7 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
-                                               Transaction *transaction, View view) {
+                                               Transaction *transaction, View view, query::HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
   if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
 
@@ -1543,6 +1556,10 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   auto in_edges = utils::Split(in_edges_str, ",");
   std::vector<EdgeAccessor> result;
   for (const std::string &edge_gid_str : in_edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->IncrementHopsCount(1);
+      if (hops_limit->IsLimitReached()) break;
+    }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
@@ -1658,8 +1675,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE: {
+        case MetadataDelta::Action::EDGE_INDEX_CREATE: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
@@ -1673,8 +1694,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
-        case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
+        case MetadataDelta::Action::EDGE_INDEX_DROP: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
@@ -1854,7 +1879,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
-    PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
+    PropertyStore const property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
         utils::Contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
@@ -1991,6 +2016,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/,
+                                                                                             PropertyId /*property*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2020,6 +2051,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                           PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
@@ -2088,8 +2125,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 void DiskStorage::DiskAccessor::DropGraph() {}
 
-Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                           memgraph::replication_coordination_glue::ReplicationRole /*is_main*/) {
+Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
@@ -2109,9 +2145,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(
-    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
-    std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -2119,9 +2153,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
 }
-std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
-    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
-    std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -2135,6 +2167,11 @@ bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) co
   return false;
 }
 
+bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2144,6 +2181,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   return {disk_label_index->ListIndices(),
           disk_label_property_index->ListIndices(),
           {/* edge type indices */},
+          {/* edge_type_property */},
           text_index.ListIndices()};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {

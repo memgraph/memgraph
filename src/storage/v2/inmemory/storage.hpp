@@ -15,8 +15,6 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-
-#include "absl/container/flat_hash_set.h"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -78,8 +76,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode,
-                              memgraph::replication_coordination_glue::ReplicationRole replication_role);
+                              StorageMode storage_mode);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -115,6 +112,8 @@ class InMemoryStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
+
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;
 
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
@@ -156,6 +155,11 @@ class InMemoryStorage final : public Storage {
 
     uint64_t ApproximateEdgeCount(EdgeTypeId id) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(id);
+    }
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
+          edge_type, property);
     }
 
     template <typename TResult, typename TIndex, typename TIndexKey>
@@ -221,6 +225,11 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->IndexExists(edge_type);
     }
 
+    bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
+                                                                                                       property);
+    }
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
@@ -266,6 +275,15 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
 
+    /// Create an index.
+    /// Returns void if the index has been created.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index already exists.
+    /// @throw std::bad_alloc
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
+                                                                      PropertyId property) override;
+
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -286,6 +304,13 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+
+    /// Drop an existing index.
+    /// Returns void if the index has been dropped.
+    /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
+    /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
+    /// * `IndexDefinitionError`: the index does not exist.
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -341,8 +366,7 @@ class InMemoryStorage final : public Storage {
     /// Duiring commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
-    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges,
-                             absl::flat_hash_set<LabelId> &modified_labels);
+    void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges);
     SalientConfig::Items config_;
   };
 
@@ -364,11 +388,9 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
-                                   std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) override;
   using Storage::UniqueAccess;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role,
-                                         std::optional<IsolationLevel> override_isolation_level) override;
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) override;
 
   void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) override;
 
@@ -381,8 +403,7 @@ class InMemoryStorage final : public Storage {
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
-  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
   void SetStorageMode(StorageMode storage_mode);
 
@@ -407,11 +428,34 @@ class InMemoryStorage final : public Storage {
   void FinalizeWalFile();
 
   StorageInfo GetBaseInfo() override;
-  StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) override;
+  StorageInfo GetInfo() override;
 
   /// Return true in all cases except if any sync replicas have not sent confirmation.
   [[nodiscard]] bool AppendToWal(const Transaction &transaction, uint64_t durability_commit_timestamp,
                                  DatabaseAccessProtector db_acc);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
+                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
+                                 std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, uint64_t final_commit_timestamp,
+                                 std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label, LabelIndexStats stats,
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation, LabelId label,
+                                 const std::set<PropertyId> &properties, LabelPropertyIndexStats property_stats,
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 const std::set<PropertyId> &properties, LabelIndexStats stats,
+                                 LabelPropertyIndexStats property_stats, uint64_t final_commit_timestamp,
+                                 std::span<std::optional<ReplicaStream>> streams);
+  void AppendToWalDataDefinition(durability::StorageMetadataOperation operation,
+                                 const std::optional<std::string> text_index_name, LabelId label,
+                                 uint64_t final_commit_timestamp, std::span<std::optional<ReplicaStream>> streams);
 
   uint64_t GetCommitTimestamp();
 

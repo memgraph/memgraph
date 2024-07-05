@@ -23,6 +23,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
+#include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 
 /// REPLICATION ///
@@ -37,7 +38,10 @@
 
 #include <mutex>
 #include <ranges>
-#include <unordered_set>
+
+namespace memgraph::metrics {
+extern const Event PeakMemoryRes;
+}  // namespace memgraph::metrics
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
@@ -62,8 +66,10 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
     add_case(LABEL_PROPERTY_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
-    add_case(EDGE_TYPE_INDEX_CREATE);
-    add_case(EDGE_TYPE_INDEX_DROP);
+    add_case(EDGE_INDEX_CREATE);
+    add_case(EDGE_INDEX_DROP);
+    add_case(EDGE_PROPERTY_INDEX_CREATE);
+    add_case(EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
@@ -235,11 +241,9 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(
-    auto tag, InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role)
-    : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
-      config_(storage->config_.salient.items) {}
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                                                    StorageMode storage_mode)
+    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -642,11 +646,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
     to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
-
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
                                                   edge_type, transaction_);
+
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+      mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
+                                                             edge_ref, edge_type, prop, transaction_);
+    }
 
     if (config_.enable_edges_metadata) {
       in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
@@ -759,6 +769,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
                                                   edge_type, transaction_);
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+      mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
+                                                             edge_ref, edge_type, prop, transaction_);
+    }
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
@@ -862,6 +878,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
 
+    // ExistenceConstraints validation block
     if (transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
@@ -889,6 +906,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     {
       auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
+      // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
           for (auto &label : label_indices) {
@@ -897,6 +915,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // auto-created index on a specific label, we only build the index
             // when the last one commits.
             if (label.second == 0) {
+              // TODO: (andi) Handle auto-creation issue
               CreateIndex(label.first, false);
               label_indices.erase(label.first);
             }
@@ -904,6 +923,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         });
       }
 
+      // EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
           for (auto &edge_type : edge_type_indices) {
@@ -912,6 +932,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // auto-created index on a specific edge-type, we only build the index
             // when the last one commits.
             if (edge_type.second == 0) {
+              // TODO: (andi) Handle silent failure
               CreateIndex(edge_type.first, false);
               edge_type_indices.erase(edge_type.first);
             }
@@ -1022,16 +1043,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
-                                                            std::list<Gid> &current_deleted_edges,
-                                                            absl::flat_hash_set<LabelId> &modified_labels) {
+                                                            std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
     auto delta_size = deltas.size();
     for (auto &delta : deltas) {
-      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
-        modified_labels.insert(delta.label.value);
-      }
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::NULLPTR:
@@ -1044,7 +1061,6 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
           if (vertex.deleted) {
             DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
             current_deleted_vertices.push_back(vertex.gid);
-            modified_labels.insert(vertex.labels.cbegin(), vertex.labels.cend());
           }
           break;
         }
@@ -1096,19 +1112,18 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   // STEP 1 + STEP 2
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  absl::flat_hash_set<LabelId> modified_labels;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, modified_labels);
+  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
   // STEP 3) skip_list removals
   if (!current_deleted_vertices.empty()) {
-    // 3.a) clear from indexes first
-    std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
+    // 3.a) clear from vertex indexes first
+    const std::stop_source dummy;
+    mem_storage->indices_.RemoveObsoleteVertexEntries(oldest_active_timestamp, dummy.get_token());
     auto *mem_unique_constraints =
         static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token(), modified_labels);
+    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
 
-    // 3.b) remove from veretex skip_list
+    // 3.b) remove from vertex skip_list
     auto vertex_acc = mem_storage->vertices_.access();
     for (auto gid : current_deleted_vertices) {
       vertex_acc.remove(gid);
@@ -1116,7 +1131,10 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_acti
   }
 
   if (!current_deleted_edges.empty()) {
-    // 3.c) remove from edge skip_list
+    // 3.c) clear from edge indexes first
+    const std::stop_source dummy;
+    mem_storage->indices_.RemoveObsoleteEdgeEntries(oldest_active_timestamp, dummy.get_token());
+    // 3.d) remove from edge skip_list
     auto edge_acc = mem_storage->edges_.access();
     auto edge_metadata_acc = mem_storage->edges_metadata_.access();
     for (auto gid : current_deleted_edges) {
@@ -1458,6 +1476,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    EdgeTypeId edge_type, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1495,6 +1526,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    EdgeTypeId edge_type, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  if (!mem_edge_type_property_index->DropIndex(edge_type, property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
 
@@ -1594,6 +1638,12 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
   return EdgesIterable(mem_edge_type_index->Edges(edge_type, view, storage_, &transaction_));
 }
 
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
+  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, view, storage_, &transaction_));
+}
+
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
   using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1650,9 +1700,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   return edge_accessor_from_info(maybe_edge_info);
 }
 
-Transaction InMemoryStorage::CreateTransaction(
-    IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -1773,9 +1821,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   std::list<Gid> current_deleted_edges;
   std::list<Gid> current_deleted_vertices;
 
-  // We will collect all labels that were modified in this GC cycle so we can delete them from indices
-  absl::flat_hash_set<LabelId> modified_labels;
-
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
 
@@ -1834,9 +1879,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // The chain can be only read without taking any locks.
 
     for (Delta &delta : linked_entry->deltas_) {
-      if (delta.action == Delta::Action::ADD_LABEL || delta.action == Delta::Action::REMOVE_LABEL) {
-        modified_labels.insert(delta.label.value);
-      }
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1852,7 +1894,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             if (vertex->deleted) {
               DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
-              modified_labels.insert(vertex->labels.cbegin(), vertex->labels.cend());
             }
             break;
           }
@@ -1955,9 +1996,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // in every index every time.
     auto token = stop_source.get_token();
     if (!token.stop_requested()) {
-      indices_.RemoveObsoleteEntries(oldest_active_start_timestamp, token, modified_labels);
+      indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
+      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token), modified_labels);
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
     }
   }
 
@@ -2074,10 +2116,10 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+StorageInfo InMemoryStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);  // TODO: override isolation level?
+    auto access = Access();  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -2135,6 +2177,115 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
   auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
+
+  // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
+  //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
+  //            For correctness on the REPLICA side we need to send the metadata deltas first in order to acquire a
+  //            unique transaction to apply the index creation safely.
+  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
+    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
+      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
+      encode_operation(encoder);
+    };
+
+    // durability
+    full_encode_operation(wal_file_->encoder());
+    wal_file_->UpdateStats(durability_commit_timestamp);
+    // replication
+    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+  };
+
+  // Handle metadata deltas
+  for (const auto &md_delta : transaction.md_deltas) {
+    auto const op = ActionToStorageOperation(md_delta.action);
+    switch (md_delta.action) {
+      case MetadataDelta::Action::LABEL_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_INDEX_DROP: {
+        apply_encode(op,
+                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
+                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
+        });
+        break;
+      }
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEdgeTypePropertyIndex(encoder, *name_id_mapper_, md_delta.edge_type_property.edge_type,
+                                      md_delta.edge_type_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+                              md_delta.label_property.property);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_CREATE:
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
+                                md_delta.label_properties.properties);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_ADD: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
+                                md_delta.enum_alter_update_info.old_value);
+        });
+        break;
+      }
+    }
+  }
 
   auto append_deltas = [&](auto callback) {
     // Helper lambda that traverses the delta chain on order to find the first
@@ -2291,104 +2442,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     });
   }
 
-  auto const apply_encode = [&](durability::StorageMetadataOperation op, auto &&encode_operation) {
-    auto full_encode_operation = [&](durability::BaseEncoder &encoder) {
-      EncodeOperationPreamble(encoder, op, durability_commit_timestamp);
-      encode_operation(encoder);
-    };
-
-    // durability
-    full_encode_operation(wal_file_->encoder());
-    wal_file_->UpdateStats(durability_commit_timestamp);
-    // replication
-    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
-  };
-
-  // Handle metadata deltas
-  for (const auto &md_delta : transaction.md_deltas) {
-    auto const op = ActionToStorageOperation(md_delta.action);
-    switch (md_delta.action) {
-      case MetadataDelta::Action::LABEL_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_INDEX_DROP: {
-        apply_encode(op,
-                     [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
-                                   md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::EDGE_TYPE_INDEX_CREATE:
-      case MetadataDelta::Action::EDGE_TYPE_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEdgeTypeIndex(encoder, *name_id_mapper_, md_delta.edge_type);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
-                              md_delta.label_property.property);
-        });
-        break;
-      }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelStats(encoder, *name_id_mapper_, md_delta.label_stats.label, md_delta.label_stats.stats);
-        });
-        break;
-      }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE:
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
-        });
-        break;
-      }
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_CREATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_ADD: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterAdd(encoder, enum_store_, md_delta.enum_alter_add_info.value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
-                                md_delta.enum_alter_update_info.old_value);
-        });
-        break;
-      }
-    }
-  }
-
   // Add a delta that indicates that the transaction is fully written to the WAL
+  // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
+  // before than on main.
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
@@ -2408,10 +2464,9 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other txn can be in play
-      return UniqueAccess(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
-    } else {
-      return Access(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
+      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
     }
+    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
   utils::Timer timer;
@@ -2465,19 +2520,14 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
     std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(
@@ -2510,9 +2560,11 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices(),
-          text_index.ListIndices()};
+          mem_edge_type_property_index->ListIndices(), text_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
