@@ -5033,7 +5033,9 @@ TEST_P(CypherMainVisitorTest, PeriodicCommitQuery) {
 
   { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
 
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+
   {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
   }
 }

@@ -1280,4 +1280,6 @@ std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Ex
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
 
+std::optional<size_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *commit_frequency);
+
 }  // namespace memgraph::query
