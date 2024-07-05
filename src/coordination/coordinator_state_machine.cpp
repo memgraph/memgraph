@@ -183,10 +183,11 @@ auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate 
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::optional<std::pair<TRaftLog, RaftLogAction>> {
   buffer_serializer bs(data);
-  if (bs.get_str().empty()) {
+  std::string const log_str = bs.get_str();
+  if (log_str.empty()) {
     return std::nullopt;
   }
-  auto const json = nlohmann::json::parse(bs.get_str());
+  auto const json = nlohmann::json::parse(log_str);
   auto const action = json["action"].get<RaftLogAction>();
   auto const &info = json.at("info");
 

@@ -314,8 +314,8 @@ bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t
   auto clone_val = static_cast<int>(clone->get_val_type());
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
-  std::string log_term_str = log_term_json.dump();
-  std::string key = fmt::format("{}{}", kLogEntryPrefix, key_id);
+  auto const log_term_str = log_term_json.dump();
+  auto const key = fmt::format("{}{}", kLogEntryPrefix, key_id);
   durability_->Put(key, log_term_str);
 
   if (is_newest_entry) {
