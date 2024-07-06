@@ -14,17 +14,6 @@
 #include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
-#include <cstring>
-#include <iostream>
-#include <string_view>
-#include <vector>
-#include "spdlog/spdlog.h"
-
-#define ZLIB_HEADER 0x78
-#define ZLIB_LOW_COMPRESSION 0x01
-#define ZLIB_FAST_COMPRESSION 0x5E
-#define ZLIB_DEFAULT_COMPRESSION 0x9C
-#define ZLIB_BEST_COMPRESSION 0xDA
 
 namespace memgraph::utils {
 
