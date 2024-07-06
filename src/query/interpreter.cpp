@@ -4066,22 +4066,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
                              TypedValue(static_cast<int64_t>(metric.value))});
         }
-        std::ranges::sort(results.begin(), results.end(), [](const auto &record_1, const auto &record_2) {
-          const auto type_1 = record_1[1].ValueString();
-          const auto type_2 = record_2[1].ValueString();
-
-          if (type_1 != type_2) {
-            return type_1 < type_2;
-          }
-
-          const auto event_type_1 = record_1[2].ValueString();
-          const auto event_type_2 = record_2[2].ValueString();
-
-          if (event_type_1 != event_type_2) {
-            return event_type_1 < event_type_2;
-          }
-
-          return record_1[0].ValueString() < record_2[0].ValueString();
+        std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
+          auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
+          auto const key_2 = std::tie(record_2[1].ValueString(), record_2[2].ValueString(), record_2[0].ValueString());
+          return key_1 < key_2;
         });
         return std::pair{results, QueryHandlerResult::COMMIT};
       };

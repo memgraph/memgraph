@@ -109,7 +109,7 @@ std::vector<EventInfo> Storage::GetMetrics() noexcept {
     auto const &histogram = metrics::global_histograms[i];
 
     for (auto &[percentile, value] : histogram.YieldPercentiles()) {
-      auto metric_name = fmt::format("{0}_{1}p", std::string(name), std::to_string(percentile));
+      auto metric_name = fmt::format("{0}_{1}p", name, std::to_string(percentile));
       result.emplace_back(std::move(metric_name), metrics::GetHistogramType(i), kHistogramName, value);
     }
   }
