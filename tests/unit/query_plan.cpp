@@ -2456,4 +2456,20 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex5) {
             ExpectFilter(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, PeriodicCommitQuery) {
+  // Test USING PERIODIC COMMIT 10 UNWIND range(1, 100) as x MATCH (n) RETURN n;
+  FakeDbAccessor dba;
+
+  auto *query = PERIODIC_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")), COMMIT_FREQUENCY(LITERAL(10)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // CheckPlan(planner.plan(), symbol_table,
+  //           ExpectScanAllByLabelPropertyRange(label, property.second,
+  //                                             Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
+  //                                             Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
+  //           ExpectFilter(), ExpectProduce());
+}
+
 }  // namespace

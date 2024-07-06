@@ -109,6 +109,10 @@ struct OnCreate {
   std::vector<Clause *> set;
 };
 
+struct CommitFrequency {
+  Expression *expression = nullptr;
+};
+
 // Helper functions for filling the OrderBy with expressions.
 auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering = Ordering::ASC) {
   order_by.expressions.push_back({ordering, expression});
@@ -311,6 +315,17 @@ auto GetQuery(AstStorage &storage, SingleQuery *single_query, T *...cypher_union
   auto *query = storage.Create<CypherQuery>();
   query->single_query_ = single_query;
   query->cypher_unions_ = std::vector<CypherUnion *>{cypher_unions...};
+  return query;
+}
+
+auto GetPeriodicQuery(AstStorage &storage, SingleQuery *single_query, CommitFrequency commit_frequency) {
+  auto *query = storage.Create<CypherQuery>();
+  PreQueryDirectives pre_query_directives;
+
+  query->single_query_ = single_query;
+  query->pre_query_directives_ = pre_query_directives;
+  query->pre_query_directives_.commit_frequency_ = commit_frequency.expression;
+
   return query;
 }
 
@@ -584,6 +599,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
                                               std::vector<memgraph::query::PropertyIx>{(property)})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
+#define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   memgraph::query::test_common::GetSingleQuery(this->storage.template Create<SingleQuery>(), __VA_ARGS__)
 #define UNION(...) \
@@ -656,3 +672,5 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)
+#define COMMIT_FREQUENCY(expr) \
+  memgraph::query::test_common::CommitFrequency { (expr) }
