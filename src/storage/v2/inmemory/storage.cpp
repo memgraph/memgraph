@@ -43,11 +43,6 @@ namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
 }  // namespace memgraph::metrics
 
-namespace memgraph::metrics {
-extern const Event PeakMemoryRes;
-extern const Event UnreleasedDeltaObjects;
-}  // namespace memgraph::metrics
-
 namespace memgraph::storage {
 
 namespace {

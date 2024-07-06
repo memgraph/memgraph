@@ -4050,7 +4050,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       header = {"name", "type", "metric type", "value"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
         auto const info = storage->GetBaseInfo();
-        auto const metrics_info = storage->GetMetrics();
+        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
         std::vector<std::vector<TypedValue>> results;
         results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
                            TypedValue(static_cast<int64_t>(info.vertex_count))});
