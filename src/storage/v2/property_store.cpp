@@ -1757,7 +1757,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   if (FLAGS_storage_property_store_compression_enabled && !in_local_buffer) {
-    CompressBuffer();
+    CompressBuffer(data, size);
   }
 
   return !existed;
@@ -1820,7 +1820,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   }
 
   if (FLAGS_storage_property_store_compression_enabled && buffer_[0] != kUseLocalBuffer) {
-    CompressBuffer();
+    CompressBuffer(data, size);
   }
 
   return true;
@@ -1906,36 +1906,35 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   }
 }
 
-void PropertyStore::CompressBuffer() {
-  const BufferInfo buffer_info = GetBufferInfo(buffer_);
-  if (buffer_info.size == 0 || buffer_info.in_local_buffer) {
+void PropertyStore::CompressBuffer(const uint8_t *data, uint32_t size) {
+  if (size == 0) {  // we don't have any data to compress
     return;
   }
 
   auto *compressor = utils::ZlibCompressor::GetInstance();
-  auto compressed_buffer = compressor->Compress(buffer_info.data, buffer_info.size);
+  auto compressed_buffer = compressor->Compress(data, size);
   if (compressed_buffer.data == nullptr) {
     throw PropertyValueException("Failed to compress buffer");
   }
 
   auto compressed_size_to_power_of_8 = ToPowerOf8(compressed_buffer.compressed_size + sizeof(uint32_t) + 1);
-  if (compressed_size_to_power_of_8 >= buffer_info.size) {
+  if (compressed_size_to_power_of_8 >= size) {
     // Compressed buffer is larger than the original buffer, so we don't compress it.
     return;
   }
-  auto *data = new uint8_t[compressed_size_to_power_of_8];
+  auto *compressed_data = new uint8_t[compressed_size_to_power_of_8];
 
   // first 4 bytes are the size of the original buffer
-  memcpy(data, &compressed_buffer.original_size, sizeof(uint32_t));
+  memcpy(compressed_data, &compressed_buffer.original_size, sizeof(uint32_t));
 
   // next byte is the mod before power of 8
   const uint8_t mod = (compressed_buffer.compressed_size + sizeof(uint32_t) + 1) % 8;
-  data[sizeof(uint32_t)] = mod;
+  compressed_data[sizeof(uint32_t)] = mod;
 
   // the rest of the buffer is the compressed data
-  memcpy(data + sizeof(uint32_t) + 1, compressed_buffer.data, compressed_buffer.compressed_size);
+  memcpy(compressed_data + sizeof(uint32_t) + 1, compressed_buffer.data, compressed_buffer.compressed_size);
 
-  SetSizeData(buffer_, compressed_size_to_power_of_8, data);
+  SetSizeData(buffer_, compressed_size_to_power_of_8, compressed_data);
 }
 
 utils::DataBuffer PropertyStore::DecompressBuffer() const {
