@@ -802,7 +802,8 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     MG_ASSERT(single_query, "Expected UNION to have a query");
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
-  return QueryParts{query_parts, distinct};
+
+  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_};
 }
 
 std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {

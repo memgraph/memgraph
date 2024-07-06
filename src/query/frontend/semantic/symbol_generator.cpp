@@ -157,6 +157,22 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   scopes_.back().has_aggregation = false;
 }
 
+// CypherQuery
+
+bool SymbolGenerator::PreVisit(CypherQuery &cypher_query) {
+  bool has_commit_frequency = !!cypher_query.pre_query_directives_.commit_frequency_;
+
+  if (periodic_commit_specified_ && has_commit_frequency) {
+    throw SemanticException("You can specify periodic commit only once during a query!");
+  }
+
+  if (has_commit_frequency) {
+    periodic_commit_specified_ = true;
+  }
+
+  return true;
+}
+
 // Query
 
 bool SymbolGenerator::PreVisit(SingleQuery &) {

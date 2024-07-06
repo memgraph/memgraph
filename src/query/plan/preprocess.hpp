@@ -635,6 +635,8 @@ struct QueryParts {
   std::vector<QueryPart> query_parts = {};
   /// Distinct flag, determined by the query combinator
   bool distinct = false;
+  /// Commit frequency for periodic commit
+  Expression *commit_frequency = nullptr;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.
