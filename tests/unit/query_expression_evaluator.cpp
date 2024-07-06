@@ -68,7 +68,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluatorTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        storage_dba(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
+        storage_dba(db->Access()),
         dba(storage_dba.get()) {}
 
   ~ExpressionEvaluatorTest() override {

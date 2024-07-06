@@ -236,11 +236,9 @@ InMemoryStorage::~InMemoryStorage() {
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
 }
 
-InMemoryStorage::InMemoryAccessor::InMemoryAccessor(
-    auto tag, InMemoryStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role)
-    : Accessor(tag, storage, isolation_level, storage_mode, replication_role),
-      config_(storage->config_.salient.items) {}
+InMemoryStorage::InMemoryAccessor::InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
+                                                    StorageMode storage_mode)
+    : Accessor(tag, storage, isolation_level, storage_mode), config_(storage->config_.salient.items) {}
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
     : Accessor(std::move(other)), config_(other.config_) {}
 
@@ -875,6 +873,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // This is usually done by the MVCC, but it does not handle the metadata deltas
     transaction_.EnsureCommitTimestampExists();
 
+    // ExistenceConstraints validation block
     if (transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
@@ -902,6 +901,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     {
       auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
+      // LabelIndex auto-creation block.
       if (storage_->config_.salient.items.enable_label_index_auto_creation) {
         storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
           for (auto &label : label_indices) {
@@ -910,6 +910,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // auto-created index on a specific label, we only build the index
             // when the last one commits.
             if (label.second == 0) {
+              // TODO: (andi) Handle auto-creation issue
               CreateIndex(label.first, false);
               label_indices.erase(label.first);
             }
@@ -917,6 +918,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         });
       }
 
+      // EdgeIndex auto-creation block.
       if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
         storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
           for (auto &edge_type : edge_type_indices) {
@@ -925,6 +927,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
             // auto-created index on a specific edge-type, we only build the index
             // when the last one commits.
             if (edge_type.second == 0) {
+              // TODO: (andi) Handle silent failure
               CreateIndex(edge_type.first, false);
               edge_type_indices.erase(edge_type.first);
             }
@@ -1039,6 +1042,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+    auto delta_size = deltas.size();
     for (auto &delta : deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1067,8 +1071,10 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         }
       }
     }
+
     // delete deltas
     deltas.clear();
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
   };
 
   // STEP 1) ensure everything in GC is gone
@@ -1163,6 +1169,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
 
+    auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1330,6 +1337,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           break;
       }
     }
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
@@ -1687,9 +1695,7 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   return edge_accessor_from_info(maybe_edge_info);
 }
 
-Transaction InMemoryStorage::CreateTransaction(
-    IsolationLevel isolation_level, StorageMode storage_mode,
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
   // `timestamp`) below.
@@ -2000,7 +2006,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
+
+      size_t total_delta_size = 0;
+      for (const auto &gc_deltas : unlinked_undo_buffers) {
+        total_delta_size += gc_deltas.deltas_.size();
+      }
+      // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
+      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, total_delta_size);
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
@@ -2079,6 +2092,7 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
 
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {
@@ -2097,10 +2111,10 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   return info;
 }
 
-StorageInfo InMemoryStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+StorageInfo InMemoryStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);  // TODO: override isolation level?
+    auto access = Access();  // TODO: override isolation level?
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -2424,6 +2438,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   }
 
   // Add a delta that indicates that the transaction is fully written to the WAL
+  // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
+  // before than on main.
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
@@ -2443,10 +2459,9 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   auto accessor = std::invoke([&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other txn can be in play
-      return UniqueAccess(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
-    } else {
-      return Access(ReplicationRole::MAIN, IsolationLevel::SNAPSHOT_ISOLATION);
+      return UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION);
     }
+    return Access(IsolationLevel::SNAPSHOT_ISOLATION);
   });
 
   utils::Timer timer;
@@ -2500,19 +2515,14 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
-    std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::shared_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role,
     std::optional<IsolationLevel> override_isolation_level) {
-  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::unique_access, this,
-                                                                override_isolation_level.value_or(isolation_level_),
-                                                                storage_mode_, replication_role});
+  return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{
+      Storage::Accessor::unique_access, this, override_isolation_level.value_or(isolation_level_), storage_mode_});
 }
 
 void InMemoryStorage::CreateSnapshotHandler(

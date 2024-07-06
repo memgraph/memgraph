@@ -155,7 +155,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     info.offset_edges = read_offset();
     info.offset_vertices = read_offset();
     info.offset_indices = read_offset();
-    if (*version >= 17) {
+    if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
       info.offset_edge_indices = 0U;
