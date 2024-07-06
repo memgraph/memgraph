@@ -157,16 +157,6 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   scopes_.back().has_aggregation = false;
 }
 
-// CypherQuery
-
-bool SymbolGenerator::PreVisit(CypherQuery &cypher_query) {
-  if (cypher_query.pre_query_directives_.commit_frequency_) {
-    throw utils::NotYetImplemented("periodic commit");
-  }
-
-  return true;
-}
-
 // Query
 
 bool SymbolGenerator::PreVisit(SingleQuery &) {

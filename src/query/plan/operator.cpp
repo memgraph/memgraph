@@ -143,6 +143,7 @@ extern const Event ApplyOperator;
 extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
+extern const Event PeriodicCommitOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -5974,6 +5975,48 @@ class RollUpApplyCursor : public Cursor {
 UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::RollUpApplyOperator);
   return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
+}
+
+PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
+    : input_(std::move(input)), commit_frequency_(commit_frequency) {}
+
+std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+ACCEPT_WITH_INPUT(PeriodicCommit)
+
+namespace {
+
+class PeriodicCommitCursor : public Cursor {
+ public:
+  PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {
+    MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    throw utils::NotYetImplemented("periodic commit");
+
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+ private:
+  const PeriodicCommit &self_;
+  const UniqueCursorPtr input_cursor_;
+};
+}  // namespace
+
+UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicCommitOperator);
+  return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem);
 }
 
 }  // namespace memgraph::query::plan

@@ -165,7 +165,11 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  Branch(*op.list_collection_branch_);
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::PeriodicCommit &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.input_->Accept(*this);
   return false;
 }
@@ -1052,6 +1056,17 @@ bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
 
   op.list_collection_branch_->Accept(*this);
   self["list_collection_branch"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(PeriodicCommit &op) {
+  json self;
+  self["name"] = "PeriodicCommit";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
 
   output_ = std::move(self);
   return false;

@@ -38,9 +38,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
   using typename HierarchicalTreeVisitor::ReturnType;
 
-  // Cypher Query
-  bool PreVisit(CypherQuery &) override;
-
   // Query
   bool PreVisit(SingleQuery &) override;
 

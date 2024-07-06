@@ -166,4 +166,7 @@ constexpr utils::TypeInfo query::plan::HashJoin::kType{utils::TypeId::HASH_JOIN,
 
 constexpr utils::TypeInfo query::plan::RollUpApply::kType{utils::TypeId::ROLLUP_APPLY, "RollUpApply",
                                                           &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERIODIC_COMMIT, "PeriodicCommit",
+                                                             &query::plan::LogicalOperator::kType};
 }  // namespace memgraph
