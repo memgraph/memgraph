@@ -15,7 +15,6 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -35,7 +34,7 @@
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(property_store_compression, false, "Enable property store compression.");
+DEFINE_bool(storage_property_store_compression_enabled, false, "Enable property store compression.");
 
 namespace memgraph::storage {
 
@@ -1510,7 +1509,7 @@ bool PropertyStore::IsCompressed() const {
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1526,7 +1525,7 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
 uint32_t PropertyStore::PropertySize(PropertyId property) const {
   BufferInfo data_size_localbuffer;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
   } else {
@@ -1542,7 +1541,7 @@ uint32_t PropertyStore::PropertySize(PropertyId property) const {
 bool PropertyStore::HasProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1586,7 +1585,7 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1605,7 +1604,7 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   } else {
@@ -1636,7 +1635,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   uint8_t *data = nullptr;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
 
-  if (FLAGS_property_store_compression && IsCompressed()) {
+  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
     decompressed_buffer = DecompressBuffer();
     size = decompressed_buffer.original_size;
     data = decompressed_buffer.data;
@@ -1757,7 +1756,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     }
   }
 
-  if (FLAGS_property_store_compression && !in_local_buffer) {
+  if (FLAGS_storage_property_store_compression_enabled && !in_local_buffer) {
     CompressBuffer();
   }
 
@@ -1820,7 +1819,7 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
     metadata->Set({Type::EMPTY});
   }
 
-  if (FLAGS_property_store_compression && buffer_[0] != kUseLocalBuffer) {
+  if (FLAGS_storage_property_store_compression_enabled && buffer_[0] != kUseLocalBuffer) {
     CompressBuffer();
   }
 
@@ -1959,7 +1958,7 @@ utils::DataBuffer PropertyStore::DecompressBuffer() const {
       compressor->Decompress(data + sizeof(uint32_t) + 1, compressed_size - sizeof(uint32_t) - 1, original_size);
 
   if (decompressed_buffer.data == nullptr) {
-    throw PropertyValueException("Failed to decompress buffer");  // 0x00007fffea985000
+    throw PropertyValueException("Failed to decompress buffer");
   }
 
   return decompressed_buffer;

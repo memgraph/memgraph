@@ -745,7 +745,7 @@ int main(int argc, char **argv) {
   int result = RUN_ALL_TESTS();
 
   // now run with compression on
-  FLAGS_property_store_compression = true;
+  FLAGS_storage_property_store_compression_enabled = true;
   result &= RUN_ALL_TESTS();
   return result;
 }

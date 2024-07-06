@@ -73,6 +73,10 @@ DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size
 
 DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t compressed_size,
                                       uint32_t original_size) {
+  if (compressed_size == 0 || original_size == 0) {
+    return {};
+  }
+
   auto *data = new uint8_t[original_size];
 
   uLongf original_size_ = original_size;
@@ -80,6 +84,7 @@ DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t c
 
   if (result == Z_OK) return {data, compressed_size, original_size};
 
+  delete[] data;
   return {};
 }
 

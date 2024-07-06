@@ -21,7 +21,7 @@
 #include "utils/compressor.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_bool(property_store_compression);
+DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
