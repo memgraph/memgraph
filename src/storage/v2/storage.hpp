@@ -476,7 +476,7 @@ class Storage {
 
   virtual StorageInfo GetBaseInfo() = 0;
 
-  std::vector<EventInfo> GetMetrics() noexcept;
+  static std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo() = 0;
 

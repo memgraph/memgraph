@@ -90,9 +90,11 @@ StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
 std::vector<EventInfo> Storage::GetMetrics() noexcept {
   std::vector<EventInfo> result;
-  auto const kCounterName = "Counter";
-  auto const kGaugeName = "Gauge";
-  auto const kHistogramName = "Histogram";
+  result.reserve(metrics::CounterEnd() + metrics::GaugeEnd() + metrics::HistogramEnd());
+
+  const auto *kCounterName = "Counter";
+  const auto *kGaugeName = "Gauge";
+  const auto *kHistogramName = "Histogram";
 
   for (auto i = 0; i < metrics::CounterEnd(); i++) {
     result.emplace_back(metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName,
