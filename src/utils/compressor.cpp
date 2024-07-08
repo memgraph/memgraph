@@ -13,6 +13,7 @@
 #include <zlib.h>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <utility>
 
 #include "utils/compressor.hpp"
@@ -28,17 +29,17 @@ constexpr uint8_t kZlibBestCompression = 0xDA;
 DataBuffer::DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size)
     : data(data), compressed_size(compressed_size), original_size(original_size) {}
 
-DataBuffer::~DataBuffer() { delete[] data; }
+DataBuffer::DataBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
+    : data(std::move(data)), compressed_size(compressed_size), original_size(original_size) {}
 
 DataBuffer::DataBuffer(DataBuffer &&other) noexcept
-    : data(std::exchange(other.data, nullptr)),
+    : data(std::move(other.data)),
       compressed_size(std::exchange(other.compressed_size, 0)),
       original_size(std::exchange(other.original_size, 0)) {}
 
 DataBuffer &DataBuffer::operator=(DataBuffer &&other) noexcept {
   if (this != &other) {
-    delete[] data;
-    data = std::exchange(other.data, nullptr);
+    data = std::move(other.data);
     compressed_size = std::exchange(other.compressed_size, 0);
     original_size = std::exchange(other.original_size, 0);
   }
@@ -46,46 +47,43 @@ DataBuffer &DataBuffer::operator=(DataBuffer &&other) noexcept {
 }
 
 DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size) {
-  if (original_size == 0) {
+  if (original_size == 0 || input == nullptr) {
     return {};
   }
 
   DataBuffer compressed_buffer;
   auto compress_bound = compressBound(original_size);
-  auto *compressed_data = new uint8_t[compress_bound];
+  std::unique_ptr<uint8_t[]> compressed_data(new uint8_t[compress_bound]);
+  auto compressed_bound_copy = compress_bound;
 
-  const int result = compress(compressed_data, &compress_bound, input, original_size);
+  const int result = compress(compressed_data.get(), &compress_bound, input, original_size);
 
   if (result == Z_OK) {
-    compressed_buffer.original_size = original_size;
-    compressed_buffer.compressed_size = compress_bound;
-
-    compressed_buffer.data = new uint8_t[compressed_buffer.compressed_size];
-    memcpy(compressed_buffer.data, compressed_data, compressed_buffer.compressed_size);
-
-    delete[] compressed_data;
-
-    return compressed_buffer;
+    std::unique_ptr<uint8_t[]> compressed_buffer_data;
+    uint32_t compressed_size = compress_bound;
+    if (compress_bound < compressed_bound_copy) {
+      compressed_buffer_data = std::make_unique<uint8_t[]>(compress_bound);
+      std::memcpy(compressed_buffer_data.get(), compressed_data.get(), compress_bound);
+      return {std::move(compressed_buffer_data), compressed_size, original_size};
+    }
+    return {std::move(compressed_data), compressed_size, original_size};
   }
-
-  delete[] compressed_data;
   return {};
 }
 
 DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t compressed_size,
                                       uint32_t original_size) {
-  if (compressed_size == 0 || original_size == 0) {
+  if (compressed_size == 0 || original_size == 0 || compressed_data == nullptr) {
     return {};
   }
 
-  auto *data = new uint8_t[original_size];
+  std::unique_ptr<uint8_t[]> uncompressed_data(new uint8_t[original_size]);
 
   uLongf original_size_ = original_size;
-  const int result = uncompress(data, &original_size_, compressed_data, compressed_size);
+  const int result = uncompress(uncompressed_data.get(), &original_size_, compressed_data, compressed_size);
 
-  if (result == Z_OK) return {data, compressed_size, original_size};
+  if (result == Z_OK) return {std::move(uncompressed_data), original_size, original_size};
 
-  delete[] data;
   return {};
 }
 

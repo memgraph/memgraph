@@ -28,9 +28,9 @@ TEST(ZlibCompressorTest, CompressDecompressTest) {
   EXPECT_EQ(compressed.original_size, input_size);
 
   memgraph::utils::DataBuffer decompressed =
-      compressor->Decompress(compressed.data, compressed.compressed_size, input_size);
+      compressor->Decompress(compressed.data.get(), compressed.compressed_size, input_size);
   EXPECT_EQ(decompressed.original_size, input_size);
-  EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data), decompressed.original_size),
+  EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data.get()), decompressed.original_size),
             std::string_view(input_str));
 }
 
@@ -44,7 +44,8 @@ TEST(ZlibCompressorTest, CompressEmptyDataTest) {
   EXPECT_EQ(compressed.compressed_size, 0);
   EXPECT_EQ(compressed.original_size, 0);
 
-  memgraph::utils::DataBuffer decompressed = compressor->Decompress(compressed.data, compressed.compressed_size, 0);
+  memgraph::utils::DataBuffer decompressed =
+      compressor->Decompress(compressed.data.get(), compressed.compressed_size, 0);
   EXPECT_EQ(decompressed.compressed_size, 0);
   EXPECT_EQ(decompressed.original_size, 0);
 }
@@ -57,7 +58,7 @@ TEST(ZlibCompressorTest, IsCompressedTest) {
 
   memgraph::utils::DataBuffer compressed =
       compressor->Compress(reinterpret_cast<const uint8_t *>(input_str), input_size);
-  EXPECT_TRUE(compressor->IsCompressed(compressed.data, compressed.compressed_size));
+  EXPECT_TRUE(compressor->IsCompressed(compressed.data.get(), compressed.compressed_size));
 
   // Test with uncompressed data
   EXPECT_FALSE(compressor->IsCompressed((uint8_t *)input_str, input_size));
@@ -75,7 +76,8 @@ TEST(ZlibCompressorTest, LargeDataTest) {
   EXPECT_EQ(compressed.original_size, LARGE_DATA_SIZE);
 
   memgraph::utils::DataBuffer decompressed =
-      compressor->Decompress(compressed.data, compressed.compressed_size, LARGE_DATA_SIZE);
+      compressor->Decompress(compressed.data.get(), compressed.compressed_size, LARGE_DATA_SIZE);
   EXPECT_EQ(decompressed.original_size, LARGE_DATA_SIZE);
-  EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data), decompressed.original_size), input_data);
+  EXPECT_EQ(std::string_view(reinterpret_cast<char *>(decompressed.data.get()), decompressed.original_size),
+            input_data);
 }

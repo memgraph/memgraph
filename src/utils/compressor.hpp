@@ -14,11 +14,12 @@
 #include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
+#include <memory>
 
 namespace memgraph::utils {
 
 struct DataBuffer {
-  uint8_t *data{nullptr};
+  std::unique_ptr<uint8_t[]> data;
   uint32_t compressed_size = 0;
   uint32_t original_size = 0;
 
@@ -27,8 +28,10 @@ struct DataBuffer {
 
   DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size);
 
+  DataBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size);
+
   // Destructor
-  ~DataBuffer();
+  ~DataBuffer() = default;
 
   // Copy constructor
   DataBuffer(const DataBuffer &other) = delete;

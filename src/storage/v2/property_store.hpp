@@ -128,7 +128,7 @@ class PropertyStore {
   bool IsCompressed() const;
 
   /// Compresses buffer
-  void CompressBuffer(const uint8_t *data, uint32_t size);
+  bool CompressBuffer(const uint8_t *data, uint32_t size);
 
   /// Decompresses buffer
   utils::DataBuffer DecompressBuffer() const;
