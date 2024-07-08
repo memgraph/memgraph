@@ -534,7 +534,7 @@ copy_memgraph() {
 }
 
 copy() {
-  local host_path="$PROJECT_ROOT/."
+  local host_path="$PROJECT_ROOT"
   local follow_link_flag=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
