@@ -547,6 +547,7 @@ copy() {
       --follow-link)
         local follow_link_flag="-L"
         shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
