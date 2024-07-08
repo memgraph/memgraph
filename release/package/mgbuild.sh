@@ -533,6 +533,41 @@ copy_memgraph() {
   echo -e "Memgraph $artifact saved to $host_artifact_path!"
 }
 
+copy() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-path)
+        local host_path="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --src-path)
+        local src_path="$MGBUILD_ROOT_DIR/$2"
+        shift 2
+      ;;
+      --follow-link)
+        local follow_link_flag="-L"
+        shift 1
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+  if [[ -z $host_path ]]; then
+    echo "Error: Missing --dest-path flag"
+    print_help
+    exit 1
+  fi
+  if [[ -z $src_path ]]; then
+    echo "Error: Missing --src-path flag"
+    print_help
+    exit 1
+  fi
+  echo "Copying $src_path from $build_container to $host_path ..."
+  docker cp $follow_link_flag $build_container:$src_path $host_path
+}
+
 
 ##################################################
 ##################### TESTS ######################
