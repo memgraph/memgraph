@@ -906,7 +906,7 @@ case $command in
       test_memgraph $@
     ;;
     copy)
-      copy_memgraph $@
+      copy $@
     ;;
     package-docker)
       package_docker $@
