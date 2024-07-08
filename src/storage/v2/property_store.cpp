@@ -34,7 +34,8 @@
 #include "utils/temporal.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(storage_property_store_compression_enabled, false, "Enable property store compression.");
+DEFINE_bool(storage_property_store_compression_enabled, false,
+            "Controls whether the properties should be compressed in the storage.");
 
 namespace memgraph::storage {
 

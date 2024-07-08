@@ -149,7 +149,7 @@ startup_config_dict = {
         "false",
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
     ),
-    "storage_property_compression_enabled": (
+    "storage_property_store_compression_enabled": (
         "false",
         "false",
         "Controls whether the properties should be compressed in the storage.",
