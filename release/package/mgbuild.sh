@@ -534,6 +534,7 @@ copy_memgraph() {
 }
 
 copy() {
+  local host_path="$PROJECT_ROOT/."
   local follow_link_flag=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -556,11 +557,6 @@ copy() {
       ;;
     esac
   done
-  if [[ -z $host_path ]]; then
-    echo "Error: Missing --dest-path flag"
-    print_help
-    exit 1
-  fi
   if [[ -z $src_path ]]; then
     echo "Error: Missing --src-path flag"
     print_help
