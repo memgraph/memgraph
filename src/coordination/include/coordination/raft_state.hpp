@@ -16,6 +16,7 @@
 
 #include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination_observer.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
@@ -51,7 +52,8 @@ class RaftState {
  public:
   auto InitRaftServer() -> void;
   explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
-                     BecomeFollowerCb become_follower_cb);
+                     BecomeFollowerCb become_follower_cb,
+                     std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
   RaftState() = delete;
   RaftState(RaftState const &other) = default;
   RaftState &operator=(RaftState const &other) = default;

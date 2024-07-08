@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "utils.hpp"
 #include "utils/file.hpp"
@@ -93,15 +94,18 @@ auto CoordinatorStateManager::HandleVersionMigration() -> void {
         "and run queries to add instances and coordinators to cluster.");
   }
 }
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
+                                                 std::optional<CoordinationClusterChangeObserver> observer)
     : my_id_(static_cast<int>(config.coordinator_id_)),
       cur_log_store_(cs_new<CoordinatorLogStore>(logger, config.log_store_durability_)),
       logger_(logger),
-      durability_(config.state_manager_durability_dir_) {
+      durability_(config.state_manager_durability_dir_),
+      observer_(observer) {
   auto const c2c = CoordinatorToCoordinatorConfig{
-      config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
-      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)},
-      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.management_port_)}, config.coordinator_hostname};
+      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
+      config.coordinator_hostname};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
                                       nlohmann::json(c2c).dump(), false);
 
@@ -134,6 +138,15 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   auto const ok = durability_.Put(kClusterConfigKey, json.dump());
   if (!ok) {
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
+  }
+
+  NotifyObserver(config);
+}
+
+void CoordinatorStateManager::NotifyObserver(const nuraft::cluster_config &config) {
+  logger_.Log(nuraft_log_level::TRACE, "Notifying observer about cluster config change.");
+  if (observer_) {
+    observer_.value().Update(config);
   }
 }
 

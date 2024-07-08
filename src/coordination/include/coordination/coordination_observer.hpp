@@ -13,22 +13,24 @@
 
 #pragma once
 
-#include <memory>
-#include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
-#include "coordination/instance_status.hpp"
+#include <libnuraft/cluster_config.hxx>
+#include <libnuraft/nuraft.hxx>
+
+using nuraft::cluster_config;
 
 namespace memgraph::coordination {
 
-class CoordinatorInstanceConnector {
- public:
-  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
+class CoordinatorInstance;
 
-  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
+class CoordinationClusterChangeObserver {
+ public:
+  explicit CoordinationClusterChangeObserver(CoordinatorInstance *subject);
+  void Update(cluster_config const &change);
 
  private:
-  mutable CoordinatorInstanceClient client_;
+  CoordinatorInstance *instance_;
 };
 
 }  // namespace memgraph::coordination
+
 #endif

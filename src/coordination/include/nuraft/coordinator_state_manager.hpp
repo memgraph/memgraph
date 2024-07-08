@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/constants_log_durability.hpp"
@@ -32,7 +33,8 @@ using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger);
+  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
+                                   std::optional<CoordinationClusterChangeObserver> observer = {});
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -58,6 +60,7 @@ class CoordinatorStateManager : public state_mgr {
   auto GetSrvConfig() const -> ptr<srv_config>;
 
  private:
+  void NotifyObserver(cluster_config const &config);
   auto HandleVersionMigration() -> void;
 
   int my_id_;
@@ -67,6 +70,7 @@ class CoordinatorStateManager : public state_mgr {
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
   kvstore::KVStore durability_;
+  std::optional<CoordinationClusterChangeObserver> observer_;
 };
 
 void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &config);

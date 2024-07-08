@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
@@ -86,7 +87,8 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
+  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
+                                            CoordinationClusterChangeObserver{this});
   raft_state_->InitRaftServer();
 }
 
@@ -196,6 +198,24 @@ auto CoordinatorInstance::FindReplicationInstance(std::string_view replication_i
 
 auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig> {
   return raft_state_->GetLeaderCoordinatorData();
+}
+
+void CoordinatorInstance::AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+  auto connectors = coordinator_connectors_.Lock();
+
+  for (auto const &config : configs) {
+    if (config.coordinator_id == raft_state_->GetCoordinatorId()) {
+      continue;
+    }
+    auto const connector = std::ranges::find_if(
+        *connectors, [&config](auto &&connector) { return connector.first == config.coordinator_id; });
+    if (connector != connectors->end()) {
+      continue;
+    }
+    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", config.coordinator_id,
+                  config.management_server.SocketAddress());
+    connectors->emplace(connectors->end(), config.coordinator_id, ManagementServerConfig{config.management_server});
+  }
 }
 
 auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus> {
@@ -339,24 +359,19 @@ auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
     return ShowInstancesStatusAsFollower();
   }
   CoordinatorInstanceConnector *follower{nullptr};
-  // TODO(antoniofilipovic) move this part to separate function
   {
     auto connectors = coordinator_connectors_.Lock();
-    if (!connectors->contains(leader_id)) {
-      auto all_coordinators = raft_state_->GetCoordinatorInstances();
 
-      auto coord = std::ranges::find_if(all_coordinators,
-                                        [leader_id](auto &&coord) { return coord.coordinator_id == leader_id; });
-
-      MG_ASSERT(coord != all_coordinators.end());
-      spdlog::trace("Creating new connector for leader with id {}, endpoint {}", leader_id,
-                    coord->management_server.SocketAddress());
-      connectors->emplace(leader_id, ManagementServerConfig{coord->management_server});
+    auto connector =
+        std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      follower = &connector->second;
     }
-    follower = &connectors->at(leader_id);
   }
-
-  MG_ASSERT(follower != nullptr, "Follower not found");
+  if (follower == nullptr) {
+    spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
+    return ShowInstancesStatusAsFollower();
+  }
 
   spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
   auto maybe_res = follower->SendShowInstances();

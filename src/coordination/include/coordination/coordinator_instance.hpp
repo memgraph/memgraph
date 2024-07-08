@@ -91,6 +91,8 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+
  private:
   template <ranges::forward_range R>
   auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
@@ -171,7 +173,7 @@ class CoordinatorInstance {
   utils::ThreadPool thread_pool_{1};
 
   CoordinatorInstanceManagementServer coordinator_management_server_;
-  utils::Synchronized<std::unordered_map<uint32_t, CoordinatorInstanceConnector>, utils::SpinLock>
+  utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
       coordinator_connectors_;
 };
 
