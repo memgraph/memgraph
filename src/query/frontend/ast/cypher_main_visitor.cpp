@@ -2876,7 +2876,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
 
   // Don't cache queries which call user-defined functions. User-defined function's return
   // types can vary depending on whether the module is reloaded, therefore the cache would
-  // be invalid.
+  // be invalid. // TODO change comment
   if (is_user_defined_function(function_name)) {
     query_info_.is_cacheable = false;
   }

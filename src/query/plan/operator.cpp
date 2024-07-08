@@ -5073,7 +5073,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     graph.impl = &*db_acc;
   }
 
-  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
+  procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
+  procedure::ConstructArguments(args_list, proc, proc_args, graph);
   if (call_initializer) {
     MG_ASSERT(proc.initializer);
     mgp_memory initializer_memory{memory};

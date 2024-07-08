@@ -1398,20 +1398,15 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
     // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
     const auto &module_ptr = (*maybe_found).first;
 
-    std::vector<TypedValue> args_list;
-    args_list.reserve(nargs);
-    for (std::size_t i = 0; i < nargs; ++i) {
-      args_list.emplace_back(args[i]);
-    }
+    procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
     auto function_argument_list = mgp_list(ctx.memory);
-    procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
+    procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
 
-    mgp_func_result maybe_res;
-
-    mgp_memory memory{ctx.memory};
-    mgp_func_context functx{ctx.db_accessor, ctx.view};
+    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
+    auto maybe_res = mgp_func_result{};
+    auto memory = mgp_memory{ctx.memory};
     func.cb(&function_argument_list, &functx, &maybe_res, &memory);
     if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
@@ -1424,7 +1419,7 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
           fully_qualified_name);
     }
 
-    return {*(maybe_res.value), ctx.memory};
+    return {*std::move(maybe_res.value), ctx.memory};  // TODO: make TypedValue header-only / inlinable
   };
 }
 
