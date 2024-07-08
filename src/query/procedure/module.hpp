@@ -206,14 +206,17 @@ std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
 template <typename T>
 concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;
 
+/// Validates the args.
+/// Ensures right number of required + optional args
+/// Ensures args are of the right type
 template <IsCallable TCall>
-void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callable,
-                        const std::string_view fully_qualified_name, mgp_list &args_list, mgp_graph &graph) {
+void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
+                       const std::string_view fully_qualified_name) {
   const auto n_args = args.size();
   const auto c_args_sz = callable.args.size();
   const auto c_opt_args_sz = callable.opt_args.size();
 
-  if (n_args < c_args_sz || (n_args - c_args_sz > c_opt_args_sz)) {
+  if (n_args < c_args_sz || (n_args - c_args_sz > c_opt_args_sz)) [[unlikely]] {
     if (callable.args.empty() && callable.opt_args.empty()) {
       throw QueryRuntimeException("'{}' requires no arguments.", fully_qualified_name);
     }
@@ -226,17 +229,32 @@ void ConstructArguments(const std::vector<TypedValue> &args, const TCall &callab
     throw QueryRuntimeException("'{}' requires between {} and {} arguments.", fully_qualified_name, c_args_sz,
                                 c_args_sz + c_opt_args_sz);
   }
-  args_list.elems.reserve(n_args);
 
-  auto is_not_optional_arg = [c_args_sz](int i) { return c_args_sz > i; };
   for (size_t i = 0; i < n_args; ++i) {
-    auto const *type = is_not_optional_arg(i) ? callable.args[i].second : std::get<1>(callable.opt_args[i - c_args_sz]);
-    if (!type->SatisfiesType(args[i])) {
-      auto name = std::string_view{is_not_optional_arg(i) ? callable.args[i].first
-                                                          : std::get<0>(callable.opt_args[i - c_args_sz])};
+    auto is_required_arg = i < c_args_sz;
+    auto const *type = is_required_arg ? callable.args[i].second : std::get<1>(callable.opt_args[i - c_args_sz]);
+    if (!type->SatisfiesType(args[i])) [[unlikely]] {
+      auto name =
+          std::string_view{is_required_arg ? callable.args[i].first : std::get<0>(callable.opt_args[i - c_args_sz])};
       throw QueryRuntimeException("'{}' argument named '{}' at position {} must be of type {}.", fully_qualified_name,
                                   name, i, type->GetPresentableName());
     }
+  }
+}
+
+/// build mgp_list with copies of the args
+/// also populates the missing optional args
+template <IsCallable TCall>
+void ConstructArguments(std::span<TypedValue const> args, const TCall &callable, mgp_list &args_list,
+                        mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
+
+  // Copy provided args
+  for (size_t i = 0; i < n_args; ++i) {
     args_list.elems.emplace_back(args[i], &graph);
   }
   // Fill missing optional arguments with their default values.
