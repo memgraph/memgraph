@@ -534,6 +534,7 @@ copy_memgraph() {
 }
 
 copy() {
+  local follow_link_flag=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dest-path)
@@ -545,7 +546,7 @@ copy() {
         shift 2
       ;;
       --follow-link)
-        local follow_link_flag="-L"
+        follow_link_flag="-L"
         shift 1
       ;;
       *)
