@@ -81,6 +81,7 @@ struct StorageInfo {
   double average_degree;
   uint64_t memory_res;
   uint64_t peak_memory_res;
+  uint64_t unreleased_delta_objects;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -154,10 +155,8 @@ class Storage {
     static constexpr struct UniqueAccess {
     } unique_access;
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication_coordination_glue::ReplicationRole replication_role);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication_coordination_glue::ReplicationRole replication_role);
+    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
+    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
     Accessor &operator=(Accessor &&other) = delete;
@@ -455,19 +454,12 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role,
-                                           std::optional<IsolationLevel> override_isolation_level) = 0;
+  virtual std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) = 0;
 
-  std::unique_ptr<Accessor> Access(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-    return Access(replication_role, {});
-  }
+  std::unique_ptr<Accessor> Access() { return Access({}); }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(
-      memgraph::replication_coordination_glue::ReplicationRole replication_role,
-      std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
-    return UniqueAccess(replication_role, {});
-  }
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level) = 0;
+  std::unique_ptr<Accessor> UniqueAccess() { return UniqueAccess({}); }
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -476,10 +468,9 @@ class Storage {
 
   virtual StorageInfo GetBaseInfo() = 0;
 
-  virtual StorageInfo GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
+  virtual StorageInfo GetInfo() = 0;
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                        memgraph::replication_coordination_glue::ReplicationRole replication_role) = 0;
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 

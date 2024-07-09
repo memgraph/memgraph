@@ -297,8 +297,7 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
                                         StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode,
-               memgraph::replication_coordination_glue::ReplicationRole::MAIN) {
+    : Accessor(tag, storage, isolation_level, storage_mode) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -865,15 +864,16 @@ StorageInfo DiskStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
 
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+StorageInfo DiskStorage::GetInfo() {
   StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);
+    auto access = Access();
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
@@ -1878,7 +1878,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
-    PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
+    PropertyStore const property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
         utils::Contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
@@ -1895,6 +1895,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
+  auto delta_size = transaction_.deltas.size();
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -1943,6 +1944,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
         break;
     }
   }
+  memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 }
 
 void DiskStorage::DiskAccessor::Abort() {
@@ -2122,8 +2124,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 void DiskStorage::DiskAccessor::DropGraph() {}
 
-Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                           memgraph::replication_coordination_glue::ReplicationRole /*is_main*/) {
+Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
@@ -2143,9 +2144,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(
-    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
-    std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
@@ -2153,9 +2152,7 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
 }
-std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
-    memgraph::replication_coordination_glue::ReplicationRole /*replication_role*/,
-    std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
