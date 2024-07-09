@@ -44,7 +44,7 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
   std::vector<uint32_t> const coordinator_ids = {41, 42, 43};
   std::vector<uint16_t> const bolt_ports = {2687, 2688, 2689};
-  std::vector<uint16_t> const coordinator_ports = {40113, 40116, 40115};
+  std::vector<uint16_t> const coordinator_ports = {40113, 40114, 40115};
   std::vector<uint16_t> const management_ports = {20113, 20114, 20115};
 };
 
