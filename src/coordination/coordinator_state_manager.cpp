@@ -103,8 +103,8 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       observer_(observer) {
   auto const c2c = CoordinatorToCoordinatorConfig{
       // TODO(antonio) sync with Andi on this one
-      config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
-      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)},
+      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
       config.coordinator_hostname};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),

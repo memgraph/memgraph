@@ -97,16 +97,16 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 
   instance1.AddCoordinatorInstance(
       CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[1]},
-                                     .management_server = Endpoint{"0.0.0.0", management_ports[1]},
+                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                     .management_server = Endpoint{"localhost", management_ports[1]},
                                      .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
       CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[2]},
-                                     .management_server = Endpoint{"0.0.0.0", management_ports[2]},
+                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                     .management_server = Endpoint{"localhost", management_ports[2]},
                                      .coordinator_hostname = "localhost"});
   {
     wait_until_added(instance1);
@@ -210,8 +210,8 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
 
   auto const coord1_coord_config =
       CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[0],
-                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[0]},
-                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[0]},
+                                     .bolt_server = Endpoint{"localhost", bolt_ports[0]},
+                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[0]},
                                      .management_server = Endpoint{"localhost", management_ports[0]},
                                      .coordinator_hostname = "localhost"};
 
@@ -273,16 +273,16 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   instance1.AddCoordinatorInstance(
       CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[1]},
-                                     .management_server = Endpoint{"0.0.0.0", management_ports[1]},
+                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                     .management_server = Endpoint{"localhost", management_ports[1]},
                                      .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
       CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"0.0.0.0", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"0.0.0.0", coordinator_ports[2]},
-                                     .management_server = Endpoint{"0.0.0.0", management_ports[2]},
+                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                     .management_server = Endpoint{"localhost", management_ports[2]},
                                      .coordinator_hostname = "localhost"});
 
   spdlog::trace("Added coordinator instances!");
@@ -294,13 +294,13 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
     auto const coord1_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
     auto const coord2_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
     auto const coord3_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 
@@ -312,13 +312,13 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
     auto const coord1_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
     auto const coord2_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
     auto const coord3_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 
@@ -330,13 +330,13 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     ASSERT_EQ(routers.second, "ROUTE");
     ASSERT_EQ(routers.first.size(), 3);
     auto const coord1_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[0]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[0]); });
     ASSERT_NE(coord1_route_it, routers.first.end());
     auto const coord2_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[1]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[1]); });
     ASSERT_NE(coord2_route_it, routers.first.end());
     auto const coord3_route_it = std::ranges::find_if(
-        routers.first, [this](auto const &route) { return route == fmt::format("0.0.0.0:{}", bolt_ports[2]); });
+        routers.first, [this](auto const &route) { return route == fmt::format("localhost:{}", bolt_ports[2]); });
     ASSERT_NE(coord3_route_it, routers.first.end());
   }
 }
