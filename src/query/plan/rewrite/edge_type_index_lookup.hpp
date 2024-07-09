@@ -28,6 +28,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "utils/algorithm.hpp"
 
@@ -206,6 +207,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Cartesian &) override {
     prev_ops_.pop_back();
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -326,6 +328,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ConstructNamedPath &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(ConstructNamedPath &) override {
@@ -421,6 +424,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Accumulate &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Accumulate &) override {
@@ -430,6 +434,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Aggregate &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Aggregate &) override {
@@ -484,6 +489,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(CallProcedure &) override {
@@ -505,6 +511,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EvaluatePatternFilter &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -575,7 +582,9 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return produce_under_expand_ && expand_under_scanall_ && scanall_under_once_ && edge_type_index_exist_;
   }
 
-  bool EdgeTypePropertyIndexingPossible() const { return expand_under_scanall_ && scanall_under_once_ && property_; }
+  bool EdgeTypePropertyIndexingPossible() const {
+    return is_simple_expand_ && expand_under_scanall_ && scanall_under_once_ && property_;
+  }
 
   bool produce_under_expand_ = false;
   bool expand_under_scanall_ = false;
@@ -584,6 +593,8 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool source_node_anon_ = false;
   bool dest_node_anon_ = false;
+
+  bool is_simple_expand_ = true;
 
   bool DefaultPreVisit() override {
     throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
@@ -599,19 +610,18 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (EdgeTypePropertyIndexingPossible()) {
-      // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
-      // We only remove the filter if we are looking for edges with a specific edge-type. If we
-      // have some other type of property filtering e.g. range or value lookup, we do not want to
-      // remove the filters to keep the semantics of the original query intact. We can optimize
-      // this by adding additional operators for the specific kinds of edge-type+property filtering.
-      // On top of this we only want to remove the NOT NULL filter
       const auto prop_filter_type = property_filter_->property_filter->type_;
-      if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
-        filter_exprs_for_removal_.insert(property_filter_->expression);
-        filters_.EraseFilter(*property_filter_);
+      switch (prop_filter_type) {
+        case PropertyFilter::Type::IS_NOT_NULL:
+        case PropertyFilter::Type::EQUAL: {
+          filter_exprs_for_removal_.insert(property_filter_->expression);
+          filters_.EraseFilter(*property_filter_);
+          return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
+        }
+        default: {
+          spdlog::warn("Filter is not supported by edge type property index.");
+        }
       }
-
-      return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
     }
 
     if (EdgeTypeIndexingPossible()) {
