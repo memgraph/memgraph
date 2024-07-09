@@ -51,7 +51,7 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+DEFINE_bool(data_recovery_on_startup, true, "Controls whether the database recovers persisted data on startup.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
