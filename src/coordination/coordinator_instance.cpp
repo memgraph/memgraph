@@ -89,6 +89,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // If something is not yet constructed in coordinator instance, we get UB
   raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
                                             CoordinationClusterChangeObserver{this});
+  AddOrUpdateClientConnectors(raft_state_->GetCoordinatorToCoordinatorConfigs());
   raft_state_->InitRaftServer();
 }
 
@@ -281,7 +282,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   return utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
 }
 
-auto CoordinatorInstance::ShowInstancesStatusAsFollower() -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
   spdlog::trace("Processing show instances as follower");
   auto instances_status = GetCoordinatorsInstanceStatus();
   auto const stringify_inst_status = [raft_state_ptr =
@@ -310,7 +311,7 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() -> std::vector<Instanc
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstancesAsLeader() -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::vector<InstanceStatus> {
   spdlog::trace("Processing show instances as leader");
   auto instances_status = GetCoordinatorsInstanceStatus();
 
@@ -342,7 +343,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() -> std::vector<InstanceStatus>
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstances() -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   if (is_leader_ready_) {
     return ShowInstancesAsLeader();
   }
@@ -1305,6 +1306,9 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
 auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
+
+auto CoordinatorInstance::GetRaftState() -> RaftState & { return *raft_state_; }
+auto CoordinatorInstance::GetRaftState() const -> RaftState const & { return *raft_state_; }
 
 }  // namespace memgraph::coordination
 #endif

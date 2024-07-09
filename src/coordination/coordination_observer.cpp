@@ -23,17 +23,8 @@ namespace memgraph::coordination {
 CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
     : instance_{instance} {}
 
-void CoordinationClusterChangeObserver::Update(cluster_config const &change) {
-  std::vector<CoordinatorToCoordinatorConfig> servers;
-  auto const &cluster_config_servers = change.get_servers();
-  servers.reserve(cluster_config_servers.size());
-
-  std::ranges::transform(
-      change.get_servers(), std::back_inserter(servers), [](auto const &server) -> CoordinatorToCoordinatorConfig {
-        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-      });
-
-  instance_->AddOrUpdateClientConnectors(servers);
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+  instance_->AddOrUpdateClientConnectors(configs);
 }
 
 }  // namespace memgraph::coordination

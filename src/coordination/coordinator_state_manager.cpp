@@ -102,8 +102,9 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
   auto const c2c = CoordinatorToCoordinatorConfig{
-      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
+      // TODO(antonio) sync with Andi on this one
+      config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
+      io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)},
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
       config.coordinator_hostname};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
@@ -113,19 +114,37 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   cluster_config_->get_servers().push_back(my_srv_config_);
 
   HandleVersionMigration();
+  TryUpdateClusterConfigFromDisk();
 }
 
-auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
+auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
+    -> std::vector<CoordinatorToCoordinatorConfig> {
+  std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;
+  auto const &cluster_config_servers = cluster_config_->get_servers();
+  coordinator_to_coordinator_mappings.reserve(cluster_config_servers.size());
+
+  std::ranges::transform(
+      cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
+      [](auto const &server) -> CoordinatorToCoordinatorConfig {
+        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+      });
+  return coordinator_to_coordinator_mappings;
+}
+
+void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
     logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
-    return cluster_config_;
+    return;
   }
   auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
   from_json(cluster_config_json, cluster_config_);
   logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
+}
+auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
+  TryUpdateClusterConfigFromDisk();
   return cluster_config_;
 }
 
@@ -140,13 +159,13 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
   }
 
-  NotifyObserver(config);
+  NotifyObserver(GetCoordinatorToCoordinatorConfigs());
 }
 
-void CoordinatorStateManager::NotifyObserver(const nuraft::cluster_config &config) {
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
   logger_.Log(nuraft_log_level::TRACE, "Notifying observer about cluster config change.");
   if (observer_) {
-    observer_.value().Update(config);
+    observer_.value().Update(configs);
   }
 }
 

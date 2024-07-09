@@ -57,11 +57,14 @@ class CoordinatorStateManager : public state_mgr {
 
   auto system_exit(int exit_code) -> void override;
 
-  auto GetSrvConfig() const -> ptr<srv_config>;
+  [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
+
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:
-  void NotifyObserver(cluster_config const &config);
-  auto HandleVersionMigration() -> void;
+  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void HandleVersionMigration();
+  void TryUpdateClusterConfigFromDisk();
 
   int my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;

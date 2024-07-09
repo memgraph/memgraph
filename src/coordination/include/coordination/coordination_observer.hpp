@@ -13,10 +13,7 @@
 
 #pragma once
 
-#include <libnuraft/cluster_config.hxx>
-#include <libnuraft/nuraft.hxx>
-
-using nuraft::cluster_config;
+#include "coordination/coordinator_communication_config.hpp"
 
 namespace memgraph::coordination {
 
@@ -24,8 +21,8 @@ class CoordinatorInstance;
 
 class CoordinationClusterChangeObserver {
  public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *subject);
-  void Update(cluster_config const &change);
+  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
+  void Update(std::vector<CoordinatorToCoordinatorConfig> const &configs);
 
  private:
   CoordinatorInstance *instance_;
