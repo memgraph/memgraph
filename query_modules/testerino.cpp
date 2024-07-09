@@ -12,8 +12,6 @@
 #include <mgp.hpp>
 #include <string>
 
-thread_local std::optional<mgp_memory *> mgp::MemoryDispatcher::current_memory;
-
 void isEqual(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
 

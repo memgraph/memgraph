@@ -111,33 +111,24 @@ class ExecutionRow;
 struct StealType {};
 inline constexpr StealType steal{};
 
-class MemoryDispatcher final {
- public:
-  MemoryDispatcher() = default;
-  ~MemoryDispatcher() = default;
-  MemoryDispatcher(const MemoryDispatcher &) = delete;
-  MemoryDispatcher(MemoryDispatcher &&) = delete;
-  MemoryDispatcher &operator=(const MemoryDispatcher &) = delete;
-  MemoryDispatcher &operator=(MemoryDispatcher &&) = delete;
+namespace MemoryDispatcher {
+thread_local std::optional<mgp_memory *> current_memory;
 
-  mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
+mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-  void Register(mgp_memory *mem) noexcept { current_memory = mem; }
+void Register(mgp_memory *mem) noexcept { current_memory = mem; }
 
-  void UnRegister() noexcept { current_memory.reset(); }
+void UnRegister() noexcept { current_memory.reset(); }
 
-  bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
-
- private:
-  static thread_local std::optional<mgp_memory *> current_memory;
-};
+bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
+};  // namespace MemoryDispatcher
 
 // The use of this object, with the help of MemoryDispatcherGuard
 // should be the prefered way to pass the memory pointer to this
 // header. The use of the 'mgp_memory *memory' pointer is deprecated
 // and will be removed in upcoming releases.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline MemoryDispatcher mrd{};
+// inline MemoryDispatcher mrd{};
 
 // TODO - Once we deprecate this we should remove this
 // and make sure nothing relies on it anymore. This alone
@@ -146,14 +137,14 @@ inline mgp_memory *memory{nullptr};
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { mrd.Register(mem); };
+  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); };
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { mrd.UnRegister(); }
+  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
 };
 
 // Currently we want to preserve both ways(using mgp::memory and
@@ -165,10 +156,10 @@ class MemoryDispatcherGuard final {
 // the mapping instead.
 template <typename Func, typename... Args>
 inline decltype(auto) MemHandlerCallback(Func &&func, Args &&...args) {
-  if (!mrd.IsThisThreadRegistered()) {
+  if (!MemoryDispatcher::IsThisThreadRegistered()) {
     return std::forward<Func>(func)(std::forward<Args>(args)..., memory);
   }
-  return std::forward<Func>(func)(std::forward<Args>(args)..., mrd.GetMemoryResource());
+  return std::forward<Func>(func)(std::forward<Args>(args)..., MemoryDispatcher::GetMemoryResource());
 }
 
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships & Labels) */
