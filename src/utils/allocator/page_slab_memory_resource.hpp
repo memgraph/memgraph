@@ -46,15 +46,16 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     auto current = pages;
     while (current) {
       auto next = current->next;
-      std::free(current);
+      operator delete(current, current->alignment);
       current = next;
     }
   }
 
  private:
   struct header {
-    explicit header(header *next) : next(next) {}
+    explicit header(header *next, std::align_val_t alignment) : next(next), alignment{alignment} {}
     header *next = nullptr;
+    std::align_val_t alignment;
   };
 
   constexpr static size_t alignSize(size_t size, size_t alignment) { return (size + alignment - 1) & ~(alignment - 1); }
@@ -65,18 +66,16 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     auto max_slab_capacity = PAGE_SIZE - earlest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
       auto required_bytes = bytes + earlest_slab_position;
-      auto *newmem = reinterpret_cast<header *>(std::aligned_alloc(alignment, required_bytes));
-      if (!newmem) throw std::bad_alloc{};
+      auto *newmem = reinterpret_cast<header *>(operator new (required_bytes, std::align_val_t{alignment}));
       // add to the allocation list
-      pages = std::construct_at<header>(newmem, pages);
+      pages = std::construct_at<header>(newmem, pages, std::align_val_t{alignment});
       return pages + earlest_slab_position;
     }
 
     // 2. can it fit in existing slab?
     if (!std::align(alignment, bytes, ptr, space)) {
-      auto *newmem = reinterpret_cast<header *>(std::aligned_alloc(PAGE_SIZE, PAGE_SIZE));
-      if (!newmem) throw std::bad_alloc{};
-      pages = std::construct_at<header>(newmem, pages);
+      auto *newmem = reinterpret_cast<header *>(operator new (PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
+      pages = std::construct_at<header>(newmem, pages, std::align_val_t{PAGE_SIZE});
       ptr = reinterpret_cast<std::byte *>(pages) + sizeof(header);
       space = PAGE_SIZE - sizeof(header);
       std::align(alignment, bytes, ptr, space);
