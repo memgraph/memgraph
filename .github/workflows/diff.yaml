@@ -99,8 +99,7 @@ jobs:
     needs: DiffSetup
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
-      run_core: 'false'
-      # run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
+      run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
     secrets: inherit
 
   Release:
