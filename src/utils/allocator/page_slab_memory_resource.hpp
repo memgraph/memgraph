@@ -17,6 +17,13 @@
 
 namespace memgraph::utils {
 
+/// This is a monotonic allocator which:
+/// - grabs 1 page for each slab
+/// - allocations are aligned to page size
+/// - allocations smaller than a page use remaining space in current slab
+/// - allocations larger than a page get their own allocations
+/// - deallocation is a noop
+/// - all memory released on destruction
 struct PageSlabMemoryResource : std::pmr::memory_resource {
   static constexpr std::size_t PAGE_SIZE = 4096;
   PageSlabMemoryResource() = default;
@@ -76,6 +83,7 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     }
 
     // 3. use current slab
+    // NOTE: ptr and space have already been via std::align, alignment is correct here
     void *res = ptr;
     ptr = reinterpret_cast<std::byte *>(ptr) + bytes;
     space -= bytes;

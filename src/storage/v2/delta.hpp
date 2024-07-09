@@ -137,7 +137,7 @@ struct opt_str {
   static auto new_cstr(std::string_view str, utils::PageSlabMemoryResource *res) -> char const * {
     auto const n = str.size() + 1;
     auto alloc = std::pmr::polymorphic_allocator<char>{res};
-    auto *mem = (std::string_view::pointer)alloc.allocate_bytes(n, 1);
+    auto *mem = (std::string_view::pointer)alloc.allocate_bytes(n, alignof(char));
     std::copy(str.cbegin(), str.cend(), mem);
     mem[n - 1] = '\0';
     return mem;
@@ -146,6 +146,10 @@ struct opt_str {
   char const *str_ = nullptr;
 };
 
+static_assert(!std::is_constructible_v<opt_str, std::optional<std::string_view>, std::pmr::memory_resource *>,
+              "Use of PageSlabMemoryResource is deliberate here");
+static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, utils::PageSlabMemoryResource *>,
+              "Use of PageSlabMemoryResource is deliberate here");
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
@@ -187,7 +191,9 @@ struct Delta {
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
   Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string_view> old_disk_key,
         utils::PageSlabMemoryResource *res)
-      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = opt_str{old_disk_key, res}} {}
+      : timestamp(std::pmr::polymorphic_allocator<Delta>{res}.new_object<std::atomic<uint64_t>>(ts)),
+        command_id(0),
+        old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
