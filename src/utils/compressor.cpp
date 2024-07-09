@@ -51,16 +51,15 @@ DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size
     return {};
   }
 
-  DataBuffer compressed_buffer;
   auto compress_bound = compressBound(original_size);
   std::unique_ptr<uint8_t[]> compressed_data(new uint8_t[compress_bound]);
-  auto compressed_bound_copy = compress_bound;
+  const auto compressed_bound_copy = compress_bound;
 
   const int result = compress(compressed_data.get(), &compress_bound, input, original_size);
 
   if (result == Z_OK) {
     std::unique_ptr<uint8_t[]> compressed_buffer_data;
-    uint32_t compressed_size = compress_bound;
+    const uint32_t compressed_size = compress_bound;
     if (compress_bound < compressed_bound_copy) {
       compressed_buffer_data = std::make_unique<uint8_t[]>(compress_bound);
       std::memcpy(compressed_buffer_data.get(), compressed_data.get(), compress_bound);
@@ -88,11 +87,13 @@ DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t c
 }
 
 bool ZlibCompressor::IsCompressed(const uint8_t *data, uint32_t size) const {
+  if (size < 2) {
+    return false;
+  }
   const bool first_byte = data[0] == kZlibHeader;
   const bool second_byte = data[1] == kZlibLowCompression || data[1] == kZlibFastCompression ||
                            data[1] == kZlibDefaultCompression || data[1] == kZlibBestCompression;
-  const bool size_check = size > 2;
-  return size_check && first_byte && second_byte;
+  return first_byte && second_byte;
 }
 
 ZlibCompressor *ZlibCompressor::GetInstance() {

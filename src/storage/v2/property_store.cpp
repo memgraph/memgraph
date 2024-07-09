@@ -1498,7 +1498,7 @@ bool PropertyStore::IsCompressed() const {
     return false;
   }
   auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
-  if (mod > 7 || mod < 0) {
+  if (mod > 7) {
     return false;
   }
   auto compressed_size =
@@ -1511,9 +1511,15 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-  } else {
+    // probably not the best approach
+    try {
+      decompressed_buffer = DecompressBuffer();
+      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1527,9 +1533,14 @@ uint32_t PropertyStore::PropertySize(PropertyId property) const {
   BufferInfo data_size_localbuffer;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
-  } else {
+    try {
+      decompressed_buffer = DecompressBuffer();
+      BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     data_size_localbuffer = GetBufferInfo(buffer_);
   }
   Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
@@ -1543,9 +1554,14 @@ bool PropertyStore::HasProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-  } else {
+    try {
+      decompressed_buffer = DecompressBuffer();
+      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1587,9 +1603,14 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-  } else {
+    try {
+      decompressed_buffer = DecompressBuffer();
+      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1606,9 +1627,14 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-  } else {
+    try {
+      decompressed_buffer = DecompressBuffer();
+      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1638,12 +1664,17 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
 
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    decompressed_buffer = DecompressBuffer();
-    size = decompressed_buffer.original_size;
-    data = decompressed_buffer.data.get();
-    in_local_buffer = false;
-    already_compressed = true;
-  } else {
+    try {
+      decompressed_buffer = DecompressBuffer();
+      size = decompressed_buffer.original_size;
+      data = decompressed_buffer.data.get();
+      in_local_buffer = false;
+      already_compressed = true;
+    } catch (const PropertyValueException &e) {
+      // do nothing
+    }
+  }
+  if (!decompressed_buffer.data) {
     std::tie(size, data) = GetSizeData(buffer_);
     if (size % 8 != 0) {
       // We are storing the data in the local buffer.
@@ -1724,11 +1755,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         current_size = new_size_to_power_of_8;
         current_in_local_buffer = false;
       }
-      // Copy everything before the property to the new buffer.
-      memmove(current_data, data, info.property_begin);
-      // Copy everything after the property to the new buffer.
-      memmove(current_data + info.property_begin + property_size, data + info.property_end,
-              info.all_end - info.property_end);
+
       // Free the old buffer.
       if (!in_local_buffer) {
         uint32_t buffer_size = 0;
@@ -1736,6 +1763,12 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         std::tie(buffer_size, buffer_data) = GetSizeData(buffer_);
         delete[] buffer_data;
       }
+
+      // Copy everything before the property to the new buffer.
+      memmove(current_data, data, info.property_begin);
+      // Copy everything after the property to the new buffer.
+      memmove(current_data + info.property_begin + property_size, data + info.property_end,
+              info.all_end - info.property_end);
       // Permanently remember the new buffer.
       if (!current_in_local_buffer) {
         SetSizeData(buffer_, current_size, current_data);
