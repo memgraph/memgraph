@@ -181,7 +181,8 @@ auto RaftState::InitRaftServer() -> void {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
   if (!raft_server_->is_initialized()) {
-    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator_{}", coord_endpoint);
+    throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with endpoint {}",
+                                   coord_endpoint);
   }
 }
 
@@ -285,7 +286,6 @@ auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoor
   return ranges::views::transform(
              srv_configs,
              [](auto const &srv_config) {
-               spdlog::trace("Endpoint: {}", srv_config->get_endpoint());
                return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
              }) |
          ranges::to<std::vector>();
