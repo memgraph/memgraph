@@ -185,7 +185,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::optional<std::pair
   buffer_serializer bs(data);
   std::string const log_str = bs.get_str();
   if (log_str.empty()) {
-    return std::nullopt;
+    return std::nullopt;  // this is returned only when the log is configuration log
   }
   auto const json = nlohmann::json::parse(log_str);
   auto const action = json["action"].get<RaftLogAction>();
@@ -216,21 +216,25 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::optional<std::pair
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
-  logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
+  auto const create_return_buffer = [&]() {
+    ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
+    buffer_serializer bs_ret(ret);
+    bs_ret.put_u64(log_idx);
+    return ret;
+  };
 
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   auto const maybe_parsed_data = DecodeLog(data);
+
   if (!maybe_parsed_data.has_value()) {
-    return nullptr;
+    return create_return_buffer();
   }
   auto const &[parsed_data, log_action] = *maybe_parsed_data;
   cluster_state_.DoAction(parsed_data, log_action);
   last_committed_idx_ = log_idx;
 
   // Return raft log number
-  ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
-  buffer_serializer bs_ret(ret);
-  bs_ret.put_u64(log_idx);
-  return ret;
+  return create_return_buffer();
 }
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
