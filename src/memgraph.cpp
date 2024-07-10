@@ -703,6 +703,7 @@ int main(int argc, char **argv) {
                       &websocket_server, &server, &interpreter_context_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
+    spdlog::trace("Shutting down handler!");
     server.Shutdown();
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending

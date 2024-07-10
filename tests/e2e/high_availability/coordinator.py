@@ -44,6 +44,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10011",
+            "--replication-restore-state-on-startup=true",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "high_availability/coordinator/instance_1.log",
         "data_directory": f"{TEMP_DIR}/instance_1",
@@ -58,6 +60,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10012",
+            "--replication-restore-state-on-startup=true",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "high_availability/coordinator/instance_2.log",
         "data_directory": f"{TEMP_DIR}/instance_2",
@@ -72,6 +76,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "TRACE",
             "--management-port",
             "10013",
+            "--replication-restore-state-on-startup=true",
+            "--data-recovery-on-startup=false",
         ],
         "log_file": "high_availability/coordinator/instance_3.log",
         "data_directory": f"{TEMP_DIR}/instance_3",
@@ -91,7 +97,12 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "10121",
         ],
         "log_file": "high_availability/coordinator/coordinator1.log",
-        "setup_queries": [],
+        "setup_queries": [
+            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+            "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+            "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+            "SET INSTANCE instance_3 TO MAIN;",
+        ],
     },
 }
 
@@ -100,19 +111,7 @@ def setup_test():
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
-    setup_queries = [
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-        "SET INSTANCE instance_3 TO MAIN;",
-    ]
-
-    cursor = connect(host="localhost", port=7690).cursor()
-
-    for query in setup_queries:
-        execute_and_fetch_all(cursor, query)
-
-    return cursor
+    return connect(host="localhost", port=7690).cursor()
 
 
 def test_disable_cypher_queries():

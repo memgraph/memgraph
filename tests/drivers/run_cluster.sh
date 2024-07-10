@@ -127,14 +127,76 @@ wait_for_server 7692
 
 sleep 5
 
-echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "localhost:7691", "coordinator_server":  "localhost:10112", "management_server": "localhost:10112"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "localhost:7692", "coordinator_server":  "localhost:10113", "management_server": "localhost:10123"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "localhost:7687", "management_server": "localhost:10011", "replication_server": "localhost:10001"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "localhost:7688", "management_server": "localhost:10012", "replication_server": "localhost:10002"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "localhost:7689", "management_server": "localhost:10013", "replication_server": "localhost:10003"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690
+max_retries=5
 
+run_command() {
+  local cmd=$1
+  local attempt=0
 
+  while [ $attempt -le $max_retries ]; do
+    eval $cmd
+    if [ $? -eq 0 ]; then
+      return 0
+    fi
+    ((attempt++))
+    sleep 1
+  done
+
+  echo "Failed to run command: $cmd after $max_retries attempts."
+
+  return 1
+
+}
+
+commands=(
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10112\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690"
+)
+
+for cmd in "${commands[@]}"; do
+    run_command "$cmd"
+    if [ $? -ne 0 ]; then
+        echo "Failed to run command: $cmd"
+        exit 1
+    fi
+done
+
+sleep 1
+
+local instances=$(echo "SHOW INSTANCES;" | $binary_dir/bin/mgconsole --port 7690)
+
+local num_leaders=$(echo "$instances" | grep -c "leader")
+if [ $num_leaders -ne 1 ]; then
+    echo "Expected 1 leader after registration, got $num_leaders"
+    exit 1
+fi
+
+local num_followers=$(echo "$instances" | grep -c "follower")
+
+if [ $num_followers -ne 2 ]; then
+    echo "Expected 2 followers after registration, got $num_followers"
+    exit 1
+fi
+
+local num_mains=$(echo "$instances" | grep -c "main")
+
+if [ $num_mains -ne 1 ]; then
+    echo "Expected 1 main after registration, got $num_mains"
+    exit 1
+fi
+
+local num_replicas=$(echo "$instances" | grep -c "replica")
+
+if [ $num_replicas -ne 2 ]; then
+    echo "Expected 2 replicas after registration, got $num_replicas"
+    exit 1
+fi
+
+echo "All instances registered successfully."
 
 code_test=0
 for lang in *; do
