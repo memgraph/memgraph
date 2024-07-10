@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "query/procedure/module.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
@@ -47,6 +48,7 @@ using func_impl =
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-auto NameToFunction(const std::string &function_name) -> func_impl;
+auto NameToFunction(const std::string &function_name)
+    -> std::variant<func_impl, std::pair<func_impl, procedure::ModulePtr>>;
 
 }  // namespace memgraph::query

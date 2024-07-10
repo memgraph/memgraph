@@ -1160,6 +1160,34 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 
 }  // namespace
 
+bool ModuleRegistry::TryEraseModule(std::string_view name) {
+  auto lock_duration = std::chrono::seconds(1);
+  std::unique_lock module_lock(modules_mutex_[std::string(name)], std::defer_lock);
+
+  auto lock_acquired = module_lock.try_lock_for(lock_duration);
+  if (!lock_acquired) {
+    return false;
+  }
+  modules_.erase(std::string(name));
+  return true;
+}
+
+bool ModuleRegistry::TryEraseAllModules() {
+  auto lock_duration = std::chrono::seconds(1);
+  std::vector<std::unique_lock<std::shared_timed_mutex>> module_locks;
+
+  for (const auto &[k, v] : modules_) {
+    std::unique_lock module_lock(modules_mutex_[k], std::defer_lock);
+    auto lock_acquired = module_lock.try_lock_for(lock_duration);
+    if (!lock_acquired) {
+      return false;
+    }
+    module_locks.emplace_back(std::move(module_lock));
+  }
+  modules_.clear();
+  return true;
+}
+
 bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
@@ -1169,6 +1197,9 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
     return false;
   }
   modules_.emplace(name, std::move(module));
+  if (modules_mutex_.find(name) != modules_mutex_.end()) {
+    modules_mutex_.emplace(name, std::shared_timed_mutex());
+  }
   return true;
 }
 
@@ -1176,8 +1207,20 @@ void ModuleRegistry::DoUnloadAllModules() {
   MG_ASSERT(modules_.find("mg") != modules_.end(), "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
+
+  auto lock_duration = std::chrono::seconds(1);
+  std::unique_lock mg_lock(modules_mutex_["mg"], std::defer_lock);
+  auto lock_acquired = mg_lock.try_lock_for(lock_duration);
+  if (!lock_acquired) {
+    // TODO Ivan: throw error
+    return;
+  }
   auto module = std::move(modules_["mg"]);
-  modules_.clear();
+  modules_.erase("mg");
+
+  // TODO Ivan: throw error if failed, but flow is correct
+  TryEraseAllModules();
+
   modules_.emplace("mg", std::move(module));
 }
 
@@ -1193,6 +1236,7 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgUpdateModuleFile(this, &lock_, module.get());
   RegisterMgDeleteModuleFile(this, &lock_, module.get());
   modules_.emplace("mg", std::move(module));
+  modules_mutex_.emplace("mg", std::shared_timed_mutex());
 }
 
 void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs,
@@ -1243,6 +1287,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
 }
 
 void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
+  // all modules except mg are deleted before this
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
     spdlog::error(
@@ -1271,9 +1316,16 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
 
 ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
   auto guard = std::shared_lock{lock_};
+  auto lock_it = modules_mutex_.find(name);
+  if (lock_it == modules_mutex_.end()) {
+    return ModulePtr{nullptr};
+  }
+  auto module_guard = std::shared_lock(lock_it->second);
   auto found_it = modules_.find(name);
+  guard.release();
+
   if (found_it == modules_.end()) return ModulePtr{nullptr};
-  return ModulePtr(found_it->second.get(), std::move(guard));
+  return {found_it->second.get(), std::move(module_guard)};
 }
 
 void ModuleRegistry::UnloadAllModules() {

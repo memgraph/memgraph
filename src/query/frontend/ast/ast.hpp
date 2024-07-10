@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <shared_mutex>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -1355,6 +1357,8 @@ class Function : public memgraph::query::Expression {
   std::vector<memgraph::query::Expression *> arguments_;
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
+  // This is needed to acquire the shared lock on the module so it doesn't get reloaded while the query is running
+  std::shared_ptr<procedure::ModulePtr> module_ptr_;
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
@@ -1364,12 +1368,24 @@ class Function : public memgraph::query::Expression {
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
+    object->module_ptr_ = module_ptr_;
     return object;
   }
 
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
-      : arguments_(arguments), function_name_(function_name), function_(NameToFunction(function_name_)) {
+      : arguments_(arguments), function_name_(function_name) {
+    auto func_result = NameToFunction(function_name_);
+
+    std::visit(utils::Overloaded{[this](func_impl function) {
+                                   function_ = function;
+                                   module_ptr_ = std::make_shared<procedure::ModulePtr>(procedure::ModulePtr(nullptr));
+                                 },
+                                 [this](std::pair<func_impl, procedure::ModulePtr> function) {
+                                   function_ = function.first;
+                                   module_ptr_ = std::make_shared<procedure::ModulePtr>(std::move(function.second));
+                                 }},
+               func_result);
     if (!function_) {
       throw SemanticException("Function '{}' doesn't exist.", function_name);
     }
