@@ -2742,7 +2742,7 @@ def test_coordinator_not_leader_registration_does_not_work():
         )
 
     assert (
-        "Couldn't register replica instance since coordinator is not a leader! Current leader is coordinator with id 3 with bolt socket address 0.0.0.0:7692"
+        "Couldn't register replica instance since coordinator is not a leader! Current leader is coordinator with id 3 with bolt socket address localhost:7692"
         == str(e.value)
     )
 

@@ -13,22 +13,21 @@
 
 #pragma once
 
-#include <memory>
-#include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
-#include "coordination/instance_status.hpp"
+#include "coordination/coordinator_communication_config.hpp"
 
 namespace memgraph::coordination {
 
-class CoordinatorInstanceConnector {
- public:
-  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
+class CoordinatorInstance;
 
-  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
+class CoordinationClusterChangeObserver {
+ public:
+  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
+  void Update(std::vector<CoordinatorToCoordinatorConfig> const &configs);
 
  private:
-  mutable CoordinatorInstanceClient client_;
+  CoordinatorInstance *instance_;
 };
 
 }  // namespace memgraph::coordination
+
 #endif

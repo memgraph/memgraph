@@ -47,7 +47,7 @@ auto CoordinatorHandler::ForceResetClusterState() -> coordination::ForceResetClu
   return coordinator_state_.ForceResetClusterState();
 }
 
-auto CoordinatorHandler::ShowInstances() -> std::vector<coordination::InstanceStatus> {
+auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {
   return coordinator_state_.ShowInstances();
 }
 

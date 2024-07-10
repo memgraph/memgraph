@@ -19,6 +19,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_instance_management_server_handlers.hpp
         include/coordination/coordinator_instance_client.hpp
         include/coordination/coordinator_instance_connector.hpp
+        include/coordination/coordination_observer.hpp
 
         include/nuraft/raft_log_action.hpp
         include/nuraft/coordinator_cluster_state.hpp
@@ -42,6 +43,7 @@ target_sources(mg-coordination
         coordinator_instance_connector.cpp
         coordinator_instance_client.cpp
         coordinator_instance.cpp
+        coordination_observer.cpp
         replication_instance_connector.cpp
         raft_state.cpp
 

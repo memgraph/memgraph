@@ -61,11 +61,11 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() -> std::vector<InstanceStatus>;
+  auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto ShowInstancesAsLeader() -> std::vector<InstanceStatus>;
+  auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
 
-  auto ShowInstancesStatusAsFollower() -> std::vector<InstanceStatus>;
+  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   auto TryFailover() -> void;
 
@@ -90,6 +90,11 @@ class CoordinatorInstance {
   auto IsLeader() const -> bool;
 
   void ShuttingDown();
+
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+
+  auto GetRaftState() -> RaftState &;
+  auto GetRaftState() const -> RaftState const &;
 
  private:
   template <ranges::forward_range R>
@@ -171,7 +176,7 @@ class CoordinatorInstance {
   utils::ThreadPool thread_pool_{1};
 
   CoordinatorInstanceManagementServer coordinator_management_server_;
-  utils::Synchronized<std::unordered_map<uint32_t, CoordinatorInstanceConnector>, utils::SpinLock>
+  mutable utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
       coordinator_connectors_;
 };
 

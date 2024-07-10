@@ -11,24 +11,22 @@
 
 #ifdef MG_ENTERPRISE
 
-#pragma once
+#include <algorithm>
 
-#include <memory>
-#include "coordination/coordinator_instance_client.hpp"
-#include "coordination/coordinator_rpc.hpp"
-#include "coordination/instance_status.hpp"
+#include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_instance.hpp"
+
+#include "json/json.hpp"
 
 namespace memgraph::coordination {
 
-class CoordinatorInstanceConnector {
- public:
-  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
+CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
+    : instance_{instance} {}
 
-  auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
-
- private:
-  mutable CoordinatorInstanceClient client_;
-};
+void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+  instance_->AddOrUpdateClientConnectors(configs);
+}
 
 }  // namespace memgraph::coordination
+
 #endif
