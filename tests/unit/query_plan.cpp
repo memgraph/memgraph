@@ -2471,22 +2471,21 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQuery) {
             ExpectEmptyResult());
 }
 
-// TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryReturn) {
-//   // Test USING PERIODIC COMMIT 1 UNWIND range(1, 3) as x CREATE (n) RETURN n;
-//   // this one without periodic commit returns accumulate and we don't want to accumulate
-//   // because that will create all the deltas in advance and we won't be able to periodically commit
-//   FakeDbAccessor dba;
+TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryReturn) {
+  // Test USING PERIODIC COMMIT 1 UNWIND range(1, 3) as x CREATE (n) RETURN n;
+  // this one without periodic commit returns accumulate and we don't want to accumulate
+  // because that will create all the deltas in advance and we won't be able to periodically commit
+  FakeDbAccessor dba;
 
-//   auto *query = PERIODIC_QUERY(
-//       SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")), CREATE(PATTERN(NODE("n"))),
-//       RETURN("n")), COMMIT_FREQUENCY(LITERAL(1)));
+  auto *query = PERIODIC_QUERY(
+      SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")), CREATE(PATTERN(NODE("n"))), RETURN("n")),
+      COMMIT_FREQUENCY(LITERAL(1)));
 
-//   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-//   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-//   CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectCreateNode(), ExpectPeriodicCommit(),
-//             ExpectProduce());
-// }
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectCreateNode(), ExpectPeriodicCommit(), ExpectProduce());
+}
 
 TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNested) {
   // Test UNWIND range(1, 3) as x CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
