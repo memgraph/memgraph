@@ -50,20 +50,6 @@ TEST(ZlibCompressorTest, CompressEmptyDataTest) {
   EXPECT_EQ(decompressed.original_size, 0);
 }
 
-TEST(ZlibCompressorTest, IsCompressedTest) {
-  memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
-
-  const char *input_str = "Hello, Zlib Compression!";
-  size_t input_size = std::strlen(input_str);
-
-  memgraph::utils::DataBuffer compressed =
-      compressor->Compress(reinterpret_cast<const uint8_t *>(input_str), input_size);
-  EXPECT_TRUE(compressor->IsCompressed(compressed.data.get(), compressed.compressed_size));
-
-  // Test with uncompressed data
-  EXPECT_FALSE(compressor->IsCompressed((uint8_t *)input_str, input_size));
-}
-
 TEST(ZlibCompressorTest, LargeDataTest) {
   memgraph::utils::ZlibCompressor *compressor = memgraph::utils::ZlibCompressor::GetInstance();
 

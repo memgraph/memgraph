@@ -1459,9 +1459,10 @@ void BufferInfoFromUncompressedData(BufferInfo &buffer_info, const utils::DataBu
 
 PropertyStore::PropertyStore() { memset(buffer_, 0, sizeof(buffer_)); }
 
-PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
+PropertyStore::PropertyStore(PropertyStore &&other) noexcept : is_compressed_(other.is_compressed_) {
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
   memset(other.buffer_, 0, sizeof(other.buffer_));
+  other.is_compressed_ = false;
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
@@ -1475,6 +1476,9 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
 
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
   memset(other.buffer_, 0, sizeof(other.buffer_));
+  is_compressed_ = other.is_compressed_;
+
+  other.is_compressed_ = false;
 
   return *this;
 }
@@ -1489,37 +1493,13 @@ PropertyStore::~PropertyStore() {
   }
 }
 
-bool PropertyStore::IsCompressed() const {
-  uint32_t size = 0;
-  uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  const bool in_local_buffer = size % 8 != 0;
-  if (in_local_buffer || size == 0) {
-    return false;
-  }
-  auto mod = data[sizeof(uint32_t)];  // The first byte of the data is used to store the mod before power of 8.
-  if (mod > 7) {
-    return false;
-  }
-  auto compressed_size =
-      (mod != 0) ? (size - 8 + mod) : size;  // The size of the compressed data + size of the original data.
-  const auto *compressor = utils::ZlibCompressor::GetInstance();
-  return compressor->IsCompressed(data + sizeof(uint32_t) + 1, compressed_size - sizeof(uint32_t) - 1);
-}
-
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    // probably not the best approach
-    try {
-      decompressed_buffer = DecompressBuffer();
-      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
-  }
-  if (!decompressed_buffer.data) {
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+  } else {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1532,15 +1512,10 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
 uint32_t PropertyStore::PropertySize(PropertyId property) const {
   BufferInfo data_size_localbuffer;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    try {
-      decompressed_buffer = DecompressBuffer();
-      BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
-  }
-  if (!decompressed_buffer.data) {
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    BufferInfoFromUncompressedData(data_size_localbuffer, decompressed_buffer);
+  } else {
     data_size_localbuffer = GetBufferInfo(buffer_);
   }
   Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
@@ -1553,13 +1528,9 @@ uint32_t PropertyStore::PropertySize(PropertyId property) const {
 bool PropertyStore::HasProperty(PropertyId property) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    try {
-      decompressed_buffer = DecompressBuffer();
-      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
   }
   if (!decompressed_buffer.data) {
     buffer_info = GetBufferInfo(buffer_);
@@ -1602,15 +1573,10 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    try {
-      decompressed_buffer = DecompressBuffer();
-      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
-  }
-  if (!decompressed_buffer.data) {
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+  } else {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1626,15 +1592,10 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    try {
-      decompressed_buffer = DecompressBuffer();
-      BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
-  }
-  if (!decompressed_buffer.data) {
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    BufferInfoFromUncompressedData(buffer_info, decompressed_buffer);
+  } else {
     buffer_info = GetBufferInfo(buffer_);
   }
   Reader reader(buffer_info.data, buffer_info.size);
@@ -1660,22 +1621,15 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   bool in_local_buffer = false;
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  bool is_compressed = false;
   bool same_buffer_used = true;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
 
-  if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
-    try {
-      decompressed_buffer = DecompressBuffer();
-      size = decompressed_buffer.original_size;
-      data = decompressed_buffer.data.get();
-      in_local_buffer = false;
-      is_compressed = true;
-    } catch (const PropertyValueException &e) {
-      // do nothing
-    }
-  }
-  if (!decompressed_buffer.data) {
+  if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {
+    decompressed_buffer = DecompressBuffer();
+    size = decompressed_buffer.original_size;
+    data = decompressed_buffer.data.get();
+    in_local_buffer = false;
+  } else {
     std::tie(size, data) = GetSizeData(buffer_);
     if (size % 8 != 0) {
       // We are storing the data in the local buffer.
@@ -1696,6 +1650,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         size = sizeof(buffer_) - 1;
         data = &buffer_[1];
         in_local_buffer = true;
+        is_compressed_ = false;
       } else {
         // Allocate a new external buffer.
         auto *alloc_data = new uint8_t[property_size_to_power_of_8];
@@ -1730,7 +1685,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     if (new_size_to_power_of_8 == 0) {
       // We don't have any data to encode anymore.
       if (!in_local_buffer) {
-        if (is_compressed) {
+        if (decompressed_buffer.compressed_size) {
           uint8_t *buffer_data = nullptr;
           memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
           delete[] buffer_data;
@@ -1741,6 +1696,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       data = nullptr;
       size = 0;
       same_buffer_used = false;
+      is_compressed_ = false;
     } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
@@ -1752,6 +1708,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         current_size = sizeof(buffer_) - 1;
         current_data = &buffer_[1];
         current_in_local_buffer = true;
+        is_compressed_ = false;
       } else {
         // Allocate a new external buffer.
         current_data = new uint8_t[new_size_to_power_of_8];
@@ -1767,7 +1724,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
       // Free the old buffer.
       if (!in_local_buffer) {
-        if (is_compressed) {
+        if (decompressed_buffer.compressed_size) {
           uint8_t *buffer_data = nullptr;
           memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
           delete[] buffer_data;
@@ -1790,7 +1747,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
       memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
-      if (is_compressed) {
+      if (decompressed_buffer.compressed_size) {
         uint8_t *buffer_data = nullptr;
         memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
         delete[] buffer_data;
@@ -1815,7 +1772,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   }
 
   if (FLAGS_storage_property_store_compression_enabled) {
-    if (same_buffer_used && !in_local_buffer && is_compressed) {
+    if (same_buffer_used && !in_local_buffer && decompressed_buffer.compressed_size) {
       uint8_t *buffer_data = nullptr;
       memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
       delete[] buffer_data;
@@ -1937,6 +1894,8 @@ bool PropertyStore::ClearProperties() {
   if (!buffer_info.size) return false;
   if (!buffer_info.in_local_buffer) delete[] buffer_info.data;
   SetSizeData(buffer_, 0, nullptr);
+  is_compressed_ = false;
+
   return true;
 }
 
@@ -1973,6 +1932,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
 
 bool PropertyStore::CompressBuffer(uint8_t *data, uint32_t size) {
   if (size == 0 || size % 8 != 0) {
+    is_compressed_ = false;
     return false;
   }
 
@@ -1985,6 +1945,7 @@ bool PropertyStore::CompressBuffer(uint8_t *data, uint32_t size) {
   auto compressed_size_to_power_of_8 = ToPowerOf8(compressed_buffer.compressed_size + sizeof(uint32_t) + 1);
   if (compressed_size_to_power_of_8 >= size) {
     // Compressed buffer + metadata are larger than the original buffer, so we don't perform the compression.
+    is_compressed_ = false;
     return false;
   }
 
@@ -2003,6 +1964,8 @@ bool PropertyStore::CompressBuffer(uint8_t *data, uint32_t size) {
   memcpy(compressed_data + sizeof(uint32_t) + 1, compressed_buffer.data.get(), compressed_buffer.compressed_size);
 
   SetSizeData(buffer_, compressed_size_to_power_of_8, compressed_data);
+  is_compressed_ = true;
+
   return true;
 }
 

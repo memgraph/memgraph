@@ -125,8 +125,6 @@ class PropertyStore {
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
-  bool IsCompressed() const;
-
   /// Compresses buffer
   bool CompressBuffer(uint8_t *data, uint32_t size);
 
@@ -134,5 +132,7 @@ class PropertyStore {
   utils::DataBuffer DecompressBuffer() const;
 
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
+
+  bool is_compressed_ = false;
 };
 }  // namespace memgraph::storage

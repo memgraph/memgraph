@@ -20,12 +20,6 @@
 
 namespace memgraph::utils {
 
-constexpr uint8_t kZlibHeader = 0x78;
-constexpr uint8_t kZlibLowCompression = 0x01;
-constexpr uint8_t kZlibFastCompression = 0x5E;
-constexpr uint8_t kZlibDefaultCompression = 0x9C;
-constexpr uint8_t kZlibBestCompression = 0xDA;
-
 DataBuffer::DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size)
     : data(data), compressed_size(compressed_size), original_size(original_size) {}
 
@@ -84,16 +78,6 @@ DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t c
   if (result == Z_OK) return {std::move(uncompressed_data), original_size, original_size};
 
   return {};
-}
-
-bool ZlibCompressor::IsCompressed(const uint8_t *data, uint32_t size) const {
-  if (size < 2) {
-    return false;
-  }
-  const bool first_byte = data[0] == kZlibHeader;
-  const bool second_byte = data[1] == kZlibLowCompression || data[1] == kZlibFastCompression ||
-                           data[1] == kZlibDefaultCompression || data[1] == kZlibBestCompression;
-  return first_byte && second_byte;
 }
 
 ZlibCompressor *ZlibCompressor::GetInstance() {
