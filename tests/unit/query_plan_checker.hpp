@@ -88,6 +88,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
   PRE_VISIT(EvaluatePatternFilter);
+
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -150,6 +151,9 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  PRE_VISIT(PeriodicCommit);
+  PRE_VISIT(LoadCsv);
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -200,6 +204,8 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
+using ExpectLoadCsv = OpChecker<LoadCsv>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
@@ -578,7 +584,7 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
 template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
-  auto query_parts = CollectQueryParts(symbol_table, storage, query);
+  auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
   return TPlanner(query_parts, planning_context);
 }
 

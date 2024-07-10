@@ -763,7 +763,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
         query_part->subqueries.emplace_back(
-            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_)));
+            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_, true)));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (auto *with = utils::Downcast<With>(clause)) {
@@ -785,7 +785,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query) {
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
@@ -803,7 +803,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
 
-  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_};
+  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
 }
 
 std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {

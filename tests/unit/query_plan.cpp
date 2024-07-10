@@ -2456,20 +2456,87 @@ TYPED_TEST(TestPlanner, RangeFilterWIndex5) {
             ExpectFilter(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, PeriodicCommitQuery) {
-  // Test USING PERIODIC COMMIT 10 UNWIND range(1, 100) as x MATCH (n) RETURN n;
+TYPED_TEST(TestPlanner, PeriodicCommitCreateQuery) {
+  // Test USING PERIODIC COMMIT 1 UNWIND range(1, 3) as x CREATE (n);
   FakeDbAccessor dba;
 
-  auto *query = PERIODIC_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")), COMMIT_FREQUENCY(LITERAL(10)));
+  auto *query = PERIODIC_QUERY(
+      SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")), CREATE(PATTERN(NODE("n")))),
+      COMMIT_FREQUENCY(LITERAL(1)));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // CheckPlan(planner.plan(), symbol_table,
-  //           ExpectScanAllByLabelPropertyRange(label, property.second,
-  //                                             Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
-  //                                             Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
-  //           ExpectFilter(), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectCreateNode(), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
 }
 
+// TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryReturn) {
+//   // Test USING PERIODIC COMMIT 1 UNWIND range(1, 3) as x CREATE (n) RETURN n;
+//   // this one without periodic commit returns accumulate and we don't want to accumulate
+//   // because that will create all the deltas in advance and we won't be able to periodically commit
+//   FakeDbAccessor dba;
+
+//   auto *query = PERIODIC_QUERY(
+//       SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")), CREATE(PATTERN(NODE("n"))),
+//       RETURN("n")), COMMIT_FREQUENCY(LITERAL(1)));
+
+//   auto symbol_table = memgraph::query::MakeSymbolTable(query);
+//   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+//   CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectCreateNode(), ExpectPeriodicCommit(),
+//             ExpectProduce());
+// }
+
+TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNested) {
+  // Test UNWIND range(1, 3) as x CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+                                   CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitLoadCsv) {
+  // Test USING PERIODIC COMMIT 1 LOAD CSV FROM "x" WITH HEADER AS row CREATE (n);
+  FakeDbAccessor dba;
+
+  auto *query = PERIODIC_QUERY(SINGLE_QUERY(LOAD_CSV(LITERAL("temp"), "row"), CREATE(PATTERN(NODE("n")))),
+                               COMMIT_FREQUENCY(LITERAL(1)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadCsv(), ExpectCreateNode(), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitLoadCsvNested) {
+  // Test LOAD CSV FROM "x" WITH HEADER AS row CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
+  auto *query = QUERY(
+      SINGLE_QUERY(LOAD_CSV(LITERAL("temp"), "row"), CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadCsv(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
 }  // namespace

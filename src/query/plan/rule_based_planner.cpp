@@ -626,7 +626,7 @@ std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQuery
   }
 
   if (std::unordered_set<Symbol> bound_symbols; auto *with = utils::Downcast<query::With>(query.remaining_clauses[0])) {
-    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ops);
+    auto input_op = impl::GenWith(*with, nullptr, symbol_table, false, bound_symbols, storage, pc_ops, false);
     return bound_symbols;
   }
 
@@ -658,14 +658,14 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops) {
+                                           PatternComprehensionDataMap &pc_ops, bool has_periodic_commit) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
   // SET n.prop = n.prop + 1 RETURN n.prop`. If we match same `n` multiple 'k'
   // times, we want to return 'k' results where the property value is the same,
   // final result of 'k' increments.
-  bool accumulate = is_write;
+  bool accumulate = is_write && !has_periodic_commit;
   bool advance_command = false;
   ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, pc_ops);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate);
@@ -674,12 +674,12 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops) {
+                                         PatternComprehensionDataMap &pc_ops, bool has_periodic_commit) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
   // RETURN clause.
-  bool accumulate = is_write;
+  bool accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
   ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, pc_ops, with.where_);

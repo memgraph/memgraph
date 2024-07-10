@@ -162,12 +162,12 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops);
+                                           PatternComprehensionDataMap &pc_ops, bool has_periodic_commit);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops);
+                                         PatternComprehensionDataMap &pc_ops, bool has_periodic_commit);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -201,6 +201,8 @@ class RuleBasedPlanner {
     // due to swapping mechanism of procedure
     // tracking
     uint64_t procedure_id = 1;
+    bool has_periodic_commit = !!query_parts.commit_frequency;
+    bool is_root_query = !query_parts.is_subquery;
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
 
@@ -226,7 +228,8 @@ class RuleBasedPlanner {
           MG_ASSERT(!utils::IsSubtype(*clause, Match::kType), "Unexpected Match in remaining clauses");
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                       context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
+                                       context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
+                                       has_periodic_commit);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
@@ -234,7 +237,8 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
+                                     has_periodic_commit);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -281,6 +285,10 @@ class RuleBasedPlanner {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
         }
+      }
+
+      if (has_periodic_commit && is_root_query) {
+        input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
       }
 
       // Is this the only situation that should be covered
