@@ -268,7 +268,7 @@ add_unit_test(skip_list.cpp)
 target_link_libraries(${test_prefix}skip_list mg-utils)
 
 add_unit_test(small_vector.cpp)
-target_link_libraries(${test_prefix}small_vector)
+target_link_libraries(${test_prefix}small_vector mg-utils)
 
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
@@ -300,6 +300,9 @@ target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
 add_unit_test(lru_cache.cpp)
 target_link_libraries(${test_prefix}lru_cache mg-utils)
 
+add_unit_test(utils_static_vector.cpp)
+target_link_libraries(${test_prefix}utils_static_vector mg::utils)
+
 add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
 
@@ -312,6 +315,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+
+add_unit_test(storage_v2_delta_container.cpp)
+target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
 
 add_unit_test(storage_v2_enum_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_enum_store mg-storage-v2)
