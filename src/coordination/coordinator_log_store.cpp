@@ -306,19 +306,27 @@ bool CoordinatorLogStore::flush() {
 }
 
 bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry) {
-  buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
-  auto data_str = bs.get_str();
-  if (data_str.size() == 1 && data_str[0] == '\0') {  // empty string but bug in buffer_serializer
-    data_str = "";
-  }
-  auto clone_val = static_cast<int>(clone->get_val_type());
+  auto const data_string = [&clone]() -> std::string {
+    if (clone->get_val_type() != nuraft::log_val_type::app_log) {  // this is only our log, others nuraft creates and we
+                                                                   // don't have actions for them
+      return {};
+    }
+    buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
+    return bs.get_str();
+  }();  // iile
+
+  auto const clone_val = static_cast<int>(clone->get_val_type());
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Storing entry to disk: ID {}, \n ENTRY {} \n type {}", key_id, data_string, clone_val));
+
   auto const log_term_json = nlohmann::json(
-      {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_str}, {kLogEntryValTypeKey, clone_val}});
+      {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_string}, {kLogEntryValTypeKey, clone_val}});
   auto const log_term_str = log_term_json.dump();
   auto const key = fmt::format("{}{}", kLogEntryPrefix, key_id);
   durability_->Put(key, log_term_str);
 
   if (is_newest_entry) {
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Storing newest entry to disk {}", key_id));
     durability_->Put(kLastLogEntry, std::to_string(key_id));
   }
 
