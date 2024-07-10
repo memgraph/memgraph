@@ -191,7 +191,7 @@ struct small_vector {
     // NOTE 1: smallest capacity is kSmallCapacity
     // NOTE 2: upon copy construct we only need enough capacity to satisfy size requirement
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
+      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_copy(other, *this);
   }
@@ -215,12 +215,12 @@ struct small_vector {
     }
     // NOTE : ensure we have enough capacity
     if (capacity_ < other.size_) {
-      auto *new_data = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), other.size_ * sizeof(T)));
+      auto *new_data = reinterpret_cast<pointer>(operator new (other.size_ * sizeof(T), std::align_val_t{alignof(T)}));
       // NOTE: move values to the new buffer
       std::ranges::uninitialized_move(begin(), end(), new_data, new_data + size_);
       std::destroy(begin(), end());
       if (!usingSmallBuffer(capacity_)) {
-        std::free(buffer_);
+        operator delete (buffer_, std::align_val_t{alignof(T)});
       }
       buffer_ = new_data;
       capacity_ = other.size_;
@@ -285,7 +285,7 @@ struct small_vector {
         size_ = std::exchange(other.size_, 0);
         capacity_ = std::exchange(other.capacity_, kSmallCapacity);
         auto old_buffer = std::exchange(buffer_, other.buffer_);
-        std::free(old_buffer);
+        operator delete (old_buffer, std::align_val_t{alignof(T)});
       }
     }
     return *this;
@@ -294,7 +294,7 @@ struct small_vector {
   ~small_vector() {
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      std::free(buffer_);
+      operator delete (buffer_, std::align_val_t{alignof(T)});
     }
   }
 
@@ -305,7 +305,7 @@ struct small_vector {
   // TODO: generalise to not just vector
   explicit small_vector(std::vector<T> &&other) : size_(other.size()), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
+      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_move(other.begin(), other.end(), begin(), end());
   }
@@ -314,7 +314,7 @@ struct small_vector {
   explicit small_vector(It first, It last)
       : size_(std::distance(first, last)), capacity_{std::max(size_, kSmallCapacity)} {
     if (!usingSmallBuffer(capacity_)) {
-      buffer_ = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), capacity_ * sizeof(T)));
+      buffer_ = reinterpret_cast<pointer>(operator new (capacity_ * sizeof(T), std::align_val_t{alignof(T)}));
     }
     std::ranges::uninitialized_copy(first, last, begin(), end());
   }
@@ -379,11 +379,11 @@ struct small_vector {
       return;
     }
 
-    auto *new_data = reinterpret_cast<pointer>(std::aligned_alloc(alignof(T), new_capacity * sizeof(T)));
+    auto *new_data = reinterpret_cast<pointer>(operator new (new_capacity * sizeof(T), std::align_val_t{alignof(T)}));
     std::uninitialized_move(begin(), end(), new_data);
     std::destroy(begin(), end());
     if (!usingSmallBuffer(capacity_)) {
-      std::free(buffer_);
+      operator delete (buffer_, std::align_val_t{alignof(T)});
     }
     buffer_ = new_data;
     capacity_ = new_capacity;
