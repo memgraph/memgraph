@@ -53,15 +53,29 @@ class Module {
   virtual std::optional<std::filesystem::path> Path() const = 0;
 };
 
-/// Proxy for a registered Module, acquires a read lock from ModuleRegistry.
+/// Proxy for a registered Module, acquires a read lock for the module it points to.
 class ModulePtr final {
   const Module *module_{nullptr};
-  std::shared_lock<utils::RWLock> lock_;
+  std::shared_lock<const std::shared_timed_mutex> lock_;
 
  public:
   ModulePtr() = default;
   explicit ModulePtr(std::nullptr_t) {}
-  ModulePtr(const Module *module, std::shared_lock<utils::RWLock> lock) : module_(module), lock_(std::move(lock)) {}
+  ModulePtr(const Module *module, std::shared_lock<const std::shared_timed_mutex> lock)
+      : module_(module), lock_(std::move(lock)) {}
+
+  ModulePtr(ModulePtr &&other) noexcept : module_(other.module_), lock_(std::move(other.lock_)) {
+    other.module_ = nullptr;
+  }
+
+  ModulePtr &operator=(ModulePtr &&other) noexcept {
+    if (this != &other) {
+      module_ = other.module_;
+      lock_ = std::move(other.lock_);
+      other.module_ = nullptr;
+    }
+    return *this;
+  }
 
   explicit operator bool() const { return static_cast<bool>(module_); }
 
@@ -73,10 +87,25 @@ class ModulePtr final {
 class ModuleRegistry final {
   friend CypherMainVisitorTest;
 
+  struct string_hash {
+    using is_transparent = void;
+    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
+    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+  };
+
   std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
+  std::unordered_map<std::string, std::shared_timed_mutex, string_hash, std::equal_to<>> modules_mutex_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 
+  /// requires unique lock on registry
+  bool TryEraseModule(std::string_view name);
+
+  /// requires unique lock on registry
+  bool TryEraseAllModules();
+
+  /// requires lock on registry
   bool RegisterModule(std::string_view name, std::unique_ptr<Module> module);
 
   void DoUnloadAllModules();
@@ -85,6 +114,7 @@ class ModuleRegistry final {
   /// @return Whether the module was loaded
   bool LoadModuleIfFound(const std::filesystem::path &modules_dir, std::string_view name);
 
+  /// requires lock on registry
   void LoadModulesFromDirectory(const std::filesystem::path &modules_dir);
 
  public:

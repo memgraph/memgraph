@@ -1386,18 +1386,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
-    const auto &maybe_found =
-        procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw QueryRuntimeException(
-          "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
-          fully_qualified_name);
-    }
-    /// Explicit extraction of module pointer, to clearly state that the lock is acquired.
-    // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
-    const auto &module_ptr = (*maybe_found).first;
-
+    // Lock on the module is already acquired in the AST construction
     procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
@@ -1440,8 +1429,7 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
 
 }  // namespace
 
-std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
-    const std::string &function_name) {
+std::variant<func_impl, std::pair<func_impl, procedure::ModulePtr>> NameToFunction(const std::string &function_name) {
   // Scalar functions
   if (function_name == "DEGREE") return Degree;
   if (function_name == "INDEGREE") return InDegree;
@@ -1530,12 +1518,13 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   // Functions for enum types
   if (function_name == "TOENUM") return ToEnum;
 
-  const auto &maybe_found =
-      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
 
   if (maybe_found) {
+    auto module_ptr = std::move((*maybe_found).first);
     const auto *func = (*maybe_found).second;
-    return UserFunction(*func, function_name);
+
+    return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
   }
 
   return nullptr;
