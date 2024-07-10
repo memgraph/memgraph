@@ -24,6 +24,7 @@
 
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module_ptr.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -51,36 +52,6 @@ class Module {
   virtual const std::map<std::string, mgp_func, std::less<>> *Functions() const = 0;
 
   virtual std::optional<std::filesystem::path> Path() const = 0;
-};
-
-/// Proxy for a registered Module, acquires a read lock for the module it points to.
-class ModulePtr final {
-  const Module *module_{nullptr};
-  std::shared_lock<const std::shared_timed_mutex> lock_;
-
- public:
-  ModulePtr() = default;
-  explicit ModulePtr(std::nullptr_t) {}
-  ModulePtr(const Module *module, std::shared_lock<const std::shared_timed_mutex> lock)
-      : module_(module), lock_(std::move(lock)) {}
-
-  ModulePtr(ModulePtr &&other) noexcept : module_(other.module_), lock_(std::move(other.lock_)) {
-    other.module_ = nullptr;
-  }
-
-  ModulePtr &operator=(ModulePtr &&other) noexcept {
-    if (this != &other) {
-      module_ = other.module_;
-      lock_ = std::move(other.lock_);
-      other.module_ = nullptr;
-    }
-    return *this;
-  }
-
-  explicit operator bool() const { return static_cast<bool>(module_); }
-
-  const Module &operator*() const { return *module_; }
-  const Module *operator->() const { return module_; }
 };
 
 /// Thread-safe registration of modules from libraries, uses utils::RWLock.

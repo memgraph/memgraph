@@ -1429,7 +1429,7 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
 
 }  // namespace
 
-std::variant<func_impl, std::pair<func_impl, procedure::ModulePtr>> NameToFunction(const std::string &function_name) {
+auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
   // Scalar functions
   if (function_name == "DEGREE") return Degree;
   if (function_name == "INDEGREE") return InDegree;

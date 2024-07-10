@@ -20,7 +20,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module.hpp"
+#include "query/procedure/module_ptr.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -1379,9 +1379,9 @@ class Function : public memgraph::query::Expression {
 
     std::visit(utils::Overloaded{[this](func_impl function) {
                                    function_ = function;
-                                   module_ptr_ = std::make_shared<procedure::ModulePtr>(procedure::ModulePtr(nullptr));
+                                   module_ptr_.reset();
                                  },
-                                 [this](std::pair<func_impl, procedure::ModulePtr> function) {
+                                 [this](std::pair<func_impl, procedure::ModulePtr> &function) {
                                    function_ = function.first;
                                    module_ptr_ = std::make_shared<procedure::ModulePtr>(std::move(function.second));
                                  }},
