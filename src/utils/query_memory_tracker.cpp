@@ -69,11 +69,12 @@ void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit
   if (proc_memory_trackers_.contains(procedure_id)) {
     return;
   }
-  auto [it, inserted] = proc_memory_trackers_.emplace(procedure_id, utils::MemoryTracker{});
+  auto [it, inserted] = proc_memory_trackers_.emplace(std::piecewise_construct, std::forward_as_tuple(procedure_id),
+                                                      std::forward_as_tuple());
   it->second.SetMaximumHardLimit(static_cast<int64_t>(limit));
   it->second.SetHardLimit(static_cast<int64_t>(limit));
 }
 
-void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(MemoryTracker{}); }
+void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(); }
 
 }  // namespace memgraph::utils

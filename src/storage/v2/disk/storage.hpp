@@ -27,7 +27,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
 #include <unordered_set>
-#include "storage/v2/small_vector.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -226,17 +226,16 @@ class DiskStorage final : public Storage {
 
   /// Writing methods
   bool WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex);
-  bool WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
-                                   const std::string &serialized_edge_value);
-  bool WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
-                                    const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle, std::string mode);
-  bool DeleteVertexFromDisk(Transaction *transaction, const std::string &vertex_gid, const std::string &vertex);
-  bool DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const std::string &edge_gid);
-  bool DeleteEdgeFromDisk(Transaction *transaction, const std::string &edge_gid, const std::string &src_vertex_gid,
-                          const std::string &dst_vertex_gid);
-  bool DeleteEdgeFromConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
-                                       const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
-                                       std::string mode);
+  bool WriteEdgeToEdgeColumnFamily(Transaction *transaction, std::string_view serialized_edge_key,
+                                   std::string_view serialized_edge_value);
+  bool WriteEdgeToConnectivityIndex(Transaction *transaction, std::string_view vertex_gid, std::string_view edge_gid,
+                                    rocksdb::ColumnFamilyHandle *handle, std::string mode);
+  bool DeleteVertexFromDisk(Transaction *transaction, std::string_view vertex_gid, std::string_view vertex);
+  bool DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, std::string_view edge_gid);
+  bool DeleteEdgeFromDisk(Transaction *transaction, std::string_view edge_gid, std::string_view src_vertex_gid,
+                          std::string_view dst_vertex_gid);
+  bool DeleteEdgeFromConnectivityIndex(Transaction *transaction, std::string_view vertex_gid, std::string_view edge_gid,
+                                       rocksdb::ColumnFamilyHandle *handle, std::string mode);
 
   void LoadVerticesToMainMemoryCache(Transaction *transaction);
 
@@ -249,13 +248,13 @@ class DiskStorage final : public Storage {
   void LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction *transaction, LabelId label);
   void HandleLoadingLabelForEdgeImportCache(Transaction *transaction, LabelId label);
   void LoadVerticesFromDiskLabelIndex(Transaction *transaction, LabelId label,
-                                      const std::unordered_set<storage::Gid> &gids, std::list<Delta> &index_deltas,
+                                      const std::unordered_set<storage::Gid> &gids, delta_container &index_deltas,
                                       utils::SkipList<Vertex> *indexed_vertices);
   std::optional<storage::VertexAccessor> LoadVertexToLabelIndexCache(
-      Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
+      Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
       utils::SkipList<storage::Vertex>::Accessor index_accessor);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelIndexCache(Transaction *transaction, LabelId label,
-                                                                        View view, std::list<Delta> &index_deltas,
+                                                                        View view, delta_container &index_deltas,
                                                                         utils::SkipList<Vertex> *indexed_vertices);
 
   /// Label-property-index
@@ -263,41 +262,41 @@ class DiskStorage final : public Storage {
                                                                   PropertyId property);
   void HandleLoadingLabelPropertyForEdgeImportCache(Transaction *transaction, LabelId label, PropertyId property);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-      Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
+      Transaction *transaction, LabelId label, PropertyId property, View view, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter);
   void LoadVerticesFromDiskLabelPropertyIndex(Transaction *transaction, LabelId label, PropertyId property,
                                               const std::unordered_set<storage::Gid> &gids,
-                                              std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices,
+                                              delta_container &index_deltas, utils::SkipList<Vertex> *indexed_vertices,
                                               const auto &label_property_filter);
   std::optional<storage::VertexAccessor> LoadVertexToLabelPropertyIndexCache(
-      Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
+      Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
       utils::SkipList<storage::Vertex>::Accessor index_accessor);
   void LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
       Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
-      const PropertyValue &value, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
+      const PropertyValue &value, delta_container &index_deltas, utils::SkipList<Vertex> *indexed_vertices);
   std::unordered_set<Gid> MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, View view,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices);
   void LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-      const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
+      const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
       utils::SkipList<Vertex> *indexed_vertices);
 
   VertexAccessor CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                      storage::Gid gid, storage::small_vector<LabelId> label_ids,
+                                      storage::Gid gid, utils::small_vector<LabelId> label_ids,
                                       PropertyStore properties, Delta *delta);
 
-  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, const std::string &key,
-                                                                     const std::string &value, std::string &&ts);
+  std::optional<storage::VertexAccessor> LoadVertexToMainMemoryCache(Transaction *transaction, std::string_view key,
+                                                                     std::string_view value, std::string &&ts);
 
   std::optional<VertexAccessor> FindVertex(Gid gid, Transaction *transaction, View view);
 
   std::optional<EdgeAccessor> CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
                                                  Transaction *transaction, EdgeTypeId edge_type, storage::Gid gid,
-                                                 std::string_view properties, const std::string &old_disk_key,
+                                                 std::string_view properties, std::string_view old_disk_key,
                                                  std::string &&ts);
 
   std::vector<EdgeAccessor> OutEdges(const VertexAccessor *src_vertex,
