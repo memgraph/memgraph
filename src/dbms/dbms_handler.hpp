@@ -394,6 +394,26 @@ class DbmsHandler {
     }
   }
 
+#ifdef MG_ENTERPRISE
+  /**
+   * @brief Restore streams of all currently defined databases.
+   * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
+   *
+   * @param ic global InterpreterContext
+   */
+  void RestoreTTL(query::InterpreterContext *ic) {
+    auto wr = std::lock_guard{lock_};
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc = db_gk.access();
+      if (db_acc) {
+        auto *db = db_acc->get();
+        spdlog::debug("Restoring TTL for database \"{}\"", db->name());
+        db->ttl().Restore(*db_acc, ic);
+      }
+    }
+  }
+#endif
+
   /**
    * @brief todo
    *

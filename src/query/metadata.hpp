@@ -54,10 +54,9 @@ enum class NotificationCode : uint8_t {
   START_ALL_STREAMS,
   STOP_STREAM,
   STOP_ALL_STREAMS,
-  ENABLE_TTL,
+  EXECUTE_TTL,
   DISABLE_TTL,
   STOP_TTL,
-  EXECUTE_TTL,
 };
 
 struct Notification {

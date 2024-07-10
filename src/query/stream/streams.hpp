@@ -153,6 +153,9 @@ class Streams final {
   /// @throws StreamsException if the metadata cannot be persisted
   void StopAll();
 
+  /// Stops streams without affecting the durable data. Use for destruction only.
+  void Shutdown();
+
   /// Return current status for all streams.
   /// It might happend that the is_running field is out of date if the one of the streams stops during the invocation of
   /// this function because of an error.

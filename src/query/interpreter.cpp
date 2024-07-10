@@ -3086,9 +3086,13 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
                               InterpreterContext *interpreter_context) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+
   if (in_explicit_transaction) {
-    // TODO Make another one
-    throw IndexInMulticommandTxException();
+    throw TtlInMulticommandTxException();
   }
 
   auto *ttl_query = utils::Downcast<TtlQuery>(parsed_query.query);
@@ -3110,17 +3114,41 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
-    case TtlQuery::Type::ENABLE: {
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [db_acc = std::move(db_acc), dba, label, prop,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
-        const utils::OnScopeExit invalidator(invalidate_plan_cache);
+    case TtlQuery::Type::EXECUTE: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      try {
+        std::string info = "Starting time-to-live worker. Will be executed";
+        std::string period;
+        if (ttl_query->period_) {
+          period = ttl_query->period_->Accept(evaluator).ValueString();
+          info += " every " + period;
+        }
+        std::string start_time;
+        if (ttl_query->specific_time_) {
+          start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
+          info += " at " + start_time;
+        }
+        ttl::TtlInfo ttl_info{period, start_time};
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
+                   invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+          auto &ttl = db_acc->ttl();
 
-        notification.code = NotificationCode::ENABLE_TTL;
-        notification.title = fmt::format("Enabled time-to-live feature.");
-        db_acc->ttl().Enable();
-      };
+          if (!ttl.Enabled()) {
+            (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            const utils::OnScopeExit invalidator(invalidate_plan_cache);
+            ttl.Enable();
+          }
+
+          ttl.Configure(ttl_info);
+
+          notification.code = NotificationCode::EXECUTE_TTL;
+          notification.title = info;
+          ttl.Execute(std::move(db_acc), interpreter_context);
+        };
+      } catch (const ttl::TtlException &e) {
+        throw utils::BasicException(e.what());
+      }
       break;
     }
     case TtlQuery::Type::DISABLE: {
@@ -3134,36 +3162,6 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         notification.title = fmt::format("Disabled time-to-live feature.");
         db_acc->ttl().Disable();
       };
-      break;
-    }
-    case TtlQuery::Type::EXECUTE: {
-      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
-      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      std::optional<std::chrono::microseconds> period{};
-      std::optional<std::chrono::microseconds> start_time{};
-      try {
-        std::string info = "Starting time-to-live worker. Will be executed";
-        if (ttl_query->period_) {
-          const auto period_str = ttl_query->period_->Accept(evaluator).ValueString();
-          period = ttl::TtlInfo::ParsePeriod(period_str);
-          if (period) info += " every " + period_str;
-        }
-        if (ttl_query->specific_time_) {
-          const auto st_str = ttl_query->specific_time_->Accept(evaluator).ValueString();
-          start_time = ttl::TtlInfo::ParseStartTime(st_str);
-          if (start_time) info += " at " + st_str;
-        }
-
-        handler = [db_acc = std::move(db_acc), ttl_info = ttl::TtlInfo{period, start_time}, interpreter_context,
-                   info = std::move(info)](Notification &notification) mutable {
-          notification.code = NotificationCode::EXECUTE_TTL;
-          notification.title = info;
-          auto &ttl = db_acc->ttl();
-          ttl.Execute(ttl_info, std::move(db_acc), interpreter_context);
-        };
-      } catch (const ttl::TtlException &e) {
-        throw utils::BasicException(e.what());
-      }
       break;
     }
     case TtlQuery::Type::STOP: {
@@ -3188,6 +3186,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                          return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
                        },
                        RWType::W};
+#else
+  throw QueryException("Query not supported.");
+#endif
 }
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -5207,15 +5208,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (write_query) {
       if (interpreter_context_->repl_state->IsReplica()) {
         query_execution = nullptr;
-        throw QueryException("Write query forbidden on the replica!");
+        throw WriteQueryOnReplicaException();
       }
 #ifdef MG_ENTERPRISE
       if (interpreter_context_->coordinator_state_.has_value() &&
           interpreter_context_->coordinator_state_->get().IsDataInstance() &&
           !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
-        throw QueryException(
-            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
+        throw WriteQueryOnMainException();
       }
 #endif
     }

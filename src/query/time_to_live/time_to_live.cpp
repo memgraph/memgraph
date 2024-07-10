@@ -19,17 +19,22 @@
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/typed_value.hpp"
+#include "utils/logging.hpp"
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Execute(TtlInfo ttl_info, TDbAccess db_acc, InterpreterContext *interpreter_context) {
-  auto ttl_locked = ttl_.Lock();
+void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
-  if (ttl_locked->IsRunning()) {
+  if (ttl_.IsRunning()) {
     throw TtlException("TTL already running!");
+  }
+  if (!info_) {
+    throw TtlException("TTL not configured!");
   }
 
   auto interpreter =
@@ -79,7 +84,18 @@ void TTL::Execute(TtlInfo ttl_info, TDbAccess db_acc, InterpreterContext *interp
       } catch (const TransactionSerializationException &e) {
         spdlog::trace("TTL serialization error; Aborting and retrying...");
         interpreter->Abort();  // Retry later
+<<<<<<< HEAD
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
+=======
+      } catch (const WriteQueryOnMainException & /* not used */) {
+        // Preparation-time error, nothing to do
+        interpreter->Abort();  // Retry later
+        break;
+      } catch (const WriteQueryOnReplicaException & /* not used */) {
+        // Preparation-time error, nothing to do
+        interpreter->Abort();  // Retry later
+        break;
+>>>>>>> 9f004e0e3 (TTL duraiblity and tests)
       } catch (const DatabaseContextRequiredException &e) {
         // No database; we are shutting down
         interpreter->Abort();
@@ -89,24 +105,73 @@ void TTL::Execute(TtlInfo ttl_info, TDbAccess db_acc, InterpreterContext *interp
     }
   };
 
-  std::chrono::microseconds period = std::chrono::days(1);  // Default period is a day
-  if (ttl_info.period) {
-    period = *ttl_info.period;
-  }
-  std::optional<std::chrono::system_clock::time_point> start_time = std::nullopt;
-  if (ttl_info.start_time) {
-    start_time = std::chrono::system_clock::time_point{std::chrono::microseconds(*ttl_info.start_time)};
-  }
-
-  if (ttl_info) {
-    ttl_locked->Run(db_acc->name() + "-ttl", period, std::move(TTL), start_time);
-  } else {
-    // one-shot
-    TTL();
-  }
+  DMG_ASSERT(info_.period, "Period has to be defined for TTL");
+  ttl_.Run(db_acc->name() + "-ttl", *info_.period, std::move(TTL), info_.start_time);
+  Persist();
 }
 
-template void TTL::Execute<dbms::DatabaseAccess>(TtlInfo ttl_info, dbms::DatabaseAccess db_acc,
-                                                 InterpreterContext *interpreter_context);
+template <typename TDbAccess>
+bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
+  auto fail = [&](std::string_view field) {
+    spdlog::warn("Failed to restore TTL, due to '{}'.", field);
+    ttl_.Stop();
+    info_ = {};
+    enabled_ = false;
+    return false;
+  };
+
+  try {
+    {
+      const auto ver = storage_.Get("version");
+      if (!ver || *ver != "1.0") {
+        return fail("version");
+      }
+    }
+    {
+      const auto ena = storage_.Get("enabled");
+      if (!ena || (*ena != "false" && *ena != "true")) {
+        return fail("enabled");
+      }
+      enabled_ = *ena == "true";
+    }
+    {
+      const auto per = storage_.Get("period");
+      if (!per) {
+        return fail("period");
+      }
+      if (per->empty())
+        info_.period = std::nullopt;
+      else
+        info_.period = TtlInfo::ParsePeriod(*per);
+    }
+    {
+      const auto st = storage_.Get("start_time");
+      if (!st) {
+        return fail("start_time");
+      }
+      if (st->empty())
+        info_.start_time = std::nullopt;
+      else
+        info_.start_time = TtlInfo::ParseStartTime(*st);
+    }
+    {
+      const auto run = storage_.Get("running");
+      if (!run || (*run != "false" && *run != "true")) {
+        return fail("running");
+      }
+      if (*run == "true") {
+        Execute(db, interpreter_context);
+      }
+    }
+  } catch (TtlException &e) {
+    return fail(e.what());
+  }
+  return true;
+}
+
+template bool TTL::Restore<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
+template void TTL::Execute<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
 
 }  // namespace memgraph::query::ttl
+
+#endif  // MG_ENTERPRISE

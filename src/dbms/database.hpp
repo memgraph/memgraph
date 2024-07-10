@@ -160,12 +160,13 @@ class Database {
    *
    * Tasks might have an accessor to the database, and so, might forbid it from being destroyed.
    * Call this function before attempting to destroy a database object.
+   * This does not affect stream's, trigger's or ttl's durable data. We will restore to the state prior to shutdown.
    *
    */
   void StopAllBackgroundTasks() {
-    streams()->StopAll();
+    streams()->Shutdown();
     thread_pool()->ShutDown();
-    ttl().Stop();
+    ttl().Shutdown();
   }
 
  private:
@@ -173,13 +174,12 @@ class Database {
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
+  query::ttl::TTL time_to_live_;                    //!< TTL associated with the storage
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
 
   const replication::ReplicationState *repl_state_;
-
-  query::ttl::TTL time_to_live_;
 };
 
 }  // namespace memgraph::dbms

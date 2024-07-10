@@ -622,13 +622,11 @@ dropEnumQuery: DROP ENUM enumName ;
 
 showSchemaInfoQuery : SHOW SCHEMA INFO ;
 
-enableTtlQuery: ENABLE TTL ;
+stopTtlQuery: ( DISABLE | STOP ) TTL ;
 
-manipTtlQuery: ( ENABLE | DISABLE | STOP ) TTL ;
+startTtlQuery: EXECUTE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? ) ;
 
-ttlThreadQuery: EXECUTE TTL ( ( EVERY period=literal ) ( AT time=literal )?
-                            | ( AT time=literal ) ( EVERY period=literal )? ) ;
-
-ttlQuery: manipTtlQuery
-        | ttlThreadQuery
+ttlQuery: stopTtlQuery
+        | startTtlQuery
         ;

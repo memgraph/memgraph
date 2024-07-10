@@ -5041,11 +5041,6 @@ TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
 TEST_P(CypherMainVisitorTest, TtlQuery) {
   auto &ast_generator = *GetParam();
   {
-    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
-    ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
-  }
-  {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("DISABLE TTL;"));
     ASSERT_NE(query, nullptr);
     ASSERT_EQ(query->type_, TtlQuery::Type::DISABLE);

@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <filesystem>
 #include <thread>
 
 #include "dbms/database.hpp"
@@ -19,6 +20,7 @@
 #include "query/time_to_live/time_to_live.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace {
 std::filesystem::path GetCleanDataDirectory() {
@@ -72,7 +74,7 @@ class TTLFixture : public ::testing::Test {
                                                            nullptr,
                                                            &auth_checker};
 
-  std::optional<memgraph::query::ttl::TTL> ttl_;
+  memgraph::query::ttl::TTL *ttl_{&db_->ttl()};
 
   void SetUp() override {
     {
@@ -82,11 +84,9 @@ class TTLFixture : public ::testing::Test {
       }
       acc->Commit();
     }
-    ttl_.emplace();
   }
 
   void TearDown() override {
-    ttl_.reset();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
@@ -98,13 +98,21 @@ using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgra
 TYPED_TEST_SUITE(TTLFixture, StorageTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {
-  EXPECT_THROW(this->ttl_->Execute({/* one-shot */}, this->db_, &this->interpreter_context_),
-               memgraph::query::ttl::TtlException);
+  const memgraph::query::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
+  EXPECT_FALSE(this->ttl_->Enabled());
+  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
   this->ttl_->Enable();
-  EXPECT_NO_THROW(this->ttl_->Execute({/* one-shot */}, this->db_, &this->interpreter_context_));
+  EXPECT_TRUE(this->ttl_->Enabled());
+  EXPECT_THROW(this->ttl_->Configure({}), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
+  EXPECT_EQ(this->ttl_->Config(), ttl_info);
+  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
   this->ttl_->Disable();
-  EXPECT_THROW(this->ttl_->Execute({/* one-shot */}, this->db_, &this->interpreter_context_),
-               memgraph::query::ttl::TtlException);
+  EXPECT_FALSE(this->ttl_->Enabled());
+  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -143,8 +151,8 @@ TYPED_TEST(TTLFixture, Periodic) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  EXPECT_NO_THROW(this->ttl_->Execute(memgraph::query::ttl::TtlInfo{.period = std::chrono::milliseconds(700)},
-                                      this->db_, &this->interpreter_context_));
+  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
+  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -200,12 +208,9 @@ TYPED_TEST(TTLFixture, StartTime) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  EXPECT_NO_THROW(this->ttl_->Execute(
-      memgraph::query::ttl::TtlInfo{
-          .period = std::chrono::milliseconds(100),
-          .start_time = std::chrono::duration_cast<std::chrono::microseconds>(
-              (std::chrono::system_clock::now() + std::chrono::seconds(3)).time_since_epoch())},
-      this->db_, &this->interpreter_context_));
+  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(100),
+                                                      std::chrono::system_clock::now() + std::chrono::seconds(3)});
+  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -233,5 +238,94 @@ TYPED_TEST(TTLFixture, StartTime) {
     for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
       if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
     EXPECT_EQ(size, 4);
+  }
+}
+
+TYPED_TEST(TTLFixture, Durability) {
+  const auto path = GetCleanDataDirectory();
+  ASSERT_TRUE(memgraph::utils::EnsureDir(path));
+  memgraph::utils::OnScopeExit([&]() { std::filesystem::remove_all(path); });
+  memgraph::query::ttl::TtlInfo ttl_info;
+  {
+    {
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Restore(this->db_, &this->interpreter_context_);
+      EXPECT_FALSE(ttl.Enabled());
+      EXPECT_EQ(ttl.Config(), memgraph::query::ttl::TtlInfo{});
+      EXPECT_FALSE(ttl.Running());
+    }
+    {
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Enable();
+    }
+    {
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Restore(this->db_, &this->interpreter_context_);
+      EXPECT_TRUE(ttl.Enabled());
+      EXPECT_EQ(ttl.Config(), memgraph::query::ttl::TtlInfo{});
+      EXPECT_FALSE(ttl.Running());
+    }
+    {
+      ttl_info.period = std::chrono::minutes(12);
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Enable();
+      ttl.Configure(ttl_info);
+    }
+    {
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Restore(this->db_, &this->interpreter_context_);
+      EXPECT_TRUE(ttl.Enabled());
+      EXPECT_EQ(ttl.Config(), ttl_info);
+      EXPECT_FALSE(ttl.Running());
+    }
+    {
+      ttl_info.period = std::chrono::hours(34);
+      ttl_info.start_time = std::chrono::system_clock::now();
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Enable();
+      ttl.Configure(ttl_info);
+      ttl.Execute(this->db_, &this->interpreter_context_);
+    }
+    {
+      memgraph::query::ttl::TTL ttl(path);
+      ttl.Restore(this->db_, &this->interpreter_context_);
+      EXPECT_TRUE(ttl.Enabled());
+      EXPECT_EQ(ttl.Config().period, ttl_info.period);
+      ASSERT_TRUE(ttl.Config().start_time && ttl_info.start_time);
+      EXPECT_EQ(*ttl.Config().start_time, std::chrono::time_point_cast<std::chrono::seconds>(
+                                              *ttl_info.start_time));  // Durability has seconds precision
+      EXPECT_TRUE(ttl.Running());
+    }
+  }
+}
+
+TEST(TtlInof, String) {
+  {
+    auto period = std::chrono::hours(1) + std::chrono::minutes(23) + std::chrono::seconds(59);
+    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    EXPECT_EQ(period_str, "1h23m59s");
+    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+  }
+  {
+    auto period = std::chrono::days(45) + std::chrono::seconds(120 + 59);
+    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    EXPECT_EQ(period_str, "45d2m59s");
+    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+  }
+  {
+    auto period = std::chrono::hours(25);
+    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    EXPECT_EQ(period_str, "1d1h");
+    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+  }
+  {
+    // Has to handle time zones (hours can differ)
+    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto epoch = time.time_since_epoch();
+    memgraph::query::ttl::TtlInfo::GetPart<std::chrono::hours>(epoch);  // consume and ignore
+    EXPECT_EQ(memgraph::query::ttl::TtlInfo::GetPart<std::chrono::minutes>(epoch), 45);
+    EXPECT_EQ(memgraph::query::ttl::TtlInfo::GetPart<std::chrono::seconds>(epoch), 10);
+    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    EXPECT_EQ(time_str, "03:45:10");
   }
 }

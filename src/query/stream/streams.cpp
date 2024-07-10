@@ -769,6 +769,19 @@ void Streams::StopAll() {
   }
 }
 
+void Streams::Shutdown() {
+  for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
+    std::visit(
+        [](const auto &stream_data) {
+          auto locked_stream_source = stream_data.stream_source->Lock();
+          if (locked_stream_source->IsRunning()) {
+            locked_stream_source->Stop();
+          }
+        },
+        stream_data);
+  }
+}
+
 std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
   std::vector<StreamStatus<>> result;
   {

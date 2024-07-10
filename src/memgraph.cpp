@@ -618,6 +618,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   dbms_handler.RestoreTriggers(&interpreter_context_);
   dbms_handler.RestoreStreams(&interpreter_context_);
+  dbms_handler.RestoreTTL(&interpreter_context_);
 #else
   {
     // Triggers can execute query procedures, so we need to reload the modules first and then
