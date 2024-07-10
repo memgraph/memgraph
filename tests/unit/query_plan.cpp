@@ -2539,4 +2539,38 @@ TYPED_TEST(TestPlanner, PeriodicCommitLoadCsvNested) {
 
   DeleteListContent(&subquery_plan);
 }
+
+TYPED_TEST(TestPlanner, PeriodicCommitCreateCallProcedure) {
+  // Test USING PERIODIC COMMIT 1 CALL migrate.migrate() YIELD result CREATE (n);
+  FakeDbAccessor dba;
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  auto *query = PERIODIC_QUERY(SINGLE_QUERY(ast_call, CREATE(PATTERN(NODE("n")))), COMMIT_FREQUENCY(LITERAL(1)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectBasicCallProcedure(), ExpectCreateNode(), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitCreateCallProcedureNested) {
+  // Test CALL migrate.migrate() YIELD result CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
+  auto *query = QUERY(SINGLE_QUERY(ast_call, CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectBasicCallProcedure(), ExpectApply(subquery_plan),
+            ExpectPeriodicCommit(), ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
 }  // namespace

@@ -206,6 +206,7 @@ using ExpectDistinct = OpChecker<Distinct>;
 using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
+using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
