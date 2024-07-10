@@ -1660,7 +1660,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
   bool in_local_buffer = false;
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  bool already_compressed = false;
+  bool is_compressed = false;
+  bool same_buffer_used = true;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
 
   if (FLAGS_storage_property_store_compression_enabled && IsCompressed()) {
@@ -1669,7 +1670,7 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       size = decompressed_buffer.original_size;
       data = decompressed_buffer.data.get();
       in_local_buffer = false;
-      already_compressed = true;
+      is_compressed = true;
     } catch (const PropertyValueException &e) {
       // do nothing
     }
@@ -1684,7 +1685,6 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     }
   }
 
-  bool same_buffer_used = false;
   bool existed = false;
   if (!size) {
     if (!value.IsNull()) {
@@ -1730,14 +1730,17 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     if (new_size_to_power_of_8 == 0) {
       // We don't have any data to encode anymore.
       if (!in_local_buffer) {
-        uint32_t buffer_size = 0;
-        uint8_t *buffer_data = nullptr;
-        std::tie(buffer_size, buffer_data) = GetSizeData(buffer_);
-        delete[] buffer_data;
+        if (is_compressed) {
+          uint8_t *buffer_data = nullptr;
+          memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
+          delete[] buffer_data;
+        } else
+          delete[] data;
       }
       SetSizeData(buffer_, 0, nullptr);
       data = nullptr;
       size = 0;
+      same_buffer_used = false;
     } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
       // We need to enlarge/shrink the buffer.
       bool current_in_local_buffer = false;
@@ -1756,19 +1759,22 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         current_in_local_buffer = false;
       }
 
-      // Free the old buffer.
-      if (!in_local_buffer) {
-        uint32_t buffer_size = 0;
-        uint8_t *buffer_data = nullptr;
-        std::tie(buffer_size, buffer_data) = GetSizeData(buffer_);
-        delete[] buffer_data;
-      }
-
       // Copy everything before the property to the new buffer.
       memmove(current_data, data, info.property_begin);
       // Copy everything after the property to the new buffer.
       memmove(current_data + info.property_begin + property_size, data + info.property_end,
               info.all_end - info.property_end);
+
+      // Free the old buffer.
+      if (!in_local_buffer) {
+        if (is_compressed) {
+          uint8_t *buffer_data = nullptr;
+          memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
+          delete[] buffer_data;
+        } else
+          delete[] data;
+      }
+
       // Permanently remember the new buffer.
       if (!current_in_local_buffer) {
         SetSizeData(buffer_, current_size, current_data);
@@ -1777,12 +1783,21 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
       data = current_data;
       size = current_size;
       in_local_buffer = current_in_local_buffer;
+
+      same_buffer_used = false;
     } else if (property_size != info.property_size) {
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      same_buffer_used = true;
       memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
+      if (is_compressed) {
+        uint8_t *buffer_data = nullptr;
+        memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
+        delete[] buffer_data;
+        SetSizeData(buffer_, size, data);
+        decompressed_buffer.data.release();
+      }
+      same_buffer_used = false;
     }
 
     if (!value.IsNull()) {
@@ -1799,16 +1814,15 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     }
   }
 
-  if (FLAGS_storage_property_store_compression_enabled && !in_local_buffer) {
-    if (!CompressBuffer(data, size) && same_buffer_used && already_compressed) {
-      uint32_t buffer_size = 0;
+  if (FLAGS_storage_property_store_compression_enabled) {
+    if (same_buffer_used && !in_local_buffer && is_compressed) {
       uint8_t *buffer_data = nullptr;
-      std::tie(buffer_size, buffer_data) = GetSizeData(buffer_);
+      memcpy(&buffer_data, buffer_ + sizeof(uint32_t), sizeof(uint8_t *));
       delete[] buffer_data;
-
-      decompressed_buffer.data.release();
       SetSizeData(buffer_, size, data);
+      decompressed_buffer.data.release();
     }
+    CompressBuffer(data, size);
   }
 
   return !existed;
@@ -1957,7 +1971,7 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   }
 }
 
-bool PropertyStore::CompressBuffer(const uint8_t *data, uint32_t size) {
+bool PropertyStore::CompressBuffer(uint8_t *data, uint32_t size) {
   if (size == 0 || size % 8 != 0) {
     return false;
   }
@@ -1970,15 +1984,13 @@ bool PropertyStore::CompressBuffer(const uint8_t *data, uint32_t size) {
 
   auto compressed_size_to_power_of_8 = ToPowerOf8(compressed_buffer.compressed_size + sizeof(uint32_t) + 1);
   if (compressed_size_to_power_of_8 >= size) {
-    // Compressed buffer is larger than the original buffer, so we don't compress it.
+    // Compressed buffer + metadata are larger than the original buffer, so we don't perform the compression.
     return false;
   }
-  uint32_t buffer_size = 0;
-  uint8_t *buffer_data = nullptr;
-  std::tie(buffer_size, buffer_data) = GetSizeData(buffer_);
 
-  delete[] buffer_data;
   auto *compressed_data = new uint8_t[compressed_size_to_power_of_8];
+
+  delete[] data;
 
   // first 4 bytes are the size of the original buffer
   memcpy(compressed_data, &compressed_buffer.original_size, sizeof(uint32_t));
