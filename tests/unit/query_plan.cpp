@@ -2506,6 +2506,25 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNested) {
   DeleteListContent(&subquery_plan);
 }
 
+TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWith) {
+  // Test UNWIND range(1, 3) as x CALL { WITH (n) CREATE (m) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto *subquery = SINGLE_QUERY(WITH("x", AS("a")), CREATE(PATTERN(NODE("m"))));
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+                                   CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectProduce(), new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
 TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWholeQuery) {
   // Test CALL { UNWIND range(1, 3) as x CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
   FakeDbAccessor dba;

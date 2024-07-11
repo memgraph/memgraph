@@ -237,8 +237,7 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
-                                     query_parts.commit_frequency);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
