@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -58,15 +59,30 @@ class Module {
 class ModuleRegistry final {
   friend CypherMainVisitorTest;
 
-  struct string_hash {
-    using is_transparent = void;
-    [[nodiscard]] size_t operator()(const char *s) const { return std::hash<std::string_view>{}(s); }
-    [[nodiscard]] size_t operator()(std::string_view s) const { return std::hash<std::string_view>{}(s); }
-    [[nodiscard]] size_t operator()(const std::string &s) const { return std::hash<std::string>{}(s); }
+ public:
+  struct Entry {
+    std::unique_ptr<Module> module;
+    mutable std::unique_ptr<std::shared_timed_mutex> lock;
+
+    explicit Entry(std::unique_ptr<Module> module)
+        : module(std::move(module)), lock(std::make_unique<std::shared_timed_mutex>()) {}
+
+    Entry(Entry &&other) noexcept : module(std::move(other.module)), lock(std::move(other.lock)) {}
+
+    Entry &operator=(Entry &&other) noexcept {
+      if (this != &other) {
+        module = std::move(other.module);
+        lock = std::move(other.lock);
+      }
+      return *this;
+    }
+
+    Entry(const Entry &) = delete;
+    Entry &operator=(const Entry &) = delete;
   };
 
-  std::map<std::string, std::unique_ptr<Module>, std::less<>> modules_;
-  std::unordered_map<std::string, std::shared_timed_mutex, string_hash, std::equal_to<>> modules_mutex_;
+ private:
+  std::map<std::string, Entry, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 

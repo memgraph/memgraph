@@ -37,6 +37,22 @@ void isEqual(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_me
   // result.SetValue(output == input);
 }
 
+void isEqualProc(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+
+  auto arg0 = mgp::list_at(args, 0);
+  auto arg1 = mgp::list_at(args, 1);
+  // validation
+  mgp::value_is_string(arg0) && mgp::value_is_string(arg1);
+
+  auto s1 = std::string_view{mgp::value_get_string(arg0)};
+  auto s2 = std::string_view{mgp::value_get_string(arg1)};
+
+  auto factory = mgp::RecordFactory(result);
+  auto record = factory.NewRecord();
+  record.Insert("res", s1 == s2);
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
@@ -44,6 +60,9 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::AddFunction(isEqual, "is_equal",
                      {mgp::Parameter("output", mgp::Type::String), mgp::Parameter("input", mgp::Type::String)}, module,
                      memory);
+    mgp::AddProcedure(isEqualProc, "is_equal_proc", mgp::ProcedureType::Write,
+                      {{"arg1", mgp::Type::String}, {"arg2", mgp::Type::String}}, {mgp::Return("res", mgp::Type::Bool)},
+                      module, memory);
   } catch (const std::exception &e) {
     return 1;
   }
