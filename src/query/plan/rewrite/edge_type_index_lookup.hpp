@@ -28,7 +28,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
-#include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "utils/algorithm.hpp"
 
@@ -642,7 +641,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
           return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
         }
         default: {
-          spdlog::warn("Filter is not supported by edge type property index.");
+          break;
         }
       }
     }
