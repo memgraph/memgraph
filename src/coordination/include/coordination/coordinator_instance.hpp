@@ -20,7 +20,9 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/coordinator_instance_connector.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -40,6 +42,7 @@ struct NewMainRes {
   std::string latest_epoch;
   uint64_t latest_commit_timestamp;
 };
+
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
 class CoordinatorInstance {
@@ -59,6 +62,10 @@ class CoordinatorInstance {
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
+
+  auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
+
+  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   auto TryFailover() -> void;
 
@@ -83,6 +90,11 @@ class CoordinatorInstance {
   auto IsLeader() const -> bool;
 
   void ShuttingDown();
+
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+
+  auto GetRaftState() -> RaftState &;
+  auto GetRaftState() const -> RaftState const &;
 
  private:
   template <ranges::forward_range R>
@@ -145,6 +157,8 @@ class CoordinatorInstance {
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
+  auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
+
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
   // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
@@ -152,7 +166,6 @@ class CoordinatorInstance {
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
-  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
@@ -161,6 +174,10 @@ class CoordinatorInstance {
   // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
+
+  CoordinatorInstanceManagementServer coordinator_management_server_;
+  mutable utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+      coordinator_connectors_;
 };
 
 }  // namespace memgraph::coordination

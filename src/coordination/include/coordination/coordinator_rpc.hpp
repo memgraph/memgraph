@@ -15,9 +15,9 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_status.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
-#include "slk/serialization.hpp"
 
 namespace memgraph::coordination {
 
@@ -217,6 +217,33 @@ struct GetDatabaseHistoriesRes {
 
 using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
 
+struct ShowInstancesReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ShowInstancesReq *self, memgraph::slk::Reader *reader);
+  static void Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder);
+
+  ShowInstancesReq() = default;
+};
+
+struct ShowInstancesRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ShowInstancesRes *self, memgraph::slk::Reader *reader);
+  static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
+
+  explicit ShowInstancesRes(std::vector<InstanceStatus> instances_status)
+      : instances_status_(std::move(instances_status)) {}
+
+  ShowInstancesRes() = default;
+
+  std::vector<InstanceStatus> instances_status_;
+};
+
+using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -259,6 +286,12 @@ void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::R
 // GetDatabaseHistoriesRpc
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
+
+// ShowInstancesRpc
+void Save(memgraph::coordination::ShowInstancesRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 
