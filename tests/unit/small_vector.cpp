@@ -11,11 +11,11 @@
 
 #include "gtest/gtest.h"
 
-#include "storage/v2/small_vector.hpp"
+#include "utils/small_vector.hpp"
 
 #include <ranges>
 
-using namespace memgraph::storage;
+using namespace memgraph::utils;
 namespace rv = std::ranges::views;
 
 ///// TEST HELPERS
