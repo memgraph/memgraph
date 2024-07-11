@@ -1211,7 +1211,7 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
     return false;
   }
 
-  modules_.try_emplace(std::string(name), Entry(std::move(module)));
+  modules_.emplace(std::string(name), Entry(std::move(module)));
   return true;
 }
 
@@ -1236,7 +1236,7 @@ void ModuleRegistry::DoUnloadAllModules() {
   // TODO Ivan: throw error if failed, but flow is correct
   TryEraseAllModules();
 
-  modules_.try_emplace("mg", Entry(std::move(module)));
+  modules_.emplace("mg", Entry(std::move(module)));
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -1250,7 +1250,7 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgCreateModuleFile(this, &lock_, module.get());
   RegisterMgUpdateModuleFile(this, &lock_, module.get());
   RegisterMgDeleteModuleFile(this, &lock_, module.get());
-  modules_.try_emplace("mg", Entry(std::move(module)));
+  modules_.emplace("mg", Entry(std::move(module)));
 }
 
 void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs,
