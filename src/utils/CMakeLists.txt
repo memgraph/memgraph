@@ -33,8 +33,8 @@ target_sources(mg-utils
     memory_layout.hpp
     small_vector.hpp
     static_vector.hpp
-
 )
+
 find_package(Boost REQUIRED)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
