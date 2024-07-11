@@ -1037,6 +1037,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
+// NOLINTNEXTLINE(google-default-arguments)
+utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
+    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+  throw utils::NotYetImplemented("Periodic commit is not yet implemented on in-memory modes.");
+}
+
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
                                                             std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

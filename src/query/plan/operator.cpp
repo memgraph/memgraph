@@ -5984,6 +5984,11 @@ std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) co
   return input_->ModifiedSymbols(table);
 }
 
+std::vector<Symbol> PeriodicCommit::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
 ACCEPT_WITH_INPUT(PeriodicCommit)
 
 namespace {
@@ -5999,18 +6004,46 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     const SCOPED_PROFILE_OP_BY_REF(self_);
 
-    throw utils::NotYetImplemented("periodic commit");
+    if (commit_frequency_ == -1) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      TypedValue commit_frequency = self_.commit_frequency_->Accept(evaluator);
+      if (commit_frequency.type() != TypedValue::Type::Int)
+        throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
 
-    return true;
+      commit_frequency_ = commit_frequency.ValueInt();
+      if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
+    }
+
+    bool pull_value = input_cursor_->Pull(frame, context);
+
+    if (++pulled_ >= commit_frequency_) {
+      // do periodic commit since we pulled that many times
+      context.db_accessor->PeriodicCommit();
+      pulled_ = 0;
+    }
+
+    if (!pull_value && pulled_ > 0) {
+      // do periodic commit for the rest of pulled items
+      context.db_accessor->PeriodicCommit();
+    }
+
+    return pull_value;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { input_cursor_->Reset(); }
+  void Reset() override {
+    input_cursor_->Reset();
+    commit_frequency_ = -1;
+    pulled_ = 0;
+  }
 
  private:
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
+  uint64_t commit_frequency_ = -1;
+  uint64_t pulled_ = 0;
 };
 }  // namespace
 
