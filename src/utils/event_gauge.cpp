@@ -25,7 +25,6 @@ inline constexpr Event END = __COUNTER__;
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 Gauge global_gauges_array[END]{};
-
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 GaugeType global_gauge_types_array[END] = {
 // Initialize with corresponding types
