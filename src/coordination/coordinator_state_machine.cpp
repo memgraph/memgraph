@@ -181,13 +181,9 @@ auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate 
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::optional<std::pair<TRaftLog, RaftLogAction>> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
-  std::string const log_str = bs.get_str();
-  if (log_str.empty()) {
-    return std::nullopt;
-  }
-  auto const json = nlohmann::json::parse(log_str);
+  auto const json = nlohmann::json::parse(bs.get_str());
   auto const action = json["action"].get<RaftLogAction>();
   auto const &info = json.at("info");
 
@@ -195,20 +191,20 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::optional<std::pair
     case RaftLogAction::OPEN_LOCK:
       [[fallthrough]];
     case RaftLogAction::CLOSE_LOCK: {
-      return std::pair{std::monostate{}, action};
+      return {std::monostate{}, action};
     }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return std::pair{info.get<CoordinatorToReplicaConfig>(), action};
+      return {info.get<CoordinatorToReplicaConfig>(), action};
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
-      return std::pair{info.get<utils::UUID>(), action};
+      return {info.get<utils::UUID>(), action};
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
-      return std::pair{info.get<InstanceUUIDUpdate>(), action};
+      return {info.get<InstanceUUIDUpdate>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-      return std::pair{info.get<std::string>(), action};
+      return {info.get<std::string>(), action};
   }
   throw std::runtime_error("Unknown action");
 }
@@ -217,16 +213,10 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-
-  auto const maybe_parsed_data = DecodeLog(data);
-  if (!maybe_parsed_data.has_value()) {
-    return nullptr;
-  }
-  auto const &[parsed_data, log_action] = *maybe_parsed_data;
+  auto const &[parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
   last_committed_idx_ = log_idx;
-
-  // Return raft log number
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
   buffer_serializer bs_ret(ret);
   bs_ret.put_u64(log_idx);

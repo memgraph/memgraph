@@ -97,9 +97,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 
     auto entry = log_store.entry_at(1);
 
-    auto maybe_decoded_log = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-    ASSERT_TRUE(maybe_decoded_log.has_value());
-    auto [payload, action] = *maybe_decoded_log;
+    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
 
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
@@ -204,9 +202,7 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
   // Check the contents of the logs
   auto const log_entries = log_store.log_entries(1, log_store.next_slot());
   for (auto &entry : *log_entries) {
-    auto maybe_decoded_log = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-    ASSERT_TRUE(maybe_decoded_log.has_value());
-    auto [payload, action] = *maybe_decoded_log;
+    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
 
     auto const term = entry->get_term();
     switch (entry->get_term()) {
@@ -306,13 +302,10 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     for (int i = 1; i != log_store1.next_slot(); ++i) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
-      auto maybe_decoded_log_1 = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      ASSERT_TRUE(maybe_decoded_log_1.has_value());
-      auto const &[payload1, action1] = *maybe_decoded_log_1;
 
-      auto const maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
-      ASSERT_TRUE(maybe_decoded_log_2.has_value());
-      auto const [payload2, action2] = *maybe_decoded_log_2;
+      auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+
       ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
                 std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
@@ -330,15 +323,11 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
     CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
     for (int i = 1; i != log_store1.next_slot(); ++i) {
-      auto const entry1 = log_store1.entry_at(i);
-      auto const entry2 = log_store2.entry_at(i);
-      auto const maybe_decoded_log_1 = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      ASSERT_TRUE(maybe_decoded_log_1.has_value());
-      auto const &[payload1, action1] = *maybe_decoded_log_1;
+      auto entry1 = log_store1.entry_at(i);
+      auto entry2 = log_store2.entry_at(i);
 
-      auto const maybe_decoded_log_2 = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
-      ASSERT_TRUE(maybe_decoded_log_2.has_value());
-      auto const &[payload2, action2] = *maybe_decoded_log_2;
+      auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
       ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
                 std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
@@ -377,9 +366,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   for (int i = 4; i <= 5; ++i) {
     auto entry = log_store.entry_at(i);
     ASSERT_TRUE(entry != nullptr);
-    auto maybe_decoded_log = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-    ASSERT_TRUE(maybe_decoded_log.has_value());
-    auto [payload, action] = *maybe_decoded_log;
+    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
     ASSERT_EQ(std::get<CoordinatorToReplicaConfig>(payload).instance_name, "instance" + std::to_string(i));
   }
 

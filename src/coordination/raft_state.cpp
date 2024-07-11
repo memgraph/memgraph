@@ -94,6 +94,12 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
   for (auto &log_entry : *log_entries) {
     spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
+      auto cluster_config = state_manager_->load_config();
+      state_machine_->commit_config(cntr, cluster_config);
+      cntr++;
+      continue;
+    }
     state_machine_->commit(cntr, log_entry->get_buf());
     cntr++;
   }
