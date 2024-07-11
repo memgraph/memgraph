@@ -52,15 +52,10 @@ class MemoryTracker final {
   ~MemoryTracker() = default;
 
   MemoryTracker(MemoryTracker &&other) noexcept
-      : amount_(other.amount_.load(std::memory_order_acquire)),
-        peak_(other.peak_.load(std::memory_order_acquire)),
-        hard_limit_(other.hard_limit_.load(std::memory_order_acquire)),
-        maximum_hard_limit_(other.maximum_hard_limit_) {
-    other.maximum_hard_limit_ = 0;
-    other.amount_.store(0, std::memory_order_acquire);
-    other.peak_.store(0, std::memory_order_acquire);
-    other.hard_limit_.store(0, std::memory_order_acquire);
-  }
+      : amount_(other.amount_.exchange(0, std::memory_order_acq_rel)),
+        peak_(other.peak_.exchange(0, std::memory_order_acq_rel)),
+        hard_limit_(other.hard_limit_.exchange(0, std::memory_order_acq_rel)),
+        maximum_hard_limit_(std::exchange(other.maximum_hard_limit_, 0)) {}
 
   MemoryTracker(const MemoryTracker &) = delete;
   MemoryTracker &operator=(const MemoryTracker &) = delete;
