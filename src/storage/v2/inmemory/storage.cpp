@@ -2009,7 +2009,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       // remove them now
 
       auto const sum_func = [](uint32_t curr, auto const &gc_deltas) { return curr + gc_deltas.deltas_.size(); };
-      uint32_t total_delta_size =
+      uint32_t const total_delta_size =
           std::accumulate(unlinked_undo_buffers.begin(), unlinked_undo_buffers.end(), 0U, sum_func);
 
       // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
