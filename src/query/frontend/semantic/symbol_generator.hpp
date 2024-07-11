@@ -75,6 +75,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(SetLabels & /*set_labels*/) override;
   bool PreVisit(RemoveLabels &) override;
   bool PostVisit(RemoveLabels & /*remove_labels*/) override;
+  bool PreVisit(Delete & /*delete*/) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -159,6 +160,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     int num_if_operators{0};
     std::unordered_set<std::string> prev_return_names{};
     std::unordered_set<std::string> curr_return_names{};
+    bool has_periodic_commit{false};
+    bool has_delete{false};
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
@@ -190,7 +193,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
-  bool periodic_commit_specified_{false};
+  Scope global_scope_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
