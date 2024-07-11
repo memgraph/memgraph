@@ -5178,21 +5178,19 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    std::unique_ptr<procedure::ModulePtr> proc_ptr{nullptr};
-    std::unique_ptr<const mgp_proc *> proc_cache;
+    auto module = std::optional<procedure::ModulePtr>{};
+    auto proc = static_cast<const mgp_proc *>(nullptr);
 
     while (result_row_it_ == result_->rows.end()) {
-      const auto *proc = *proc_cache;
-      if (!proc_ptr) {
+      if (!module) {
         auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
                                                     context.evaluation_context.memory);
         if (!maybe_found) {
           throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
         }
 
-        proc_ptr = std::make_unique<procedure::ModulePtr>(std::move((*maybe_found).first));
-        proc_cache = std::make_unique<const mgp_proc *>((*maybe_found).second);
-        proc = *proc_cache;
+        module.emplace(std::move(maybe_found->first));
+        proc = maybe_found->second;
 
         if (proc->info.is_write != self_->is_write_) {
           auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };

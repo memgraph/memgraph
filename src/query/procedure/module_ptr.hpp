@@ -12,6 +12,7 @@
 #pragma once
 
 #include <shared_mutex>
+#include <utility>
 
 namespace memgraph::query::procedure {
 
@@ -28,15 +29,13 @@ class ModulePtr final {
   ModulePtr(const Module *module, std::shared_lock<std::shared_timed_mutex> lock)
       : module_(module), lock_(std::move(lock)) {}
 
-  ModulePtr(ModulePtr &&other) noexcept : module_(other.module_), lock_(std::move(other.lock_)) {
-    other.module_ = nullptr;
-  }
+  ModulePtr(ModulePtr &&other) noexcept
+      : module_(std::exchange(other.module_, nullptr)), lock_(std::move(other.lock_)) {}
 
   ModulePtr &operator=(ModulePtr &&other) noexcept {
     if (this != &other) {
-      module_ = other.module_;
+      module_ = std::exchange(other.module_, nullptr);
       lock_ = std::move(other.lock_);
-      other.module_ = nullptr;
     }
     return *this;
   }
