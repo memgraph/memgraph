@@ -178,6 +178,7 @@ class TTL final {
   bool Restore(TDbAccess db, InterpreterContext *interpreter_context);
 
   void Configure(TtlInfo ttl_info) {
+    const std::lock_guard<std::mutex> lock{mtx_};
     if (!enabled_) {
       throw TtlException("TTL not enabled!");
     }
@@ -188,52 +189,81 @@ class TTL final {
       throw TtlException("TTL requires a defined period");
     }
     info_ = ttl_info;
-    Persist();
+    Persist_();
   }
 
-  TtlInfo const &Config() const { return info_; }
+  TtlInfo Config() const {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    return info_;
+  }
 
   template <typename TDbAccess>
-  void Execute(TDbAccess db, InterpreterContext *interpreter_context);
+  void Execute(TDbAccess db, InterpreterContext *interpreter_context) {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    Execute_(db, interpreter_context);
+  }
 
   void Stop() {
+    const std::lock_guard<std::mutex> lock{mtx_};
     ttl_.Stop();
-    Persist();
+    Persist_();
   }
 
   /**
    * @brief Stops TTL without affecting the durable data. Use when destruction only.
    */
-  void Shutdown() { ttl_.Stop(); }
-
-  bool Enabled() const { return enabled_; }
-
-  void Enable() {
-    enabled_ = true;
-    Persist();
+  void Shutdown() {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    ttl_.Stop();
   }
 
-  bool Running() { return ttl_.IsRunning(); }
+  bool Enabled() const {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    return enabled_;
+  }
+
+  void Enable() {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    enabled_ = true;
+    Persist_();
+  }
+
+  bool Running() {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    return ttl_.IsRunning();
+  }
 
   void Disable() {
+    const std::lock_guard<std::mutex> lock{mtx_};
     enabled_ = false;
-    Stop();
+    info_ = {};
+    ttl_.Stop();
+    Persist_();
+  }
+
+  void Resume() {
+    const std::lock_guard<std::mutex> lock{mtx_};
+    if (ttl_.IsRunning()) ttl_.Resume();
   }
 
  private:
-  void Persist() {
+  void Persist_() {
     std::map<std::string, std::string> data;
     data["version"] = "1.0";
-    data["enabled"] = Enabled() ? "true" : "false";
-    data["running"] = Running() ? "true" : "false";
-    data["period"] = Config().period ? TtlInfo::StringifyPeriod(*Config().period) : "";
-    data["start_time"] = Config().start_time ? TtlInfo::StringifyStartTime(*Config().start_time) : "";
+    data["enabled"] = enabled_ ? "true" : "false";
+    data["running"] = ttl_.IsRunning() ? "true" : "false";
+    data["period"] = info_.period ? TtlInfo::StringifyPeriod(*info_.period) : "";
+    data["start_time"] = info_.start_time ? TtlInfo::StringifyStartTime(*info_.start_time) : "";
 
     if (!storage_.PutMultiple(data)) {
       throw TtlException{"Couldn't persist TTL data"};
     }
   }
 
+  template <typename TDbAccess>
+  void Execute_(TDbAccess db, InterpreterContext *interpreter_context);
+
+  mutable std::mutex mtx_;
   utils::Scheduler ttl_;
   TtlInfo info_{};
   bool enabled_{false};
@@ -255,6 +285,7 @@ class TTL final {
   explicit TTL(std::filesystem::path directory) {}
   void Shutdown() {}
   void Stop() {}
+  void Resume() {}
 };
 }  // namespace memgraph::query::ttl
 

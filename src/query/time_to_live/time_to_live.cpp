@@ -31,7 +31,7 @@ extern const Event DeletedEdges;
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
-void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
+void TTL::Execute_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
@@ -56,7 +56,7 @@ void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
                                                         // register new interpreter into interpreter_context
   interpreter_context->interpreters->insert(interpreter.get());
 
-  auto TTL = [interpreter = std::move(interpreter)]() {
+  auto TTL = [interpreter = std::move(interpreter), &scheduler = ttl_]() {
     memgraph::query::DiscardValueResultStream result_stream;
     bool finished = false;
     while (!finished) {
@@ -95,21 +95,22 @@ void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
       } catch (const TransactionSerializationException &e) {
         spdlog::trace("TTL serialization error; Aborting and retrying...");
         interpreter->Abort();  // Retry later
-<<<<<<< HEAD
         std::this_thread::sleep_for(std::chrono::milliseconds{10});
-=======
       } catch (const WriteQueryOnMainException & /* not used */) {
-        // Preparation-time error, nothing to do
-        interpreter->Abort();  // Retry later
+        // MAIN not ready to handle write queries; abort and try later
+        spdlog::trace("MAIN not ready for write queries. TTL will try again later.");
+        interpreter->Abort();
         break;
       } catch (const WriteQueryOnReplicaException & /* not used */) {
-        // Preparation-time error, nothing to do
-        interpreter->Abort();  // Retry later
+        // TTL cannot run on a REPLICA; pause until we become MAIN
+        spdlog::trace("TTL on REPLICA is not supported; pausing until instance is MAIN.");
+        interpreter->Abort();
+        scheduler.Pause();
         break;
->>>>>>> 9f004e0e3 (TTL duraiblity and tests)
       } catch (const DatabaseContextRequiredException &e) {
         // No database; we are shutting down
         interpreter->Abort();
+        spdlog::trace("No database associated with TTL; shuting down...");
         break;
       }
       std::this_thread::yield();
@@ -118,11 +119,13 @@ void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
 
   DMG_ASSERT(info_.period, "Period has to be defined for TTL");
   ttl_.Run(db_acc->name() + "-ttl", *info_.period, std::move(TTL), info_.start_time);
-  Persist();
+  Persist_();
 }
 
 template <typename TDbAccess>
 bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
+  const std::lock_guard<std::mutex> lock{mtx_};
+
   auto fail = [&](std::string_view field) {
     spdlog::warn("Failed to restore TTL, due to '{}'.", field);
     ttl_.Stop();
@@ -171,7 +174,7 @@ bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
         return fail("running");
       }
       if (*run == "true") {
-        Execute(db, interpreter_context);
+        Execute_(db, interpreter_context);
       }
     }
   } catch (TtlException &e) {
@@ -181,7 +184,7 @@ bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
 }
 
 template bool TTL::Restore<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
-template void TTL::Execute<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
+template void TTL::Execute_<dbms::DatabaseAccess>(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context);
 
 }  // namespace memgraph::query::ttl
 
