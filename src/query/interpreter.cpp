@@ -3083,6 +3083,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+// NOLINTNEXTLINE(misc-unused-parameters)
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
                               InterpreterContext *interpreter_context) {
@@ -3129,8 +3130,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
           info += " at " + start_time;
         }
-        ttl::TtlInfo ttl_info{period, start_time};
-        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info = ttl::TtlInfo{period, start_time},
+                   interpreter_context, info = std::move(info),
                    invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
           auto &ttl = db_acc->ttl();
 

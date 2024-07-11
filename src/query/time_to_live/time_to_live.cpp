@@ -47,9 +47,7 @@ void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
   // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control.
   // The TTL query already protects who is configuring it, so no need to auth here
   interpreter->SetUser(interpreter_context->auth_checker->GenQueryUser(std::nullopt, std::nullopt));
-#ifdef MG_ENTERPRISE
   interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
-#endif
                                                         // register new interpreter into interpreter_context
   interpreter_context->interpreters->insert(interpreter.get());
 
