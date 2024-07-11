@@ -3129,6 +3129,10 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
           info += " at " + start_time;
         }
+        // Special case for REPLICA
+        if (interpreter_context->repl_state->IsReplica()) {
+          info = "TTL configured. Background job will not run, since instance is REPLICA.";
+        }
         handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info = ttl::TtlInfo{period, start_time},
                    interpreter_context, info = std::move(info),
                    invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
@@ -3185,7 +3189,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                          notifications->push_back(notification);
                          return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
                        },
-                       RWType::W};
+                       RWType::NONE};
 }
 #endif
 
