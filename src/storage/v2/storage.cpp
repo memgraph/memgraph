@@ -18,7 +18,6 @@
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/small_vector.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -26,6 +25,7 @@
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -331,8 +331,8 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
-      small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-      small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
       {
         auto vertex_lock = std::shared_lock{vertex_ptr->lock};
