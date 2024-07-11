@@ -1190,12 +1190,19 @@ bool ModuleRegistry::TryEraseAllModules() {
     std::unique_lock guard(*module.lock, std::defer_lock);
     auto lock_acquired = guard.try_lock_for(guard_duration);
     if (!lock_acquired) {
+      spdlog::warn("Failed to close module {}", module_name);
       return false;
     }
     module_guards.emplace_back(std::move(guard));
   }
   for (auto &guard : module_guards) {
     guard.unlock();
+  }
+
+  for (auto &module : modules_) {
+    if (!module.second.module->Close()) {
+      spdlog::warn("Failed to close module {}", module.first);
+    }
   }
 
   modules_.clear();
