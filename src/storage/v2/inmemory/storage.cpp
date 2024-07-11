@@ -1039,7 +1039,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
-    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+    CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
   throw utils::NotYetImplemented("Periodic commit is not yet implemented on in-memory modes.");
 }
 

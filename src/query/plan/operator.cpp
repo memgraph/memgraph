@@ -6001,6 +6001,7 @@ class PeriodicCommitCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     const SCOPED_PROFILE_OP_BY_REF(self_);
 
@@ -6015,17 +6016,17 @@ class PeriodicCommitCursor : public Cursor {
       if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
     }
 
-    bool pull_value = input_cursor_->Pull(frame, context);
+    bool const pull_value = input_cursor_->Pull(frame, context);
 
     if (++pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      context.db_accessor->PeriodicCommit();
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
       pulled_ = 0;
     }
 
     if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      context.db_accessor->PeriodicCommit();
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
     }
 
     return pull_value;
