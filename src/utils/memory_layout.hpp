@@ -11,21 +11,16 @@
 
 #pragma once
 
-#include "rpc/client.hpp"
-#include "utils/uuid.hpp"
+#include <cstddef>
 
-#include "messages.hpp"
-#include "rpc/messages.hpp"
-#include "utils/uuid.hpp"
+namespace memgraph::utils {
 
-namespace memgraph::replication_coordination_glue {
-
-struct DatabaseHistory {
-  memgraph::utils::UUID db_uuid;
-  std::vector<std::pair<std::string, uint64_t>> history;
-  std::string name;  // db name
+// a utility type to have correctly aligned and sized storage for a given type
+template <typename T>
+struct uninitialised_storage {
+  alignas(T) std::byte buf[sizeof(T)];
+  auto as() -> T * { return reinterpret_cast<T *>(buf); }
+  auto as() const -> T const * { return reinterpret_cast<T const *>(buf); }
 };
 
-using DatabaseHistories = std::vector<DatabaseHistory>;
-
-}  // namespace memgraph::replication_coordination_glue
+}  // namespace memgraph::utils
