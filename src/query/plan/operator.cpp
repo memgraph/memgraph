@@ -29,6 +29,7 @@
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
+#include "query/procedure/module_ptr.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
@@ -5177,26 +5178,30 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
+    std::unique_ptr<procedure::ModulePtr> proc_ptr{nullptr};
+    std::unique_ptr<const mgp_proc *> proc_cache;
+
     while (result_row_it_ == result_->rows.end()) {
-      // It might be a good idea to resolve the procedure name once, at the
-      // start. Unfortunately, this could deadlock if we tried to invoke a
-      // procedure from a module (read lock) and reload a module (write lock)
-      // inside the same execution thread. Also, our RWLock is set up so that
-      // it's not possible for a single thread to request multiple read locks.
-      // Builtin module registration in query/procedure/module.cpp depends on
-      // this locking scheme.
-      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                         context.evaluation_context.memory);
-      if (!maybe_found) {
-        throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+      const auto *proc = *proc_cache;
+      if (!proc_ptr) {
+        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
+                                                    context.evaluation_context.memory);
+        if (!maybe_found) {
+          throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+        }
+
+        proc_ptr = std::make_unique<procedure::ModulePtr>(std::move((*maybe_found).first));
+        proc_cache = std::make_unique<const mgp_proc *>((*maybe_found).second);
+        proc = *proc_cache;
+
+        if (proc->info.is_write != self_->is_write_) {
+          auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+          throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                      self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                      get_proc_type_str(proc->info.is_write));
+        }
       }
-      const auto &[module, proc] = *maybe_found;
-      if (proc->info.is_write != self_->is_write_) {
-        auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
-        throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                    get_proc_type_str(proc->info.is_write));
-      }
+
       if (!proc->info.is_batched) {
         stream_exhausted = true;
       }
