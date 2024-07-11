@@ -1041,7 +1041,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
                                                             std::list<Gid> &current_deleted_edges) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+  auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
