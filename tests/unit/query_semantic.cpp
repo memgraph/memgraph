@@ -1490,3 +1490,11 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
   // n, edge, m, Path
   ASSERT_EQ(collector.symbols_.size(), 4);
 }
+
+TYPED_TEST(TestSymbolGenerator, PeriodicCommitWithDeleteNotSupported) {
+  // USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;
+  auto query =
+      PERIODIC_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))), COMMIT_FREQUENCY(LITERAL(1)));
+
+  ASSERT_THROW(MakeSymbolTable(query), SemanticException);
+}
