@@ -5997,7 +5997,7 @@ class PeriodicCommitCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
-    SCOPED_PROFILE_OP_BY_REF(self_);
+    const SCOPED_PROFILE_OP_BY_REF(self_);
 
     throw utils::NotYetImplemented("periodic commit");
 

@@ -246,7 +246,7 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
       if (pre_query_directives.commit_frequency_) {
         throw SyntaxException("Commit frequency can be set only once in the USING statement.");
       }
-      auto periodic_commit_number = periodic_commit->periodicCommitNumber;
+      auto *periodic_commit_number = periodic_commit->periodicCommitNumber;
       if (!periodic_commit_number->numberLiteral()) {
         throw SyntaxException("Periodic commit should be a number variable.");
       }
@@ -3126,7 +3126,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {
-    auto const periodic_commit_number = periodic_commit->periodicCommitNumber;
+    auto *const periodic_commit_number = periodic_commit->periodicCommitNumber;
     if (!periodic_commit_number->numberLiteral()) {
       throw SyntaxException("Periodic commit should be a number variable.");
     }

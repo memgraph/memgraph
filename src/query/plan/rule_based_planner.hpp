@@ -201,8 +201,8 @@ class RuleBasedPlanner {
     // due to swapping mechanism of procedure
     // tracking
     uint64_t procedure_id = 1;
-    bool has_periodic_commit = !!query_parts.commit_frequency;
-    bool is_root_query = !query_parts.is_subquery;
+    bool const has_periodic_commit = !!query_parts.commit_frequency;
+    bool const is_root_query = !query_parts.is_subquery;
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
 

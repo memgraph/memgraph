@@ -161,7 +161,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 // CypherQuery
 
 bool SymbolGenerator::PreVisit(CypherQuery &cypher_query) {
-  bool has_commit_frequency = !!cypher_query.pre_query_directives_.commit_frequency_;
+  bool const has_commit_frequency = !!cypher_query.pre_query_directives_.commit_frequency_;
 
   if (global_scope_.has_periodic_commit && has_commit_frequency) {
     throw SemanticException("You can specify periodic commit only once during a query!");

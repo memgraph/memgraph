@@ -555,7 +555,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
     }
   }
 
-  bool has_periodic_commit = !!commit_frequency;
+  bool const has_periodic_commit = !!commit_frequency;
   if (has_periodic_commit) {
     last_op = std::make_unique<PeriodicCommit>(std::move(last_op), commit_frequency);
   }
@@ -671,8 +671,8 @@ std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalO
   // SET n.prop = n.prop + 1 RETURN n.prop`. If we match same `n` multiple 'k'
   // times, we want to return 'k' results where the property value is the same,
   // final result of 'k' increments.
-  bool has_periodic_commit = !!commit_frequency;
-  bool accumulate = is_write && !has_periodic_commit;
+  bool const has_periodic_commit = !!commit_frequency;
+  bool const accumulate = is_write && !has_periodic_commit;
   bool advance_command = false;
   ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage, pc_ops);
   return GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
@@ -686,8 +686,8 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
   // RETURN clause.
-  bool has_periodic_commit = !!commit_frequency;
-  bool accumulate = is_write && !has_periodic_commit;
+  bool const has_periodic_commit = !!commit_frequency;
+  bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
   ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, pc_ops, with.where_);
