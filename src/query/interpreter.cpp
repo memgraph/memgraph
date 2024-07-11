@@ -4051,6 +4051,43 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
+    case DatabaseInfoQuery::InfoType::METRICS: {
+#ifdef MG_ENTERPRISE
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+      }
+#else
+      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+#endif
+      header = {"name", "type", "metric type", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto const info = storage->GetBaseInfo();
+        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
+        std::vector<std::vector<TypedValue>> results;
+        results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.vertex_count))});
+        results.push_back({TypedValue("EdgeCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.edge_count))});
+        results.push_back(
+            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
+        results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.memory_res))});
+        results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.disk_usage))});
+        for (const auto &metric : metrics_info) {
+          results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
+                             TypedValue(static_cast<int64_t>(metric.value))});
+        }
+        std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
+          auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
+          auto const key_2 = std::tie(record_2[1].ValueString(), record_2[2].ValueString(), record_2[0].ValueString());
+          return key_1 < key_2;
+        });
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
