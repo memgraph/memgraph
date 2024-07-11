@@ -191,12 +191,12 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK:
       [[fallthrough]];
     case RaftLogAction::CLOSE_LOCK: {
-      return std::pair{std::monostate{}, action};
+      return {std::monostate{}, action};
     }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return std::pair{info.get<CoordinatorToReplicaConfig>(), action};
+      return {info.get<CoordinatorToReplicaConfig>(), action};
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
-      return std::pair{info.get<utils::UUID>(), action};
+      return {info.get<utils::UUID>(), action};
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
       return std::pair{info.get<InstanceUUIDUpdate>(), action};
@@ -204,7 +204,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-      return std::pair{info.get<std::string>(), action};
+      return {info.get<std::string>(), action};
   }
   throw std::runtime_error("Unknown action");
 }
