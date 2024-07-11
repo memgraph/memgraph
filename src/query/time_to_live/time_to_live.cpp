@@ -23,6 +23,11 @@
 
 #ifdef MG_ENTERPRISE
 
+namespace memgraph::metrics {
+extern const Event DeletedNodes;
+extern const Event DeletedEdges;
+}  // namespace memgraph::metrics
+
 namespace memgraph::query::ttl {
 
 template <typename TDbAccess>
@@ -70,15 +75,23 @@ void TTL::Execute(TDbAccess db_acc, InterpreterContext *interpreter_context) {
                                  },
                                  {});
         const auto pull_res = interpreter->PullAll(&result_stream);
-        finished = !pull_res.at("has_more").ValueBool() && std::invoke([&]() -> bool {
+        auto get_value = [&](std::string_view key) {
+          int64_t n = 0;
           // Empty set will not have a stats field (nothing happened, so nothing to report)
           const auto stats = pull_res.find("stats");
-          return stats == pull_res.end() ||
-                 // TODO: C++26 will handle transparent comparator with at()
-                 stats->second.ValueMap().find("nodes-deleted")->second.ValueInt() == 0;
-        });
+          if (stats != pull_res.end()) {
+            // TODO: C++26 will handle transparent comparator with at()
+            n = stats->second.ValueMap().find(key)->second.ValueInt();
+          }
+          return n;
+        };
+        const auto n_deleted = get_value("nodes-deleted");
+        finished = !pull_res.at("has_more").ValueBool() && n_deleted == 0;
         spdlog::trace("Commit TTL transaction");
         interpreter->CommitTransaction();
+        // Telemetry
+        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedNodes, n_deleted);
+        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedEdges, get_value("relationships-deleted"));
       } catch (const TransactionSerializationException &e) {
         spdlog::trace("TTL serialization error; Aborting and retrying...");
         interpreter->Abort();  // Retry later
