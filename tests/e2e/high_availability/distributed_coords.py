@@ -3862,5 +3862,32 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     mg_sleep_and_assert(follower_data, show_instances_coord2)
 
 
+def test_first_coord_restarts():
+    # Goal of this test is to check that first coordinator can restart without any issues
+
+    # 1
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.stop_all(keep_directories=False)
+    inner_instances_description = get_instances_description_no_setup()
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
+
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader")]
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
+
+    interactive_mg_runner.stop_all(keep_directories=True)
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
+
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader")]
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

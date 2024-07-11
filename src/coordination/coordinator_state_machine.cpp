@@ -191,20 +191,20 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK:
       [[fallthrough]];
     case RaftLogAction::CLOSE_LOCK: {
-      return {std::monostate{}, action};
+      return std::pair{std::monostate{}, action};
     }
     case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return {info.get<CoordinatorToReplicaConfig>(), action};
+      return std::pair{info.get<CoordinatorToReplicaConfig>(), action};
     case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
-      return {info.get<utils::UUID>(), action};
+      return std::pair{info.get<utils::UUID>(), action};
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
     case RaftLogAction::SET_INSTANCE_AS_MAIN:
-      return {info.get<InstanceUUIDUpdate>(), action};
+      return std::pair{info.get<InstanceUUIDUpdate>(), action};
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
     case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-      return {info.get<std::string>(), action};
+      return std::pair{info.get<std::string>(), action};
   }
   throw std::runtime_error("Unknown action");
 }
@@ -213,11 +213,10 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto const [parsed_data, log_action] = DecodeLog(data);
+  auto const &[parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
   last_committed_idx_ = log_idx;
-
-  // Return raft log number
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
   buffer_serializer bs_ret(ret);
   bs_ret.put_u64(log_idx);
