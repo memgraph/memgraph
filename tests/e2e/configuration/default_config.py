@@ -76,8 +76,8 @@ startup_config_dict = {
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
-        "false",
-        "false",
+        "true",
+        "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
     "isolation_level": (
