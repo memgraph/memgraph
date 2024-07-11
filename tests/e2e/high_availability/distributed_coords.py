@@ -3335,14 +3335,14 @@ def test_first_coord_restarts():
     def show_instances_coord1():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader")]
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
     mg_sleep_and_assert(leader_data, show_instances_coord1)
 
     interactive_mg_runner.stop_all(keep_directories=True)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
 
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "", "up", "leader")]
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     mg_sleep_and_assert(leader_data, show_instances_coord1)
