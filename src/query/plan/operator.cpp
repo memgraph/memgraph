@@ -29,7 +29,7 @@
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
-#include "query/procedure/module_ptr.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
@@ -5178,7 +5178,7 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
-    auto module = std::optional<procedure::ModulePtr>{};
+    auto module = std::shared_ptr<procedure::Module>{};
     auto proc = static_cast<const mgp_proc *>(nullptr);
 
     while (result_row_it_ == result_->rows.end()) {
@@ -5189,7 +5189,7 @@ class CallProcedureCursor : public Cursor {
           throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
         }
 
-        module.emplace(std::move(maybe_found->first));
+        module = std::move(maybe_found->first);
         proc = maybe_found->second;
 
         if (proc->info.is_write != self_->is_write_) {

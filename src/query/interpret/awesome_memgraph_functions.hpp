@@ -15,7 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "query/procedure/module_ptr.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
@@ -41,7 +41,7 @@ struct FunctionContext {
 
 using func_impl =
     std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>;
-using user_func = std::pair<func_impl, procedure::ModulePtr>;
+using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 
 /// Return the function implementation with the given name.
 ///
