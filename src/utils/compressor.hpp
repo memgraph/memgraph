@@ -11,10 +11,38 @@
 
 #pragma once
 
+#include <gflags/gflags.h>
+#include <gflags/gflags_declare.h>
 #include <sys/types.h>
 #include <zlib.h>
-#include <cstdint>
+#include <iostream>
 #include <memory>
+
+namespace memgraph::flags {
+const std::string storage_property_store_compression_level_help_string =
+    "Compression level for the property store. Allowed values: low, mid, high.";
+
+inline bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
+  if (value != "low" && value != "medium" && value != "high") {
+    std::cout << "Invalid value for storage_property_store_compression_level. Allowed values: low, medium, high."
+              << std::endl;
+    return false;
+  }
+  return true;
+}
+
+inline int StoragePropertyStoreCompressionLevelToInt(std::string_view value) {
+  if (value == "low") {
+    return Z_BEST_SPEED;
+  } else if (value == "medium") {
+    return Z_DEFAULT_COMPRESSION;
+  } else if (value == "high") {
+    return Z_BEST_COMPRESSION;
+  }
+  return Z_DEFAULT_COMPRESSION;
+}
+
+}  // namespace memgraph::flags
 
 namespace memgraph::utils {
 

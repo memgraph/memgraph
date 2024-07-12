@@ -17,6 +17,12 @@
 #include <utility>
 
 #include "utils/compressor.hpp"
+#include "utils/flag_validation.hpp"
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_string(storage_property_store_compression_level, "medium",
+                        memgraph::flags::storage_property_store_compression_level_help_string.c_str(),
+                        { return memgraph::flags::ValidStoragePropertyStoreCompressionLevel(value); });
 
 namespace memgraph::utils {
 
@@ -49,7 +55,9 @@ DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size
   std::unique_ptr<uint8_t[]> compressed_data(new uint8_t[compress_bound]);
   const auto compressed_bound_copy = compress_bound;
 
-  const int result = compress(compressed_data.get(), &compress_bound, input, original_size);
+  const int result = compress2(
+      compressed_data.get(), &compress_bound, input, original_size,
+      memgraph::flags::StoragePropertyStoreCompressionLevelToInt(FLAGS_storage_property_store_compression_level));
 
   if (result == Z_OK) {
     std::unique_ptr<uint8_t[]> compressed_buffer_data;

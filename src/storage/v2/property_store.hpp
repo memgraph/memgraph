@@ -126,7 +126,7 @@ class PropertyStore {
   bool DoInitProperties(const TContainer &properties);
 
   /// Compresses buffer
-  bool CompressBuffer(uint8_t *data, uint32_t size);
+  void CompressBuffer(uint8_t *data, uint32_t size);
 
   /// Decompresses buffer
   utils::DataBuffer DecompressBuffer() const;
