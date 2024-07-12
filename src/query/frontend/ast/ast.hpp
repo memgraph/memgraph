@@ -20,7 +20,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/procedure/module_ptr.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -1358,7 +1358,7 @@ class Function : public memgraph::query::Expression {
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
   // This is needed to acquire the shared lock on the module so it doesn't get reloaded while the query is running
-  std::shared_ptr<procedure::ModulePtr> module_ptr_;
+  std::shared_ptr<procedure::Module> module_;
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
@@ -1368,7 +1368,7 @@ class Function : public memgraph::query::Expression {
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
-    object->module_ptr_ = module_ptr_;
+    object->module_ = module_;
     return object;
   }
 
@@ -1379,11 +1379,11 @@ class Function : public memgraph::query::Expression {
 
     std::visit(utils::Overloaded{[this](func_impl function) {
                                    function_ = function;
-                                   module_ptr_.reset();
+                                   module_.reset();
                                  },
-                                 [this](std::pair<func_impl, procedure::ModulePtr> &function) {
+                                 [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
                                    function_ = function.first;
-                                   module_ptr_ = std::make_shared<procedure::ModulePtr>(std::move(function.second));
+                                   module_ = std::move(function.second);
                                  }},
                func_result);
     if (!function_) {

@@ -25,7 +25,7 @@
 
 #include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
-#include "query/procedure/module_ptr.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "utils/memory.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -59,30 +59,8 @@ class Module {
 class ModuleRegistry final {
   friend CypherMainVisitorTest;
 
- public:
-  struct Entry {
-    std::unique_ptr<Module> module;
-    mutable std::unique_ptr<std::shared_timed_mutex> lock;
-
-    explicit Entry(std::unique_ptr<Module> module)
-        : module(std::move(module)), lock(std::make_unique<std::shared_timed_mutex>()) {}
-
-    Entry(Entry &&other) noexcept : module(std::move(other.module)), lock(std::move(other.lock)) {}
-
-    Entry &operator=(Entry &&other) noexcept {
-      if (this != &other) {
-        module = std::move(other.module);
-        lock = std::move(other.lock);
-      }
-      return *this;
-    }
-
-    Entry(const Entry &) = delete;
-    Entry &operator=(const Entry &) = delete;
-  };
-
  private:
-  std::map<std::string, Entry, std::less<>> modules_;
+  std::map<std::string, std::shared_ptr<Module>, std::less<>> modules_;
   mutable utils::RWLock lock_{utils::RWLock::Priority::WRITE};
   std::unique_ptr<utils::MemoryResource> shared_{std::make_unique<utils::ResourceWithOutOfMemoryException>()};
 
@@ -95,6 +73,7 @@ class ModuleRegistry final {
   /// requires lock on registry
   bool RegisterModule(std::string_view name, std::unique_ptr<Module> module);
 
+  /// requires lock
   void DoUnloadAllModules();
 
   /// Loads the module if it's in the modules_dir directory
@@ -132,7 +111,7 @@ class ModuleRegistry final {
 
   /// Find a module with given name or return nullptr.
   /// Takes a read lock.
-  ModulePtr GetModuleNamed(std::string_view name) const;
+  auto GetModuleNamed(std::string_view name) const -> std::shared_ptr<Module>;
 
   /// Remove all loaded (non-builtin) modules.
   /// Takes a write lock.
@@ -196,29 +175,30 @@ class ModuleRegistry final {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern ModuleRegistry gModuleRegistry;
 
+template <typename T>
+using find_result = std::optional<std::pair<std::shared_ptr<Module>, const T *>>;
+
 /// Return the ModulePtr and `mgp_proc *` of the found procedure after resolving
 /// `fully_qualified_procedure_name`. `memory` is used for temporary allocations
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
-std::optional<std::pair<procedure::ModulePtr, const mgp_proc *>> FindProcedure(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
-    utils::MemoryResource *memory);
+find_result<mgp_proc> FindProcedure(const ModuleRegistry &module_registry,
+                                    std::string_view fully_qualified_procedure_name, utils::MemoryResource *memory);
 
 /// Return the ModulePtr and `mgp_trans *` of the found transformation after resolving
 /// `fully_qualified_transformation_name`. `memory` is used for temporary allocations
 /// inside this function. ModulePtr must be kept alive to make sure it won't be
 /// unloaded.
-std::optional<std::pair<procedure::ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
-    utils::MemoryResource *memory);
+find_result<mgp_trans> FindTransformation(const ModuleRegistry &module_registry,
+                                          std::string_view fully_qualified_transformation_name,
+                                          utils::MemoryResource *memory);
 
 /// Return the ModulePtr and `mgp_func *` of the found function after resolving
 /// `fully_qualified_function_name` if found. If there is no such function
 /// std::nullopt is returned. `memory` is used for temporary allocations
 /// inside this function. ModulePtr must be kept alive to make sure it won't be unloaded.
-std::optional<std::pair<procedure::ModulePtr, const mgp_func *>> FindFunction(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name,
-    utils::MemoryResource *memory);
+find_result<mgp_func> FindFunction(const ModuleRegistry &module_registry,
+                                   std::string_view fully_qualified_function_name, utils::MemoryResource *memory);
 
 template <typename T>
 concept IsCallable = utils::SameAsAnyOf<T, mgp_proc, mgp_func>;

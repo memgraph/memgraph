@@ -180,7 +180,7 @@ std::string GetPathString(const std::optional<std::filesystem::path> &path) {
 
 void RegisterMgProcedures(
     // We expect modules to be sorted by name.
-    const std::map<std::string, ModuleRegistry::Entry, std::less<>> *all_modules, BuiltinModule *module) {
+    const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
   auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
                                      mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of custom
@@ -190,14 +190,14 @@ void RegisterMgProcedures(
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
-          std::is_same_v<decltype(module.module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
+          std::is_same_v<decltype(module->Procedures()), const std::map<std::string, mgp_proc, std::less<>> *>,
           "Expected module procedures to be sorted by name");
 
-      const auto path = module.module->Path();
+      const auto path = module->Path();
       const auto path_string = GetPathString(path);
       const auto is_editable = IsFileEditable(path);
 
-      for (const auto &[proc_name, proc] : *module.module->Procedures()) {
+      for (const auto &[proc_name, proc] : *module->Procedures()) {
         mgp_result_record *record{nullptr};
         if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
           return;
@@ -276,21 +276,21 @@ void RegisterMgProcedures(
   module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformations(const std::map<std::string, ModuleRegistry::Entry, std::less<>> *all_modules,
+void RegisterMgTransformations(const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules,
                                BuiltinModule *module) {
   auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
                                           mgp_memory *memory) {
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
-      static_assert(std::is_same_v<decltype(module.module->Transformations()),
-                                   const std::map<std::string, mgp_trans, std::less<>> *>,
-                    "Expected module transformations to be sorted by name");
+      static_assert(
+          std::is_same_v<decltype(module->Transformations()), const std::map<std::string, mgp_trans, std::less<>> *>,
+          "Expected module transformations to be sorted by name");
 
-      const auto path = module.module->Path();
+      const auto path = module->Path();
       const auto path_string = GetPathString(path);
       const auto is_editable = IsFileEditable(path);
 
-      for (const auto &[trans_name, proc] : *module.module->Transformations()) {
+      for (const auto &[trans_name, proc] : *module->Transformations()) {
         mgp_result_record *record{nullptr};
         if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
           return;
@@ -342,22 +342,21 @@ void RegisterMgTransformations(const std::map<std::string, ModuleRegistry::Entry
 
 void RegisterMgFunctions(
     // We expect modules to be sorted by name.
-    const std::map<std::string, ModuleRegistry::Entry, std::less<>> *all_modules, BuiltinModule *module) {
+    const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
   auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
                                     mgp_memory *memory) {
     // Iterating over all_modules assumes that the standard mechanism of magic
     // functions invocations takes the ModuleRegistry::lock_ with READ access.
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by function_name.
-      static_assert(
-          std::is_same_v<decltype(module.module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
-          "Expected module magic functions to be sorted by name");
+      static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
+                    "Expected module magic functions to be sorted by name");
 
-      const auto path = module.module->Path();
+      const auto path = module->Path();
       const auto path_string = GetPathString(path);
       const auto is_editable = IsFileEditable(path);
 
-      for (const auto &[func_name, func] : *module.module->Functions()) {
+      for (const auto &[func_name, func] : *module->Functions()) {
         mgp_result_record *record{nullptr};
 
         if (!TryOrSetError([&] { return mgp_result_new_record(result, &record); }, result)) {
@@ -1163,45 +1162,37 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 }  // namespace
 
 bool ModuleRegistry::TryEraseModule(std::string_view name) {
-  auto guard_duration = std::chrono::seconds(1);
-  auto it = modules_.find(std::string(name));
+  auto it = modules_.find(name);
   if (it == modules_.end()) {
     return false;
   }
 
-  std::unique_lock guard(*it->second.lock, std::defer_lock);
-  auto lock_acquired = guard.try_lock_for(guard_duration);
-  if (!lock_acquired) {
+  auto &module = it->second;
+  if (!module.unique()) {
     return false;
   }
-  if (!it->second.module->Close()) {
+  if (!module->Close()) {
     spdlog::warn("Failed to close module {}", it->first);
   }
-  guard.unlock();
-  modules_.erase(std::string(name));
+
+  modules_.erase(it);
   return true;
 }
 
 bool ModuleRegistry::TryEraseAllModules() {
-  auto guard_duration = std::chrono::seconds(1);
+  using namespace std::chrono_literals;
   std::vector<std::unique_lock<std::shared_timed_mutex>> module_guards;
 
-  for (const auto &[module_name, module] : modules_) {
-    std::unique_lock guard(*module.lock, std::defer_lock);
-    auto lock_acquired = guard.try_lock_for(guard_duration);
-    if (!lock_acquired) {
-      spdlog::warn("Failed to close module {}", module_name);
-      return false;
-    }
-    module_guards.emplace_back(std::move(guard));
-  }
-  for (auto &guard : module_guards) {
-    guard.unlock();
+  auto any_used = ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return !module.unique(); });
+  if (any_used) {
+    spdlog::warn("At least one module was still in use");
+    return false;
   }
 
-  for (auto &module : modules_) {
-    if (!module.second.module->Close()) {
-      spdlog::warn("Failed to close module {}", module.first);
+  for (auto &[name, module] : modules_) {
+    if (!module->Close()) {
+      spdlog::warn("Failed to close module {}", name);
+      return false;
     }
   }
 
@@ -1218,32 +1209,24 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
     return false;
   }
 
-  modules_.emplace(std::string(name), Entry(std::move(module)));
+  modules_.emplace(std::string(name), std::move(module));
   return true;
 }
 
 void ModuleRegistry::DoUnloadAllModules() {
-  MG_ASSERT(modules_.find("mg") != modules_.end(), "Expected the builtin \"mg\" module to be present.");
+  auto mg_it = modules_.find("mg");
+  MG_ASSERT(mg_it != modules_.end(), "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
 
-  auto guard_duration = std::chrono::seconds(1);
-  auto mg_it = modules_.find("mg");
+  auto mg_preserved = mg_it->second;
 
-  std::unique_lock mg_guard(*mg_it->second.lock, std::defer_lock);
-  auto lock_acquired = mg_guard.try_lock_for(guard_duration);
-  if (!lock_acquired) {
-    // TODO Ivan: throw error
-    return;
-  }
-  auto module = std::move(mg_it->second.module);
-  mg_guard.unlock();
-  modules_.erase("mg");
+  modules_.erase(mg_it);
 
   // TODO Ivan: throw error if failed, but flow is correct
   TryEraseAllModules();
 
-  modules_.emplace("mg", Entry(std::move(module)));
+  modules_.emplace("mg", std::move(mg_preserved));
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -1257,7 +1240,7 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgCreateModuleFile(this, &lock_, module.get());
   RegisterMgUpdateModuleFile(this, &lock_, module.get());
   RegisterMgDeleteModuleFile(this, &lock_, module.get());
-  modules_.emplace("mg", Entry(std::move(module)));
+  modules_.emplace("mg", std::move(module));
 }
 
 void ModuleRegistry::SetModulesDirectory(std::vector<std::filesystem::path> modules_dirs,
@@ -1331,17 +1314,15 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
   }
 }
 
-ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
+/// Takes a read lock.
+auto ModuleRegistry::GetModuleNamed(const std::string_view name) const -> std::shared_ptr<Module> {
   auto guard = std::shared_lock{lock_};
   auto it = modules_.find(name);
 
   if (it == modules_.end()) {
-    return ModulePtr{nullptr};
+    return {};
   }
-  auto module_guard = std::shared_lock(*it->second.lock);
-  guard.release();
-
-  return {it->second.module.get(), std::move(module_guard)};
+  return it->second;
 }
 
 void ModuleRegistry::UnloadAllModules() {
@@ -1354,8 +1335,7 @@ utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { retu
 bool ModuleRegistry::RegisterMgProcedure(const std::string_view name, mgp_proc proc) {
   auto guard = std::unique_lock{lock_};
   if (auto module_it = modules_.find("mg"); module_it != modules_.end()) {
-    auto module_guard = std::unique_lock{*module_it->second.lock};
-    auto *builtin_module = dynamic_cast<BuiltinModule *>(module_it->second.module.get());
+    auto *builtin_module = dynamic_cast<BuiltinModule *>(module_it->second.get());
     builtin_module->AddProcedure(name, std::move(proc));
     return true;
   }
@@ -1383,9 +1363,8 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_name,
-                                                                   utils::MemoryResource *memory) {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name,
+                         utils::MemoryResource *memory) -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1426,22 +1405,18 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
 }
 
 }  // namespace
-
-std::optional<std::pair<ModulePtr, const mgp_proc *>> FindProcedure(const ModuleRegistry &module_registry,
-                                                                    std::string_view fully_qualified_procedure_name,
-                                                                    utils::MemoryResource *memory) {
+auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
+                   utils::MemoryResource *memory) -> find_result<mgp_proc> {
   return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
-    utils::MemoryResource *memory) {
+auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
+                        utils::MemoryResource *memory) -> find_result<mgp_trans> {
   return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_function_name,
-                                                                   utils::MemoryResource *memory) {
+auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name,
+                  utils::MemoryResource *memory) -> find_result<mgp_func> {
   return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
 }
 
