@@ -112,23 +112,21 @@ struct StealType {};
 inline constexpr StealType steal{};
 
 namespace MemoryDispatcher {
-thread_local std::optional<mgp_memory *> current_memory;
 
-mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
+extern thread_local std::optional<mgp_memory *> current_memory __attribute__((visibility("default")));
 
-void Register(mgp_memory *mem) noexcept { current_memory = mem; }
+inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-void UnRegister() noexcept { current_memory.reset(); }
+inline void Register(mgp_memory *mem) noexcept { current_memory = mem; }
 
-bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
+inline void UnRegister() noexcept { current_memory.reset(); }
+
+inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 };  // namespace MemoryDispatcher
 
-// The use of this object, with the help of MemoryDispatcherGuard
-// should be the prefered way to pass the memory pointer to this
-// header. The use of the 'mgp_memory *memory' pointer is deprecated
-// and will be removed in upcoming releases.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// inline MemoryDispatcher mrd{};
+// The use of MemoryDispatcherGuard should be the prefered way to pass
+// the memory pointer to this header. The use of the 'mgp_memory *memory'
+// pointer is deprecated and will be removed in upcoming releases.
 
 // TODO - Once we deprecate this we should remove this
 // and make sure nothing relies on it anymore. This alone
