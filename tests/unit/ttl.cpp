@@ -110,6 +110,9 @@ TYPED_TEST(TTLFixture, EnableTest) {
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
   EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
+  this->ttl_->Stop();
+  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_EQ(this->ttl_->Config(), ttl_info);
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);

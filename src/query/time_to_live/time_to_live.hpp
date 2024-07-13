@@ -12,6 +12,7 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 
 #ifdef MG_ENTERPRISE
 
@@ -50,13 +51,26 @@ struct TtlInfo {
       : period{period}, start_time{start_time} {}
 
   TtlInfo(std::string_view period_sv, std::string_view start_time_sv) {
-    period = std::chrono::days(1);  // Default period is a day
     if (!period_sv.empty()) {
       period = ParsePeriod(period_sv);
     }
     if (!start_time_sv.empty()) {
+      if (!period) {
+        period = std::chrono::days(1);  // Default period with start time is a day
+      }
       start_time = ParseStartTime(start_time_sv);
     }
+  }
+
+  std::string ToString() const {
+    std::string str;
+    if (period) {
+      str += " every " + StringifyPeriod(*period);
+    }
+    if (start_time) {
+      str += " at " + StringifyStartTime(*start_time);
+    }
+    return str;
   }
 
   explicit operator bool() const { return period || start_time; }
@@ -163,6 +177,14 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
   return lhs.period == rhs.period && lhs.start_time == rhs.start_time;
 }
 
+/**
+ * @brief Time-to-live handler.
+ *
+ * Interface is mutex protected, only so that coordinator can resume thread is paused.
+ * TTL queries are uniquely accessed, to the interface doesn't need protecting from the user side.
+ * However, if instance becomes a REPLICA, the thread is paused until reverted beck to MAIN.
+ *
+ */
 class TTL final {
  public:
   explicit TTL(std::filesystem::path directory) : storage_{directory} {}

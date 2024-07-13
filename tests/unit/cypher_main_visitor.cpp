@@ -5051,9 +5051,16 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     ASSERT_EQ(query->type_, TtlQuery::Type::STOP);
   }
   {
-    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("EXECUTE TTL AT \"01:23:45\";"));
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::EXECUTE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->period_, nullptr);
+    ASSERT_EQ(query->specific_time_, nullptr);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto st = ast_generator.LiteralValue(query->specific_time_);
@@ -5061,9 +5068,9 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   }
   {
     const auto *query =
-        dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("EXECUTE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
+        dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::EXECUTE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5072,19 +5079,18 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     ASSERT_TRUE(st.IsString() && st.ValueString() == "21:09:53");
   }
   {
-    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("EXECUTE TTL EVERY \"5m10s\";"));
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::EXECUTE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
     ASSERT_TRUE(p.IsString() && p.ValueString() == "5m10s");
   }
   {
-    const auto *query =
-        dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("EXECUTE TTL EVERY \"56m\" AT \"16:45:00\";"));
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::EXECUTE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);

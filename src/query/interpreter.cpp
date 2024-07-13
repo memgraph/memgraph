@@ -3114,27 +3114,32 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
-    case TtlQuery::Type::EXECUTE: {
+    case TtlQuery::Type::ENABLE: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       try {
-        std::string info = "Starting time-to-live worker. Will be executed";
+        std::string info;
         std::string period;
         if (ttl_query->period_) {
           period = ttl_query->period_->Accept(evaluator).ValueString();
-          info += " every " + period;
         }
         std::string start_time;
         if (ttl_query->specific_time_) {
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
-          info += " at " + start_time;
         }
-        // Special case for REPLICA
+        auto ttl_info = ttl::TtlInfo{period, start_time};
         if (interpreter_context->repl_state->IsReplica()) {
+          // Special case for REPLICA
           info = "TTL configured. Background job will not run, since instance is REPLICA.";
+        } else {
+          // TTL can already be configured; use the present config if no user-defined config
+          info = "Starting time-to-live worker. Will be executed";
+          if (ttl_info)
+            info += ttl_info.ToString();
+          else if (db_acc->ttl().Config())
+            info += db_acc->ttl().Config().ToString();
         }
-        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info = ttl::TtlInfo{period, start_time},
-                   interpreter_context, info = std::move(info),
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
                    invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
           auto &ttl = db_acc->ttl();
 
@@ -3144,11 +3149,12 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
             ttl.Enable();
           }
 
-          ttl.Configure(ttl_info);
+          if (ttl_info) ttl.Configure(ttl_info);
 
-          notification.code = NotificationCode::EXECUTE_TTL;
-          notification.title = info;
           ttl.Execute(std::move(db_acc), interpreter_context);
+
+          notification.code = NotificationCode::ENABLE_TTL;
+          notification.title = info;
         };
       } catch (const ttl::TtlException &e) {
         throw utils::BasicException(e.what());

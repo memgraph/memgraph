@@ -88,7 +88,7 @@ def test_ttl_replication(connection):
     )
 
     # 2/
-    execute_and_fetch_all(cursor, 'EXECUTE TTL EVERY "1s";')
+    execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
 
     # 3/
     def n_deltas(cursor):
@@ -135,7 +135,7 @@ def test_ttl_on_replica(connection):
     )
 
     # 2/
-    execute_and_fetch_all(cursor, 'EXECUTE TTL EVERY "1s";')
+    execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
     time.sleep(2)
 
     # 3/

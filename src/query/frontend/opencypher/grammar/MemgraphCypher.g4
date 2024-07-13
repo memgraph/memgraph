@@ -624,8 +624,8 @@ showSchemaInfoQuery : SHOW SCHEMA INFO ;
 
 stopTtlQuery: ( DISABLE | STOP ) TTL ;
 
-startTtlQuery: EXECUTE TTL ( ( EVERY period=literal ) ( AT time=literal )?
-                           | ( AT time=literal ) ( EVERY period=literal )? ) ;
+startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? )? ;
 
 ttlQuery: stopTtlQuery
         | startTtlQuery

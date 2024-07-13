@@ -3220,7 +3220,7 @@ antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *
       DMG_ASSERT(false, "Unknown TTL command");
     }
   } else if (auto *execute = ctx->startTtlQuery()) {
-    ttl_query->type_ = TtlQuery::Type::EXECUTE;
+    ttl_query->type_ = TtlQuery::Type::ENABLE;
     if (execute->AT()) {
       if (!execute->time || !execute->time->StringLiteral()) {
         throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");

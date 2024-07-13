@@ -36,7 +36,7 @@ def test_ttl_on_default(connect):
 
     # 0/
     assert_db(memgraph, "memgraph")
-    memgraph.execute('EXECUTE TTL EVERY "1s"')
+    memgraph.execute('ENABLE TTL EVERY "1s"')
 
     # 1/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
@@ -67,7 +67,7 @@ def test_ttl_on_clean(connect):
     assert_db(memgraph, "clean")
 
     # 1/
-    memgraph.execute('EXECUTE TTL EVERY "1s"')
+    memgraph.execute('ENABLE TTL EVERY "1s"')
 
     # 2/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
