@@ -35,6 +35,9 @@ on:
       release_stress:
         type: boolean
         default: true
+      flakiness_runs:
+        type: number
+        description: "Change this to check for flakiness by running every selected job multiple times. Enter a number between 2 and 20."
 
 jobs:
   DiffSetup:
@@ -49,9 +52,12 @@ jobs:
       run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
+      runs: ${{ steps.setup_flakiness.outputs.runs }}
+      runs_max_parallel: ${{ steps.setup_flakiness.outputs.runs_max_parallel }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
+      MAX_PARALLEL: 3
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -62,9 +68,31 @@ jobs:
       - name: Set up diff execution
         id: setup
         run: ./tools/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+      - name: Set up flakiness runs
+        id: setup_flakiness
+        run: |
+          flakiness_runs=1
+          if [[ -n ${{ github.event.inputs.flakiness_runs }} ]]; then
+            if [[ ${{ github.event.inputs.flakiness_runs }} -ge 2 && ${{ github.event.inputs.flakiness_runs }} -le 20 ]]; then
+              flakiness_runs=${{ github.event.inputs.flakiness_runs }}
+            else
+              echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
+            fi
+          fi
+          sequence=""
+          for i in $(seq 1 $flakiness_runs); do
+            sequence+="${i},"
+          done
+          echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
+          echo "runs_max_parallel=$MAX_PARALLEL" >> $GITHUB_OUTPUT
 
   Community:
     needs: DiffSetup
+    strategy:
+      max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
+      matrix:
+        fail-fast: false
+        run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
@@ -75,6 +103,11 @@ jobs:
 
   Coverage:
     needs: DiffSetup
+    strategy:
+      max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
+      matrix:
+        fail-fast: false
+        run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
@@ -86,6 +119,11 @@ jobs:
 
   Debug:
     needs: DiffSetup
+    strategy:
+      max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
+      matrix:
+        fail-fast: false
+        run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
@@ -97,6 +135,11 @@ jobs:
 
   Jepsen:
     needs: DiffSetup
+    strategy:
+      max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
+      matrix:
+        fail-fast: false
+        run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
@@ -104,6 +147,11 @@ jobs:
 
   Release:
     needs: DiffSetup
+    strategy:
+      max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
+      matrix:
+        fail-fast: false
+        run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
