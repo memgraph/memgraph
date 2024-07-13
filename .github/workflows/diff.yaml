@@ -89,9 +89,9 @@ jobs:
   Community:
     needs: DiffSetup
     strategy:
+      fail-fast: false
       max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
       matrix:
-        fail-fast: false
         run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_community.yaml
     with:
@@ -104,9 +104,9 @@ jobs:
   Coverage:
     needs: DiffSetup
     strategy:
+      fail-fast: false
       max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
       matrix:
-        fail-fast: false
         run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_coverage.yaml
     with:
@@ -120,9 +120,9 @@ jobs:
   Debug:
     needs: DiffSetup
     strategy:
+      fail-fast: false
       max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
       matrix:
-        fail-fast: false
         run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_debug.yaml
     with:
@@ -136,9 +136,9 @@ jobs:
   Jepsen:
     needs: DiffSetup
     strategy:
+      fail-fast: false
       max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
       matrix:
-        fail-fast: false
         run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
@@ -148,9 +148,9 @@ jobs:
   Release:
     needs: DiffSetup
     strategy:
+      fail-fast: false
       max-parallel: ${{ needs.DiffSetup.outputs.runs_max_parallel }}
       matrix:
-        fail-fast: false
         run_no: ${{ fromJSON(${{ needs.DiffSetup.outputs.runs }}) }}
     uses: ./.github/workflows/diff_release.yaml
     with:
