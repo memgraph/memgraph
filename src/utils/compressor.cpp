@@ -9,20 +9,47 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <sys/types.h>
 #include <zlib.h>
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <utility>
 
 #include "utils/compressor.hpp"
 #include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(storage_property_store_compression_level, "medium",
+DEFINE_VALIDATED_string(storage_property_store_compression_level, "mid",
                         memgraph::flags::storage_property_store_compression_level_help_string.c_str(),
                         { return memgraph::flags::ValidStoragePropertyStoreCompressionLevel(value); });
+
+namespace memgraph::flags {
+
+bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, compression_level_mappings);
+      result.HasError()) {
+    const auto error = result.GetError();
+    switch (error) {
+      case memgraph::utils::ValidationError::EmptyValue: {
+        std::cout << "Compression level cannot be empty." << std::endl;
+        break;
+      }
+      case memgraph::utils::ValidationError::InvalidValue: {
+        std::cout << "Invalid value for compression level. Allowed values: "
+                  << memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings) << std::endl;
+        break;
+      }
+    }
+    return false;
+  }
+
+  return true;
+}
+
+int StoragePropertyStoreCompressionLevelToInt(std::string_view value) {
+  return memgraph::utils::StringToEnum<int>(value, compression_level_mappings).value();
+}
+
+}  // namespace memgraph::flags
 
 namespace memgraph::utils {
 

@@ -15,32 +15,25 @@
 #include <gflags/gflags_declare.h>
 #include <sys/types.h>
 #include <zlib.h>
-#include <iostream>
+#include <array>
 #include <memory>
+#include <string_view>
+#include "utils/enum.hpp"
 
 namespace memgraph::flags {
-const std::string storage_property_store_compression_level_help_string =
-    "Compression level for the property store. Allowed values: low, mid, high.";
 
-inline bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
-  if (value != "low" && value != "medium" && value != "high") {
-    std::cout << "Invalid value for storage_property_store_compression_level. Allowed values: low, medium, high."
-              << std::endl;
-    return false;
-  }
-  return true;
-}
+using namespace std::string_view_literals;
 
-inline int StoragePropertyStoreCompressionLevelToInt(std::string_view value) {
-  if (value == "low") {
-    return Z_BEST_SPEED;
-  } else if (value == "medium") {
-    return Z_DEFAULT_COMPRESSION;
-  } else if (value == "high") {
-    return Z_BEST_COMPRESSION;
-  }
-  return Z_DEFAULT_COMPRESSION;
-}
+inline constexpr std::array compression_level_mappings{std::pair{"low"sv, Z_BEST_SPEED},
+                                                       std::pair{"mid"sv, Z_DEFAULT_COMPRESSION},
+                                                       std::pair{"high"sv, Z_BEST_COMPRESSION}};
+
+inline const std::string storage_property_store_compression_level_help_string =
+    fmt::format("Compression level for storing properties. Allowed values: {}.",
+                memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings));
+
+bool ValidStoragePropertyStoreCompressionLevel(std::string_view value);
+int StoragePropertyStoreCompressionLevelToInt(std::string_view value);
 
 }  // namespace memgraph::flags
 
