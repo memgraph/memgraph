@@ -1,0 +1,82 @@
+name: "Check Diff for flakiness"
+
+on:
+  merge_group:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      community_core:
+        type: boolean
+        default: true
+      coverage_core:
+        type: boolean
+        default: true
+      debug_core:
+        type: boolean
+        default: true
+      debug_integration:
+        type: boolean
+        default: true
+      jepsen_core:
+        type: boolean
+        default: true
+      release_core:
+        type: boolean
+        default: true
+      release_benchmark:
+        type: boolean
+        default: true
+      release_e2e:
+        type: boolean
+        default: true
+      release_stress:
+        type: boolean
+        default: true
+      flakiness_runs:
+        type: string
+        description: "Change this to check for flakiness by running every selected job multiple times. Enter a number between 2 and 20."
+
+jobs:
+  DiffSetup:
+    runs-on: ubuntu-latest
+    outputs:
+      runs: ${{ steps.setup_flakiness.outputs.runs }}
+    steps:
+      - name: Set up flakiness runs
+        id: setup_flakiness
+        run: |
+          flakiness_runs=1
+          if [[ -n "${{ github.event.inputs.flakiness_runs }}" ]]; then
+            echo "Debug 1"
+            if [[ "${{ github.event.inputs.flakiness_runs }}" -ge 2 ]] && [[ "${{ github.event.inputs.flakiness_runs }}" -le 20 ]]; then
+              echo "Debug 2"
+              flakiness_runs=${{ github.event.inputs.flakiness_runs }}
+            else
+              echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
+            fi
+          fi
+          sequence=""
+          for i in $(seq 1 $flakiness_runs); do
+            sequence+="${i},"
+          done
+          echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
+
+  Diff:
+    needs: DiffSetup
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: ${{ fromJSON(needs.DiffSetup.outputs.runs) }}
+    uses: ./.github/workflows/diff.yaml
+    with:
+      community_core: "${{ github.event.inputs.community_core }}"
+      coverage_core: "${{ github.event.inputs.coverage_core }}"
+      debug_core: "${{ github.event.inputs.debug_core }}"
+      debug_integration: "${{ github.event.inputs.debug_integration }}"
+      jepsen_core: "${{ github.event.inputs.jepsen_core }}"
+      release_core: "${{ github.event.inputs.release_core }}"
+      release_benchmark: "${{ github.event.inputs.release_benchmark }}"
+      release_e2e: "${{ github.event.inputs.release_e2e }}"
+      release_stress: "${{ github.event.inputs.release_stress }}"
+    secrets: inherit
