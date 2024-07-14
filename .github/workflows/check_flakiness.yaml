@@ -38,6 +38,7 @@ on:
       flakiness_runs:
         type: number
         default: 3
+        required: true
         description: "Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20."
 
 jobs:
