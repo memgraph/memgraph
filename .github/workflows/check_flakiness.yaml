@@ -1,8 +1,6 @@
 name: "Check Diff for flakiness"
 
 on:
-  merge_group:
-  pull_request:
   workflow_dispatch:
     inputs:
       community_core:
