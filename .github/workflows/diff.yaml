@@ -73,7 +73,9 @@ jobs:
         run: |
           flakiness_runs=1
           if [[ -n "${{ github.event.inputs.flakiness_runs }}" ]]; then
-            if [[ ${{ github.event.inputs.flakiness_runs }} -ge 2 ]] && [[ ${{ github.event.inputs.flakiness_runs }} -le 20 ]]; then
+            echo "Debug 1"
+            if [[ "${{ github.event.inputs.flakiness_runs }}" -ge 2 ]] && [[ "${{ github.event.inputs.flakiness_runs }}" -le 20 ]]; then
+              echo "Debug 2"
               flakiness_runs=${{ github.event.inputs.flakiness_runs }}
             else
               echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
