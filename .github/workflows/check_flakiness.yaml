@@ -4,6 +4,8 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  schedule:
+    - cron: "0 1 * * *" #UTC
   workflow_dispatch:
     inputs:
       community_core:
