@@ -37,7 +37,7 @@ on:
         default: true
       flakiness_runs:
         type: number
-        default: 2
+        default: 3
         description: "Check for flakiness by running every selected job multiple times. Enter a number between 2 and 20."
 
 jobs:
@@ -57,6 +57,7 @@ jobs:
     env:
       GH_CONTEXT: ${{ toJson(github) }}
       GH_CONTEXT_FILE_NAME: github_context.json
+      FLAKINESS_RUNS: ${{ github.event.inputs.flakiness_runs || 10 }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -70,16 +71,12 @@ jobs:
       - name: Set up flakiness runs
         id: setup_flakiness
         run: |
-          flakiness_runs=1
-          if [[ -n "${{ github.event.inputs.flakiness_runs }}" ]]; then
-            if [[ "${{ github.event.inputs.flakiness_runs }}" -ge 2 ]] && [[ "${{ github.event.inputs.flakiness_runs }}" -le 20 ]]; then
-              flakiness_runs=${{ github.event.inputs.flakiness_runs }}
-            else
-              echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
-            fi
+          if [[ $FLAKINESS_RUNS -lt 2 ]] || [[ $FLAKINESS_RUNS -gt 20 ]]; then
+            echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
+            exit 1
           fi
           sequence=""
-          for i in $(seq 1 $flakiness_runs); do
+          for i in $(seq 1 $FLAKINESS_RUNS); do
             sequence+="${i},"
           done
           echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
