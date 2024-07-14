@@ -84,7 +84,7 @@ jobs:
             sequence+="${i},"
           done
           echo "runs=[${sequence::-1}]" >> $GITHUB_OUTPUT
-          echo "runs_max_parallel=$MAX_PARALLEL" >> $GITHUB_OUTPUT
+          echo "runs_max_parallel=$((MAX_PARALLEL))" >> $GITHUB_OUTPUT
 
   Community:
     needs: DiffSetup
