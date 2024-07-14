@@ -72,8 +72,8 @@ jobs:
         id: setup_flakiness
         run: |
           flakiness_runs=1
-          if [[ -n ${{ github.event.inputs.flakiness_runs }} ]]; then
-            if [[ ${{ github.event.inputs.flakiness_runs }} -ge 2 && ${{ github.event.inputs.flakiness_runs }} -le 20 ]]; then
+          if [[ -n "${{ github.event.inputs.flakiness_runs }}" ]]; then
+            if [[ ${{ github.event.inputs.flakiness_runs }} -ge 2 ]] && [[ ${{ github.event.inputs.flakiness_runs }} -le 20 ]]; then
               flakiness_runs=${{ github.event.inputs.flakiness_runs }}
             else
               echo "ERROR: Selected 'flakiness_runs' value is invalid. Please select a value between 2 and 20."
