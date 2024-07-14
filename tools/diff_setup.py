@@ -37,9 +37,6 @@ class DiffSetup:
     def _get_workflow_dispatch_inputs(self) -> dict:
         return self._gh_context.get("event").get("inputs")
 
-    def _get_workflow_call_inputs(self) -> dict:
-        return self._gh_context.get("inputs")
-
     def get_test_suite(self) -> dict:
         return self._test_suite
 
@@ -93,13 +90,6 @@ class DiffSetup:
             for test in tests.keys():
                 self._test_suite[build][test] = self._check_workflow_input(build, test, workflow_dispatch_inputs)
 
-    def _setup_worfklow_call(self) -> None:
-        workflow_call_inputs = self._get_workflow_call_inputs()
-        print(f"Workflow call inputs: {workflow_call_inputs}")
-        for build, tests in self._test_suite.items():
-            for test in tests.keys():
-                self._test_suite[build][test] = self._check_workflow_input(build, test, workflow_call_inputs)
-
     def setup_diff_workflow(self) -> None:
         event_name = self._get_event_name()
         print(f"Event name: {event_name}")
@@ -112,8 +102,6 @@ class DiffSetup:
                 self._get_default_test_suite(False)
         elif event_name == "workflow_dispatch":
             self._setup_worfklow_dispatch()
-        elif event_name == "workflow_call":
-            self._setup_worfklow_call()
         else:
             print("Invalid event name")
             sys.exit(1)

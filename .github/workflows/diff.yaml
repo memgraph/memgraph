@@ -35,35 +35,9 @@ on:
       release_stress:
         type: boolean
         default: true
-  workflow_call:
-    inputs:
-      community_core:
-        type: string
-        default: true
-      coverage_core:
-        type: string
-        default: true
-      debug_core:
-        type: string
-        default: true
-      debug_integration:
-        type: string
-        default: true
-      jepsen_core:
-        type: string
-        default: true
-      release_core:
-        type: string
-        default: true
-      release_benchmark:
-        type: string
-        default: true
-      release_e2e:
-        type: string
-        default: true
-      release_stress:
-        type: string
-        default: true
+      flakiness_runs:
+        type: number
+        description: "Change this to check for flakiness by running every selected job multiple times. Enter a number between 2 and 20."
 
 jobs:
   DiffSetup:
