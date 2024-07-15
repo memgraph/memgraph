@@ -31,7 +31,7 @@ extern const Event DeletedEdges;
 namespace {
 template <typename T>
 int GetPart(auto &current) {
-  int whole_part = std::chrono::duration_cast<T>(current).count();
+  const int whole_part = std::chrono::duration_cast<T>(current).count();
   current -= T{whole_part};
   return whole_part;
 }
@@ -251,10 +251,10 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
     // Midnight might be a problem...
     const auto now =
         std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
-    utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
-                               static_cast<unsigned>(now.day())};
+    const utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
+                                     static_cast<unsigned>(now.day())};
     auto [time, _] = utils::ParseLocalTimeParameters(sv);
-    utils::ZonedDateTimeParameters zdt{date, time, utils::Timezone(std::chrono::current_zone()->name())};
+    const utils::ZonedDateTimeParameters zdt{date, time, utils::Timezone(std::chrono::current_zone()->name())};
     // Have to convert user's input (his local time) to system time
     // Using microseconds in order to be aligned with timestamp()
     return utils::ZonedDateTime(zdt).SysTimeSinceEpoch();
@@ -271,7 +271,7 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
  * @return std::string
  */
 std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st) {
-  std::chrono::zoned_time zt(std::chrono::current_zone(), st);
+  const std::chrono::zoned_time zt(std::chrono::current_zone(), st);
   auto epoch = zt.get_local_time().time_since_epoch();
   /* just consume and through away */
   GetPart<std::chrono::days>(epoch);

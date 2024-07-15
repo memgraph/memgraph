@@ -31,7 +31,7 @@ std::filesystem::path GetCleanDataDirectory() {
 
 template <typename T>
 int GetPart(auto &current) {
-  int whole_part = std::chrono::duration_cast<T>(current).count();
+  const int whole_part = std::chrono::duration_cast<T>(current).count();
   current -= T{whole_part};
   return whole_part;
 }
