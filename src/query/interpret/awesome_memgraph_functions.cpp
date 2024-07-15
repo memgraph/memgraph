@@ -1518,7 +1518,7 @@ auto NameToFunction(const std::string &function_name) -> std::variant<func_impl,
   // Functions for enum types
   if (function_name == "TOENUM") return ToEnum;
 
-  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
 
   if (maybe_found) {
     auto module_ptr = std::move((*maybe_found).first);

@@ -144,7 +144,7 @@ class Tree {
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   Tree() = default;
-  virtual ~Tree() {}
+  virtual ~Tree() = default;
 
   virtual Tree *Clone(AstStorage *storage) const = 0;
 

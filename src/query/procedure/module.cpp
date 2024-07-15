@@ -1168,7 +1168,7 @@ bool ModuleRegistry::TryEraseModule(std::string_view name) {
   }
 
   auto &module = it->second;
-  if (!module.unique()) {
+  if (module.use_count() != 1) {
     return false;
   }
   if (!module->Close()) {
@@ -1180,10 +1180,8 @@ bool ModuleRegistry::TryEraseModule(std::string_view name) {
 }
 
 bool ModuleRegistry::TryEraseAllModules() {
-  using namespace std::chrono_literals;
-  std::vector<std::unique_lock<std::shared_timed_mutex>> module_guards;
-
-  auto any_used = ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return !module.unique(); });
+  auto const any_used =
+      ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return module.use_count() != 1; });
   if (any_used) {
     spdlog::warn("At least one module was still in use");
     return false;
@@ -1363,8 +1361,8 @@ template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name,
-                         utils::MemoryResource *memory) -> find_result<T> {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name)
+    -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1405,19 +1403,19 @@ auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view
 }
 
 }  // namespace
-auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name,
-                   utils::MemoryResource *memory) -> find_result<mgp_proc> {
-  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
+auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
+    -> find_result<mgp_proc> {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
-                        utils::MemoryResource *memory) -> find_result<mgp_trans> {
-  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
+auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
+    -> find_result<mgp_trans> {
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);
 }
 
-auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name,
-                  utils::MemoryResource *memory) -> find_result<mgp_func> {
-  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
+auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
+    -> find_result<mgp_func> {
+  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
 }
 
 }  // namespace memgraph::query::procedure

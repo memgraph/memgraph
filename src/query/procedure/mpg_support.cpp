@@ -12,5 +12,6 @@
 #include "mgp.hpp"
 
 namespace mgp::MemoryDispatcher {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 thread_local std::optional<mgp_memory *> current_memory{};
-}
+}  // namespace mgp::MemoryDispatcher

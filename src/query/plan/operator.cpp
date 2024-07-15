@@ -5179,12 +5179,11 @@ class CallProcedureCursor : public Cursor {
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
     auto module = std::shared_ptr<procedure::Module>{};
-    auto proc = static_cast<const mgp_proc *>(nullptr);
+    mgp_proc const *proc = nullptr;
 
     while (result_row_it_ == result_->rows.end()) {
       if (!module) {
-        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                    context.evaluation_context.memory);
+        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
         if (!maybe_found) {
           throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
         }
