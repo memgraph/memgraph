@@ -26,6 +26,3 @@ add_subdirectory(e2e)
 
 # mgbench benchmark test binaries
 add_subdirectory(mgbench)
-
-# durability test binaries
-add_subdirectory(durability)
