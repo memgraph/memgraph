@@ -85,7 +85,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Jepsen Report"
+          name: "Jepsen Report-${{ github.job }}"
           path: tests/jepsen/Jepsen.tar.gz
 
       - name: Stop mgbuild container

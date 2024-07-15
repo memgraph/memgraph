@@ -122,7 +122,7 @@ jobs:
       - name: Save code coverage
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)"
+          name: "Code coverage(Code analysis)-${{ github.job }}"
           path: tools/github/generated/code_coverage.tar.gz
 
       - name: Stop mgbuild container

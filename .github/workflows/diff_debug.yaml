@@ -101,7 +101,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "HA_drivers_report"
+          name: "HA_drivers_report-${{ github.job }}"
           path: tests/drivers/test_report.tar.gz
 
       - name: Run cppcheck and clang-format
@@ -117,7 +117,7 @@ jobs:
       - name: Save cppcheck and clang-format errors
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)"
+          name: "Code coverage(Debug build)-${{ github.job }}"
           path: tools/github/cppcheck_and_clang_format.txt
 
       - name: Stop mgbuild container
