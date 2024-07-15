@@ -123,6 +123,7 @@ REVOKE                  : R E V O K E ;
 ROLE                    : R O L E ;
 ROLES                   : R O L E S ;
 QUOTE                   : Q U O T E ;
+SCHEMA                  : S C H E M A ;
 SERVER                  : S E R V E R ;
 SERVICE_URL             : S E R V I C E UNDERSCORE U R L ;
 SESSION                 : S E S S I O N ;
