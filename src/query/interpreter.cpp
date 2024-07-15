@@ -3132,7 +3132,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           // Special case for REPLICA
           info = "TTL configured. Background job will not run, since instance is REPLICA.";
         } else {
-          // TTL can already be configured; use the present config if no user-defined config
+          // TTL could already be configured; use the present config if no user-defined config
           info = "Starting time-to-live worker. Will be executed";
           if (ttl_info)
             info += ttl_info.ToString();
@@ -3145,13 +3145,11 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 
           if (!ttl.Enabled()) {
             (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
-            const utils::OnScopeExit invalidator(invalidate_plan_cache);
             ttl.Enable();
+            std::invoke(invalidate_plan_cache);
           }
-
           if (ttl_info) ttl.Configure(ttl_info);
-
-          ttl.Execute(std::move(db_acc), interpreter_context);
+          ttl.Setup(std::move(db_acc), interpreter_context);
 
           notification.code = NotificationCode::ENABLE_TTL;
           notification.title = info;
@@ -3167,18 +3165,17 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
         (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
         const utils::OnScopeExit invalidator(invalidate_plan_cache);
-
+        db_acc->ttl().Disable();
         notification.code = NotificationCode::DISABLE_TTL;
         notification.title = fmt::format("Disabled time-to-live feature.");
-        db_acc->ttl().Disable();
       };
       break;
     }
     case TtlQuery::Type::STOP: {
       handler = [db_acc = std::move(db_acc)](Notification &notification) mutable {
+        db_acc->ttl().Stop();
         notification.code = NotificationCode::STOP_TTL;
         notification.title = fmt::format("Stopped time-to-live worker.");
-        db_acc->ttl().Stop();
       };
       break;
     }

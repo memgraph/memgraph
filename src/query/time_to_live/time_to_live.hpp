@@ -73,104 +73,39 @@ struct TtlInfo {
     return str;
   }
 
-  explicit operator bool() const { return period || start_time; }
-
-  static std::chrono::microseconds ParsePeriod(std::string_view sv) {
-    if (sv.empty()) return {};
-    utils::DurationParameters param;
-    int val = 0;
-    for (const auto c : sv) {
-      if (isdigit(c)) {
-        val = val * 10 + (int)(c - '0');
-      } else {
-        switch (tolower(c)) {
-          case 'd':
-            param.day = val;
-            break;
-          case 'h':
-            param.hour = val;
-            break;
-          case 'm':
-            param.minute = val;
-            break;
-          case 's':
-            param.second = val;
-            break;
-          default:
-            throw TtlException("Badly defined period. Use integers and 'd', 'h', 'm' and 's' to define it.");
-        }
-        val = 0;
-      }
-    }
-    return std::chrono::microseconds{utils::Duration(param).microseconds};
-  }
-
-  // We do not support microseconds, but are aligning to the timestamp() values
-  static std::string StringifyPeriod(std::chrono::microseconds us) {
-    std::string res;
-    if (const auto di = GetPart<std::chrono::days>(us)) {
-      res += fmt::format("{}d", di);
-    }
-    if (const auto hi = GetPart<std::chrono::hours>(us)) {
-      res += fmt::format("{}h", hi);
-    }
-    if (const auto mi = GetPart<std::chrono::minutes>(us)) {
-      res += fmt::format("{}m", mi);
-    }
-    if (const auto si = GetPart<std::chrono::seconds>(us)) {
-      res += fmt::format("{}s", si);
-    }
-    return res;
-  }
+  /**
+   * @brief
+   *
+   * @param sv
+   * @return std::chrono::microseconds
+   */
+  static std::chrono::microseconds ParsePeriod(std::string_view sv);
 
   /**
-   * @brief From user's local time to system time. Uses timezone
+   * @brief
+   *
+   * @param us
+   * @return std::string
+   */
+  static std::string StringifyPeriod(std::chrono::microseconds us);
+
+  /**
+   * @brief
    *
    * @param sv
    * @return std::chrono::system_clock::time_point
    */
-  static std::chrono::system_clock::time_point ParseStartTime(std::string_view sv) {
-    try {
-      // Midnight might be a problem...
-      const auto now =
-          std::chrono::year_month_day{std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())};
-      utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
-                                 static_cast<unsigned>(now.day())};
-      auto [time, _] = utils::ParseLocalTimeParameters(sv);
-      utils::ZonedDateTimeParameters zdt{date, time, utils::Timezone(std::chrono::current_zone()->name())};
-      // Have to convert user's input (his local time) to system time
-      // Using microseconds in order to be aligned with timestamp()
-      return utils::ZonedDateTime(zdt).SysTimeSinceEpoch();
-    } catch (const utils::temporal::InvalidArgumentException &e) {
-      throw TtlException(e.what());
-    }
-  }
+  static std::chrono::system_clock::time_point ParseStartTime(std::string_view sv);
 
   /**
-   *
-   * @brief From system clock to user's local time. Uses timezone
+   * @brief
    *
    * @param st
    * @return std::string
    */
-  static std::string StringifyStartTime(std::chrono::system_clock::time_point st) {
-    std::chrono::zoned_time zt(std::chrono::current_zone(), st);
-    auto epoch = zt.get_local_time().time_since_epoch();
-    /* just consume and through away */
-    GetPart<std::chrono::days>(epoch);
-    /* what we are actually interested in */
-    const auto h = GetPart<std::chrono::hours>(epoch);
-    const auto m = GetPart<std::chrono::minutes>(epoch);
-    const auto s = GetPart<std::chrono::seconds>(epoch);
-    return fmt::format("{:02d}:{:02d}:{:02d}", h, m, s);
-  }
+  static std::string StringifyStartTime(std::chrono::system_clock::time_point st);
 
-  template <typename T>
-  static int GetPart(auto &current) {
-    int whole_part = std::chrono::duration_cast<T>(current).count();
-    current -= T{whole_part};
-    return whole_part;
-  }
+  explicit operator bool() const { return period || start_time; }
 };
 
 inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
@@ -196,9 +131,23 @@ class TTL final {
   TTL &operator=(const TTL &) = delete;
   TTL &operator=(TTL &&) = delete;
 
+  /**
+   * @brief Restore from durable data.
+   *
+   * @tparam TDbAccess
+   * @param db
+   * @param interpreter_context
+   * @return true
+   * @return false
+   */
   template <typename TDbAccess>
   bool Restore(TDbAccess db, InterpreterContext *interpreter_context);
 
+  /**
+   * @brief Configure the TTL's background job period and time of execution.
+   *
+   * @param ttl_info
+   */
   void Configure(TtlInfo ttl_info) {
     const std::lock_guard<std::mutex> lock{mtx_};
     if (!enabled_) {
@@ -219,12 +168,23 @@ class TTL final {
     return info_;
   }
 
+  /**
+   * @brief Setup TTL background job. Configuration should have already be present.
+   *
+   * @tparam TDbAccess
+   * @param db
+   * @param interpreter_context
+   */
   template <typename TDbAccess>
-  void Execute(TDbAccess db, InterpreterContext *interpreter_context) {
+  void Setup(TDbAccess db, InterpreterContext *interpreter_context) {
     const std::lock_guard<std::mutex> lock{mtx_};
-    Execute_(db, interpreter_context);
+    Setup_(db, interpreter_context);
   }
 
+  /**
+   * @brief Stop background thread, but leave configuration as is.
+   *
+   */
   void Stop() {
     const std::lock_guard<std::mutex> lock{mtx_};
     ttl_.Stop();
@@ -232,7 +192,7 @@ class TTL final {
   }
 
   /**
-   * @brief Stops TTL without affecting the durable data. Use when destruction only.
+   * @brief Stops TTL without affecting the durable data. Use for destruction only.
    */
   void Shutdown() {
     const std::lock_guard<std::mutex> lock{mtx_};
@@ -244,6 +204,10 @@ class TTL final {
     return enabled_;
   }
 
+  /**
+   * @brief Enable the TTL feature.
+   *
+   */
   void Enable() {
     const std::lock_guard<std::mutex> lock{mtx_};
     enabled_ = true;
@@ -255,6 +219,10 @@ class TTL final {
     return ttl_.IsRunning();
   }
 
+  /**
+   * @brief Disable the TTL feature.
+   *
+   */
   void Disable() {
     const std::lock_guard<std::mutex> lock{mtx_};
     enabled_ = false;
@@ -263,6 +231,10 @@ class TTL final {
     Persist_();
   }
 
+  /**
+   * @brief TTL's background job can be paused in case instance becomes a REPLICA. Use Resume() to restart once MAIN.
+   *
+   */
   void Resume() {
     const std::lock_guard<std::mutex> lock{mtx_};
     if (ttl_.IsRunning()) ttl_.Resume();
@@ -283,13 +255,13 @@ class TTL final {
   }
 
   template <typename TDbAccess>
-  void Execute_(TDbAccess db, InterpreterContext *interpreter_context);
+  void Setup_(TDbAccess db, InterpreterContext *interpreter_context);
 
-  mutable std::mutex mtx_;
-  utils::Scheduler ttl_;
-  TtlInfo info_{};
-  bool enabled_{false};
-  kvstore::KVStore storage_;
+  mutable std::mutex mtx_;    //!< protection only needed for restarts (HA); other cases handled by unique access
+  utils::Scheduler ttl_;      //!< background thread
+  TtlInfo info_{};            //!< configuration
+  bool enabled_{false};       //!< feature enabler
+  kvstore::KVStore storage_;  //!< durability
 };
 
 }  // namespace ttl
@@ -299,7 +271,7 @@ class TTL final {
 
 namespace memgraph::query::ttl {
 /**
- * @brief Empty TTL implementation for simpler interface in community mode
+ * @brief Empty TTL implementation for simpler interface in community code
  *
  */
 class TTL final {

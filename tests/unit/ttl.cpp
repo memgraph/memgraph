@@ -28,6 +28,13 @@ std::filesystem::path GetCleanDataDirectory() {
   std::filesystem::remove_all(path);
   return path;
 }
+
+template <typename T>
+int GetPart(auto &current) {
+  int whole_part = std::chrono::duration_cast<T>(current).count();
+  current -= T{whole_part};
+  return whole_part;
+}
 }  // namespace
 
 template <typename StorageType>
@@ -101,21 +108,21 @@ TYPED_TEST(TTLFixture, EnableTest) {
   const memgraph::query::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
   EXPECT_FALSE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
   this->ttl_->Enable();
   EXPECT_TRUE(this->ttl_->Enabled());
   EXPECT_THROW(this->ttl_->Configure({}), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
   EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
-  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
   EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
   this->ttl_->Stop();
-  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
   EXPECT_EQ(this->ttl_->Config(), ttl_info);
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_), memgraph::query::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -155,7 +162,7 @@ TYPED_TEST(TTLFixture, Periodic) {
   }
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -213,7 +220,7 @@ TYPED_TEST(TTLFixture, StartTime) {
   this->ttl_->Enable();
   this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(100),
                                                       std::chrono::system_clock::now() + std::chrono::seconds(3)});
-  EXPECT_NO_THROW(this->ttl_->Execute(this->db_, &this->interpreter_context_));
+  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_));
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -287,7 +294,7 @@ TYPED_TEST(TTLFixture, Durability) {
       memgraph::query::ttl::TTL ttl(path);
       ttl.Enable();
       ttl.Configure(ttl_info);
-      ttl.Execute(this->db_, &this->interpreter_context_);
+      ttl.Setup(this->db_, &this->interpreter_context_);
     }
     {
       memgraph::query::ttl::TTL ttl(path);
@@ -325,9 +332,9 @@ TEST(TtlInof, String) {
     // Has to handle time zones (hours can differ)
     auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
-    memgraph::query::ttl::TtlInfo::GetPart<std::chrono::hours>(epoch);  // consume and ignore
-    EXPECT_EQ(memgraph::query::ttl::TtlInfo::GetPart<std::chrono::minutes>(epoch), 45);
-    EXPECT_EQ(memgraph::query::ttl::TtlInfo::GetPart<std::chrono::seconds>(epoch), 10);
+    GetPart<std::chrono::hours>(epoch);  // consume and ignore
+    EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
+    EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
     auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
     EXPECT_EQ(time_str, "03:45:10");
   }
