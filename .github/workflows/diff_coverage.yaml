@@ -120,6 +120,7 @@ jobs:
           test-memgraph code-coverage
 
       - name: Save code coverage
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: "Code coverage(Code analysis)-${{ github.job }}"

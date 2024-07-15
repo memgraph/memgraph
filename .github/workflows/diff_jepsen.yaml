@@ -82,6 +82,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Save Jepsen report
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -98,6 +98,7 @@ jobs:
           test-memgraph drivers-high-availability
 
       - name: Save drivers test report
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -115,6 +116,7 @@ jobs:
           test-memgraph cppcheck-and-clang-format
 
       - name: Save cppcheck and clang-format errors
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: "Code coverage(Debug build)-${{ github.job }}"
