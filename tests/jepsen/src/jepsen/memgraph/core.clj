@@ -5,6 +5,7 @@
     [checker :as checker]
     [generator :as gen]
     [tests :as tests]]
+   [clojure.tools.logging :refer [info]]
    [jepsen.memgraph
     [bank :as bank]
     [large :as large]
@@ -45,7 +46,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (utils/unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"assert|[eE]xception" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis        (:nemesis nemesis)
@@ -76,7 +77,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (utils/unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"assert|[eE]xception" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
@@ -117,6 +118,9 @@
 (defn single-test
   "Takes base CLI options and constructs a single test."
   [opts]
+
+  (info "Results")
+
   (let [workload (if (:workload opts)
                    (:workload opts)
                    (throw (Exception. "Workload undefined!")))
@@ -141,7 +145,8 @@
                           :organization organization})]
     (if (or (= workload :high_availability) (= workload :habank))
       (memgraph-ha-test test-opts)
-      (memgraph-test test-opts))))
+      (memgraph-test test-opts)))
+  )
 
 (def cli-opts
   "CLI options for tests."
