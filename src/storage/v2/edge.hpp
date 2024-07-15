@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <limits>
+
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
