@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <shared_mutex>
 #include <unordered_map>
 #include <variant>
 #include <vector>

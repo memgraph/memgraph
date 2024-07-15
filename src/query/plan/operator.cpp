@@ -5198,7 +5198,6 @@ class CallProcedureCursor : public Cursor {
                                       get_proc_type_str(proc->info.is_write));
         }
       }
-
       if (!proc->info.is_batched) {
         stream_exhausted = true;
       }

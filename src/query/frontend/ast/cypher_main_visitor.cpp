@@ -2872,9 +2872,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     return function_name.find('.') != std::string::npos;
   };
 
-  // Don't cache queries which call user-defined functions. User-defined function's return
-  // types can vary depending on whether the module is reloaded, therefore the cache would
-  // be invalid. // TODO change comment
+  // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
+  // repeativly finding the function at call time, this means user-defined functions have there lifetime
+  // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
+  // query module that is not currently being used.
   if (is_user_defined_function(function_name)) {
     query_info_.is_cacheable = false;
   }

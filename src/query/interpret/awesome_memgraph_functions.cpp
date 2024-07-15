@@ -1408,7 +1408,7 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
           fully_qualified_name);
     }
 
-    return {*std::move(maybe_res.value), ctx.memory};  // TODO: make TypedValue header-only / inlinable
+    return {*std::move(maybe_res.value), ctx.memory};
   };
 }
 
@@ -1523,7 +1523,6 @@ auto NameToFunction(const std::string &function_name) -> std::variant<func_impl,
   if (maybe_found) {
     auto module_ptr = std::move((*maybe_found).first);
     const auto *func = (*maybe_found).second;
-
     return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
   }
 

@@ -116,12 +116,6 @@ void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
 
 namespace {
 
-auto WithUpgradedLock(auto *lock, const auto &function) {
-  lock->unlock_shared();
-  utils::OnScopeExit shared_lock{[&] { lock->lock_shared(); }};
-  function();
-};
-
 void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
   // Loading relies on the fact that regular procedure invocation through
   // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
@@ -137,7 +131,7 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   // deadlock immediately (no other thread needs to do anything).
   auto load_all_cb = [module_registry, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
                                              mgp_memory * /*memory*/) {
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
@@ -146,15 +140,14 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
+    const char *arg_as_string{nullptr};
+    const auto err = mgp_value_get_string(arg, &arg_as_string);
     bool succ = false;
-    WithUpgradedLock(lock, [&]() {
-      const char *arg_as_string{nullptr};
-      if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != mgp_error::MGP_ERROR_NO_ERROR) {
-        succ = false;
-      } else {
-        succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
-      }
-    });
+    if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      succ = false;
+    } else {
+      succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
+    }
     if (!succ) {
       MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == mgp_error::MGP_ERROR_NO_ERROR);
     }
@@ -648,7 +641,7 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc create_module_file("create_module_file", std::move(create_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -706,7 +699,7 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc update_module_file("update_module_file", std::move(update_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -765,7 +758,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       parent_path = parent_path.parent_path();
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc delete_module_file("delete_module_file", std::move(delete_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -1220,11 +1213,10 @@ void ModuleRegistry::DoUnloadAllModules() {
   auto mg_preserved = mg_it->second;
 
   modules_.erase(mg_it);
+  auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
 
   // TODO Ivan: throw error if failed, but flow is correct
-  TryEraseAllModules();
-
-  modules_.emplace("mg", std::move(mg_preserved));
+  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used");
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -1274,7 +1266,8 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   auto guard = std::unique_lock{lock_};
 
   // TODO error handling
-  TryEraseModule(name);
+  if (!TryEraseModule(name))
+    throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {
