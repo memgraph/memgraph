@@ -828,77 +828,29 @@ def test_distributed_automatic_failover_with_leadership_change():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    # TODO FIX THIS
-
-    # Both instance_1 and instance_2 could become main depending on the order of pings in the system.
-    # Both coordinator_1 and coordinator_2 could become leader depending on the NuRaft election.
-    leader_data_inst1_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    leader_data_inst1_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
+    wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
+    wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
-    leader_data_inst2_main_coord1_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
+    leader_name = find_leader_and_assert_leaders(N=3, skip_coords={3})
+    main_name = find_main_and_assert_mains(N=3, skip_coords={3})
 
-    leader_data_inst2_main_coord2_leader = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
+    leader_data = update_tuple_value(leader_data, main_name, 0, -1, "main")
+    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
 
-    mg_sleep_and_assert_multiple(
-        [
-            leader_data_inst1_main_coord1_leader,
-            leader_data_inst1_main_coord2_leader,
-            leader_data_inst2_main_coord1_leader,
-            leader_data_inst2_main_coord2_leader,
-        ],
-        [show_instances_coord1, show_instances_coord2],
-    )
-    mg_sleep_and_assert_multiple(
-        [
-            leader_data_inst1_main_coord1_leader,
-            leader_data_inst1_main_coord2_leader,
-            leader_data_inst2_main_coord1_leader,
-            leader_data_inst2_main_coord2_leader,
-        ],
-        [show_instances_coord1, show_instances_coord2],
-    )
-
-    def find_main_instance():
-        cursor = connect(host="localhost", port=7690).cursor()
-
-        results = execute_and_fetch_all(cursor, "SHOW INSTANCES;")
-
-        for result in results:
-            if result[5] == "main":
-                return result[0]
-        return None
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
     def connect_to_main_instance():
-        main_instance_name = find_main_instance()
+        main_instance_name = main_name
         assert main_instance_name is not None
 
         port_mapping = {"instance_1": 7687, "instance_2": 7688}
@@ -918,7 +870,14 @@ def test_distributed_automatic_failover_with_leadership_change():
     def retrieve_data_show_replicas():
         return sorted(list(execute_and_fetch_all(new_main_cursor, "SHOW REPLICAS;")))
 
-    expected_data_on_new_main = [
+    all_possible_states = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
         (
             "instance_2",
             "localhost:10002",
@@ -934,10 +893,20 @@ def test_distributed_automatic_failover_with_leadership_change():
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
+
+    expected_data_on_new_main = [state for state in all_possible_states if state[0] != main_name]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(inner_instances_description, "instance_3")
-    expected_data_on_new_main_old_alive = [
+
+    all_possible_states = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
         (
             "instance_2",
             "localhost:10002",
@@ -953,7 +922,7 @@ def test_distributed_automatic_failover_with_leadership_change():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-
+    expected_data_on_new_main_old_alive = [state for state in all_possible_states if state[0] != main_name]
     mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
@@ -2339,9 +2308,8 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     # 7
 
-    # TODO FIX
-    coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
@@ -2349,14 +2317,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
-    ]
+    leader_name = find_leader_and_assert_leaders(N=3, skip_coords={3})
+
+    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
@@ -2368,12 +2331,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     def show_instances_coord2():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
-    mg_sleep_and_assert_multiple(
-        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
-    )
-    mg_sleep_and_assert_multiple(
-        [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
+
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
     def show_replicas():
         return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
