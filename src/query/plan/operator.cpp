@@ -3005,58 +3005,71 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (delete_executed_) {
-    return false;
+  if (buffer_size_ == -1 && self_.buffer_size_) {
+    // Limit expression doesn't contain identifiers so graph view is not
+    // important.
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+    TypedValue buffer_size = self_.buffer_size_->Accept(evaluator);
+    if (buffer_size.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Number of periodically deleted elements must be an integer.");
+
+    buffer_size_ = buffer_size.ValueInt();
+    if (buffer_size_ < 0) throw QueryRuntimeException("Number of periodically deleted elements must be non-negative.");
   }
 
-  if (input_cursor_->Pull(frame, context)) {
+  bool const has_more = input_cursor_->Pull(frame, context);
+
+  if (has_more) {
     UpdateDeleteBuffer(frame, context);
-    return true;
+    pulled_++;
   }
 
-  auto &dba = *context.db_accessor;
-  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
-  if (res.HasError()) {
-    switch (res.GetError()) {
-      case storage::Error::SERIALIZATION_ERROR:
-        throw TransactionSerializationException();
-      case storage::Error::VERTEX_HAS_EDGES:
-        throw RemoveAttachedVertexException();
-      case storage::Error::DELETED_OBJECT:
-      case storage::Error::PROPERTIES_DISABLED:
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw QueryRuntimeException("Unexpected error when deleting a node.");
-    }
-  }
-
-  if (*res) {
-    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
-    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
-  }
-
-  // Update deleted objects for triggers
-  if (context.trigger_context_collector && *res) {
-    for (const auto &node : (*res)->first) {
-      context.trigger_context_collector->RegisterDeletedObject(node);
-    }
-
-    if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-      for (const auto &edge : (*res)->second) {
-        context.trigger_context_collector->RegisterDeletedObject(edge);
+  if (!has_more || (buffer_size_ > -1 && pulled_ >= buffer_size_)) {
+    auto &dba = *context.db_accessor;
+    auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
+    if (res.HasError()) {
+      switch (res.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw TransactionSerializationException();
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw RemoveAttachedVertexException();
+        case storage::Error::DELETED_OBJECT:
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Unexpected error when deleting a node.");
       }
     }
+
+    if (*res) {
+      context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+    }
+
+    // Update deleted objects for triggers
+    if (context.trigger_context_collector && *res) {
+      for (const auto &node : (*res)->first) {
+        context.trigger_context_collector->RegisterDeletedObject(node);
+      }
+
+      if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+        for (const auto &edge : (*res)->second) {
+          context.trigger_context_collector->RegisterDeletedObject(edge);
+        }
+      }
+    }
+
+    pulled_ = 0;
   }
 
-  delete_executed_ = true;
-
-  return false;
+  return has_more;
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Delete::DeleteCursor::Reset() {
   input_cursor_->Reset();
-  delete_executed_ = false;
+  pulled_ = 0;
 }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
@@ -6018,7 +6031,8 @@ class PeriodicCommitCursor : public Cursor {
 
     bool const pull_value = input_cursor_->Pull(frame, context);
 
-    if (++pulled_ >= commit_frequency_) {
+    pulled_++;
+    if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
       [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
       pulled_ = 0;
