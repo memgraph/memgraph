@@ -61,23 +61,6 @@ install(PROGRAMS $<TARGET_FILE:schema>
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
-add_library(testerino SHARED testerino.cpp)
-set_target_properties(testerino PROPERTIES PREFIX "")
-target_include_directories(testerino PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(testerino PRIVATE -Wall)
-target_link_libraries(testerino PRIVATE -static-libgcc -static-libstdc++)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET testerino POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:testerino>
-                     COMMENT "Stripping symbols and sections from the C++ testerino module")
-endif()
-install(PROGRAMS $<TARGET_FILE:testerino>
-        DESTINATION lib/memgraph/query_modules
-        RENAME testerino.so)
-# Also install the source of the example, so user can read it.
-install(FILES testerino.cpp DESTINATION lib/memgraph/query_modules/src)
-
 add_library(text_search SHARED text_search_module.cpp)
 set_target_properties(text_search PROPERTIES PREFIX "")
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
