@@ -66,7 +66,7 @@ class PropertyStore {
 
   /// Checks whether all property values in the vector `property_values` exist in the store. The time
   /// complexity of this function is O(n^2).
-  bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values);
+  bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
 
   /// Extracts property values for all property ids in the set `properties`. The time
   /// complexity of this function is O(n^2).
@@ -81,7 +81,7 @@ class PropertyStore {
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
   /// @throw std::bad_alloc
-  std::map<PropertyId, PropertyValue> Properties();
+  std::map<PropertyId, PropertyValue> Properties() const;
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is

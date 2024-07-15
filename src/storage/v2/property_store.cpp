@@ -1544,7 +1544,7 @@ bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) con
   return std::all_of(properties.begin(), properties.end(), [this](const auto &prop) { return HasProperty(prop); });
 }
 
-bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) {
+bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const {
   auto property_map = Properties();
   std::vector<PropertyValue> all_property_values;
   transform(property_map.begin(), property_map.end(), back_inserter(all_property_values),
@@ -1589,7 +1589,7 @@ bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &va
   return prop_reader.GetPosition() == property_size;
 }
 
-std::map<PropertyId, PropertyValue> PropertyStore::Properties() {
+std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   BufferInfo buffer_info;
   utils::DataBuffer decompressed_buffer;  // Used to store the decompressed buffer if needed.
   if (FLAGS_storage_property_store_compression_enabled && is_compressed_) {

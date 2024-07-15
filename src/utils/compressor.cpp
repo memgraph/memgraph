@@ -30,12 +30,12 @@ bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
     const auto error = result.GetError();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Compression level cannot be empty." << std::endl;
+        std::cout << "Compression level cannot be empty." << '\n';
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
         std::cout << "Invalid value for compression level. Allowed values: "
-                  << memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings) << std::endl;
+                  << memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings) << '\n';
         break;
       }
     }
