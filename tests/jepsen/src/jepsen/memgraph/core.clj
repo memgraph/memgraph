@@ -45,7 +45,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (utils/unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"assert|exception" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis        (:nemesis nemesis)
@@ -76,7 +76,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (utils/unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"assert|NullPointerException" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"assert|exception" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
             :generator       gen})))
