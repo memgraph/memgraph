@@ -11,22 +11,14 @@
 
 (deftest random-non-empty-subset
   (testing "Random, non-empty subset func from utils."
-    (let [in ["n1" "n2" "n3" "n4" "n5" "n5"]
-          out (utils/random-nonempty-subset in)
-          n4-occurences (count (filter #(= % "n4") out))
-          n5-occurences (count (filter #(= % "n5") out))
-          n6-occurences (count (filter #(= % "n6") out))
-          coord-total-occurences (+ n4-occurences n5-occurences n6-occurences)]
+    (let [in ["n1" "n2" "n3" "n4" "n5" "n6"]
+          out (utils/random-nonempty-subset in)]
 
       (is (=
            (count out)
            (count (distinct out))))
 
-      (is (< n4-occurences 2))
-      (is (< n5-occurences 2))
-      (is (< n6-occurences 2))
-      (is (< coord-total-occurences 2))
-      (is (< (count out) 5)))))
+      (is (<= (count out) 6)))))
 
 (deftest op
   (testing "Test utils/op"

@@ -27,16 +27,11 @@
         coords (take-last 3 coll)
         data-instances-to-kill (rand-int (+ 1 (count data-instances)))
         chosen-data-instances (take data-instances-to-kill (shuffle data-instances))
-        kill-coord? (< (rand) 0.5)]
-
-    (if kill-coord?
-      (let [chosen-coord (first (shuffle coords))
-            chosen-instances (conj chosen-data-instances chosen-coord)]
-        (info "Chosen instances" chosen-instances)
-        chosen-instances)
-      (do
-        (info "Chosen instances" chosen-data-instances)
-        chosen-data-instances))))
+        coords-to-kill (rand-int (+ 1 (count coords)))
+        chosen-coords (take coords-to-kill (shuffle coords))
+        chosen-instances (concat chosen-data-instances chosen-coords)]
+    (info "Chosen instances" chosen-instances)
+    chosen-instances))
 
 ; neo4j-clj related utils.
 (defmacro with-session
