@@ -11,6 +11,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 
+#include "query/string_helpers.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -55,6 +56,8 @@ DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
 DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
 DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
 DEF_GETTER_BY_REF(ZonedDateTime, utils::ZonedDateTime, zoned_date_time_v)
+DEF_GETTER_BY_REF(Point2d, Point2d, point_2d_v);
+DEF_GETTER_BY_REF(Point3d, Point3d, point_3d_v);
 
 #undef DEF_GETTER_BY_REF
 
@@ -106,6 +109,12 @@ Value::Value(const Value &other) : type_(other.type_) {
       return;
     case Type::ZonedDateTime:
       new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      return;
+    case Type::Point2d:
+      new (&point_2d_v) Point2d(other.point_2d_v);
+      return;
+    case Type::Point3d:
+      new (&point_3d_v) Point3d(other.point_3d_v);
       return;
   }
 }
@@ -164,6 +173,12 @@ Value &Value::operator=(const Value &other) {
       case Type::ZonedDateTime:
         new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
         return *this;
+      case Type::Point2d:
+        new (&point_2d_v) Point2d(other.point_2d_v);
+        return *this;
+      case Type::Point3d:
+        new (&point_3d_v) Point3d(other.point_3d_v);
+        return *this;
     }
   }
   return *this;
@@ -217,6 +232,12 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       break;
     case Type::ZonedDateTime:
       new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      break;
+    case Type::Point2d:
+      new (&point_2d_v) Point2d(other.point_2d_v);
+      break;
+    case Type::Point3d:
+      new (&point_3d_v) Point3d(other.point_3d_v);
       break;
   }
 
@@ -279,6 +300,12 @@ Value &Value::operator=(Value &&other) noexcept {
       case Type::ZonedDateTime:
         new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
         break;
+      case Type::Point2d:
+        new (&point_2d_v) Point2d(other.point_2d_v);
+        break;
+      case Type::Point3d:
+        new (&point_3d_v) Point3d(other.point_3d_v);
+        break;
     }
 
     // reset the type of other
@@ -339,6 +366,12 @@ Value::~Value() {
       return;
     case Type::ZonedDateTime:
       zoned_date_time_v.~ZonedDateTime();
+      return;
+    case Type::Point2d:
+      point_2d_v.~Point2d();
+      return;
+    case Type::Point3d:
+      point_3d_v.~Point3d();
       return;
   }
 }
@@ -445,6 +478,10 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << value.ValueDuration();
     case Value::Type::ZonedDateTime:
       return os << value.ValueZonedDateTime();
+    case Value::Type::Point2d:
+      return os << query::CypherConstructionFor(value.ValuePoint2d());
+    case Value::Type::Point3d:
+      return os << query::CypherConstructionFor(value.ValuePoint3d());
   }
 }
 
@@ -482,6 +519,10 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "duration";
     case Value::Type::ZonedDateTime:
       return os << "zoned_date_time";
+    case Value::Type::Point2d:
+      return os << "point_2d";
+    case Value::Type::Point3d:
+      return os << "point_3d";
   }
 }
 }  // namespace memgraph::communication::bolt

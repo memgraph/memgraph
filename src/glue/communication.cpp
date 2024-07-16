@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -95,6 +96,12 @@ query::TypedValue ToTypedValue(const Value &value, storage::Storage const *stora
       return query::TypedValue(value.ValueDuration());
     case Value::Type::ZonedDateTime:
       return query::TypedValue(value.ValueZonedDateTime());
+    case Value::Type::Point2d: {
+      return query::TypedValue{value.ValuePoint2d()};
+    }
+    case Value::Type::Point3d: {
+      return query::TypedValue{value.ValuePoint3d()};
+    }
   }
 }
 
@@ -194,6 +201,12 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       map.emplace(kMgTypeType, memgraph::communication::bolt::kMgTypeEnum);
       map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
       return Value(std::move(map));
+    }
+    case query::TypedValue::Type::Point2d: {
+      return Value(value.ValuePoint2d());
+    }
+    case query::TypedValue::Type::Point3d: {
+      return Value(value.ValuePoint3d());
     }
 
     // Unsupported conversions
@@ -338,6 +351,12 @@ storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, 
       return storage::PropertyValue(storage::ZonedTemporalData(
           storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
     }
+    case Value::Type::Point2d: {
+      return storage::PropertyValue(value.ValuePoint2d());
+    }
+    case Value::Type::Point3d: {
+      return storage::PropertyValue(value.ValuePoint3d());
+    }
   }
 }
 
@@ -401,6 +420,12 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       map.emplace(kMgTypeType, kMgTypeEnum);
       map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
       return {std::move(map)};
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      return {value.ValuePoint2d()};
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      return {value.ValuePoint3d()};
     }
   }
 }

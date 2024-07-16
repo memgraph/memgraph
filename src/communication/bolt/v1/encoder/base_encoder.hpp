@@ -243,6 +243,23 @@ class BaseEncoder {
     WriteInt(duration.SubSecondsAsNanoseconds());
   }
 
+  void WritePoint2d(const Point2d &point_2d) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(utils::UnderlyingCast(Signature::Point2d));
+    WriteInt(storage::CrsToSrid(point_2d.crs()).value_of());
+    WriteDouble(point_2d.x());
+    WriteDouble(point_2d.y());
+  }
+
+  void WritePoint3d(const Point3d &point_3d) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
+    WriteRAW(utils::UnderlyingCast(Signature::Point3d));
+    WriteInt(storage::CrsToSrid(point_3d.crs()).value_of());
+    WriteDouble(point_3d.x());
+    WriteDouble(point_3d.y());
+    WriteDouble(point_3d.z());
+  }
+
   void WriteLegacyZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
     if (zoned_date_time.GetTimezone().InTzDatabase()) {
@@ -330,6 +347,12 @@ class BaseEncoder {
         break;
       case Value::Type::Duration:
         WriteDuration(value.ValueDuration());
+        break;
+      case Value::Type::Point2d:
+        WritePoint2d(value.ValuePoint2d());
+        break;
+      case Value::Type::Point3d:
+        WritePoint3d(value.ValuePoint3d());
         break;
     }
   }
