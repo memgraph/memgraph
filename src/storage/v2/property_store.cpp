@@ -905,11 +905,12 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::ENUM:
-      reader->ReadInt(payload_size);
       // double payload
       // - first for enum type
       // - second for enum value
-      property_size += SizeToByteSize(payload_size) * 2;
+      auto const bytes = SizeToByteSize(payload_size) * 2;
+      if (!reader->SkipBytes(bytes)) return false;
+      property_size += bytes;
       return true;
   }
 }
