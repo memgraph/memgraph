@@ -140,6 +140,10 @@ void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &v
   }
 }
 
+void DumpPoint2d(std::ostream &os, const storage::Point2d &value) { os << query::CypherConstructionFor(value); }
+
+void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query::CypherConstructionFor(value); }
+
 }  // namespace
 
 void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, query::DbAccessor *dba) {
@@ -186,6 +190,14 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, qu
     }
     case storage::PropertyValue::Type::Enum: {
       DumpEnum(*os, value.ValueEnum(), dba);
+      return;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      DumpPoint2d(*os, value.ValuePoint2d());
+      return;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      DumpPoint3d(*os, value.ValuePoint3d());
       return;
     }
   }

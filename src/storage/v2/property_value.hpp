@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "storage/v2/enum.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -34,6 +35,7 @@ class PropertyValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
 };
 
+// These are durable, do not chage there values
 enum class PropertyValueType : uint8_t {
   Null = 0,
   Bool = 1,
@@ -45,6 +47,8 @@ enum class PropertyValueType : uint8_t {
   TemporalData = 7,
   ZonedTemporalData = 8,
   Enum = 9,
+  Point2d = 10,
+  Point3d = 11,
 };
 
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
@@ -92,6 +96,10 @@ class PropertyValueImpl {
       : alloc_{alloc}, zoned_temporal_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Enum value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, enum_data_v{.val_ = value} {}
+  explicit PropertyValueImpl(const Point2d value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, point2d_data_v{.val_ = value} {}
+  explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, point3d_data_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -184,6 +192,12 @@ class PropertyValueImpl {
       case Type::Enum:
         enum_data_v.val_ = other.enum_data_v.val_;
         return;
+      case Type::Point2d:
+        point2d_data_v.val_ = other.point2d_data_v.val_;
+        return;
+      case Type::Point3d:
+        point3d_data_v.val_ = other.point3d_data_v.val_;
+        return;
     }
   }
 
@@ -198,6 +212,8 @@ class PropertyValueImpl {
       case Type::ZonedTemporalData:
         // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
       case Type::Enum:
+      case Type::Point2d:
+      case Type::Point3d:
         return;
       // destructor for non primitive types since we used placement new
       case Type::String:
@@ -225,6 +241,8 @@ class PropertyValueImpl {
   bool IsEnum() const { return type_ == Type::Enum; }
   bool IsTemporalData() const { return type_ == Type::TemporalData; }
   bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
+  bool IsPoint2d() const { return type_ == Type::Point2d; }
+  bool IsPoint3d() const { return type_ == Type::Point3d; }
 
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
@@ -272,6 +290,22 @@ class PropertyValueImpl {
     }
 
     return enum_data_v.val_;
+  }
+
+  auto ValuePoint2d() const -> Point2d {
+    if (type_ != Type::Point2d) [[unlikely]] {
+      throw PropertyValueException("The value isn't an 2d point!");
+    }
+
+    return point2d_data_v.val_;
+  }
+
+  auto ValuePoint3d() const -> Point3d {
+    if (type_ != Type::Point3d) [[unlikely]] {
+      throw PropertyValueException("The value isn't an 3d point!");
+    }
+
+    return point3d_data_v.val_;
   }
 
   // const value getters for non-primitive types
@@ -362,11 +396,19 @@ class PropertyValueImpl {
     struct {
       Type type_ = Type::ZonedTemporalData;
       ZonedTemporalData val_;
-    } zoned_temporal_data_v;
+    } zoned_temporal_data_v;  // largest current member at 40B TODO: make smaller
     struct {
       Type type_ = Type::Enum;
       Enum val_;
     } enum_data_v;
+    struct {
+      Type type_ = Type::Point2d;
+      Point2d val_;
+    } point2d_data_v;
+    struct {
+      Type type_ = Type::Point3d;
+      Point3d val_;
+    } point3d_data_v;
   };
 };
 
@@ -402,6 +444,10 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
       return os << "zoned temporal data";
     case PropertyValueType::Enum:
       return os << "enum";
+    case PropertyValueType::Point2d:
+      return os << "point2d";
+    case PropertyValueType::Point3d:
+      return os << "point3d";
   }
 }
 
@@ -440,6 +486,19 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
       auto const &[e_type, e_value] = value.ValueEnum();
 
       return os << fmt::format("{{ type: {}, value: {} }}", e_type.value_of(), e_value.value_of());
+    }
+    case PropertyValueType::Point2d: {
+      // TODO: not sure where this will hit, test+check
+      //       CODE REVIEWER DO NOT LET THIS MERGE
+      const auto point = value.ValuePoint2d();
+      return os << fmt::format("FIXME: {} {} {}", point.x(), point.y(), CrsToSrid(point.crs()).value_of());
+    }
+    case PropertyValueType::Point3d: {
+      // TODO: not sure where this will hit, test+check
+      //       CODE REVIEWER DO NOT LET THIS MERGE
+      const auto point = value.ValuePoint3d();
+      return os << fmt::format("FIXME: {} {} {} {}", point.x(), point.y(), point.z(),
+                               CrsToSrid(point.crs()).value_of());
     }
   }
 }
@@ -488,6 +547,10 @@ inline bool operator==(const PropertyValueImpl<Alloc> &first, const PropertyValu
       return first.ValueZonedTemporalData() == second.ValueZonedTemporalData();
     case PropertyValueType::Enum:
       return first.ValueEnum() == second.ValueEnum();
+    case PropertyValueType::Point2d:
+      return first.ValuePoint2d() == second.ValuePoint2d();
+    case PropertyValueType::Point3d:
+      return first.ValuePoint3d() == second.ValuePoint3d();
   }
 }
 
@@ -529,6 +592,10 @@ inline bool operator<(const PropertyValueImpl<Alloc> &first, const PropertyValue
       return first.ValueZonedTemporalData() < second.ValueZonedTemporalData();
     case PropertyValueType::Enum:
       return first.ValueEnum() < second.ValueEnum();
+    case PropertyValueType::Point2d:
+      return first.ValuePoint2d() < second.ValuePoint2d();
+    case PropertyValueType::Point3d:
+      return first.ValuePoint3d() < second.ValuePoint3d();
   }
 }
 
@@ -583,6 +650,12 @@ inline PropertyValueImpl<Alloc>::PropertyValueImpl(const PropertyValueImpl &othe
     case Type::Enum:
       enum_data_v.val_ = other.enum_data_v.val_;
       return;
+    case Type::Point2d:
+      point2d_data_v.val_ = other.point2d_data_v.val_;
+      return;
+    case Type::Point3d:
+      point3d_data_v.val_ = other.point3d_data_v.val_;
+      return;
   }
 }
 
@@ -623,6 +696,12 @@ inline PropertyValueImpl<Alloc>::PropertyValueImpl(PropertyValueImpl &&other, al
     case Type::Enum:
       enum_data_v.val_ = other.enum_data_v.val_;
       break;
+    case Type::Point2d:
+      point2d_data_v.val_ = other.point2d_data_v.val_;
+      break;
+    case Type::Point3d:
+      point3d_data_v.val_ = other.point3d_data_v.val_;
+      break;
   }
 }
 
@@ -661,6 +740,12 @@ inline auto PropertyValueImpl<Alloc>::operator=(PropertyValueImpl const &other) 
           break;
         case Type::Enum:
           enum_data_v.val_ = other.enum_data_v.val_;
+          break;
+        case Type::Point2d:
+          point2d_data_v.val_ = other.point2d_data_v.val_;
+          break;
+        case Type::Point3d:
+          point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
       }
       return *this;
@@ -736,6 +821,12 @@ inline auto PropertyValueImpl<Alloc>::operator=(PropertyValueImpl &&other) noexc
           break;
         case Type::Enum:
           enum_data_v.val_ = other.enum_data_v.val_;
+          break;
+        case Type::Point2d:
+          point2d_data_v.val_ = other.point2d_data_v.val_;
+          break;
+        case Type::Point3d:
+          point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
       }
       return *this;

@@ -112,6 +112,8 @@ struct Duration {};
 struct ZonedDateTime {};
 struct Graph {};
 struct Enum {};
+struct Point2d {};
+struct Point3d {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -157,6 +159,10 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return arg.IsEnum();
+  } else if constexpr (std::is_same_v<ArgType, Point2d>) {
+    return arg.IsPoint2d();
+  } else if constexpr (std::is_same_v<ArgType, Point3d>) {
+    return arg.IsPoint3d();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -638,6 +644,10 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("DURATION", ctx.memory);
     case TypedValue::Type::Enum:
       return TypedValue("ENUM", ctx.memory);
+    case TypedValue::Type::Point2d:
+      return TypedValue("POINT", ctx.memory);
+    case TypedValue::Type::Point3d:
+      return TypedValue("POINT", ctx.memory);
     case TypedValue::Type::ZonedDateTime:
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:

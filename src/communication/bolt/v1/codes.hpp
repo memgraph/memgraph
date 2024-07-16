@@ -53,6 +53,9 @@ enum class Signature : uint8_t {
   DateTimeZoneId = 0x69,
   LegacyDateTime = 0x46,
   LegacyDateTimeZoneId = 0x66,
+
+  Point2d = 0x58,
+  Point3d = 0x59,
 };
 
 enum class Marker : uint8_t {

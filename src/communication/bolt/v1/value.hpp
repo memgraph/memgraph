@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "storage/v2/point.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
@@ -132,6 +133,12 @@ struct Path {
   std::vector<int64_t> indices;
 };
 
+using storage::CrsToSrid;
+
+struct Point2d : storage::Point2d {};
+
+struct Point3d : storage::Point3d {};
+
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:
@@ -155,7 +162,9 @@ class Value {
     LocalTime,
     LocalDateTime,
     ZonedDateTime,
-    Duration
+    Duration,
+    Point2d,
+    Point3d
   };
 
   // constructors for primitive types
@@ -183,6 +192,9 @@ class Value {
   Value(const utils::ZonedDateTime &zoned_date_time) : type_(Type::ZonedDateTime) {
     new (&zoned_date_time_v) utils::ZonedDateTime(zoned_date_time);
   }
+  Value(const storage::Point2d &point_2d) : type_(Type::Point2d) { new (&point_2d_v) storage::Point2d(point_2d); }
+  Value(const storage::Point3d &point_3d) : type_(Type::Point3d) { new (&point_3d_v) storage::Point3d(point_3d); }
+
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
@@ -228,6 +240,8 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
   DECL_GETTER_BY_REFERENCE(ZonedDateTime, utils::ZonedDateTime)
+  DECL_GETTER_BY_REFERENCE(Point2d, Point2d);
+  DECL_GETTER_BY_REFERENCE(Point3d, Point3d);
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -248,6 +262,8 @@ class Value {
   TYPE_CHECKER(LocalDateTime)
   TYPE_CHECKER(Duration)
   TYPE_CHECKER(ZonedDateTime)
+  TYPE_CHECKER(Point2d);
+  TYPE_CHECKER(Point3d);
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -272,6 +288,8 @@ class Value {
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
     utils::ZonedDateTime zoned_date_time_v;
+    Point2d point_2d_v;
+    Point3d point_3d_v;
   };
 };
 /**
@@ -291,6 +309,8 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex);
 std::ostream &operator<<(std::ostream &os, const Edge &edge);
 std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge);
 std::ostream &operator<<(std::ostream &os, const Path &path);
+std::ostream &operator<<(std::ostream &os, const Point2d &point_2d);
+std::ostream &operator<<(std::ostream &os, const Point3d &point_3d);
 std::ostream &operator<<(std::ostream &os, const Value &value);
 std::ostream &operator<<(std::ostream &os, const Value::Type type);
 }  // namespace memgraph::communication::bolt

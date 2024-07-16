@@ -19,13 +19,19 @@
 
 namespace memgraph::slk {
 
+void Save(const storage::Enum &enum_val, slk::Builder *builder);
+void Load(storage::Enum *enum_val, slk::Reader *reader);
+
+void Save(const storage::Point2d &point2d_val, slk::Builder *builder);
+void Load(storage::Point2d *point2d_val, slk::Reader *reader);
+
+void Save(const storage::Point3d &point3d_val, slk::Builder *builder);
+void Load(storage::Point3d *point3d_val, slk::Reader *reader);
+
 void Save(const storage::Gid &gid, slk::Builder *builder);
 void Load(storage::Gid *gid, slk::Reader *reader);
 
 void Save(const storage::PropertyValue &value, slk::Builder *builder);
 void Load(storage::PropertyValue *value, slk::Reader *reader);
-
-void Save(const storage::Enum &enum_val, slk::Builder *builder);
-void Load(storage::Enum *enum_val, slk::Reader *reader);
 
 }  // namespace memgraph::slk

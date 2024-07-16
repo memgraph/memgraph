@@ -25,7 +25,15 @@
 namespace memgraph::query::serialization {
 
 namespace {
-enum class ObjectType : uint8_t { MAP, TEMPORAL_DATA, ZONED_TEMPORAL_DATA, OFFSET_ZONED_TEMPORAL_DATA, ENUM };
+enum class ObjectType : uint8_t {
+  MAP,
+  TEMPORAL_DATA,
+  ZONED_TEMPORAL_DATA,
+  OFFSET_ZONED_TEMPORAL_DATA,
+  ENUM,
+  POINT_2D,
+  POINT_3D,
+};
 }  // namespace
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value,
@@ -76,6 +84,25 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       auto enum_str = db_accessor->EnumToName(enum_val);
       MG_ASSERT(enum_str.HasValue(), "Unknown enum");
       data.emplace("value", *std::move(enum_str));
+      return data;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      nlohmann::json data = nlohmann::json::object();
+      data.emplace("type", static_cast<uint64_t>(ObjectType::POINT_2D));
+      auto const &point_2d = property_value.ValuePoint2d();
+      data.emplace("srid", storage::CrsToSrid(point_2d.crs()).value_of());
+      data.emplace("x", point_2d.x());
+      data.emplace("y", point_2d.y());
+      return data;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      nlohmann::json data = nlohmann::json::object();
+      data.emplace("type", static_cast<uint64_t>(ObjectType::POINT_3D));
+      auto const &point_3d = property_value.ValuePoint3d();
+      data.emplace("crs", storage::CrsToSrid(point_3d.crs()).value_of());
+      data.emplace("x", point_3d.x());
+      data.emplace("y", point_3d.y());
+      data.emplace("z", point_3d.z());
       return data;
     }
   }
@@ -150,6 +177,16 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAc
       auto enum_val = db_accessor->GetEnumValue(data["value"].get<std::string>());
       MG_ASSERT(enum_val.HasValue(), "Unknown enum found in the trigger storage");
       return storage::PropertyValue(*enum_val);
+    }
+    case ObjectType::POINT_2D: {
+      return storage::PropertyValue(storage::Point2d{data["value"]["type"].get<storage::CoordinateReferenceSystem>(),
+                                                     data["value"]["x"].get<double>(),
+                                                     data["value"]["y"].get<double>()});
+    }
+    case ObjectType::POINT_3D: {
+      return storage::PropertyValue(storage::Point3d{data["value"]["type"].get<storage::CoordinateReferenceSystem>(),
+                                                     data["value"]["x"].get<double>(), data["value"]["y"].get<double>(),
+                                                     data["value"]["z"].get<double>()});
     }
   }
 }

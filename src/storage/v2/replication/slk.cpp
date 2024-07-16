@@ -39,6 +39,48 @@ void Load(storage::Enum *enum_val, slk::Reader *reader) {
   *enum_val = storage::Enum{storage::EnumTypeId{etype}, storage::EnumValueId{evalue}};
 }
 
+void Save(const storage::Point2d &point2d_val, slk::Builder *builder) {
+  slk::Save(point2d_val.crs(), builder);
+  slk::Save(point2d_val.x(), builder);
+  slk::Save(point2d_val.y(), builder);
+}
+
+void Load(storage::Point2d *point2d_val, slk::Reader *reader) {
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  storage::CoordinateReferenceSystem cls;
+  slk::Load(&cls, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  double x;
+  slk::Load(&x, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  double y;
+  slk::Load(&y, reader);
+  *point2d_val = storage::Point2d{cls, x, y};
+}
+
+void Save(const storage::Point3d &point3d_val, slk::Builder *builder) {
+  slk::Save(point3d_val.crs(), builder);
+  slk::Save(point3d_val.x(), builder);
+  slk::Save(point3d_val.y(), builder);
+  slk::Save(point3d_val.z(), builder);
+}
+
+void Load(storage::Point3d *point3d_val, slk::Reader *reader) {
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  storage::CoordinateReferenceSystem cls;
+  slk::Load(&cls, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  double x;
+  slk::Load(&x, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  double y;
+  slk::Load(&y, reader);
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  double z;
+  slk::Load(&z, reader);
+  *point3d_val = storage::Point3d{cls, x, y, z};
+}
+
 void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }
 
 void Load(storage::Gid *gid, slk::Reader *reader) {
@@ -63,6 +105,8 @@ void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
     case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
     case utils::UnderlyingCast(storage::PropertyValue::Type::Enum):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::Point2d):
+    case utils::UnderlyingCast(storage::PropertyValue::Type::Point3d):
       valid = true;
       break;
     default:
@@ -138,6 +182,16 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
     case storage::PropertyValue::Type::Enum: {
       slk::Save(storage::PropertyValue::Type::Enum, builder);
       slk::Save(value.ValueEnum(), builder);
+      return;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      slk::Save(storage::PropertyValue::Type::Point2d, builder);
+      slk::Save(value.ValuePoint2d(), builder);
+      return;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      slk::Save(storage::PropertyValue::Type::Point3d, builder);
+      slk::Save(value.ValuePoint3d(), builder);
       return;
     }
   }
@@ -237,6 +291,16 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       slk::Load(&v, reader);
       *value = storage::PropertyValue(v);
       return;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      storage::Point2d v;
+      slk::Load(&v, reader);
+      *value = storage::PropertyValue(v);
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      storage::Point3d v;
+      slk::Load(&v, reader);
+      *value = storage::PropertyValue(v);
     }
   }
 }

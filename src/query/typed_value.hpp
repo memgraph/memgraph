@@ -97,6 +97,8 @@ class TypedValue {
     Graph,
     Function,
     Enum,
+    Point2d,
+    Point3d
   };
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -193,6 +195,16 @@ class TypedValue {
   explicit TypedValue(const utils::Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
       : memory_(memory), type_(Type::Duration) {
     duration_v = value;
+  }
+
+  explicit TypedValue(const storage::Point2d &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Point2d) {
+    point_2d_v = value;
+  }
+
+  explicit TypedValue(const storage::Point3d &value, utils::MemoryResource *memory = utils::NewDeleteResource())
+      : memory_(memory), type_(Type::Point3d) {
+    point_3d_v = value;
   }
 
   // conversion function to storage::PropertyValue
@@ -540,6 +552,8 @@ class TypedValue {
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
@@ -589,6 +603,8 @@ class TypedValue {
     utils::ZonedDateTime zoned_date_time_v;
     utils::Duration duration_v;
     storage::Enum enum_v;
+    storage::Point2d point_2d_v;
+    storage::Point3d point_3d_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
     std::function<void(TypedValue *)> function_v;

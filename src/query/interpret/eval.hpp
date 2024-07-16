@@ -685,6 +685,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
+      // TODO: point lookup
       default:
         throw QueryRuntimeException(
             "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
