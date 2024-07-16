@@ -139,6 +139,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(DropEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
 
+  void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;

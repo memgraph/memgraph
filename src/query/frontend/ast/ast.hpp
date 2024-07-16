@@ -4025,4 +4025,22 @@ class DropEnumQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class ShowSchemaInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ShowSchemaInfoQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowSchemaInfoQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query
