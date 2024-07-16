@@ -278,7 +278,8 @@ class RuleBasedPlanner {
             input_op = HandleSubquery(call_sub, std::move(input_op), single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
             if (call_sub->cypher_query_->pre_query_directives_.commit_frequency_) {
-              input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
+              input_op = std::make_unique<PeriodicCommit>(
+                  std::move(input_op), call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
