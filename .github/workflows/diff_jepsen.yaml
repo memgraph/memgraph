@@ -64,6 +64,16 @@ jobs:
           --arch $ARCH \
           copy --binary --dest-dir build
 
+      - name: Copy libmemgraph_module_support.so
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy \
+          --artifact-name src/query/libmemgraph_module_support.so \
+          --dest-dir build/src/query
+
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen

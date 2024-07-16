@@ -523,7 +523,7 @@ copy_memgraph() {
   fi
   local host_artifact_path="$host_dir/$artifact_name"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
-  mkdir -p $host_dir
+  mkdir -p "$(dirname "${host_artifact_path}")"
   if [[ "$artifact" == "package" ]]; then
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
