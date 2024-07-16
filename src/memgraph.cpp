@@ -618,21 +618,13 @@ int main(int argc, char **argv) {
   // Triggers can execute query procedures, so we need to reload the modules first and then the triggers.
   // Stream transformations use modules, so we need to restored streams after the query modules have been loaded.
   if (db_config.durability.recover_on_startup) {
-#ifdef MG_ENTERPRISE
     dbms_handler.RestoreTriggers(&interpreter_context_);
     dbms_handler.RestoreStreams(&interpreter_context_);
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+#ifdef MG_ENTERPRISE
       dbms_handler.RestoreTTL(&interpreter_context_);
-    }
-#else
-    {
-      auto storage_accessor = db_acc->Access();
-      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-      db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                               interpreter_context_.auth_checker);
-    }
-    db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
 #endif
+    }
   }
 
   ServerContext context;

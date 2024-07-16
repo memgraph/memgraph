@@ -19,7 +19,7 @@ import interactive_mg_runner
 import mgclient
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_assert_until, mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -129,31 +129,49 @@ def test_ttl_on_replica(connection):
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
+    def n_vertices():
+        return execute_and_fetch_all(cursor, "MATCH(n) RETURN count(n);")[0][0]
+
     # 1/
     execute_and_fetch_all(
         cursor, "UNWIND RANGE(0,100) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
     )
 
+    class VertexChecker:
+        def __init__(self):
+            self.update()
+
+        def is_less(self):
+            last_n_prev = self.last_n
+            self.last_n = n_vertices()
+            return self.last_n < last_n_prev
+
+        def is_same(self):
+            last_n_prev = self.last_n
+            self.last_n = n_vertices()
+            return self.last_n == last_n_prev
+
+        def update(self):
+            self.last_n = n_vertices()
+
+    v_checker = VertexChecker()
+
     # 2/
     execute_and_fetch_all(cursor, 'ENABLE TTL EVERY "1s";')
-    time.sleep(2)
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
 
     # 3/
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10000;")
 
     # 4/
-    current_n_replica = execute_and_fetch_all(cursor, "MATCH(n) RETURN count(n);")[0][0]
-    time.sleep(3)
-    assert current_n_replica < 100
-    assert current_n_replica == execute_and_fetch_all(cursor, "MATCH(n) RETURN count(n);")[0][0]
+    v_checker.update()
+    mg_assert_until(True, v_checker.is_same, max_duration=3)
 
     # 5/
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
 
     # 6/
-    time.sleep(3)
-    current_n_main = execute_and_fetch_all(cursor, "MATCH(n) RETURN count(n);")[0][0]
-    assert current_n_main < current_n_replica
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
 
 
 if __name__ == "__main__":

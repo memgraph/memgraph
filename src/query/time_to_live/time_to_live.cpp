@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "query/time_to_live/time_to_live.hpp"
+
 #include <chrono>
 #include <memory>
 #include <optional>
@@ -65,7 +66,7 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
                                                         // register new interpreter into interpreter_context
   interpreter_context->interpreters->insert(interpreter.get());
 
-  auto TTL = [interpreter = std::move(interpreter), &scheduler = ttl_]() {
+  auto TTL = [interpreter = std::move(interpreter)]() {
     memgraph::query::DiscardValueResultStream result_stream;
     bool finished = false;
     while (!finished) {
@@ -108,13 +109,15 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
       } catch (const WriteQueryOnMainException & /* not used */) {
         // MAIN not ready to handle write queries; abort and try later
         spdlog::trace("MAIN not ready for write queries. TTL will try again later.");
-        interpreter->Abort();
+        interpreter->Abort();  // Retry later
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
         break;
       } catch (const WriteQueryOnReplicaException & /* not used */) {
-        // TTL cannot run on a REPLICA; pause until we become MAIN
-        spdlog::trace("TTL on REPLICA is not supported; pausing until instance is MAIN.");
+        // TTL cannot run on a REPLICA; ReplicationHandler needs to pause and restart ttl
+        spdlog::trace("TTL on REPLICA is not supported.");
         interpreter->Abort();
-        scheduler.Pause();
+        // Shouldn't need this sleep; just make sure replication handler has time to pause
+        std::this_thread::sleep_for(std::chrono::seconds{1});
         break;
       } catch (const DatabaseContextRequiredException &e) {
         // No database; we are shutting down
@@ -133,8 +136,6 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
 
 template <typename TDbAccess>
 bool TTL::Restore(TDbAccess db, InterpreterContext *interpreter_context) {
-  const std::lock_guard<std::mutex> lock{mtx_};
-
   auto fail = [&](std::string_view field) {
     spdlog::warn("Failed to restore TTL, due to '{}'.", field);
     ttl_.Stop();

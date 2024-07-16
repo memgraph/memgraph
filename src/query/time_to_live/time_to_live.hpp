@@ -21,12 +21,9 @@
 #include <json/json.hpp>
 #include <optional>
 
-#include "query/typed_value.hpp"
+#include "kvstore/kvstore.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/synchronized.hpp"
-#include "utils/temporal.hpp"
 
 namespace memgraph::query {
 
@@ -149,7 +146,6 @@ class TTL final {
    * @param ttl_info
    */
   void Configure(TtlInfo ttl_info) {
-    const std::lock_guard<std::mutex> lock{mtx_};
     if (!enabled_) {
       throw TtlException("TTL not enabled!");
     }
@@ -163,10 +159,7 @@ class TTL final {
     Persist_();
   }
 
-  TtlInfo Config() const {
-    const std::lock_guard<std::mutex> lock{mtx_};
-    return info_;
-  }
+  TtlInfo Config() const { return info_; }
 
   /**
    * @brief Setup TTL background job. Configuration should have already be present.
@@ -177,7 +170,6 @@ class TTL final {
    */
   template <typename TDbAccess>
   void Setup(TDbAccess db, InterpreterContext *interpreter_context) {
-    const std::lock_guard<std::mutex> lock{mtx_};
     Setup_(db, interpreter_context);
   }
 
@@ -186,7 +178,6 @@ class TTL final {
    *
    */
   void Stop() {
-    const std::lock_guard<std::mutex> lock{mtx_};
     ttl_.Stop();
     Persist_();
   }
@@ -194,37 +185,30 @@ class TTL final {
   /**
    * @brief Stops TTL without affecting the durable data. Use for destruction only.
    */
-  void Shutdown() {
-    const std::lock_guard<std::mutex> lock{mtx_};
-    ttl_.Stop();
-  }
+  void Shutdown() { ttl_.Stop(); }
 
-  bool Enabled() const {
-    const std::lock_guard<std::mutex> lock{mtx_};
-    return enabled_;
-  }
+  bool Enabled() const { return enabled_; }
 
   /**
    * @brief Enable the TTL feature.
    *
    */
   void Enable() {
-    const std::lock_guard<std::mutex> lock{mtx_};
     enabled_ = true;
     Persist_();
   }
 
-  bool Running() {
-    const std::lock_guard<std::mutex> lock{mtx_};
-    return ttl_.IsRunning();
-  }
+  /**
+   * @brief Returns whether TTL is running. @note: Paused TTL still counts as running.
+   *
+   */
+  bool Running() { return ttl_.IsRunning(); }
 
   /**
    * @brief Disable the TTL feature.
    *
    */
   void Disable() {
-    const std::lock_guard<std::mutex> lock{mtx_};
     enabled_ = false;
     info_ = {};
     ttl_.Stop();
@@ -232,13 +216,16 @@ class TTL final {
   }
 
   /**
-   * @brief TTL's background job can be paused in case instance becomes a REPLICA. Use Resume() to restart once MAIN.
+   * @brief TTL's background job should be paused in case instance becomes a REPLICA.
    *
    */
-  void Resume() {
-    const std::lock_guard<std::mutex> lock{mtx_};
-    if (ttl_.IsRunning()) ttl_.Resume();
-  }
+  void Pause() { ttl_.Pause(); }
+
+  /**
+   * @brief Use Resume() to restart once MAIN.
+   *
+   */
+  void Resume() { ttl_.Resume(); }
 
  private:
   void Persist_() {
@@ -257,7 +244,6 @@ class TTL final {
   template <typename TDbAccess>
   void Setup_(TDbAccess db, InterpreterContext *interpreter_context);
 
-  mutable std::mutex mtx_;    //!< protection only needed for restarts (HA); other cases handled by unique access
   utils::Scheduler ttl_;      //!< background thread
   TtlInfo info_{};            //!< configuration
   bool enabled_{false};       //!< feature enabler
@@ -279,6 +265,7 @@ class TTL final {
   explicit TTL(std::filesystem::path directory) {}
   void Shutdown() {}
   void Stop() {}
+  void Pause() {}
   void Resume() {}
 };
 }  // namespace memgraph::query::ttl

@@ -396,8 +396,7 @@ class DbmsHandler {
 
 #ifdef MG_ENTERPRISE
   /**
-   * @brief Restore streams of all currently defined databases.
-   * @note: Stream transformations are using modules, they have to be restored after the query modules are loaded.
+   * @brief Restore TTL of all currently defined databases.
    *
    * @param ic global InterpreterContext
    */

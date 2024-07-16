@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include <atomic>
@@ -49,20 +48,25 @@ TEST(Scheduler, StartTime) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::seconds(1), func, std::chrono::system_clock::now() + std::chrono::seconds(3));
 
-  // Shouldn't start in the next 3 seconds
-  EXPECT_EQ(x, 0);
-  std::this_thread::sleep_for(std::chrono::milliseconds(900));
-  EXPECT_EQ(x, 0);
-  std::this_thread::sleep_for(std::chrono::milliseconds(900));
-  EXPECT_EQ(x, 0);
-  std::this_thread::sleep_for(std::chrono::milliseconds(900));
-  EXPECT_EQ(x, 0);
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(4);
+  const auto timeout2 = now + std::chrono::seconds(8);
 
-  // Should have started by now
-  std::this_thread::sleep_for(std::chrono::milliseconds(900));
-  EXPECT_GT(x, 0);
+  // start_time in the past
+  scheduler.Run("Test", std::chrono::seconds(3), func, now + std::chrono::seconds(3));
+
+  // Should execute only after start time
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 1);
+
+  // Second execution after period
+  while (x == 1 && std::chrono::system_clock::now() < timeout2) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 2);
 }
 
 /**
