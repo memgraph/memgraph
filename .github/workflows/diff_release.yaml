@@ -89,7 +89,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status-${{ github.job }}"
+          name: "GQL Behave Status-${{ github.run_id }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
@@ -124,7 +124,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-${{ github.job }}"
+          name: "Enterprise DEB package-${{ github.run_id }}"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container
@@ -315,7 +315,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(Release build)-${{ github.job }}"
+          name: "Test data(Release build)-${{ github.run_id }}"
           path: build/logs
 
       - name: Stop mgbuild container
