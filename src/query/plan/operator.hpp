@@ -2794,11 +2794,13 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<PeriodicCommit>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->commit_frequency_ = commit_frequency_;
+    object->commit_every_time_ = commit_every_time_;
     return object;
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *commit_frequency_;
+  bool commit_every_time_{false};
 };
 
 }  // namespace plan

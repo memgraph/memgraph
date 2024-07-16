@@ -3060,6 +3060,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
 
     pulled_ = 0;
+
+    return false;
   }
 
   return has_more;
@@ -6032,7 +6034,7 @@ class PeriodicCommitCursor : public Cursor {
     bool const pull_value = input_cursor_->Pull(frame, context);
 
     pulled_++;
-    if (pulled_ >= commit_frequency_) {
+    if (self_.commit_every_time_ || pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
       [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
       pulled_ = 0;

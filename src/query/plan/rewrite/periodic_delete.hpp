@@ -37,9 +37,17 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(PeriodicCommit &op) override {
+    if (exchanged_information_) {
+      op.commit_every_time_ = true;
+    }
+    return true;
+  }
+
   bool PreVisit(Delete &op) override {
     if (commit_frequency_) {
       op.buffer_size_ = commit_frequency_;
+      exchanged_information_ = true;
     }
 
     return true;
@@ -50,6 +58,7 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
   AstStorage *ast_storage;
   TDbAccessor *db;
   Expression *commit_frequency_{nullptr};
+  bool exchanged_information_{false};
 };
 
 }  // namespace impl
