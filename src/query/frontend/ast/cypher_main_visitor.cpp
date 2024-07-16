@@ -3207,7 +3207,7 @@ antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQuer
   return drop_enum_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext * /*ctx*/) {
   auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
   query_ = show_schema_info_query;
   return show_schema_info_query;
