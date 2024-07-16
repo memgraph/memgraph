@@ -277,8 +277,10 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Point2d:
       new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      return;
     case Type::Point3d:
       new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      return;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       return;
