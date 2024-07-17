@@ -132,6 +132,10 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
+  if (ctx->metricsInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -3230,6 +3234,12 @@ antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQuer
   drop_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
   query_ = drop_enum_query;
   return drop_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext * /*ctx*/) {
+  auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
+  query_ = show_schema_info_query;
+  return show_schema_info_query;
 }
 
 }  // namespace memgraph::query::frontend

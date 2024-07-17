@@ -38,7 +38,7 @@ struct CoordinationSetup {
 
   std::string ToString();
 
-  [[nodiscard]] auto IsCoordinatorManaged() const -> bool;
+  [[nodiscard]] auto IsDataInstanceManagedByCoordinator() const -> bool;
 };
 
 auto CoordinationSetupInstance() -> CoordinationSetup &;

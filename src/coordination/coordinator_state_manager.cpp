@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_manager.hpp"
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "utils.hpp"
 #include "utils/file.hpp"
@@ -38,8 +39,9 @@ constexpr std::string_view kElectionTimer = "election_timer";
 
 constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
 
-enum class StateManagerDurabilityVersion : int { kV1 = 1 };
-constexpr StateManagerDurabilityVersion kActiveStateManagerDurabilityVersion{StateManagerDurabilityVersion::kV1};
+// kV2 includes changes to management server on coordinators
+enum class StateManagerDurabilityVersion : uint8_t { kV1 = 1, kV2 = 2 };  // update kV3 for new version
+constexpr StateManagerDurabilityVersion kActiveStateManagerDurabilityVersion{StateManagerDurabilityVersion::kV2};
 
 constexpr std::string_view kServers = "servers";
 constexpr std::string_view kPrevLogIdx = "prev_log_idx";
@@ -80,38 +82,69 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
                      {kUserCtx, cluster_config.get_user_ctx()}};
 }
 
-CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger)
+auto CoordinatorStateManager::HandleVersionMigration() -> void {
+  auto const version = memgraph::coordination::GetOrSetDefaultVersion(
+      durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
+
+  // TODO update when changed
+  if (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2 &&
+      version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
+    throw VersionMigrationException(
+        "Version migration for state manager from V1 to V2 is not supported. Cleanup all high availability directories "
+        "and run queries to add instances and coordinators to cluster.");
+  }
+}
+CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
+                                                 std::optional<CoordinationClusterChangeObserver> observer)
     : my_id_(static_cast<int>(config.coordinator_id_)),
       cur_log_store_(cs_new<CoordinatorLogStore>(logger, config.log_store_durability_)),
       logger_(logger),
-      durability_(config.state_manager_durability_dir_) {
-  auto const c2c =
-      CoordinatorToCoordinatorConfig{config.coordinator_id_, io::network::Endpoint("0.0.0.0", config.bolt_port_),
-                                     io::network::Endpoint{"0.0.0.0", static_cast<uint16_t>(config.coordinator_port_)}, config.coordinator_hostname};
+      durability_(config.state_manager_durability_dir_),
+      observer_(observer) {
+  auto const c2c = CoordinatorToCoordinatorConfig{
+      // TODO(antonio) sync with Andi on this one
+      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
+      config.coordinator_hostname};
   my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
                                       nlohmann::json(c2c).dump(), false);
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
 
-  auto const version = memgraph::coordination::GetOrSetDefaultVersion(
-      durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
-
-  MG_ASSERT(static_cast<StateManagerDurabilityVersion>(version) == kActiveStateManagerDurabilityVersion,
-            "Unsupported version of log store with durability");
+  HandleVersionMigration();
+  TryUpdateClusterConfigFromDisk();
 }
 
-auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
+auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
+    -> std::vector<CoordinatorToCoordinatorConfig> {
+  std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;
+  auto const &cluster_config_servers = cluster_config_->get_servers();
+  coordinator_to_coordinator_mappings.reserve(cluster_config_servers.size());
+
+  std::ranges::transform(
+      cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
+      [](auto const &server) -> CoordinatorToCoordinatorConfig {
+        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+      });
+  return coordinator_to_coordinator_mappings;
+}
+
+void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
   logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
     logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
-    return cluster_config_;
+    return;
   }
   auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
   from_json(cluster_config_json, cluster_config_);
   logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
+}
+auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
+  TryUpdateClusterConfigFromDisk();
   return cluster_config_;
 }
 
@@ -124,6 +157,15 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   auto const ok = durability_.Put(kClusterConfigKey, json.dump());
   if (!ok) {
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
+  }
+
+  NotifyObserver(GetCoordinatorToCoordinatorConfigs());
+}
+
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+  logger_.Log(nuraft_log_level::TRACE, "Notifying observer about cluster config change.");
+  if (observer_) {
+    observer_.value().Update(configs);
   }
 }
 

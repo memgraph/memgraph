@@ -51,6 +51,19 @@ jobs:
     env:
       mgdeps_cache_host: "${{ inputs.arch == 'arm' && 'false' || 'mgdeps-cache' }}" # Required because strange is not connected to memgraph openVPN
     steps:
+      - name: "Validate S3 dest dir for official package"
+        if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
+        run: |
+          if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
+            echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
+            exit 1
+          fi
+          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
+            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
+            exit 1
+          fi
+          echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
+
       - name: "Set up repository"
         uses: actions/checkout@v4
         with:
@@ -153,20 +166,7 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: "${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}/memgraph*"
 
-      - name: Validate S3 dest dir
-        if: ${{ inputs.push_to_s3 == 'true' && inputs.s3_bucket == 'download.memgraph.com' }}
-        run: |
-          if [[ "${{ inputs.build_type }}" == 'RelWithDebInfo' ]]; then
-            echo -e "Error: You are pushing a RelWithDebInfo build to 'download.memgraph.com'."
-            exit 1
-          fi
-          if ! [[ "${{ inputs.s3_dest_dir }}" =~ memgraph/v[0-9]\.[0-9]+\.[0-9]+$ ]]; then
-            echo -e "Error: ${{ inputs.s3_dest_dir }} is not a valid official format. When pushing to 'download.memgraph.com' the dest dir has to match format 'memgraph/vX.Y.Z'!"
-            exit 1
-          fi
-          echo -e "Passed: Dest dir ${{ inputs.s3_dest_dir }} has a valid official format."
-
-      - name: Upload to S3
+      - name: "Upload to S3"
         if: ${{ inputs.push_to_s3 == 'true' }}
         run:
           aws s3 sync $SOURCE_DIR s3://${{ inputs.s3_bucket }}/$DEST_DIR

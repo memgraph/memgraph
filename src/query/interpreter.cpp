@@ -607,10 +607,16 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server) -> void override {
+                              std::string_view coordinator_server, std::string_view management_server)
+      -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
+    }
+
+    auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
+    if (!maybe_management_server) {
+      throw QueryRuntimeException("Invalid management socket address!");
     }
 
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
@@ -618,12 +624,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       throw QueryRuntimeException("Invalid bolt socket address!");
     }
 
-    auto const coord_coord_config = coordination::CoordinatorToCoordinatorConfig{
-        .coordinator_id = coordinator_id,
-        .bolt_server = *maybe_bolt_server,
-        .coordinator_server = *maybe_coordinator_server,
+    auto const coord_coord_config =
+        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
+                                                     .bolt_server = *maybe_bolt_server,
+                                                     .coordinator_server = *maybe_coordinator_server,
+                                                     .management_server = *maybe_management_server
 
-    };
+        };
 
     auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
     switch (status) {
@@ -685,7 +692,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  std::vector<coordination::InstanceStatus> ShowInstances() const override {
+  [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
     return coordinator_handler_.ShowInstances();
   }
 
@@ -1391,9 +1398,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Failed to parse config map!");
       }
 
-      if (config_map->size() != 2) {
-        throw QueryRuntimeException("Config map must contain exactly 2 entries: {} and !", kCoordinatorServer,
-                                    kBoltServer);
+      if (config_map->size() != 3) {
+        throw QueryRuntimeException("Config map must contain exactly 3 entries: {}, {} and  {}!", kCoordinatorServer,
+                                    kBoltServer, kManagementServer);
       }
 
       auto const &coordinator_server_it = config_map->find(kCoordinatorServer);
@@ -1406,12 +1413,17 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
+      auto const &management_server_it = config_map->find(kManagementServer);
+      if (management_server_it == config_map->end()) {
+        throw QueryRuntimeException("Config map must contain {} entry!", kManagementServer);
+      }
+
       auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
-                     bolt_server = bolt_server_it->second,
-                     coordinator_server = coordinator_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server);
+                     bolt_server = bolt_server_it->second, coordinator_server = coordinator_server_it->second,
+                     management_server = management_server_it->second]() mutable {
+        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -4045,6 +4057,43 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
       break;
     }
+    case DatabaseInfoQuery::InfoType::METRICS: {
+#ifdef MG_ENTERPRISE
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+      }
+#else
+      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+#endif
+      header = {"name", "type", "metric type", "value"};
+      handler = [storage = current_db.db_acc_->get()->storage()] {
+        auto const info = storage->GetBaseInfo();
+        auto const metrics_info = memgraph::storage::Storage::GetMetrics();
+        std::vector<std::vector<TypedValue>> results;
+        results.push_back({TypedValue("VertexCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.vertex_count))});
+        results.push_back({TypedValue("EdgeCount"), TypedValue("General"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.edge_count))});
+        results.push_back(
+            {TypedValue("AverageDegree"), TypedValue("General"), TypedValue("Gauge"), TypedValue(info.average_degree)});
+        results.push_back({TypedValue("MemoryRes"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.memory_res))});
+        results.push_back({TypedValue("DiskUsage"), TypedValue("Memory"), TypedValue("Gauge"),
+                           TypedValue(static_cast<int64_t>(info.disk_usage))});
+        for (const auto &metric : metrics_info) {
+          results.push_back({TypedValue(metric.name), TypedValue(metric.type), TypedValue(metric.event_type),
+                             TypedValue(static_cast<int64_t>(metric.value))});
+        }
+        std::ranges::sort(results, [](auto const &record_1, auto const &record_2) {
+          auto const key_1 = std::tie(record_1[1].ValueString(), record_1[2].ValueString(), record_1[0].ValueString());
+          auto const key_2 = std::tie(record_2[1].ValueString(), record_2[2].ValueString(), record_2[0].ValueString());
+          return key_1 < key_2;
+        });
+        return std::pair{results, QueryHandlerResult::COMMIT};
+      };
+
+      break;
+    }
   }
 
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
@@ -5030,6 +5079,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw utils::NotYetImplemented("Alter enum remove value");
     } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
       throw utils::NotYetImplemented("Drop enum");
+    } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
+      throw utils::NotYetImplemented("Show schema info");
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
