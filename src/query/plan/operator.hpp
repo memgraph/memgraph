@@ -2842,6 +2842,9 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool subquery_has_return_{true};
+    bool pull_input_{true};
+    uint64_t commit_frequency_ = -1;
+    uint64_t pulled_ = 0;
   };
 };
 

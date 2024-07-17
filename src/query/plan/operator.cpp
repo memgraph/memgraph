@@ -6095,7 +6095,50 @@ bool PeriodicSubquery::PeriodicSubqueryCursor::Pull(Frame &frame, ExecutionConte
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("PeriodicSubquery");
 
-  throw utils::NotYetImplemented("periodic commit");
+  if (commit_frequency_ == -1) {
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+    TypedValue commit_frequency = self_.commit_frequency_->Accept(evaluator);
+    if (commit_frequency.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
+
+    commit_frequency_ = commit_frequency.ValueInt();
+    if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
+  }
+
+  while (true) {
+    if (pull_input_) {
+      if (input_->Pull(frame, context)) {
+        pulled_++;
+      } else {
+        if (pulled_ > 0) {
+          // do periodic commit for the rest of pulled items
+          [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        }
+        return false;
+      }
+    }
+
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+
+    if (pulled_ >= commit_frequency_) {
+      // do periodic commit since we pulled that many times
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+      pulled_ = 0;
+    }
+
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!subquery_has_return_) return true;
+  }
 }
 
 void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
@@ -6106,6 +6149,9 @@ void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
 void PeriodicSubquery::PeriodicSubqueryCursor::Reset() {
   input_->Reset();
   subquery_->Reset();
+  pull_input_ = true;
+  commit_frequency_ = -1;
+  pulled_ = 0;
 }
 
 }  // namespace memgraph::query::plan
