@@ -1894,7 +1894,6 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
-  auto delta_size = transaction_.deltas.size();
   for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
@@ -1943,6 +1942,8 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
         break;
     }
   }
+
+  auto delta_size = transaction_.deltas.size();
   memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 }
 

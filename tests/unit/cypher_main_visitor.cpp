@@ -5018,3 +5018,9 @@ TEST_P(CypherMainVisitorTest, DropEnumQuery) {
     ASSERT_EQ(query->enum_name_, "Status");
   }
 }
+
+TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
+  auto &ast_generator = *GetParam();
+  const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
+  ASSERT_NE(query, nullptr);
+}

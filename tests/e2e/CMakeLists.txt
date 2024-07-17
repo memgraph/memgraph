@@ -88,6 +88,7 @@ add_subdirectory(sso)
 add_subdirectory(auth)
 add_subdirectory(hops_count)
 add_subdirectory(observe_current_amount_of_deltas)
+add_subdirectory(show_metrics)
 
 add_subdirectory(replication_experimental)
 

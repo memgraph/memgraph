@@ -277,20 +277,6 @@
   [roles]
   (> (count (get-mains roles)) 1))
 
-(defn alive-instances-no-main
-  "When all 3 data instances are alive, there should be exactly one main and 2 replicas."
-  [roles-health]
-  (let [mains (filter #(= "main" (:role %)) roles-health)
-        replicas (filter #(= "replica" (:role %)) roles-health)
-        all-data-instances-up (and
-                               (every? #(= "up" (:health %)) mains)
-                               (every? #(= "up" (:health %)) replicas))]
-
-    (if all-data-instances-up
-      (and (= 1 (count mains))
-           (= 2 (count replicas)))
-      true)))
-
 (defn habank-checker
   "High availability bank checker"
   []
@@ -342,15 +328,6 @@
             more-than-one-main (->> coord->roles
                                     (filter (fn [[_ reads]] (some more-than-one-main reads)))
                                     (keys))
-            ; Mapping from coordinator to reads containing only health and role.
-            coord->roles-health (->> coord->full-reads
-                                     (map (fn [[node reads]]
-                                            [node (map single-read-to-role-and-health reads)]))
-                                     (into {}))
-            ; Check not-used, maybe will be added in the future.
-            _ (->> coord->roles-health
-                   (filter (fn [[_ reads]] (some alive-instances-no-main reads)))
-                   (vals))
             ; Node is considered empty if all reads are empty -> probably a mistake in registration.
             empty-si-nodes (->> coord->reads
                                 (filter (fn [[_ reads]]

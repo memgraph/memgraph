@@ -71,6 +71,18 @@ class CoordinatorLogStore : public log_store {
 
   void DeleteLogs(uint64_t start, uint64_t end);
 
+  /*
+   * Stores log entry to disk. We need to store our logs which in nuraft are encoded with log_val_type::app_log
+   * Otherwise we don't need to store them, as nuraft sends either configuration logs or custom logs
+   * and we don't handle them in our commit policy.
+   * Other logs are stored as empty strings, and state_machine DecodeLogs function doesn't apply any action
+   * on empty logs
+   * TODO(antoniofilipovic) Think how to isolate this in function so that logic is in one place
+   * @param clone - log entry to store
+   * @param key_id - index of the log entry
+   * @param is_newest_entry - if this is the newest entry
+   * @return true if storing was successful, false otherwise
+   */
   bool StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
 
  private:

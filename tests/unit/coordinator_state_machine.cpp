@@ -168,15 +168,19 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
     memgraph::coordination::LogStoreDurability log_store_durability{
         kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
-    CoordinatorStateManagerConfig config{
-        0,           12345,
-        9090,        test_folder_ / "high_availability" / "coordination" / "state_manager",
-        "localhost", log_store_durability};
+    CoordinatorStateManagerConfig config{0,
+                                         12345,
+                                         9090,
+                                         20223,
+                                         test_folder_ / "high_availability" / "coordination" / "state_manager",
+                                         "localhost",
+                                         log_store_durability};
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
     auto const c2c =
         CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
-                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346}, "localhost"};
+                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346},
+                                       memgraph::io::network::Endpoint("0.0.0.0", 20223), "localhost"};
     auto temp_srv_config =
         cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
     // second coord stored here
