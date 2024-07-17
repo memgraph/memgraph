@@ -1132,7 +1132,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // check if we can fast discard deltas (ie. do not hand over to GC)
         bool no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
         bool no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-        if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+        if (true) {
+          // if (no_older_transactions && no_newer_transactions) [[unlikely]] {
           // STEP 0) Can only do fast discard if GC is not running
           //         We can't unlink our transcations deltas until all of the older deltas in GC have been unlinked
           //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
