@@ -6023,9 +6023,7 @@ class PeriodicCommitCursor : public Cursor {
       // do periodic commit since we pulled that many times
       [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
       pulled_ = 0;
-    }
-
-    if (!pull_value && pulled_ > 0) {
+    } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
       [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
     }
