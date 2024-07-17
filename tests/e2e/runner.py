@@ -69,7 +69,7 @@ def run(args):
             procdir = ""
             if "proc" in workload:
                 procdir = os.path.join(BUILD_DIR, workload["proc"])
-            interactive_mg_runner.start_all(workload["cluster"], procdir)
+            interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False)
 
         if args.debug:
             hosts = subprocess.check_output("pgrep memgraph", shell=True)

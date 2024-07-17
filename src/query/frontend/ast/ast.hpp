@@ -3094,7 +3094,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -4021,6 +4021,24 @@ class DropEnumQuery : public memgraph::query::Query {
   DropEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DropEnumQuery>();
     object->enum_name_ = enum_name_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ShowSchemaInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ShowSchemaInfoQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowSchemaInfoQuery>();
     return object;
   }
 

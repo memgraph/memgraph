@@ -1048,7 +1048,6 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](delta_container &deltas) {
-    auto delta_size = deltas.size();
     for (auto &delta : deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1079,7 +1078,9 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
     }
 
     // delete deltas
+    auto delta_size = deltas.size();
     deltas.clear();
+
     memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
   };
 
@@ -2013,10 +2014,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
 
-      size_t total_delta_size = 0;
-      for (const auto &gc_deltas : unlinked_undo_buffers) {
-        total_delta_size += gc_deltas.deltas_.size();
-      }
+      auto const sum_func = [](uint32_t curr, auto const &gc_deltas) { return curr + gc_deltas.deltas_.size(); };
+      uint32_t const total_delta_size =
+          std::accumulate(unlinked_undo_buffers.begin(), unlinked_undo_buffers.end(), 0U, sum_func);
+
       // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
       memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, total_delta_size);
