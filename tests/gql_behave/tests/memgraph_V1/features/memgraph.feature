@@ -224,3 +224,11 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             DROP ENUM Status;
             """
         Then an error should be raised
+
+    Scenario: Show schema info:
+        Given an empty graph
+        When executing query:
+            """
+            SHOW SCHEMA INFO;
+            """
+        Then an error should be raised

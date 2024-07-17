@@ -866,6 +866,18 @@ TYPED_TEST(TestPlanner, MatchEdgeTypeIndex) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectProduce());
   }
+  {
+    // Test MATCH p=()-[r:indexed_edgetype]->() RETURN p;
+    auto *as_p = NEXPR("p", IDENT("p"));
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(NAMED_PATTERN("p", NODE("anon1"),
+                            EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("anon2"))),
+        RETURN(as_p)));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
+              ExpectProduce());
+  }
 }
 
 TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
@@ -938,7 +950,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectFilter(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
@@ -979,6 +991,18 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+  }
+  {
+    // Test MATCH p=()-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN p;
+    auto *as_p = NEXPR("p", IDENT("p"));
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(NAMED_PATTERN("p", NODE("anon1"),
+                            EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {"indexed_edgetype"}), NODE("anon2"))),
+        WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN(as_p)));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectConstructNamedPath(),
+              ExpectProduce());
   }
 }
 

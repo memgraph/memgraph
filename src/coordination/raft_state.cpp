@@ -45,7 +45,7 @@ using nuraft::raft_server;
 using nuraft::srv_config;
 
 RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
-                     BecomeFollowerCb become_follower_cb)
+                     BecomeFollowerCb become_follower_cb, std::optional<CoordinationClusterChangeObserver> observer)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
       logger_(cs_new<Logger>(config.nuraft_log_file)),
@@ -54,7 +54,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
   memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
 
-  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id, config.coordinator_port, config.bolt_port,
+  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
+                                                     config.coordinator_port,
+                                                     config.bolt_port,
+                                                     config.management_port,
                                                      coordinator_state_manager_durability_dir,
                                                      config.coordinator_hostname};
   auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
@@ -73,7 +76,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   }
 
   state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
-  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper);
+  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
 
   auto last_commit_index_snapshot = state_machine_->last_commit_index();
   auto log_store = state_manager_->load_log_store();
@@ -91,6 +94,12 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
   for (auto &log_entry : *log_entries) {
     spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
+      auto cluster_config = state_manager_->load_config();
+      state_machine_->commit_config(cntr, cluster_config);
+      cntr++;
+      continue;
+    }
     state_machine_->commit(cntr, log_entry->get_buf());
     cntr++;
   }
@@ -225,6 +234,12 @@ RaftState::~RaftState() {
 }
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
+
+auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
+
+auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
+  return state_manager_->GetCoordinatorToCoordinatorConfigs();
+}
 
 auto RaftState::RaftSocketAddress() const -> std::string {
   return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();

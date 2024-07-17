@@ -202,6 +202,7 @@ query : cypherQuery
       | alterEnumUpdateValueQuery
       | alterEnumRemoveValueQuery
       | dropEnumQuery
+      | showSchemaInfoQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -616,3 +617,5 @@ alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue 
 alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
 
 dropEnumQuery: DROP ENUM enumName ;
+
+showSchemaInfoQuery : SHOW SCHEMA INFO ;
