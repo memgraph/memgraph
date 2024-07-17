@@ -27,7 +27,6 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
-#include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
