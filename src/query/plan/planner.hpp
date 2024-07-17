@@ -63,9 +63,7 @@ class PostProcessor final {
         RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
     auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
                                                             context->ast_storage, context->db);
-    auto periodic_delete_plan =
-        RewritePeriodicDelete(std::move(edge_index_plan), context->symbol_table, context->ast_storage, context->db);
-    return periodic_delete_plan;
+    return edge_index_plan;
   }
 
   template <class TVertexCounts>
