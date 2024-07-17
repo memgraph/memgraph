@@ -144,6 +144,7 @@ extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
 extern const Event PeriodicCommitOperator;
+extern const Event PeriodicSubqueryOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -6017,6 +6018,60 @@ class PeriodicCommitCursor : public Cursor {
 UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicCommitOperator);
   return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem);
+}
+
+PeriodicSubquery::PeriodicSubquery(const std::shared_ptr<LogicalOperator> input,
+                                   const std::shared_ptr<LogicalOperator> subquery, Expression *commit_frequency,
+                                   bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      commit_frequency_(commit_frequency),
+      subquery_has_return_(subquery_has_return) {}
+
+bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
+
+  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
+}
+
+PeriodicSubquery::PeriodicSubqueryCursor::PeriodicSubqueryCursor(const PeriodicSubquery &self,
+                                                                 utils::MemoryResource *mem)
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
+
+std::vector<Symbol> PeriodicSubquery::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool PeriodicSubquery::PeriodicSubqueryCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("PeriodicSubquery");
+
+  throw utils::NotYetImplemented("periodic commit");
+}
+
+void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void PeriodicSubquery::PeriodicSubqueryCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
 }
 
 }  // namespace memgraph::query::plan

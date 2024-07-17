@@ -72,6 +72,7 @@ enum class TypeId : uint64_t {
   HASH_JOIN,
   ROLLUP_APPLY,
   PERIODIC_COMMIT,
+  PERIODIC_SUBQUERY,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)

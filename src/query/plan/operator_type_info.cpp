@@ -169,4 +169,6 @@ constexpr utils::TypeInfo query::plan::RollUpApply::kType{utils::TypeId::ROLLUP_
 
 constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERIODIC_COMMIT, "PeriodicCommit",
                                                              &query::plan::LogicalOperator::kType};
+constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PERIODIC_SUBQUERY, "PeriodicSubquery",
+                                                               &query::plan::LogicalOperator::kType};
 }  // namespace memgraph
