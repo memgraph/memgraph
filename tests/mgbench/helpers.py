@@ -38,7 +38,12 @@ def get_binary_path(path, base=""):
 
 
 def download_file(url, path):
-    ret = subprocess.run(["wget", "-nv", "--content-disposition", url], stderr=subprocess.PIPE, cwd=path, check=True)
+    ret = subprocess.run(
+        ["wget", "-nv", "--content-disposition", "--no-check-certificate", url],
+        stderr=subprocess.PIPE,
+        cwd=path,
+        check=True,
+    )
     data = ret.stderr.decode("utf-8")
     tmp = data.split("->")[1]
     name = tmp[tmp.index('"') + 1 : tmp.rindex('"')]
