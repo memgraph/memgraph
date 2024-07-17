@@ -101,12 +101,15 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       logger_(logger),
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
+  // For out world, use DNS
   auto const c2c = CoordinatorToCoordinatorConfig{
       config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
       config.coordinator_hostname};
-  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
+  // Use 0.0.0.0 for coordinator endpoint
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0,
+                                      fmt::format("{}:{}", kDefaultCoordinatorServerIp, config.coordinator_port_),
                                       nlohmann::json(c2c).dump(), false);
 
   cluster_config_ = cs_new<cluster_config>();

@@ -33,6 +33,7 @@
 namespace memgraph::coordination {
 
 inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";
+inline constexpr auto *kDefaultCoordinatorServerIp = "0.0.0.0";
 
 struct ReplicationInstanceInitConfig {
   int management_port{0};
