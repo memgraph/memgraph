@@ -102,7 +102,6 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
   auto const c2c = CoordinatorToCoordinatorConfig{
-      // TODO(antonio) sync with Andi on this one
       config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
