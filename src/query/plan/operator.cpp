@@ -3061,8 +3061,6 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
 
     pulled_ = 0;
-
-    return false;
   }
 
   return has_more;
