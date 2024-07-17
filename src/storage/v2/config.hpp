@@ -142,7 +142,7 @@ struct Config {
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()
+      && !memgraph::flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator()
 #endif
   ) {
     spdlog::warn(
