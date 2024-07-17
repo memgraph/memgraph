@@ -2491,8 +2491,9 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNested) {
   // Test UNWIND range(1, 3) as x CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
   FakeDbAccessor dba;
 
+  auto nexpr_x = NEXPR("x", IDENT("x"));
   auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
-  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), nexpr_x),
                                    CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -2500,8 +2501,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNested) {
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
-            ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectPeriodicSubquery(subquery_plan),
+            ExpectAccumulate({symbol_table.at(*nexpr_x)}), ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2510,8 +2511,9 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWith) {
   // Test UNWIND range(1, 3) as x CALL { WITH (n) CREATE (m) } IN TRANSACTIONS OF 1 ROWS;
   FakeDbAccessor dba;
 
+  auto nexpr_x = NEXPR("x", IDENT("x"));
   auto *subquery = SINGLE_QUERY(WITH("x", AS("a")), CREATE(PATTERN(NODE("m"))));
-  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), nexpr_x),
                                    CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -2519,8 +2521,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWith) {
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectProduce(), new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
-            ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectPeriodicSubquery(subquery_plan),
+            ExpectAccumulate({symbol_table.at(*nexpr_x)}), ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2538,7 +2540,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWholeQuery) {
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectUnwind(), new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectApply(subquery_plan), ExpectPeriodicCommit(), ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectPeriodicSubquery(subquery_plan), ExpectAccumulate({}),
+            ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2561,17 +2564,18 @@ TYPED_TEST(TestPlanner, PeriodicCommitLoadCsvNested) {
   // Test LOAD CSV FROM "x" WITH HEADER AS row CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
   FakeDbAccessor dba;
 
+  auto ident_row = IDENT("row");
   auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
-  auto *query = QUERY(
-      SINGLE_QUERY(LOAD_CSV(LITERAL("temp"), "row"), CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+  auto *query = QUERY(SINGLE_QUERY(LOAD_CSV(LITERAL("temp"), ident_row),
+                                   CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
 
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectLoadCsv(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
-            ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadCsv(), ExpectPeriodicSubquery(subquery_plan),
+            ExpectAccumulate({symbol_table.at(*ident_row)}), ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2588,7 +2592,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitLoadCsvNestedWholeQuery) {
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectLoadCsv(), new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectApply(subquery_plan), ExpectPeriodicCommit(), ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectPeriodicSubquery(subquery_plan), ExpectAccumulate({}),
+            ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2620,8 +2625,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateCallProcedureNested) {
 
   std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectBasicCallProcedure(), ExpectApply(subquery_plan),
-            ExpectPeriodicCommit(), ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectBasicCallProcedure(), ExpectPeriodicSubquery(subquery_plan),
+            ExpectAccumulate({}), ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }
@@ -2640,7 +2645,8 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateCallProcedureNestedWholeQuery) {
   std::list<BaseOpChecker *> subquery_plan{new ExpectBasicCallProcedure(), new ExpectCreateNode(),
                                            new ExpectEmptyResult()};
 
-  CheckPlan(planner.plan(), symbol_table, ExpectApply(subquery_plan), ExpectPeriodicCommit(), ExpectEmptyResult());
+  CheckPlan(planner.plan(), symbol_table, ExpectPeriodicSubquery(subquery_plan), ExpectAccumulate({}),
+            ExpectEmptyResult());
 
   DeleteListContent(&subquery_plan);
 }

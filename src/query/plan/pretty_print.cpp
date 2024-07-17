@@ -237,6 +237,13 @@ bool PlanPrinter::PreVisit(query::plan::Apply &op) {
   return false;
 }
 
+bool PlanPrinter::PreVisit(query::plan::PeriodicSubquery &op) {
+  WithPrintLn([](auto &out) { out << "* PeriodicSubquery"; });
+  Branch(*op.subquery_);
+  op.input_->Accept(*this);
+  return false;
+}
+
 bool PlanPrinter::PreVisit(query::plan::IndexedJoin &op) {
   WithPrintLn([](auto &out) { out << "* IndexedJoin"; });
   Branch(*op.sub_branch_);
@@ -1067,6 +1074,20 @@ bool PlanToJsonVisitor::PreVisit(PeriodicCommit &op) {
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(PeriodicSubquery &op) {
+  json self;
+  self["name"] = "PeriodicSubquery";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.subquery_->Accept(*this);
+  self["subquery"] = PopOutput();
 
   output_ = std::move(self);
   return false;

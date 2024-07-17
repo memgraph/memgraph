@@ -336,6 +336,11 @@ auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &r
   return load_csv;
 }
 
+auto GetLoadCSV(AstStorage &storage, Expression *file_name, Identifier *row_var) {
+  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
+  return load_csv;
+}
+
 // Helper functions for constructing RETURN and WITH clauses.
 void FillReturnBody(AstStorage &, ReturnBody &body, NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
