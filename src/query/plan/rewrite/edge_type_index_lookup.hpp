@@ -177,6 +177,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Merge &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     op.input()->Accept(*this);
     RewriteBranch(&op.merge_match_);
     return false;
@@ -189,6 +190,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Optional &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     op.input()->Accept(*this);
     RewriteBranch(&op.optional_);
     return false;
@@ -201,6 +203,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Cartesian &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -211,6 +214,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(IndexedJoin &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     RewriteBranch(&op.main_branch_);
     RewriteBranch(&op.sub_branch_);
     return false;
@@ -223,6 +227,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(HashJoin &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -233,6 +238,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Union &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     RewriteBranch(&op.left_op_);
     RewriteBranch(&op.right_op_);
     return false;
@@ -245,6 +251,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CreateNode &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(CreateNode &) override {
@@ -254,6 +261,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CreateExpand &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(CreateExpand &) override {
@@ -326,6 +334,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ConstructNamedPath &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(ConstructNamedPath &) override {
@@ -358,6 +367,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Delete &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Delete &) override {
@@ -367,6 +377,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetProperty &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(SetProperty &) override {
@@ -376,6 +387,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetProperties &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(SetProperties &) override {
@@ -385,6 +397,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(SetLabels &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(SetLabels &) override {
@@ -394,6 +407,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(RemoveProperty &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(RemoveProperty &) override {
@@ -403,6 +417,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(RemoveLabels &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(RemoveLabels &) override {
@@ -412,6 +427,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EdgeUniquenessFilter &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(EdgeUniquenessFilter &) override {
@@ -421,6 +437,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Accumulate &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Accumulate &) override {
@@ -430,6 +447,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Aggregate &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Aggregate &) override {
@@ -439,6 +457,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Skip &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Skip &) override {
@@ -448,6 +467,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Limit &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Limit &) override {
@@ -457,6 +477,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(OrderBy &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(OrderBy &) override {
@@ -466,6 +487,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Unwind &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Unwind &) override {
@@ -475,6 +497,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Distinct &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(Distinct &) override {
@@ -484,6 +507,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(CallProcedure &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
   bool PostVisit(CallProcedure &) override {
@@ -493,6 +517,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Foreach &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     op.input()->Accept(*this);
     RewriteBranch(&op.update_clauses_);
     return false;
@@ -505,6 +530,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(EvaluatePatternFilter &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -515,6 +541,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Apply &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     op.input()->Accept(*this);
     RewriteBranch(&op.subquery_);
     return false;
@@ -527,6 +554,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(LoadCsv &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     return true;
   }
 
@@ -537,6 +565,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
+    is_simple_expand_ = false;
     op.input()->Accept(*this);
     RewriteBranch(&op.list_collection_branch_);
     return false;
@@ -553,6 +582,18 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(PeriodicCommit & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.subquery_);
+    return false;
+  }
+
+  bool PostVisit(PeriodicSubquery & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -585,7 +626,9 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return produce_under_expand_ && expand_under_scanall_ && scanall_under_once_ && edge_type_index_exist_;
   }
 
-  bool EdgeTypePropertyIndexingPossible() const { return expand_under_scanall_ && scanall_under_once_ && property_; }
+  bool EdgeTypePropertyIndexingPossible() const {
+    return is_simple_expand_ && expand_under_scanall_ && scanall_under_once_ && property_;
+  }
 
   bool produce_under_expand_ = false;
   bool expand_under_scanall_ = false;
@@ -594,6 +637,8 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool source_node_anon_ = false;
   bool dest_node_anon_ = false;
+
+  bool is_simple_expand_ = true;
 
   bool DefaultPreVisit() override {
     throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
@@ -609,19 +654,18 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     if (EdgeTypePropertyIndexingPossible()) {
-      // This is currently the simplest way the get the most out of edge-type + proeprty indexing.
-      // We only remove the filter if we are looking for edges with a specific edge-type. If we
-      // have some other type of property filtering e.g. range or value lookup, we do not want to
-      // remove the filters to keep the semantics of the original query intact. We can optimize
-      // this by adding additional operators for the specific kinds of edge-type+property filtering.
-      // On top of this we only want to remove the NOT NULL filter
       const auto prop_filter_type = property_filter_->property_filter->type_;
-      if (prop_filter_type == PropertyFilter::Type::IS_NOT_NULL) {
-        filter_exprs_for_removal_.insert(property_filter_->expression);
-        filters_.EraseFilter(*property_filter_);
+      switch (prop_filter_type) {
+        case PropertyFilter::Type::IS_NOT_NULL:
+        case PropertyFilter::Type::EQUAL: {
+          filter_exprs_for_removal_.insert(property_filter_->expression);
+          filters_.EraseFilter(*property_filter_);
+          return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
+        }
+        default: {
+          break;
+        }
       }
-
-      return std::make_unique<ScanAllByEdgeTypeProperty>(input, output_symbol, edge_type_, *property_, view);
     }
 
     if (EdgeTypeIndexingPossible()) {

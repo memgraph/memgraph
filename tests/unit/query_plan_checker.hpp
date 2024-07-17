@@ -154,6 +154,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(PeriodicCommit);
   PRE_VISIT(LoadCsv);
 
+  bool PreVisit(PeriodicSubquery &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -566,6 +572,19 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
  private:
   const std::list<std::unique_ptr<BaseOpChecker>> &input_;
   const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch_;
+};
+
+class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
+ public:
+  explicit ExpectPeriodicSubquery(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(PeriodicSubquery &periodic_subquery, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    periodic_subquery.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
 };
 
 template <class T>

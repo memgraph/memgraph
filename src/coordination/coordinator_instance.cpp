@@ -26,9 +26,13 @@
 #include <utility>
 #include <vector>
 
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/coordinator_instance_management_server_handlers.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -51,7 +55,11 @@ namespace memgraph::coordination {
 
 using nuraft::ptr;
 
-CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config) {
+CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
+    : coordinator_management_server_{ManagementServerConfig{
+          // management server endpoint for leader coord must have coordinator hostname, otherwise
+          // other coordinators won't know where to ping it
+          io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port)}}} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view repl_instance_name) -> void {
     spdlog::trace("Acquiring lock in thread {} for client success callback for instance {}", std::this_thread::get_id(),
                   repl_instance_name);
@@ -73,10 +81,15 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
     std::invoke(repl_instance.GetFailCallback(), self, repl_instance_name);
   };
 
+  CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
+  MG_ASSERT(coordinator_management_server_.Start());
+
   // Delay constructing of Raft state until everything is constructed in coordinator instance
   // since raft state will call become leader callback or become follower callback on construction.
   // If something is not yet constructed in coordinator instance, we get UB
-  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback());
+  raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
+                                            CoordinationClusterChangeObserver{this});
+  AddOrUpdateClientConnectors(raft_state_->GetCoordinatorToCoordinatorConfigs());
   raft_state_->InitRaftServer();
 }
 
@@ -188,9 +201,27 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
   return raft_state_->GetLeaderCoordinatorData();
 }
 
-auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
+void CoordinatorInstance::AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+  auto connectors = coordinator_connectors_.Lock();
+
+  for (auto const &config : configs) {
+    if (config.coordinator_id == raft_state_->GetCoordinatorId()) {
+      continue;
+    }
+    auto const connector = std::ranges::find_if(
+        *connectors, [&config](auto &&connector) { return connector.first == config.coordinator_id; });
+    if (connector != connectors->end()) {
+      continue;
+    }
+    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", config.coordinator_id,
+                  config.management_server.SocketAddress());
+    connectors->emplace(connectors->end(), config.coordinator_id, ManagementServerConfig{config.management_server});
+  }
+}
+
+auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus> {
   auto const stringify_coord_health = [this](CoordinatorToCoordinatorConfig const &instance) -> std::string {
-    if (!raft_state_->IsLeader()) {
+    if (!is_leader_ready_) {
       return "unknown";
     }
 
@@ -202,90 +233,125 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     return coordinator_id == curr_leader ? "leader" : "follower";
   };
 
-  auto const get_coordinator_server = [](CoordinatorToCoordinatorConfig const &instance) -> std::string {
-    // If I am the 1st leader, I need separate processing. Only, the 1st leader will have coordinator_server set to
-    // 0.0.0.0. Coordinators that have been registered after the 1st leader will have coordinator_server set to the
-    // actual IP address so for them we can just retrieve their socket address.
-    if (instance.coordinator_server.GetResolvedIPAddress() == "0.0.0.0") {
-      return fmt::format("{}:{}", instance.coordinator_hostname, instance.coordinator_server.GetPort());
-    }
-    return instance.coordinator_server.SocketAddress();
-  };
-
-  auto const get_bolt_server = [](CoordinatorToCoordinatorConfig const &instance) -> std::string {
-    // If I am the 1st leader, I need separate processing. Only, the 1st leader will have bolt_server set to 0.0.0.0.
-    // Coordinators that have been registered after the 1st leader will have bolt_server set to the actual IP address so
-    // for them we can just retrieve their socket address.
-    if (instance.bolt_server.GetResolvedIPAddress() == "0.0.0.0") {
-      return fmt::format("{}:{}", instance.coordinator_hostname, instance.bolt_server.GetPort());
-    }
-    return instance.bolt_server.SocketAddress();
-  };
-
-  auto const coord_instance_to_status =
-      [this, &stringify_coord_health, &get_coord_role, &get_coordinator_server,
-       &get_bolt_server](CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
+  auto const coord_instance_to_status = [this, &stringify_coord_health, &get_coord_role](
+                                            CoordinatorToCoordinatorConfig const &instance) -> InstanceStatus {
     auto const curr_leader = raft_state_->GetLeaderId();
-    return {.instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
-            .coordinator_server = get_coordinator_server(instance),  // show non-resolved IP
-            .bolt_server = get_bolt_server(instance),                // show non-resolved IP
-            .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
-            .health = stringify_coord_health(instance),
-            .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count()};
+    return {
+        .instance_name = fmt::format("coordinator_{}", instance.coordinator_id),
+        .coordinator_server = instance.coordinator_server.SocketAddress(),  // show non-resolved IP
+        .management_server = instance.management_server.SocketAddress(),    // show non-resolved IP
+        .bolt_server = instance.bolt_server.SocketAddress(),                // show non-resolved IP
+        .cluster_role = get_coord_role(instance.coordinator_id, curr_leader),
+        .health = stringify_coord_health(instance),
+        .last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(instance.coordinator_id).count(),
+
+    };
   };
 
-  auto instances_status = utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
+  return utils::fmap(raft_state_->GetCoordinatorInstances(), coord_instance_to_status);
+}
 
-  if (raft_state_->IsLeader()) {
-    auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
-      if (!instance.IsAlive()) return "unknown";
-      if (raft_state_->IsCurrentMain(instance.InstanceName())) return "main";
-      return "replica";
-    };
-
-    auto const stringify_repl_health = [](ReplicationInstanceConnector const &instance) -> std::string {
-      return instance.IsAlive() ? "up" : "down";
-    };
-
-    auto process_repl_instance_as_leader =
-        [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
-      return {.instance_name = instance.InstanceName(),
-              .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
-              .bolt_server = instance.BoltSocketAddress(),              // show non-resolved IP
-              .cluster_role = stringify_repl_role(instance),
-              .health = stringify_repl_health(instance),
-              .last_succ_resp_ms = instance.LastSuccRespMs().count()};
-    };
-
-    {
-      auto lock = std::shared_lock{coord_instance_lock_};
-      std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
+  spdlog::trace("Processing show instances as follower");
+  auto instances_status = GetCoordinatorsInstanceStatus();
+  auto const stringify_inst_status = [raft_state_ptr =
+                                          raft_state_.get()](ReplicationInstanceState const &instance) -> std::string {
+    // Instance is down and it was not yet demoted
+    if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
+      return "main";
     }
-  } else {
-    auto const stringify_inst_status =
-        [raft_state_ptr = raft_state_.get()](ReplicationInstanceState const &instance) -> std::string {
-      if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
-        return "main";
-      }
-      if (raft_state_ptr->HasMainState(instance.config.instance_name)) {
-        return "unknown";
-      }
-      return "replica";
-    };
+    if (raft_state_ptr->HasMainState(instance.config.instance_name)) {
+      return "unknown";
+    }
+    return "replica";
+  };
 
-    auto process_repl_instance_as_follower =
-        [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
-      return {.instance_name = instance.config.instance_name,
-              .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
-              .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
-              .cluster_role = stringify_inst_status(instance),
-              .health = "unknown"};
-    };
+  auto process_repl_instance_as_follower =
+      [&stringify_inst_status](ReplicationInstanceState const &instance) -> InstanceStatus {
+    return {.instance_name = instance.config.instance_name,
+            .management_server = instance.config.ManagementSocketAddress(),  // show non-resolved IP
+            .bolt_server = instance.config.BoltSocketAddress(),              // show non-resolved IP
+            .cluster_role = stringify_inst_status(instance),
+            .health = "unknown"};
+  };
 
-    std::ranges::transform(raft_state_->GetReplicationInstances(), std::back_inserter(instances_status),
-                           process_repl_instance_as_follower);
-  }
+  std::ranges::transform(raft_state_->GetReplicationInstances(), std::back_inserter(instances_status),
+                         process_repl_instance_as_follower);
   return instances_status;
+}
+
+auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::vector<InstanceStatus> {
+  spdlog::trace("Processing show instances as leader");
+  auto instances_status = GetCoordinatorsInstanceStatus();
+
+  auto const stringify_repl_role = [this](ReplicationInstanceConnector const &instance) -> std::string {
+    if (!instance.IsAlive()) return "unknown";
+    if (raft_state_->IsCurrentMain(instance.InstanceName())) return "main";
+    return "replica";
+  };
+
+  auto const stringify_repl_health = [](ReplicationInstanceConnector const &instance) -> std::string {
+    return instance.IsAlive() ? "up" : "down";
+  };
+
+  auto process_repl_instance_as_leader =
+      [&stringify_repl_role, &stringify_repl_health](ReplicationInstanceConnector const &instance) -> InstanceStatus {
+    return {.instance_name = instance.InstanceName(),
+            .management_server = instance.ManagementSocketAddress(),  // show non-resolved IP
+            .bolt_server = instance.BoltSocketAddress(),              // show non-resolved IP
+            .cluster_role = stringify_repl_role(instance),
+            .health = stringify_repl_health(instance),
+            .last_succ_resp_ms = instance.LastSuccRespMs().count()};
+  };
+
+  {
+    auto lock = std::shared_lock{coord_instance_lock_};
+    std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+  }
+
+  return instances_status;
+}
+
+auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
+  if (is_leader_ready_) {
+    return ShowInstancesAsLeader();
+  }
+
+  auto const leader_id = raft_state_->GetLeaderId();
+  if (leader_id == raft_state_->GetCoordinatorId()) {
+    spdlog::trace("Coordinator itself not yet leader, returning report as follower.");
+    return ShowInstancesStatusAsFollower();  // We don't want to ask ourselves for instances, as coordinator is
+                                             // not ready still as leader
+  }
+
+  if (leader_id == -1) {
+    spdlog::trace("No leader found, returning report as follower");
+    return ShowInstancesStatusAsFollower();
+  }
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+
+    auto connector =
+        std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+  if (leader == nullptr) {
+    spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
+    return ShowInstancesStatusAsFollower();
+  }
+
+  spdlog::trace("Sending show instances RPC to leader with id {}", leader_id);
+  auto maybe_res = leader->SendShowInstances();
+
+  if (!maybe_res.has_value()) {
+    spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
+    return ShowInstancesStatusAsFollower();
+  }
+  spdlog::trace("Got instances from leader {}.", leader_id);
+  return std::move(maybe_res.value());
 }
 
 auto CoordinatorInstance::ForceResetCluster_() -> ForceResetClusterStateStatus {
@@ -1209,6 +1275,9 @@ auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
 auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
+
+auto CoordinatorInstance::GetRaftState() -> RaftState & { return *raft_state_; }
+auto CoordinatorInstance::GetRaftState() const -> RaftState const & { return *raft_state_; }
 
 }  // namespace memgraph::coordination
 #endif

@@ -53,6 +53,7 @@
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
+   :--management-port (get node-config :management-port)
    ))
 
 (defn start-data-node!

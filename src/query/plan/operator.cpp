@@ -144,6 +144,7 @@ extern const Event IndexedJoinOperator;
 extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
 extern const Event PeriodicCommitOperator;
+extern const Event PeriodicSubqueryOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -3005,7 +3006,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (buffer_size_ == -1 && self_.buffer_size_) {
+  if (self_.buffer_size_ && buffer_size_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -6067,6 +6068,106 @@ class PeriodicCommitCursor : public Cursor {
 UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicCommitOperator);
   return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem);
+}
+
+PeriodicSubquery::PeriodicSubquery(const std::shared_ptr<LogicalOperator> input,
+                                   const std::shared_ptr<LogicalOperator> subquery, Expression *commit_frequency,
+                                   bool subquery_has_return)
+    : input_(input ? input : std::make_shared<Once>()),
+      subquery_(subquery),
+      commit_frequency_(commit_frequency),
+      subquery_has_return_(subquery_has_return) {}
+
+bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && subquery_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
+
+  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
+}
+
+PeriodicSubquery::PeriodicSubqueryCursor::PeriodicSubqueryCursor(const PeriodicSubquery &self,
+                                                                 utils::MemoryResource *mem)
+    : self_(self),
+      input_(self.input_->MakeCursor(mem)),
+      subquery_(self.subquery_->MakeCursor(mem)),
+      subquery_has_return_(self.subquery_has_return_) {}
+
+std::vector<Symbol> PeriodicSubquery::ModifiedSymbols(const SymbolTable &table) const {
+  // Since Apply is the Cartesian product, modified symbols are combined from
+  // both execution branches.
+  auto symbols = input_->ModifiedSymbols(table);
+  auto subquery_symbols = subquery_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
+  return symbols;
+}
+
+bool PeriodicSubquery::PeriodicSubqueryCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("PeriodicSubquery");
+
+  if (commit_frequency_ == -1) {
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+    TypedValue commit_frequency = self_.commit_frequency_->Accept(evaluator);
+    if (commit_frequency.type() != TypedValue::Type::Int)
+      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
+
+    commit_frequency_ = commit_frequency.ValueInt();
+    if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
+  }
+
+  while (true) {
+    if (pull_input_) {
+      if (input_->Pull(frame, context)) {
+        pulled_++;
+      } else {
+        if (pulled_ > 0) {
+          // do periodic commit for the rest of pulled items
+          [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        }
+        return false;
+      }
+    }
+
+    if (subquery_->Pull(frame, context)) {
+      // if successful, next Pull from this should not pull_input_
+      pull_input_ = false;
+      return true;
+    }
+
+    if (pulled_ >= commit_frequency_) {
+      // do periodic commit since we pulled that many times
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+      pulled_ = 0;
+    }
+
+    // failed to pull from subquery cursor
+    // skip that row
+    pull_input_ = true;
+    subquery_->Reset();
+
+    // don't skip row if no rows are returned from subquery, return input_ rows
+    if (!subquery_has_return_) return true;
+  }
+}
+
+void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
+  input_->Shutdown();
+  subquery_->Shutdown();
+}
+
+void PeriodicSubquery::PeriodicSubqueryCursor::Reset() {
+  input_->Reset();
+  subquery_->Reset();
+  pull_input_ = true;
+  commit_frequency_ = -1;
+  pulled_ = 0;
 }
 
 }  // namespace memgraph::query::plan

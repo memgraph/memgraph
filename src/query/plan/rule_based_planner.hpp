@@ -277,10 +277,6 @@ class RuleBasedPlanner {
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(call_sub, std::move(input_op), single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
-            if (call_sub->cypher_query_->pre_query_directives_.commit_frequency_) {
-              input_op = std::make_unique<PeriodicCommit>(
-                  std::move(input_op), call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
-            }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
@@ -922,9 +918,16 @@ class RuleBasedPlanner {
       subquery_has_return = false;
     }
 
-    last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
+    bool has_periodic_commit = !!call_subquery->cypher_query_->pre_query_directives_.commit_frequency_;
+    if (!has_periodic_commit) {
+      last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
+    } else {
+      last_op = std::make_unique<PeriodicSubquery>(
+          std::move(last_op), std::move(subquery_op),
+          call_subquery->cypher_query_->pre_query_directives_.commit_frequency_, subquery_has_return);
+    }
 
-    if (context_->is_write_query && !call_subquery->cypher_query_->pre_query_directives_.commit_frequency_) {
+    if (context_->is_write_query) {
       last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
     }
 

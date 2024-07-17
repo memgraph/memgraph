@@ -94,7 +94,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
           client_name, client_name, client_name);
     };
 #ifdef MG_ENTERPRISE
-    if (!memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()) {
+    if (!memgraph::flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator()) {
       log_error();
       return;
     }

@@ -5077,3 +5077,9 @@ TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
                  SyntaxException);
   }
 }
+
+TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
+  auto &ast_generator = *GetParam();
+  const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
+  ASSERT_NE(query, nullptr);
+}
