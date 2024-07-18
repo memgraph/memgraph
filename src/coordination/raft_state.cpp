@@ -182,14 +182,18 @@ auto RaftState::InitRaftServer() -> void {
   asio_listener_->listen(raft_server_);
   spdlog::trace("Asio listener active on {}", coord_endpoint);
 
-  // Don't return until role is set
-  auto maybe_stop = utils::ResettableCounter<500>();
+  // If we don't get initialized in 2min, we throw an exception and abort coordinator initialization.
+  // When the follower gets back, it waits for the leader to ping it.
+  // In the meantime, the election timer will trigger and the follower will enter the pre-vote protocol which should
+  // fail because the leader is actually alive. So even if rpc listener is created (on follower), the initialization
+  // isn't complete until leader sends him append_entries_request.
+  auto maybe_stop = utils::ResettableCounter<1200>();
   while (!maybe_stop()) {
     // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
     if (raft_server_->is_initialized()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   if (!raft_server_->is_initialized()) {
     throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with endpoint {}",
