@@ -110,7 +110,7 @@ DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t c
   uLongf original_size_ = original_size;
   const int result = uncompress(uncompressed_data.get(), &original_size_, compressed_data, compressed_size);
 
-  if (result == Z_OK) return {std::move(uncompressed_data), original_size, original_size};
+  if (result == Z_OK) return {std::move(uncompressed_data), compressed_size, original_size};
 
   return {};
 }
