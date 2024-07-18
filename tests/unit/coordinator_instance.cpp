@@ -50,6 +50,7 @@ class CoordinatorInstanceTest : public ::testing::Test {
 
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto const init_config = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                          coordinator_ports[0],
                                                          bolt_ports[0],
@@ -63,6 +64,7 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
 }
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto const wait_until_added = [](auto &instance) {
     while (instance.ShowInstances().size() != 3) {
     }
@@ -159,6 +161,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 }
 
 TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto const wait_until_added = [](auto &instance) {
     while (instance.ShowInstances().size() != 3) {
     }
@@ -239,6 +242,7 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
 }
 
 TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto const wait_until_added = [](auto &instance) {
     while (instance.ShowInstances().size() != 3) {
     }
