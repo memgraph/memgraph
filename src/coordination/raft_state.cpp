@@ -85,17 +85,14 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     return;
   }
 
-  auto const last_commit_index_logs = log_store->next_slot();
-  // TODO: (fico) Fix wording nesto sa last commit index
+  auto const next_slot_commit_index_logs = log_store->next_slot();
   spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
-                last_commit_index_logs);
-
-  // TODO(antoniofilipovic) Ranges iota
+                next_slot_commit_index_logs - 1);
   auto cntr = last_commit_index_snapshot + 1;
-  auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
+  auto log_entries = log_store->log_entries(cntr, next_slot_commit_index_logs);
+  // TODO(fico) Ranges iota
   for (auto &log_entry : *log_entries) {
-    // TODO: (fico) fix wording
-    spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    spdlog::trace("Applying log entry from log store with index {}", cntr);
     if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
       auto cluster_config = state_manager_->load_config();
       state_machine_->commit_config(cntr, cluster_config);
