@@ -410,6 +410,7 @@ class Storage {
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
+    bool periodic_commit_timestamp_set_{false};
     bool is_transaction_active_;
 
     // Detach delete private methods

@@ -105,6 +105,10 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
+  if (transaction->commit_timestamp != nullptr && ts == *transaction->commit_timestamp.get()) {
+    return true;
+  }
+
   transaction->must_abort = true;
   return false;
 }
@@ -124,7 +128,7 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
       [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
 
   return &transaction->deltas.emplace(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                           transaction->command_id);
+                                      transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
@@ -152,7 +156,8 @@ inline Delta *CreateDeleteDeserializedObjectDelta(delta_container *deltas, std::
 }
 
 inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
-                                                       std::optional<std::string_view> old_disk_key, const uint64_t ts) {
+                                                       std::optional<std::string_view> old_disk_key,
+                                                       const uint64_t ts) {
   memgraph::utils::OnScopeExit increment_unreleased_deltas(
       [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
   return &deltas.emplace(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
