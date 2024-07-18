@@ -830,8 +830,12 @@ def test_distributed_automatic_failover_with_leadership_change():
     wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
     wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
-    leader_name = find_instance_and_assert_instances(num_coordinators=3, coord_ids_to_skip_validation={3})
-    main_name = find_instance_and_assert_instances(num_coordinators=3, coord_ids_to_skip_validation={3})
+    leader_name = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    main_name = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     leader_data = update_tuple_value(leader_data, main_name, 0, -1, "main")
     leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
@@ -2307,7 +2311,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    leader_name = find_instance_and_assert_instances(num_coordinators=3, coord_ids_to_skip_validation={3})
+    leader_name = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
 
