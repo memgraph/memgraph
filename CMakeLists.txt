@@ -42,6 +42,10 @@ endif()
 
 project(memgraph LANGUAGES C CXX)
 
+# this reduces issues in build folders from inside containers
+# which are different locations than the host
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
