@@ -95,6 +95,7 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
 
   Coverage:
@@ -111,6 +112,7 @@ jobs:
       toolchain: 'v5'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
 
   Debug:
@@ -127,6 +129,7 @@ jobs:
       toolchain: 'v5'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
 
   Jepsen:
@@ -139,6 +142,7 @@ jobs:
     uses: ./.github/workflows/diff_jepsen.yaml
     with:
       run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
 
   Release:
@@ -157,4 +161,5 @@ jobs:
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
+      run_id: "${{ matrix.run_no }}"
     secrets: inherit
