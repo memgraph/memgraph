@@ -90,8 +90,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
-    auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+    auto maybe_transformation = procedure::FindTransformation(procedure::gModuleRegistry, transformation_name);
 
     if (!maybe_transformation) {
       throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
