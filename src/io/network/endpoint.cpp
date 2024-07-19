@@ -62,7 +62,7 @@ std::string Endpoint::GetResolvedIPAddress() const {
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  return os << endpoint.address_ << delimiter << endpoint.port_;
+  return os << endpoint.GetResolvedSocketAddress();
 }
 
 std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::TryResolveAddress(

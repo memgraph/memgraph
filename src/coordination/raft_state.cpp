@@ -85,15 +85,14 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     return;
   }
 
-  auto const last_commit_index_logs = log_store->next_slot();
+  auto const next_slot_commit_index_logs = log_store->next_slot();
   spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
-                last_commit_index_logs);
-
-  // TODO(antoniofilipovic) Ranges iota
+                next_slot_commit_index_logs - 1);
   auto cntr = last_commit_index_snapshot + 1;
-  auto log_entries = log_store->log_entries(cntr, last_commit_index_logs);
+  auto log_entries = log_store->log_entries(cntr, next_slot_commit_index_logs);
+  // TODO(antoniofilipovic) Ranges iota
   for (auto &log_entry : *log_entries) {
-    spdlog::trace("Applying log entry from snapshot with index {}", cntr);
+    spdlog::trace("Applying log entry from log store with index {}", cntr);
     if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
       auto cluster_config = state_manager_->load_config();
       state_machine_->commit_config(cntr, cluster_config);
@@ -114,21 +113,21 @@ auto RaftState::InitRaftServer() -> void {
   asio_opts.thread_pool_size_ = 1;
 
   raft_params params;
-  params.heart_beat_interval_ = 100;
-  params.election_timeout_lower_bound_ = 200;
-  params.election_timeout_upper_bound_ = 400;
+  params.heart_beat_interval_ = 1000;
+  params.election_timeout_lower_bound_ = 2000;
+  params.election_timeout_upper_bound_ = 4000;
   params.reserved_log_items_ = 5;
   params.snapshot_distance_ = 5;
   params.client_req_timeout_ = 3000;
   params.return_method_ = raft_params::blocking;
 
   // If the leader doesn't receive any response from quorum nodes
-  // in 200ms, it will step down.
+  // in 1800ms, it will step down.
   // This allows us to achieve strong consistency even if network partition
   // happens between the current leader and followers.
   // The value must be <= election_timeout_lower_bound_ so that cluster can never
   // have multiple leaders.
-  params.leadership_expiry_ = 200;
+  params.leadership_expiry_ = 1800;
 
   raft_server::init_options init_opts;
 
@@ -180,14 +179,18 @@ auto RaftState::InitRaftServer() -> void {
   asio_listener_->listen(raft_server_);
   spdlog::trace("Asio listener active on {}", coord_endpoint);
 
-  // Don't return until role is set
-  auto maybe_stop = utils::ResettableCounter<500>();
+  // If we don't get initialized in 2min, we throw an exception and abort coordinator initialization.
+  // When the follower gets back, it waits for the leader to ping it.
+  // In the meantime, the election timer will trigger and the follower will enter the pre-vote protocol which should
+  // fail because the leader is actually alive. So even if rpc listener is created (on follower), the initialization
+  // isn't complete until leader sends him append_entries_request.
+  auto maybe_stop = utils::ResettableCounter<1200>();
   while (!maybe_stop()) {
     // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
     if (raft_server_->is_initialized()) {
       break;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   if (!raft_server_->is_initialized()) {
     throw RaftServerStartException("Waiting too long for raft server initialization on coordinator with endpoint {}",
@@ -260,7 +263,6 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
     throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
                                  endpoint, int(cmd_result->get_result_code()));
   }
-
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter<max_tries>();

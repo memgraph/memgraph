@@ -19,10 +19,14 @@ on:
         type: string
         description: "Should the core community build tests be run? Default is true."
         default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
 
 env:
   ARCH: ${{ inputs.arch }}
-  BUILD_TYPE: 'RelWithDebInfo' 
+  BUILD_TYPE: 'RelWithDebInfo'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}

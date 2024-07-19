@@ -46,8 +46,32 @@ set(mg_query_sources
     query_user.cpp
 )
 
+# cmake target for our C++ API
+add_library(mg-cpp-api INTERFACE)
+target_sources(mg-cpp-api
+    INTERFACE
+    FILE_SET HEADERS
+    BASE_DIRS ${CMAKE_SOURCE_DIR}/include
+    FILES
+    ${CMAKE_SOURCE_DIR}/include/mgp.hpp
+    ${CMAKE_SOURCE_DIR}/include/_mgp.hpp
+    ${CMAKE_SOURCE_DIR}/include/mg_exceptions.hpp
+    ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
+)
+
+# shared library so that linking symbols for the C++ api works
+add_library(mg-module-support SHARED)
+target_sources(mg-module-support
+    PRIVATE
+    procedure/mpg_support.cpp
+)
+target_link_libraries(mg-module-support PRIVATE mg-cpp-api)
+set_target_properties(mg-module-support  PROPERTIES
+    OUTPUT_NAME "memgraph_module_support"
+)
+
 add_library(mg-query STATIC ${mg_query_sources})
-target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(mg-query PRIVATE mg-cpp-api)
 target_link_libraries(mg-query PUBLIC dl
     cppitertools
     rangev3
@@ -63,7 +87,9 @@ target_link_libraries(mg-query PUBLIC dl
     mg::system
     mg-flags
     mg-dbms
-    mg-events)
+    mg-events
+    PRIVATE
+    mg-module-support)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
