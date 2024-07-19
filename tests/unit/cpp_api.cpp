@@ -27,13 +27,13 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  void SetUp() override { mgp::mrd.Register(&memory); }
+  void SetUp() override { mgp::MemoryDispatcher::Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
-    mgp::mrd.UnRegister();
+    mgp::MemoryDispatcher::UnRegister();
   }
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {

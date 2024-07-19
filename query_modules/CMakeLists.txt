@@ -22,9 +22,10 @@ if (lower_build_type STREQUAL "release")
                      COMMAND strip -s $<TARGET_FILE:example_c>
                      COMMENT "Stripping symbols and sections from the C example module")
 endif()
-install(PROGRAMS $<TARGET_FILE:example_c>
-        DESTINATION lib/memgraph/query_modules
-        RENAME example_c.so)
+set_target_properties(example_c PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "example_c"
+)
 # Also install the source of the example, so user can read it.
 install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
 
@@ -38,14 +39,14 @@ if (lower_build_type STREQUAL "release")
                      COMMAND strip -s $<TARGET_FILE:example_cpp>
                      COMMENT "Stripping symbols and sections from the C++ example module")
 endif()
-install(PROGRAMS $<TARGET_FILE:example_cpp>
-        DESTINATION lib/memgraph/query_modules
-        RENAME example_cpp.so)
+set_target_properties(example_cpp PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "example_cpp"
+)
 # Also install the source of the example, so user can read it.
 install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
 
 add_library(schema SHARED schema.cpp)
-set_target_properties(schema PROPERTIES PREFIX "")
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(schema PRIVATE -Wall)
 target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
@@ -55,14 +56,14 @@ if (lower_build_type STREQUAL "release")
                      COMMAND strip -s $<TARGET_FILE:schema>
                      COMMENT "Stripping symbols and sections from the C++ schema module")
 endif()
-install(PROGRAMS $<TARGET_FILE:schema>
-        DESTINATION lib/memgraph/query_modules
-        RENAME schema.so)
+set_target_properties(schema PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "schema"
+)
 # Also install the source of the example, so user can read it.
 install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
 
 add_library(text_search SHARED text_search_module.cpp)
-set_target_properties(text_search PROPERTIES PREFIX "")
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
 target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
@@ -72,11 +73,17 @@ if (lower_build_type STREQUAL "release")
                      COMMAND strip -s $<TARGET_FILE:text_search>
                      COMMENT "Stripping symbols and sections from the C++ text_search module")
 endif()
-install(PROGRAMS $<TARGET_FILE:text_search>
-        DESTINATION lib/memgraph/query_modules
-        RENAME text_search.so)
+set_target_properties(text_search PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "text_search"
+)
 # Also install the source of the example, so user can read it.
 install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
+
+# Install C++ query modules
+install(TARGETS example_c example_cpp schema text_search
+    DESTINATION lib/memgraph/query_modules
+)
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
