@@ -43,7 +43,7 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 TEMP_DIR = tempfile.TemporaryDirectory().name
 
 
-def get_instances_description_no_setup(use_durability: bool = True):
+def get_instances_description_no_setup(test_name: str, use_durability: bool = True):
     return {
         "instance_1": {
             "args": [
@@ -55,7 +55,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--management-port",
                 "10011",
             ],
-            "log_file": "high_availability/distributed_coords/instance_1.log",
+            f"log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -69,7 +69,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--management-port",
                 "10012",
             ],
-            "log_file": "high_availability/distributed_coords/instance_2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -83,7 +83,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--management-port",
                 "10013",
             ],
-            "log_file": "high_availability/distributed_coords/instance_3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -100,7 +100,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--coordinator-hostname",
                 "localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
             "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
@@ -117,7 +117,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--coordinator-hostname",
                 "localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
             "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
@@ -134,7 +134,7 @@ def get_instances_description_no_setup(use_durability: bool = True):
                 "--coordinator-hostname",
                 "localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
             "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
@@ -152,7 +152,7 @@ def get_default_setup_queries():
     ]
 
 
-def get_instances_description_no_setup_4_coords(use_durability: bool = True):
+def get_instances_description_no_setup_4_coords(test_name: str, use_durability: bool = True):
     use_durability_str = "true" if use_durability else "false"
     return {
         "instance_1": {
@@ -165,7 +165,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--management-port",
                 "10011",
             ],
-            "log_file": "high_availability/distributed_coords/instance_1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -179,7 +179,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--management-port",
                 "10012",
             ],
-            "log_file": "high_availability/distributed_coords/instance_2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -193,7 +193,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "--management-port",
                 "10013",
             ],
-            "log_file": "high_availability/distributed_coords/instance_3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -210,7 +210,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
             "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
@@ -227,7 +227,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "localhost",
                 "--management-port=10122",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
             "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
@@ -244,7 +244,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "localhost",
                 "--management-port=10123",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
             "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
@@ -261,7 +261,7 @@ def get_instances_description_no_setup_4_coords(use_durability: bool = True):
                 "localhost",
                 "--management-port=10124",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator4.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator4.log",
             "data_directory": f"{TEMP_DIR}/coordinator_4",
             "setup_queries": [],
         },
@@ -369,7 +369,9 @@ def test_even_number_coords(use_durability):
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup_4_coords(use_durability=use_durability)
+    inner_instances_description = get_instances_description_no_setup_4_coords(
+        test_name="test_even_number_coords", use_durability=use_durability
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -552,7 +554,9 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     # 6. Start again previous leader
 
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_old_main_comes_back_on_new_leader_as_replica"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -712,7 +716,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
 def test_distributed_automatic_failover():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(test_name="test_distributed_automatic_failover")
 
     interactive_mg_runner.start_all(inner_instances_description)
 
@@ -807,7 +811,9 @@ def test_distributed_automatic_failover():
 
 def test_distributed_automatic_failover_with_leadership_change():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_distributed_automatic_failover_with_leadership_change"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description)
 
@@ -935,7 +941,9 @@ def test_no_leader_after_leader_and_follower_die():
 
     safe_execute(shutil.rmtree, TEMP_DIR)
 
-    inner_memgraph_instances = get_instances_description_no_setup()
+    inner_memgraph_instances = get_instances_description_no_setup(
+        test_name="test_no_leader_after_leader_and_follower_die"
+    )
     interactive_mg_runner.start_all(inner_memgraph_instances)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -965,7 +973,9 @@ def test_old_main_comes_back_on_new_leader_as_main():
 
     safe_execute(shutil.rmtree, TEMP_DIR)
 
-    inner_memgraph_instances = get_instances_description_no_setup()
+    inner_memgraph_instances = get_instances_description_no_setup(
+        test_name="test_old_main_comes_back_on_new_leader_as_main"
+    )
     interactive_mg_runner.start_all(inner_memgraph_instances)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -1450,7 +1460,10 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 13. Expect data to be replicated
 
     # 1
-    inner_memgraph_instances = get_instances_description_no_setup()
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    inner_memgraph_instances = get_instances_description_no_setup(
+        test_name="test_multiple_failovers_in_row_no_leadership_change"
+    )
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -1627,7 +1640,9 @@ def test_multiple_old_mains_single_failover():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_multiple_old_mains_single_failover"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description)
 
@@ -1781,7 +1796,9 @@ def test_force_reset_works_after_failed_registration():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_force_reset_works_after_failed_registration"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -1908,7 +1925,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_force_reset_works_after_failed_registration_and_main_down"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2035,7 +2054,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_force_reset_works_after_failed_registration_and_replica_down"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2208,7 +2229,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_force_reset_works_after_failed_registration_and_2_coordinators_down"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2390,7 +2413,9 @@ def test_coordinator_gets_info_on_other_coordinators():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_coordinator_gets_info_on_other_coordinators"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2540,7 +2565,7 @@ def test_registration_works_after_main_set():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(test_name="test_registration_works_after_main_set")
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2621,7 +2646,9 @@ def test_coordinator_not_leader_registration_does_not_work():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_coordinator_not_leader_registration_does_not_work"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2716,7 +2743,9 @@ def test_coordinator_user_action_demote_instance_to_replica():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_coordinator_user_action_demote_instance_to_replica", use_durability=True
+    )
 
     FAILOVER_PERIOD = 2
     inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
@@ -2839,7 +2868,9 @@ def test_coordinator_user_action_force_reset_works():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_coordinator_user_action_force_reset_works", use_durability=True
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2946,7 +2977,9 @@ def test_all_coords_down_resume():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_all_coords_down_resume", use_durability=True
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3072,7 +3105,9 @@ def test_one_coord_down_with_durability_resume():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_one_coord_down_with_durability_resume", use_durability=True
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3167,7 +3202,9 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_registration_does_not_deadlock_when_instance_is_down", use_durability=True
+    )
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
@@ -3243,7 +3280,9 @@ def test_follower_have_correct_health():
 
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(
+        test_name="test_one_coord_down_with_durability_resume", use_durability=True
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3287,7 +3326,7 @@ def test_first_coord_restarts():
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(test_name="test_first_coord_restarts")
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
@@ -3314,7 +3353,7 @@ def test_first_coord_restarts():
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup()
+    inner_instances_description = get_instances_description_no_setup(test_name="test_first_coord_restarts")
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
