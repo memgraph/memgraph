@@ -23,6 +23,10 @@ on:
         type: string
         description: "Should the clang-tidy tests be run? Default is true."
         default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
 
 env:
   ARCH: ${{ inputs.arch }}

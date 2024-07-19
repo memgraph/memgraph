@@ -31,6 +31,9 @@ on:
         type: string
         description: "Should the stress and durability tests be run? Default is true."
         default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
 
 env:
   ARCH: ${{ inputs.arch }}

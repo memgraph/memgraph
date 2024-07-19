@@ -7,6 +7,10 @@ on:
         type: string
         description: "Should the core jepsen build tests be run? Default is true."
         default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
 
 env:
   ARCH: 'amd'
