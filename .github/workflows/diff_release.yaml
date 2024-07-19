@@ -92,7 +92,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "GQL Behave Status-$(date +%s)"
+          name: "GQL Behave Status-${{ inputs.run_id }}"
           path: |
             tests/gql_behave/gql_behave_status.csv
             tests/gql_behave/gql_behave_status.html
@@ -127,7 +127,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Enterprise DEB package-$(date +%s)"
+          name: "Enterprise DEB package-${{ inputs.run_id }}"
           path: build/output/${{ env.OS }}/memgraph*.deb
 
       - name: Stop mgbuild container
@@ -318,7 +318,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Test data(Release build)-$(date +%s)"
+          name: "Test data(Release build)-${{ inputs.run_id }}"
           path: build/logs
 
       - name: Stop mgbuild container

@@ -90,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Jepsen Report-$(date +%s)"
+          name: "Jepsen Report-${{ inputs.run_id }}"
           path: tests/jepsen/Jepsen.tar.gz
 
       - name: Stop mgbuild container

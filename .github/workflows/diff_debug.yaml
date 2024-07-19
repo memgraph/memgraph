@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "HA_drivers_report-$(date +%s)"
+          name: "HA_drivers_report-${{ inputs.run_id }}"
           path: tests/drivers/test_report.tar.gz
 
       - name: Run cppcheck and clang-format
@@ -123,7 +123,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Debug build)-$(date +%s)"
+          name: "Code coverage(Debug build)-${{ inputs.run_id }}"
           path: tools/github/cppcheck_and_clang_format.txt
 
       - name: Stop mgbuild container
