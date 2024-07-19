@@ -51,6 +51,7 @@ constexpr std::string_view kUserCtx = "user_ctx";
 
 }  // namespace
 
+// TODO: (andi) Wrong, don't deserialize into pointer
 void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &config) {
   auto servers = json_cluster_config.at(kServers.data()).get<std::vector<std::tuple<int, std::string, std::string>>>();
 
@@ -102,7 +103,6 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
   auto const c2c = CoordinatorToCoordinatorConfig{
-      // TODO(antonio) sync with Andi on this one
       config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
@@ -125,7 +125,7 @@ auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
 
   std::ranges::transform(
       cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
-      [](auto const &server) -> CoordinatorToCoordinatorConfig {
+      [](auto &&server) -> CoordinatorToCoordinatorConfig {
         return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
       });
   return coordinator_to_coordinator_mappings;
