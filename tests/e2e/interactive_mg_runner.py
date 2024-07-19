@@ -131,6 +131,10 @@ def _start_instance(
     ), "If this raises, you are trying to start an instance on a port used by the running instance."
 
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
+
+    if "coordinator" in name:
+        args.append("--nuraft-log-file=" + log_file_path)
+
     data_directory_path = os.path.join(BUILD_DIR, data_directory)
     mg_instance = MemgraphInstanceRunner(
         MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
