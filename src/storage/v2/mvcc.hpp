@@ -105,10 +105,6 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  if (transaction->commit_timestamp != nullptr && ts == *transaction->commit_timestamp.get()) {
-    return true;
-  }
-
   transaction->must_abort = true;
   return false;
 }
