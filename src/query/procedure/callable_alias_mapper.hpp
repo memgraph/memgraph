@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,10 +15,10 @@
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 namespace memgraph::query::procedure {
 
@@ -32,10 +32,10 @@ class CallableAliasMapper final {
   ~CallableAliasMapper() = default;
 
   void LoadMapping(const std::filesystem::path &);
-  [[nodiscard]] std::optional<std::string_view> FindAlias(const std::string &) const noexcept;
+  [[nodiscard]] std::optional<std::string_view> FindAlias(std::string_view name) const noexcept;
 
  private:
-  std::unordered_map<std::string, std::string> mapping_;
+  std::map<std::string, std::string, std::less<>> mapping_;
 };
 
 /// Single, global alias mapper.

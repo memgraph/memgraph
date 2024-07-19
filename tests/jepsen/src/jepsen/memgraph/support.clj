@@ -28,7 +28,6 @@
    :--storage-snapshot-interval-sec 300
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
-   :--data-recovery-on-startup
    :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
    :--telemetry-enabled false
    :--storage-properties-on-edges))
@@ -47,7 +46,6 @@
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
-   :--data-recovery-on-startup
    :--storage-properties-on-edges
    :--telemetry-enabled false
    :--coordinator-id (get node-config :coordinator-id)
