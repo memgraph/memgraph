@@ -70,9 +70,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy \
-          --artifact-name src/query/libmemgraph_module_support.so \
-          --dest-dir build/src/query
+          copy --libs --dest-dir build/src/query
 
       - name: Run unit tests for Jepsen code
         run: |

@@ -467,8 +467,8 @@ copy_memgraph() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --binary)#cp -L
-        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="binary"
@@ -478,8 +478,8 @@ copy_memgraph() {
         shift 1
       ;;
       --build-logs)#cp -L
-        if [[ "$artifact" == "package" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="build logs"
@@ -489,8 +489,8 @@ copy_memgraph() {
         shift 1
       ;;
       --package)#cp
-        if [[ "$artifact" == "build logs" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs or --package"
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
           exit 1
         fi
         artifact="package"
@@ -498,6 +498,18 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR/output/$os"
         artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph* | head -1")
         container_artifact_path="$container_package_dir/$artifact_name"
+        shift 1
+      ;;
+      --libs)#cp -L
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          exit 1
+        fi
+        artifact="libs"
+        artifact_name="libmemgraph_module_support.so"
+
+        container_artifact_path="$MGBUILD_BUILD_DIR/src/query/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR/src/query"
         shift 1
       ;;
       --dest-dir)
@@ -521,7 +533,7 @@ copy_memgraph() {
   if [[ "$artifact_name_override" != "" ]]; then
     artifact_name=$artifact_name_override
   fi
-  local host_artifact_path="$host_dir/$(basename "$artifact_name")"
+  local host_artifact_path="$host_dir/$artifact_name"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
   mkdir -p "$host_dir"
   if [[ "$artifact" == "package" ]]; then
