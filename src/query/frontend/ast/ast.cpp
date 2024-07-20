@@ -342,4 +342,7 @@ constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{utils::TypeId::AST_S
 
 constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "TtlQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
+                                                          &query::Query::kType};
+
 }  // namespace memgraph
