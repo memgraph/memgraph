@@ -165,5 +165,4 @@ class QueryVisitor
                             ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
                             ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery,
                             AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
-
 }  // namespace memgraph::query
