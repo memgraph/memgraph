@@ -5780,4 +5780,10 @@ void Interpreter::TryQueryLogging(std::string message) {
   }
 }
 
+void Interpreter::TryQueryLogging(std::string message) {
+  if (query_logger_.has_value()) {
+    (*query_logger_).trace(message);
+  }
+}
+
 }  // namespace memgraph::query
