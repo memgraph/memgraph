@@ -70,6 +70,7 @@ target_sources(mg-query
     interpreter_context.cpp
     query_user.cpp
     time_to_live/time_to_live.cpp
+    query_logger.cpp
 
     PUBLIC
     FILE_SET HEADERS
