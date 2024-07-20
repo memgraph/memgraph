@@ -2512,14 +2512,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-<<<<<<< HEAD
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_,
        hops_limit, query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-=======
-       tx_timer = std::move(tx_timer), hops_limit,
-       query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
->>>>>>> c5969f7cd (Add profile to normal queries)
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
