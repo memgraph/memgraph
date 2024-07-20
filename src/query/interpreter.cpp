@@ -2260,7 +2260,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role,
                                  std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer, Interpreter &interpreter,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -2303,10 +2303,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
   }
 
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
+  interpreter.TryQueryLogging(fmt::format("Plan cost: {}", plan->cost()));
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
 
@@ -4763,7 +4765,10 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
 
   std::function<void()> callback;
   if (session_trace_query->enabled_) {
-    callback = [interpreter] { interpreter->query_logger_.emplace(FLAGS_query_log_file); };
+    callback = [interpreter] {
+      interpreter->query_logger_.emplace(FLAGS_query_log_file);
+      interpreter->TryQueryLogging("Session initialized!");
+    };
   } else {
     callback = [interpreter] { interpreter->query_logger_.reset(); };
   }
@@ -4835,6 +4840,7 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
+  TryQueryLogging(fmt::format("Accepted query {}", query_string));
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
@@ -4871,9 +4877,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     utils::Timer parsing_timer;
+    TryQueryLogging("Query parsing started.");
     ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
+    TryQueryLogging("Query parsing ended.");
 
     // Setup QueryExecution
     query_executions_.emplace_back(QueryExecution::Create());
@@ -4884,6 +4892,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
     query_execution->summary["parsing_time"] = parsing_time;
+    TryQueryLogging(fmt::format("Query parsing time: {}", parsing_time));
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
@@ -4955,15 +4964,17 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #endif
 
     utils::Timer planning_timer;
+    TryQueryLogging("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
 
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
-                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
+                             memory_resource, &query_execution->notifications, user_or_role_, &transaction_status_,
+                             current_timeout_timer_, *this, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);
@@ -5105,8 +5116,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       LOG_FATAL("Should not get here -- unknown query type!");
     }
 
-    query_execution->summary["planning_time"] = planning_timer.Elapsed().count();
+    auto planning_time = planning_timer.Elapsed().count();
+    query_execution->summary["planning_time"] = planning_time;
     query_execution->prepared_query.emplace(std::move(prepared_query));
+    TryQueryLogging("Query planning ended.");
+    TryQueryLogging(fmt::format("Planning time: {}", planning_time));
 
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
@@ -5176,6 +5190,9 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  TryQueryLogging("Query abort started.");
+  utils::OnScopeExit abort_end([this]() { this->TryQueryLogging("Query abort ended."); });
+
   bool decrement = true;
 
   // System tx
@@ -5288,6 +5305,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
+  TryQueryLogging("Query commit started.");
+  utils::OnScopeExit commit_end([this]() { this->TryQueryLogging("Query commit ended."); });
+
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
   // For now, we will not check if there are some unfinished queries.
@@ -5472,6 +5492,10 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
+
+  if (query_logger_.has_value()) {
+    query_logger_.value().trace("Commit successfully finished!");
+  }
 }
 
 void Interpreter::AdvanceCommand() {
@@ -5509,5 +5533,11 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 }
 void Interpreter::ResetUser() { user_or_role_.reset(); }
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
+
+void Interpreter::TryQueryLogging(std::string message) {
+  if (query_logger_.has_value()) {
+    (*query_logger_).trace(message);
+  }
+}
 
 }  // namespace memgraph::query
