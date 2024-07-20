@@ -44,6 +44,7 @@ set(mg_query_sources
     auth_query_handler.cpp
     interpreter_context.cpp
     query_user.cpp
+    query_logger.cpp
 )
 
 # cmake target for our C++ API

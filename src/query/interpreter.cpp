@@ -4755,6 +4755,29 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
           RWType::W};
 }
 
+PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &current_db, Interpreter *interpreter) {
+  MG_ASSERT(current_db.db_acc_, "Session trace query expects a current DB");
+
+  auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
+  MG_ASSERT(session_trace_query);
+
+  std::function<void()> callback;
+  if (session_trace_query->enabled_) {
+    callback = [interpreter] { interpreter->query_logger_.emplace(FLAGS_query_log_file); };
+  } else {
+    callback = [interpreter] { interpreter->query_logger_.reset(); };
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4936,6 +4959,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
+
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
       prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
                                           current_db_, memory_resource, &query_execution->notifications, user_or_role_,
@@ -5075,6 +5099,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw utils::NotYetImplemented("Drop enum");
     } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
       throw utils::NotYetImplemented("Show schema info");
+    } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
+      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

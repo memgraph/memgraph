@@ -18,6 +18,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/query.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -33,6 +34,7 @@
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
+#include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -369,6 +371,8 @@ class Interpreter final {
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
+
+  std::optional<QueryLogger> query_logger_;
 
  private:
   void ResetInterpreter() {
