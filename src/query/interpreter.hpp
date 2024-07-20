@@ -388,6 +388,8 @@ class Interpreter final {
   bool IsQueryLoggingActive();
   void TryQueryLogging(std::string message);
 
+  void TryQueryLogging(std::string message);
+
  private:
   void ResetInterpreter() {
     query_executions_.clear();
