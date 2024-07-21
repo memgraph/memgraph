@@ -2317,7 +2317,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     interpreter.TryQueryLogging(hint);
   }
 
-  if (interpreter.query_logger_.has_value()) {
+  if (interpreter.IsQueryLoggingActive()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
     std::vector<std::vector<TypedValue>> printed_plan_rows;
@@ -2330,6 +2330,11 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.TryQueryLogging(fmt::format("Plan cost: {}", plan->cost()));
+  bool is_profile_query = false;
+  if (interpreter.IsQueryLoggingActive()) {
+    is_profile_query = true;
+  }
+
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
 
@@ -2349,10 +2354,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
+      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), current_db.db_acc_, trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
-      interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr);
+      interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2503,8 +2508,14 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
+<<<<<<< HEAD
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_,
        hops_limit, query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+=======
+       tx_timer = std::move(tx_timer), hops_limit,
+       query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+>>>>>>> c5969f7cd (Add profile to normal queries)
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
@@ -5750,6 +5761,8 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
     query_logger_->SetUser(user_or_role_->key());
   }
 }
+
+bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
 
 void Interpreter::TryQueryLogging(std::string message) {
   if (query_logger_.has_value()) {
