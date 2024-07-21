@@ -2108,7 +2108,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
 
   if (query_logger_) {
-    query_logger_->trace(fmt::format("Plan execution time: {}", execution_time_.count()));
+    query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
   }
 
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
@@ -5307,7 +5307,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     query_execution->summary["planning_time"] = planning_time;
     query_execution->prepared_query.emplace(std::move(prepared_query));
     TryQueryLogging("Query planning ended.");
-    TryQueryLogging(fmt::format("Planning time: {}", planning_time));
+    TryQueryLogging(fmt::format("Query planning time: {}", planning_time));
 
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
