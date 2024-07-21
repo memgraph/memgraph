@@ -31,10 +31,34 @@ void QueryLogger::info(const std::string &log_line) { logger_->log(spdlog::level
 void QueryLogger::warn(const std::string &log_line) { logger_->log(spdlog::level::warn, GetMessage(log_line)); }
 void QueryLogger::err(const std::string &log_line) { logger_->log(spdlog::level::err, GetMessage(log_line)); }
 
-void QueryLogger::SetTransactionId(int64_t t_id) { transaction_id = t_id; }
+void QueryLogger::SetTransactionId(std::string t_id) { transaction_id = t_id; }
 void QueryLogger::SetSessionId(std::string s_id) { session_id = s_id; }
+void QueryLogger::SetUser(std::string u) { user_or_role = u; }
+void QueryLogger::ResetUser() { user_or_role = ""; }
+void QueryLogger::ResetTransactionId() { transaction_id = ""; }
 
 std::string QueryLogger::GetMessage(const std::string &log_line) {
-  return fmt::format("[{}] [{}] {}", session_id, transaction_id, log_line);
+  std::string message;
+  if (session_id != "") {
+    message += fmt::format("[{}]", session_id);
+  }
+  if (user_or_role != "") {
+    if (!message.empty()) {
+      message += " ";
+    }
+    message += fmt::format("[{}]", user_or_role);
+  }
+  if (transaction_id != "") {
+    if (!message.empty()) {
+      message += " ";
+    }
+    message += fmt::format("[{}]", transaction_id);
+  }
+
+  if (!message.empty()) {
+    return fmt::format("{} {}", message, log_line);
+  }
+
+  return log_line;
 }
 }  // namespace memgraph::query
