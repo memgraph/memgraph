@@ -4760,6 +4760,14 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
 PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &current_db, Interpreter *interpreter) {
   MG_ASSERT(current_db.db_acc_, "Session trace query expects a current DB");
 
+#ifdef MG_ENTERPRISE
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("SET SESSION TRACE command is only available with a valid Enterprise License!");
+  }
+#else
+  throw QueryRuntimeException("SET SESSION TRACE command is only available in Memgraph Enterprise build!");
+#endif
+
   auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
   MG_ASSERT(session_trace_query);
 
