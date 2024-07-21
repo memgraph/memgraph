@@ -4909,6 +4909,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
     SetupInterpreterTransaction(extras);
+    TryQueryLogging(fmt::format("Query [{}] associated with transaction [{}]", query_string, *current_transaction_));
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
