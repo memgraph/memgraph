@@ -374,6 +374,7 @@ class Interpreter final {
 
   std::optional<QueryLogger> query_logger_;
 
+  bool IsQueryLoggingActive();
   void TryQueryLogging(std::string message);
 
  private:
