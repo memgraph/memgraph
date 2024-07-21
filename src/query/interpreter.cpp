@@ -2133,7 +2133,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     throw QueryException("Query exceeded the maximum number of hops.");
   }
 
-  return GetStatsWithTotalTime(ctx_);
+  auto stats_and_total_time = GetStatsWithTotalTime(ctx_);
+
+  if (query_logger_) {
+    query_logger_->trace(fmt::format("Profile plan\n{}", ProfilingStatsToJson(stats_and_total_time).dump()));
+  }
+
+  return stats_and_total_time;
 }
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
@@ -2311,6 +2317,16 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     interpreter.TryQueryLogging(hint);
   }
 
+  if (interpreter.query_logger_.has_value()) {
+    std::stringstream printed_plan;
+    plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+    std::vector<std::vector<TypedValue>> printed_plan_rows;
+    interpreter.TryQueryLogging("Explain plan");
+    for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
+      interpreter.TryQueryLogging(row);
+    }
+  }
+
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.TryQueryLogging(fmt::format("Plan cost: {}", plan->cost()));
@@ -2350,7 +2366,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  CurrentDB &current_db) {
+                                  Interpreter &interpreter, CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -2380,17 +2396,18 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
   }
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
+  interpreter.TryQueryLogging("Explain plan");
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
+    interpreter.TryQueryLogging(row);
   }
-
-  summary->insert_or_assign("explain", plan::PlanToJson(*dba, &cypher_query_plan->plan()).dump());
 
   return PreparedQuery{{"QUERY PLAN"},
                        std::move(parsed_query.required_privileges),
@@ -2406,8 +2423,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                  utils::MemoryResource *execution_memory,
+                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
+                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
                                   std::shared_ptr<QueryUserOrRole> user_or_role,
                                   std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
@@ -2470,6 +2487,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
   }
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -2486,13 +2504,13 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_,
-       hops_limit](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       hops_limit, query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), db_acc, nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit, query_logger)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
@@ -5136,12 +5154,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                              current_timeout_timer_, *this, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, current_db_);
+                                           &query_execution->notifications, interpreter_context_, *this, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                              &query_execution->notifications, interpreter_context_, current_db_, memory_resource,
-                              user_or_role_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           &query_execution->notifications, interpreter_context_, *this, current_db_,
+                                           memory_resource, user_or_role_, &transaction_status_, current_timeout_timer_,
+                                           &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
