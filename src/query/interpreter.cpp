@@ -2122,7 +2122,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
-      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+      auto key = ExecutionStatsKeyToString(ExecutionStats::Key(i));
+      stats.emplace(key, ctx_.execution_stats.counters[i]);
+      if (query_logger_) {
+        query_logger_->trace(fmt::format("{}: {}", key, ctx_.execution_stats.counters[i]));
+      }
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
