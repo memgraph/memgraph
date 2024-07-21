@@ -5342,7 +5342,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     system_transaction_ = std::move(system_transaction);
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
-  } catch (const utils::BasicException &) {
+  } catch (const utils::BasicException &e) {
+    TryQueryLogging(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
