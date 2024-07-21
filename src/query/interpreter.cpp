@@ -609,8 +609,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server, std::string_view management_server)
-      -> void override {
+                              std::string_view coordinator_server,
+                              std::string_view management_server) -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
@@ -802,21 +802,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -1976,7 +1969,7 @@ struct PullPlan {
                     std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {});
+                    std::optional<int64_t> hops_limit = {}, QueryLogger *query_logger = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1988,6 +1981,7 @@ struct PullPlan {
   Frame frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
+  QueryLogger *query_logger_;
 
   // As it's possible to query execution using multiple pulls
   // we need the keep track of the total execution time across
@@ -2008,11 +2002,13 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
-                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit)
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
+                   QueryLogger *query_logger)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit) {
+      memory_limit_(memory_limit),
+      query_logger_(query_logger) {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -2110,6 +2106,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
+
+  if (query_logger_) {
+    query_logger_->trace(fmt::format("Plan execution time: {}", execution_time_.count()));
+  }
+
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
@@ -2170,8 +2171,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
-    -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras,
+                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -2334,7 +2335,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
       transaction_status, std::move(tx_timer), current_db.db_acc_, trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+      interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2745,11 +2747,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
+                 [execution_db_accessor](const auto &label_index) {
+                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
+                                                  TypedValue("")};
+                 });
 
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
