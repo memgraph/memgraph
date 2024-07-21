@@ -4941,6 +4941,7 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
   if (session_trace_query->enabled_) {
     callback = [interpreter] {
       interpreter->query_logger_.emplace(FLAGS_query_log_file);
+      interpreter->query_logger_->SetUser(interpreter->user_or_role_->key());
       interpreter->TryQueryLogging("Session initialized!");
     };
   } else {
@@ -5017,7 +5018,7 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
-  TryQueryLogging(fmt::format("Accepted query {}", query_string));
+  TryQueryLogging(fmt::format("Accepted query: {}", query_string));
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
@@ -5361,6 +5362,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   current_transaction_ = interpreter_context_->id_handler.next();
+  if (query_logger_) {
+    query_logger_->SetTransactionId(std::to_string(*current_transaction_));
+  }
   metadata_ = GenOptional(extras.metadata_pv);
   current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
@@ -5376,7 +5380,12 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
   TryQueryLogging("Query abort started.");
-  utils::OnScopeExit abort_end([this]() { this->TryQueryLogging("Query abort ended."); });
+  utils::OnScopeExit abort_end([this]() {
+    this->TryQueryLogging("Query abort ended.");
+    if (query_logger_) {
+      query_logger_->ResetTransactionId();
+    }
+  });
 
   bool decrement = true;
 
@@ -5493,7 +5502,12 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 
 void Interpreter::Commit() {
   TryQueryLogging("Query commit started.");
-  utils::OnScopeExit commit_end([this]() { this->TryQueryLogging("Query commit ended."); });
+  utils::OnScopeExit commit_end([this]() {
+    this->TryQueryLogging("Query commit ended.");
+    if (query_logger_) {
+      query_logger_->ResetTransactionId();
+    }
+  });
 
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
@@ -5722,6 +5736,18 @@ void Interpreter::ResetUser() { user_or_role_.reset(); }
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
+}
+void Interpreter::ResetUser() {
+  user_or_role_.reset();
+  if (query_logger_) {
+    query_logger_->ResetUser();
+  }
+}
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  user_or_role_ = std::move(user_or_role);
+  if (query_logger_) {
+    query_logger_->SetUser(user_or_role_->key());
+  }
 }
 
 void Interpreter::TryQueryLogging(std::string message) {
