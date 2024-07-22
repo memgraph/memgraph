@@ -43,6 +43,8 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(Delete &op) override {
+    // since periodic commit needs to flush deltas over time, buffer size needs to be put in delete
+    // so it can know when to trigger delete of nodes and/or relationships
     if (commit_frequency_) {
       op.buffer_size_ = commit_frequency_;
     }
