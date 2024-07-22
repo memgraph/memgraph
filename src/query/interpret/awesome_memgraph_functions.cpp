@@ -1437,6 +1437,64 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
   return TypedValue(*enum_val, ctx.memory);
 }
 
+TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Map>("point", args, nargs);
+
+  auto const &input = args[0].ValueMap();
+
+  auto numeric_as_double = [](TypedValue const &value, std::string_view arg_name) -> double {
+    if (value.IsDouble()) {
+      return value.ValueDouble();
+    }
+    if (value.IsInt()) {
+      return value.ValueInt();
+    }
+
+    // null is problem here
+
+    throw QueryRuntimeException("Argument {} is not numeric.", arg_name);
+  };
+
+  auto [x, from_longitude] = std::invoke([&]() -> std::pair<double, bool> {
+    auto it_x = input.find("x");
+    if (it_x != input.end()) {
+      return {numeric_as_double(it_x->second, "longitude/x"), false};
+    }
+    auto it_longitude = input.find("longitude");
+    if (it_longitude != input.end()) {
+      return {numeric_as_double(it_longitude->second, "longitude/x"), true};
+    }
+    throw QueryRuntimeException("Argument longitude/x is missing.");
+  });
+
+  auto [y, from_latitude] = std::invoke([&]() -> std::pair<double, bool> {
+    auto it_y = input.find("y");
+    if (it_y != input.end()) {
+      return {numeric_as_double(it_y->second, "latitude/y"), false};
+    }
+    auto it_latitude = input.find("latitude");
+    if (it_latitude != input.end()) {
+      return {numeric_as_double(it_latitude->second, "latitude/y"), true};
+    }
+    throw QueryRuntimeException("Argument latitude/y is missing.");
+  });
+
+  using z_type = std::optional<std::pair<double, bool>>;
+  auto z = std::invoke([&]() -> z_type {
+    auto it_z = input.find("z");
+    if (it_z != input.end()) {
+      return z_type{std::in_place, numeric_as_double(it_z->second, "height/z"), false};
+    }
+    auto it_height = input.find("height");
+    if (it_height != input.end()) {
+      return z_type{std::in_place, numeric_as_double(it_height->second, "height/z"), true};
+    }
+    return std::nullopt;
+  });
+
+  return TypedValue(storage::Point2d{}, ctx.memory);
+}
+
 }  // namespace
 
 auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
@@ -1527,6 +1585,9 @@ auto NameToFunction(const std::string &function_name) -> std::variant<func_impl,
 
   // Functions for enum types
   if (function_name == "TOENUM") return ToEnum;
+
+  // Functions for point types
+  if (function_name == "POINT") return Point;
 
   auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
 
