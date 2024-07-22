@@ -14,11 +14,11 @@
 #include "storage/v2/point.hpp"
 
 namespace memgraph::query {
-auto CypherConstructionFor(storage::Point2d const &value) -> std::string {
+inline auto CypherConstructionFor(storage::Point2d const &value) -> std::string {
   return fmt::format("POINT({{ x:{}, y:{}, srid: {} }})", value.x(), value.y(), CrsToSrid(value.crs()).value_of());
 }
 
-auto CypherConstructionFor(storage::Point3d const &value) -> std::string {
+inline auto CypherConstructionFor(storage::Point3d const &value) -> std::string {
   return fmt::format("POINT({{ x:{}, y:{}, z:{}, srid: {} }})", value.x(), value.y(), value.z(),
                      CrsToSrid(value.crs()).value_of());
 }

@@ -15,6 +15,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <string_view>
 #include <utility>
 
 #include "boost/functional/hash.hpp"
@@ -50,6 +51,24 @@ inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
       return Srid{kSrid_Cartesian_3D};
   }
 };
+
+inline auto StringToCrs(std::string_view crs) -> std::optional<CoordinateReferenceSystem> {
+  using enum CoordinateReferenceSystem;
+
+  if (crs == "WGS-84") {
+    return WGS84_2d;
+  }
+  if (crs == "WGS-84-3D") {
+    return WGS84_3d;
+  }
+  if (crs == "CARTESIAN") {
+    return Cartesian_2d;
+  }
+  if (crs == "CARTESIAN-3D") {
+    return Cartesian_3d;
+  }
+  return std::nullopt;
+}
 
 inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
   switch (val.value_of()) {
