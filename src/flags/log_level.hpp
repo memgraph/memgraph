@@ -29,7 +29,4 @@ void AddLoggerSink(spdlog::sink_ptr new_sink);
 void LogToStderr(spdlog::level::level_enum log_level);
 void UpdateStderr(spdlog::level::level_enum log_level);
 
-void Flush();
-void ShutDownLogger();
-
 }  // namespace memgraph::flags

@@ -129,6 +129,12 @@ auto RaftState::InitRaftServer() -> void {
   // have multiple leaders.
   params.leadership_expiry_ = 1800;
 
+  // https://github.com/eBay/NuRaft/blob/master/docs/custom_commit_policy.md#full-consensus-mode
+  // we want to set coordinator to unhealthy as soon as it is down and doesn't respond
+  auto limits = raft_server::get_raft_limits();
+  limits.response_limit_.store(1);
+  raft_server::set_raft_limits(limits);
+
   raft_server::init_options init_opts;
 
   init_opts.start_server_in_constructor_ = false;

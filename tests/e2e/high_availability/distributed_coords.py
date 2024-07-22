@@ -40,10 +40,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
 
-
-def get_instances_description_no_setup(test_name: str, use_durability: bool = True):
+def get_instances_description_no_setup(temp_dir, test_name: str, use_durability: bool = True):
     return {
         "instance_1": {
             "args": [
@@ -56,7 +54,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "10011",
             ],
             f"log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -70,7 +68,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "10012",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -84,7 +82,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "10013",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
         "coordinator_1": {
@@ -101,7 +99,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "localhost",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_1",
+            "data_directory": f"{temp_dir}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -118,7 +116,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "localhost",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_2",
+            "data_directory": f"{temp_dir}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -135,7 +133,7 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "localhost",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_3",
+            "data_directory": f"{temp_dir}/coordinator_3",
             "setup_queries": [],
         },
     }
@@ -152,7 +150,7 @@ def get_default_setup_queries():
     ]
 
 
-def get_instances_description_no_setup_4_coords(test_name: str, use_durability: bool = True):
+def get_instances_description_no_setup_4_coords(temp_dir, test_name: str, use_durability: bool = True):
     use_durability_str = "true" if use_durability else "false"
     return {
         "instance_1": {
@@ -166,7 +164,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "10011",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "data_directory": f"{temp_dir}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -180,7 +178,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "10012",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "data_directory": f"{temp_dir}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -194,7 +192,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "10013",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "data_directory": f"{temp_dir}/instance_3",
             "setup_queries": [],
         },
         "coordinator_1": {
@@ -211,7 +209,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_1",
+            "data_directory": f"{temp_dir}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -228,7 +226,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_2",
+            "data_directory": f"{temp_dir}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -245,7 +243,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--management-port=10123",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_3",
+            "data_directory": f"{temp_dir}/coordinator_3",
             "setup_queries": [],
         },
         "coordinator_4": {
@@ -262,7 +260,7 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--management-port=10124",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/coordinator4.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_4",
+            "data_directory": f"{temp_dir}/coordinator_4",
             "setup_queries": [],
         },
     }
@@ -368,9 +366,10 @@ def test_even_number_coords(use_durability):
     # 8.
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+
     inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name="test_even_number_coords_" + str(use_durability), use_durability=use_durability
+        temp_dir.name, test_name="test_even_number_coords_" + str(use_durability), use_durability=use_durability
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -544,6 +543,8 @@ def test_even_number_coords(use_durability):
 
         mg_sleep_and_assert(leader_data, show_instances)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_old_main_comes_back_on_new_leader_as_replica():
     # 1. Start all instances.
@@ -553,9 +554,10 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is registered as a replica
     # 6. Start again previous leader
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_old_main_comes_back_on_new_leader_as_replica"
+        temp_dir.name, test_name="test_old_main_comes_back_on_new_leader_as_replica"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -637,26 +639,16 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
     mg_sleep_and_assert(coord_leader_data, get_show_instances_to_coord(coordinator_leader_instance))
 
-    def find_main_instance():
-        cursor = connect(host="localhost", port=7690).cursor()
-
-        results = execute_and_fetch_all(cursor, "SHOW INSTANCES;")
-
-        for result in results:
-            if result[5] == "main":
-                return result[0]
-        return None
-
-    main_instance_name = find_main_instance()
-
     def connect_to_main_instance():
-        assert main_instance_name is not None
+        assert main_instance_id_instance_3_start is not None
 
         port_mapping = {"instance_1": 7687, "instance_2": 7688, "instance_3": 7689}
 
-        assert main_instance_name in port_mapping, f"Main is not in mappings, but main is {main_instance_name}"
+        assert (
+            main_instance_id_instance_3_start in port_mapping
+        ), f"Main is not in mappings, but main is {main_instance_id_instance_3_start}"
 
-        main_instance_port = port_mapping.get(main_instance_name)
+        main_instance_port = port_mapping.get(main_instance_id_instance_3_start)
 
         if main_instance_port is not None:
             return connect(host="localhost", port=main_instance_port).cursor()
@@ -692,7 +684,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
-    replicas = [replica for replica in replicas if replica[0] != main_instance_name]
+    replicas = [replica for replica in replicas if replica[0] != main_instance_id_instance_3_start]
     mg_sleep_and_assert_collection(replicas, show_replicas)
 
     execute_and_fetch_all(new_main_cursor, "CREATE (n:Node {name: 'node'})")
@@ -713,10 +705,15 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_distributed_automatic_failover():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(test_name="test_distributed_automatic_failover")
+    temp_dir = tempfile.TemporaryDirectory()
+
+    inner_instances_description = get_instances_description_no_setup(
+        temp_dir.name, test_name="test_distributed_automatic_failover"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description)
 
@@ -808,11 +805,14 @@ def test_distributed_automatic_failover():
 
     mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_distributed_automatic_failover_with_leadership_change():
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_distributed_automatic_failover_with_leadership_change"
+        temp_dir.name, test_name="test_distributed_automatic_failover_with_leadership_change"
     )
 
     interactive_mg_runner.start_all(inner_instances_description)
@@ -933,16 +933,18 @@ def test_distributed_automatic_failover_with_leadership_change():
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_no_leader_after_leader_and_follower_die():
     # 1. Register all but one replication instance on the first leader.
     # 2. Kill the leader and a follower.
     # 3. Check that the remaining follower is not promoted to leader by trying to register remaining replication instance.
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
 
     inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_no_leader_after_leader_and_follower_die"
+        temp_dir, test_name="test_no_leader_after_leader_and_follower_die"
     )
     interactive_mg_runner.start_all(inner_memgraph_instances)
 
@@ -977,6 +979,8 @@ def test_no_leader_after_leader_and_follower_die():
         )
         assert "Couldn't register replica instance since coordinator is not a leader!" in str(e)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_old_main_comes_back_on_new_leader_as_main():
     # 1. Start all instances.
@@ -985,10 +989,10 @@ def test_old_main_comes_back_on_new_leader_as_main():
     # 4. Start the old main instance
     # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is main once again
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
 
     inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_old_main_comes_back_on_new_leader_as_main"
+        temp_dir.name, test_name="test_old_main_comes_back_on_new_leader_as_main"
     )
     interactive_mg_runner.start_all(inner_memgraph_instances)
 
@@ -1075,10 +1079,14 @@ def test_old_main_comes_back_on_new_leader_as_main():
 
     interactive_mg_runner.start(inner_memgraph_instances, "coordinator_3")
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_registering_4_coords():
     # Goal of this test is to assure registering of multiple coordinators in row works
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     test_name = "test_registering_4_coords"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
@@ -1092,7 +1100,7 @@ def test_registering_4_coords():
                 "10011",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "data_directory": f"{temp_dir_name}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -1106,7 +1114,7 @@ def test_registering_4_coords():
                 "10012",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "data_directory": f"{temp_dir_name}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -1120,7 +1128,7 @@ def test_registering_4_coords():
                 "10013",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "data_directory": f"{temp_dir_name}/instance_3",
             "setup_queries": [],
         },
         "coordinator_1": {
@@ -1207,6 +1215,8 @@ def test_registering_4_coords():
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_repl_cluster)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_registering_coord_log_store():
     # Goal of this test is to assure registering a bunch of instances and de-registering works properly
@@ -1221,7 +1231,9 @@ def test_registering_coord_log_store():
     # 8. Check correct state
     # 9. Drop 1 new instance # 1 log -> 2nd snapshot
     # 10. Check correct state
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     test_name = "test_registering_coord_log_store"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
@@ -1235,7 +1247,7 @@ def test_registering_coord_log_store():
                 "10011",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "data_directory": f"{temp_dir_name}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -1249,7 +1261,7 @@ def test_registering_coord_log_store():
                 "10012",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "data_directory": f"{temp_dir_name}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -1263,7 +1275,7 @@ def test_registering_coord_log_store():
                 "10013",
             ],
             "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "data_directory": f"{temp_dir_name}/instance_3",
             "setup_queries": [],
         },
         "coordinator_1": {
@@ -1386,8 +1398,8 @@ def test_registering_coord_log_store():
 
         instance_description = {
             "args": args_desc,
-            "log_file": f"high_availability/distributed_coords/instance_{i}.log",
-            "data_directory": f"{TEMP_DIR}/instance_{i}",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_{i}.log",
+            "data_directory": f"{temp_dir_name}/instance_{i}",
             "setup_queries": [],
         }
 
@@ -1456,6 +1468,8 @@ def test_registering_coord_log_store():
     # 10
     mg_sleep_and_assert(new_expected_data_on_coordinator, retrieve_data_show_repl_cluster)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_multiple_failovers_in_row_no_leadership_change():
     # Goal of this test is to assure multiple failovers in row work without leadership change
@@ -1475,9 +1489,11 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 13. Expect data to be replicated
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_multiple_failovers_in_row_no_leadership_change"
+        temp_dir_name, test_name="test_multiple_failovers_in_row_no_leadership_change"
     )
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
@@ -1641,6 +1657,8 @@ def test_multiple_failovers_in_row_no_leadership_change():
 
     mg_sleep_and_assert(1, get_vertex_count_func(connect(port=7688, host="localhost").cursor()))
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_multiple_old_mains_single_failover():
     # Goal of this test is to check when leadership changes
@@ -1654,9 +1672,11 @@ def test_multiple_old_mains_single_failover():
     # 7. Second main should write data to new instance all the time
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_multiple_old_mains_single_failover"
+        temp_dir_name, test_name="test_multiple_old_mains_single_failover"
     )
 
     interactive_mg_runner.start_all(inner_instances_description)
@@ -1800,6 +1820,8 @@ def test_multiple_old_mains_single_failover():
         time.sleep(0.1)
         time_slept += 0.1
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_force_reset_works_after_failed_registration():
     # Goal of this test is to check that force reset works after failed registration
@@ -1810,9 +1832,11 @@ def test_force_reset_works_after_failed_registration():
     # 5. Check that everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration"
+        temp_dir_name, test_name="test_force_reset_works_after_failed_registration"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -1922,8 +1946,7 @@ def test_force_reset_works_after_failed_registration():
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
 
-    interactive_mg_runner.stop_all(inner_instances_description)
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 def test_force_reset_works_after_failed_registration_and_main_down():
@@ -1939,9 +1962,11 @@ def test_force_reset_works_after_failed_registration_and_main_down():
     # 7. Check that main is correctly demoted to replica
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration_and_main_down"
+        temp_dir_name, test_name="test_force_reset_works_after_failed_registration_and_main_down"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2051,8 +2076,7 @@ def test_force_reset_works_after_failed_registration_and_main_down():
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
 
-    interactive_mg_runner.stop_all(inner_instances_description)
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 def test_force_reset_works_after_failed_registration_and_replica_down():
@@ -2068,9 +2092,11 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 7. Check that replica is correctly demoted to replica
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration_and_replica_down"
+        temp_dir_name, test_name="test_force_reset_works_after_failed_registration_and_replica_down"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2229,6 +2255,8 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # Goal of this test is to check when action fails, that force reset happens
@@ -2243,9 +2271,11 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # 8. Check that everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration_and_2_coordinators_down"
+        temp_dir_name, test_name="test_force_reset_works_after_failed_registration_and_2_coordinators_down"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2413,6 +2443,8 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_coordinator_gets_info_on_other_coordinators():
     # Goal of this test is to check that coordinator which has cluster state
@@ -2427,9 +2459,11 @@ def test_coordinator_gets_info_on_other_coordinators():
     # 8. Check that such coordinator has correct info
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_gets_info_on_other_coordinators"
+        temp_dir_name, test_name="test_coordinator_gets_info_on_other_coordinators"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2531,7 +2565,7 @@ def test_coordinator_gets_info_on_other_coordinators():
                 "localhost",
             ],
             "log_file": "high_availability/distributed_coords/coordinator4.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_4",
+            "data_directory": f"{temp_dir_name}/coordinator_4",
             "setup_queries": [],
         },
     }
@@ -2572,6 +2606,8 @@ def test_coordinator_gets_info_on_other_coordinators():
 
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_registration_works_after_main_set():
     # This test tries to register first main and set it to main and afterwards register other instances
@@ -2579,8 +2615,12 @@ def test_registration_works_after_main_set():
     # 2. Check everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    inner_instances_description = get_instances_description_no_setup(test_name="test_registration_works_after_main_set")
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
+    inner_instances_description = get_instances_description_no_setup(
+        temp_dir_name, test_name="test_registration_works_after_main_set"
+    )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2652,6 +2692,8 @@ def test_registration_works_after_main_set():
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_coordinator_not_leader_registration_does_not_work():
     # Goal of this test is to check that it is not possible to register instance on follower coord
@@ -2660,9 +2702,11 @@ def test_coordinator_not_leader_registration_does_not_work():
     # 3. Try to register instance on follower coord
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_not_leader_registration_does_not_work"
+        temp_dir_name, test_name="test_coordinator_not_leader_registration_does_not_work"
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2748,6 +2792,8 @@ def test_coordinator_not_leader_registration_does_not_work():
         == str(e.value)
     )
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_coordinator_user_action_demote_instance_to_replica():
     # Goal of this test is to check that it is not possible to register instance on follower coord
@@ -2757,9 +2803,11 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 4. Check we have correct state
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_user_action_demote_instance_to_replica", use_durability=True
+        temp_dir_name, test_name="test_coordinator_user_action_demote_instance_to_replica", use_durability=True
     )
 
     FAILOVER_PERIOD = 2
@@ -2873,6 +2921,8 @@ def test_coordinator_user_action_demote_instance_to_replica():
     mg_sleep_and_assert(data_original, show_instances_coord1)
     mg_sleep_and_assert(data_original, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_coordinator_user_action_force_reset_works():
     # Goal of this test is to check that it is not possible to register instance on follower coord
@@ -2882,9 +2932,11 @@ def test_coordinator_user_action_force_reset_works():
     # 4. Check we have correct state
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_user_action_force_reset_works", use_durability=True
+        temp_dir_name, test_name="test_coordinator_user_action_force_reset_works", use_durability=True
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2979,6 +3031,8 @@ def test_coordinator_user_action_force_reset_works():
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_all_coords_down_resume():
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
@@ -2991,9 +3045,11 @@ def test_all_coords_down_resume():
     # 5. Check everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_all_coords_down_resume", use_durability=True
+        temp_dir_name, test_name="test_all_coords_down_resume", use_durability=True
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -3107,6 +3163,8 @@ def test_all_coords_down_resume():
         [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
     )
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_one_coord_down_with_durability_resume():
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
@@ -3119,9 +3177,11 @@ def test_one_coord_down_with_durability_resume():
     # 5. Check everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_one_coord_down_with_durability_resume", use_durability=True
+        temp_dir_name, test_name="test_one_coord_down_with_durability_resume", use_durability=True
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -3210,15 +3270,19 @@ def test_one_coord_down_with_durability_resume():
     mg_sleep_and_assert(leader_data, show_instances_coord1)
     mg_sleep_and_assert(leader_data, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_registration_does_not_deadlock_when_instance_is_down():
     # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     interactive_mg_runner.stop_all(keep_directories=False)
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_registration_does_not_deadlock_when_instance_is_down", use_durability=True
+        temp_dir_name, test_name="test_registration_does_not_deadlock_when_instance_is_down", use_durability=True
     )
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
@@ -3282,6 +3346,8 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_follower_have_correct_health():
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
@@ -3294,9 +3360,11 @@ def test_follower_have_correct_health():
     # 5. Check everything works correctly
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_one_coord_down_with_durability_resume", use_durability=True
+        temp_dir_name, test_name="test_one_coord_down_with_durability_resume", use_durability=True
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -3334,14 +3402,19 @@ def test_follower_have_correct_health():
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    interactive_mg_runner.stop_all(keep_directories=False)
+
 
 def test_first_coord_restarts():
     # Goal of this test is to check that first coordinator can restart without any issues
 
     # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup(test_name="test_first_coord_restarts")
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_dir_name = temp_dir.name
+
+    inner_instances_description = get_instances_description_no_setup(
+        temp_dir_name, test_name="test_first_coord_restarts"
+    )
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
@@ -3361,32 +3434,7 @@ def test_first_coord_restarts():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     mg_sleep_and_assert(leader_data, show_instances_coord1)
 
-
-def test_first_coord_restarts():
-    # Goal of this test is to check that first coordinator can restart without any issues
-
-    # 1
-    safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup(test_name="test_first_coord_restarts")
-
-    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-
-    def show_instances_coord1():
-        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
-
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
-    mg_sleep_and_assert(leader_data, show_instances_coord1)
-
-    interactive_mg_runner.stop_all(keep_directories=True)
-
-    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
-
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
-
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-    mg_sleep_and_assert(leader_data, show_instances_coord1)
 
 
 if __name__ == "__main__":

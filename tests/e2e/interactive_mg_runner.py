@@ -133,7 +133,7 @@ def _start_instance(
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
 
     if "coordinator" in name:
-        args.append("--nuraft-log-file=" + log_file_path + ".nuraft")
+        args.append("--nuraft-log-file=" + log_file_path)
 
     data_directory_path = os.path.join(BUILD_DIR, data_directory)
     mg_instance = MemgraphInstanceRunner(
