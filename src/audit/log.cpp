@@ -15,7 +15,7 @@
 #include <utility>
 
 #include "communication/bolt/v1/mg_types.hpp"
-#include "storage/v2/point.hpp"
+#include "query/string_helpers.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -101,13 +101,13 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
     }
     case Point2d: {
       std::stringstream ss;
-      ss << value.ValuePoint2d();
+      ss << query::CypherConstructionFor(value.ValuePoint2d());
       ret = ss.str();
       break;
     }
     case Point3d: {
       std::stringstream ss;
-      ss << value.ValuePoint3d();
+      ss << query::CypherConstructionFor(value.ValuePoint3d());
       ret = ss.str();
       break;
     }
