@@ -4058,4 +4058,25 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class SessionTraceQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SessionTraceQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  bool enabled_{false};
+
+  SessionTraceQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<SessionTraceQuery>();
+    object->enabled_ = enabled_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query

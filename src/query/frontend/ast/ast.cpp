@@ -340,4 +340,7 @@ constexpr utils::TypeInfo query::DropEnumQuery::kType{utils::TypeId::AST_DROP_EN
 constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{utils::TypeId::AST_SHOW_SCHEMA_INFO_QUERY,
                                                             "ShowSchemaInfoQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
+                                                          &query::Query::kType};
+
 }  // namespace memgraph

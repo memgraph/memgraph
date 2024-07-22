@@ -1973,7 +1973,7 @@ struct PullPlan {
                     std::shared_ptr<utils::AsyncTimer> tx_timer,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {});
+                    std::optional<int64_t> hops_limit = {}, QueryLogger *query_logger = nullptr);
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
@@ -1985,6 +1985,7 @@ struct PullPlan {
   Frame frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
+  QueryLogger *query_logger_;
 
   // As it's possible to query execution using multiple pulls
   // we need the keep track of the total execution time across
@@ -2005,11 +2006,12 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
                    std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
                    const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit)
+                   const std::optional<int64_t> hops_limit, QueryLogger *query_logger)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
-      memory_limit_(memory_limit) {
+      memory_limit_(memory_limit),
+      query_logger_(query_logger) {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
   ctx_.db_accessor = dba;
   ctx_.symbol_table = plan->symbol_table();
@@ -2106,6 +2108,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
 
   summary->insert_or_assign("plan_execution_time", execution_time_.count());
   summary->insert_or_assign("number_of_hops", ctx_.number_of_hops);
+
+  if (query_logger_) {
+    query_logger_->trace(fmt::format("Query execution time: {}", execution_time_.count()));
+  }
+
   memgraph::metrics::Measure(memgraph::metrics::QueryExecutionLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(execution_time_).count());
 
@@ -2117,7 +2124,11 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   if (is_any_counter_set) {
     std::map<std::string, TypedValue> stats;
     for (size_t i = 0; i < ctx_.execution_stats.counters.size(); ++i) {
-      stats.emplace(ExecutionStatsKeyToString(ExecutionStats::Key(i)), ctx_.execution_stats.counters[i]);
+      auto key = ExecutionStatsKeyToString(ExecutionStats::Key(i));
+      stats.emplace(key, ctx_.execution_stats.counters[i]);
+      if (query_logger_) {
+        query_logger_->trace(fmt::format("{}: {}", key, ctx_.execution_stats.counters[i]));
+      }
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
@@ -2128,7 +2139,13 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     throw QueryException("Query exceeded the maximum number of hops.");
   }
 
-  return GetStatsWithTotalTime(ctx_);
+  auto stats_and_total_time = GetStatsWithTotalTime(ctx_);
+
+  if (query_logger_) {
+    query_logger_->trace(fmt::format("Profile plan\n{}", ProfilingStatsToJson(stats_and_total_time).dump()));
+  }
+
+  return stats_and_total_time;
 }
 
 using RWType = plan::ReadWriteTypeChecker::RWType;
@@ -2260,7 +2277,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role,
                                  std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer, Interpreter &interpreter,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -2303,10 +2320,27 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
+  }
+
+  if (interpreter.IsQueryLoggingActive()) {
+    std::stringstream printed_plan;
+    plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
+    std::vector<std::vector<TypedValue>> printed_plan_rows;
+    interpreter.TryQueryLogging("Explain plan");
+    for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
+      interpreter.TryQueryLogging(row);
+    }
   }
 
   TryCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
+  interpreter.TryQueryLogging(fmt::format("Plan cost: {}", plan->cost()));
+  bool is_profile_query = false;
+  if (interpreter.IsQueryLoggingActive()) {
+    is_profile_query = true;
+  }
+
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
 
@@ -2326,9 +2360,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
-      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
+      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
+      std::move(user_or_role), transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
+      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+      interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
@@ -2342,7 +2377,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
                                   std::vector<Notification> *notifications, InterpreterContext *interpreter_context,
-                                  CurrentDB &current_db) {
+                                  Interpreter &interpreter, CurrentDB &current_db) {
   const std::string kExplainQueryStart = "explain ";
   MG_ASSERT(utils::StartsWith(utils::ToLowerCase(parsed_query.stripped_query.query()), kExplainQueryStart),
             "Expected stripped query to start with '{}'", kExplainQueryStart);
@@ -2372,17 +2407,18 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
   }
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
+  interpreter.TryQueryLogging("Explain plan");
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
+    interpreter.TryQueryLogging(row);
   }
-
-  summary->insert_or_assign("explain", plan::PlanToJson(*dba, &cypher_query_plan->plan()).dump());
 
   return PreparedQuery{{"QUERY PLAN"},
                        std::move(parsed_query.required_privileges),
@@ -2398,8 +2434,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
 PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                   std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                  utils::MemoryResource *execution_memory,
+                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
+                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
                                   std::shared_ptr<QueryUserOrRole> user_or_role,
                                   std::atomic<TransactionStatus> *transaction_status,
                                   std::shared_ptr<utils::AsyncTimer> tx_timer,
@@ -2462,6 +2498,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
     notifications->emplace_back(SeverityLevel::INFO, NotificationCode::PLAN_HINTING, hint);
+    interpreter.TryQueryLogging(hint);
   }
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
@@ -2477,14 +2514,16 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer),
-       hops_limit](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       tx_timer = std::move(tx_timer), hops_limit,
+       query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+                       query_logger)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
@@ -4755,6 +4794,41 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
           RWType::W};
 }
 
+PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &current_db, Interpreter *interpreter) {
+  MG_ASSERT(current_db.db_acc_, "Session trace query expects a current DB");
+
+#ifdef MG_ENTERPRISE
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryRuntimeException("SET SESSION TRACE command is only available with a valid Enterprise License!");
+  }
+#else
+  throw QueryRuntimeException("SET SESSION TRACE command is only available in Memgraph Enterprise build!");
+#endif
+
+  auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
+  MG_ASSERT(session_trace_query);
+
+  std::function<void()> callback;
+  if (session_trace_query->enabled_) {
+    callback = [interpreter] {
+      interpreter->query_logger_.emplace(FLAGS_query_log_file);
+      interpreter->query_logger_->SetUser(interpreter->user_or_role_->key());
+      interpreter->TryQueryLogging("Session initialized!");
+    };
+  } else {
+    callback = [interpreter] { interpreter->query_logger_.reset(); };
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -4812,6 +4886,7 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
+  TryQueryLogging(fmt::format("Accepted query: {}", query_string));
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
@@ -4843,14 +4918,17 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     }
 
     SetupInterpreterTransaction(extras);
+    TryQueryLogging(fmt::format("Query [{}] associated with transaction [{}]", query_string, *current_transaction_));
   }
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     utils::Timer parsing_timer;
+    TryQueryLogging("Query parsing started.");
     ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query);
     auto parsing_time = parsing_timer.Elapsed().count();
+    TryQueryLogging("Query parsing ended.");
 
     // Setup QueryExecution
     query_executions_.emplace_back(QueryExecution::Create());
@@ -4861,6 +4939,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
 
     query_execution->summary["parsing_time"] = parsing_time;
+    TryQueryLogging(fmt::format("Query parsing time: {}", parsing_time));
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
@@ -4932,22 +5011,25 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #endif
 
     utils::Timer planning_timer;
+    TryQueryLogging("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
+
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
-                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
+                             memory_resource, &query_execution->notifications, user_or_role_, &transaction_status_,
+                             current_timeout_timer_, *this, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
-                                           &query_execution->notifications, interpreter_context_, current_db_);
+                                           &query_execution->notifications, interpreter_context_, *this, current_db_);
     } else if (utils::Downcast<ProfileQuery>(parsed_query.query)) {
-      prepared_query =
-          PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
-                              &query_execution->notifications, interpreter_context_, current_db_, memory_resource,
-                              user_or_role_, &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query = PrepareProfileQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->summary,
+                                           &query_execution->notifications, interpreter_context_, *this, current_db_,
+                                           memory_resource, user_or_role_, &transaction_status_, current_timeout_timer_,
+                                           &*frame_change_collector_);
     } else if (utils::Downcast<DumpQuery>(parsed_query.query)) {
       prepared_query = PrepareDumpQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
@@ -5075,12 +5157,17 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       throw utils::NotYetImplemented("Drop enum");
     } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
       throw utils::NotYetImplemented("Show schema info");
+    } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
+      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
 
-    query_execution->summary["planning_time"] = planning_timer.Elapsed().count();
+    auto planning_time = planning_timer.Elapsed().count();
+    query_execution->summary["planning_time"] = planning_time;
     query_execution->prepared_query.emplace(std::move(prepared_query));
+    TryQueryLogging("Query planning ended.");
+    TryQueryLogging(fmt::format("Query planning time: {}", planning_time));
 
     const auto rw_type = query_execution->prepared_query->rw_type;
     query_execution->summary["type"] = plan::ReadWriteTypeChecker::TypeToString(rw_type);
@@ -5118,7 +5205,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     system_transaction_ = std::move(system_transaction);
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid,
             query_execution->prepared_query->db};
-  } catch (const utils::BasicException &) {
+  } catch (const utils::BasicException &e) {
+    TryQueryLogging(fmt::format("Failed query: {}", e.what()));
     // Trigger first failed query
     metrics::FirstFailedQuery();
     memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
@@ -5136,6 +5224,9 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
   transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
   current_transaction_ = interpreter_context_->id_handler.next();
+  if (query_logger_) {
+    query_logger_->SetTransactionId(std::to_string(*current_transaction_));
+  }
   metadata_ = GenOptional(extras.metadata_pv);
   current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
@@ -5150,6 +5241,14 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  TryQueryLogging("Query abort started.");
+  utils::OnScopeExit abort_end([this]() {
+    this->TryQueryLogging("Query abort ended.");
+    if (query_logger_) {
+      query_logger_->ResetTransactionId();
+    }
+  });
+
   bool decrement = true;
 
   // System tx
@@ -5262,6 +5361,14 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }  // namespace
 
 void Interpreter::Commit() {
+  TryQueryLogging("Query commit started.");
+  utils::OnScopeExit commit_end([this]() {
+    this->TryQueryLogging("Query commit ended.");
+    if (query_logger_) {
+      query_logger_->ResetTransactionId();
+    }
+  });
+
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
   // For now, we will not check if there are some unfinished queries.
@@ -5446,6 +5553,10 @@ void Interpreter::Commit() {
   if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
+
+  if (query_logger_.has_value()) {
+    query_logger_.value().trace("Commit successfully finished!");
+  }
 }
 
 void Interpreter::AdvanceCommand() {
@@ -5481,7 +5592,25 @@ void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel
 void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
   interpreter_isolation_level.emplace(isolation_level);
 }
-void Interpreter::ResetUser() { user_or_role_.reset(); }
-void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
+void Interpreter::ResetUser() {
+  user_or_role_.reset();
+  if (query_logger_) {
+    query_logger_->ResetUser();
+  }
+}
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  user_or_role_ = std::move(user_or_role);
+  if (query_logger_) {
+    query_logger_->SetUser(user_or_role_->key());
+  }
+}
+
+bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
+
+void Interpreter::TryQueryLogging(std::string message) {
+  if (query_logger_.has_value()) {
+    (*query_logger_).trace(message);
+  }
+}
 
 }  // namespace memgraph::query
