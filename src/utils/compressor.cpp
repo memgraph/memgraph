@@ -53,73 +53,65 @@ int StoragePropertyStoreCompressionLevelToInt(std::string_view value) {
 
 namespace memgraph::utils {
 
-DataBuffer::DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size)
-    : data(data), compressed_size(compressed_size), original_size(original_size) {}
-
-DataBuffer::DataBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
-    : data(std::move(data)), compressed_size(compressed_size), original_size(original_size) {}
-
-DataBuffer::DataBuffer(DataBuffer &&other) noexcept
-    : data(std::move(other.data)),
-      compressed_size(std::exchange(other.compressed_size, 0)),
-      original_size(std::exchange(other.original_size, 0)) {}
-
-DataBuffer &DataBuffer::operator=(DataBuffer &&other) noexcept {
-  if (this != &other) {
-    data = std::move(other.data);
-    compressed_size = std::exchange(other.compressed_size, 0);
-    original_size = std::exchange(other.original_size, 0);
+auto ZlibCompressor::Compress(std::span<uint8_t const> uncompressed_data) const -> std::optional<CompressedBuffer> {
+  if (uncompressed_data.empty()) {
+    return CompressedBuffer{nullptr, 0, 0};
   }
-  return *this;
+
+  // TODO why uint32_t limit here? (why does compression/decompression care...why not size_t)
+  if (std::numeric_limits<uint32_t>::max() < uncompressed_data.size_bytes()) {
+    return std::nullopt;
+  }
+  auto original_size = static_cast<uint32_t>(uncompressed_data.size_bytes());
+
+  // this is an estimate on what size we expect compression to be
+  auto const compress_bound = compressBound(original_size);
+
+  auto const buffer_size = static_cast<uint32_t>(compress_bound);
+  auto compressed_data = std::make_unique<uint8_t[]>(buffer_size);
+
+  auto compression_level =
+      memgraph::flags::StoragePropertyStoreCompressionLevelToInt(FLAGS_storage_property_store_compression_level);
+
+  auto actual_size = compress_bound;
+  const int result =
+      compress2(compressed_data.get(), &actual_size, uncompressed_data.data(), original_size, compression_level);
+
+  if (result != Z_OK) {
+    return std::nullopt;
+  }
+
+  if (actual_size == compress_bound) {
+    return CompressedBuffer{std::move(compressed_data), buffer_size, original_size};
+  }
+
+  auto new_buffer_size = static_cast<uint32_t>(actual_size);
+  auto result_compressed_data = std::make_unique<uint8_t[]>(new_buffer_size);
+  std::copy_n(compressed_data.get(), new_buffer_size, result_compressed_data.get());
+  return CompressedBuffer{std::move(result_compressed_data), new_buffer_size, original_size};
 }
 
-DataBuffer ZlibCompressor::Compress(const uint8_t *input, uint32_t original_size) {
-  if (original_size == 0 || input == nullptr) {
-    return {};
+auto ZlibCompressor::Decompress(std::span<uint8_t const> compressed_data, uint32_t original_size) const
+    -> std::optional<DecompressedBuffer> {
+  if (compressed_data.empty() || original_size == 0) {
+    return DecompressedBuffer{nullptr, 0};
   }
 
-  auto compress_bound = compressBound(original_size);
-  std::unique_ptr<uint8_t[]> compressed_data(new uint8_t[compress_bound]);
-  const auto compressed_bound_copy = compress_bound;
+  auto uncompressed_data = std::make_unique<uint8_t[]>(original_size);
 
-  const int result = compress2(
-      compressed_data.get(), &compress_bound, input, original_size,
-      memgraph::flags::StoragePropertyStoreCompressionLevelToInt(FLAGS_storage_property_store_compression_level));
+  // needed correct type to avoid UB in `uncompress` call
+  uLongf original_size_tmp = original_size;
+  auto const result =
+      uncompress(uncompressed_data.get(), &original_size_tmp, compressed_data.data(), compressed_data.size_bytes());
 
-  if (result == Z_OK) {
-    std::unique_ptr<uint8_t[]> compressed_buffer_data;
-    const uint32_t compressed_size = compress_bound;
-    if (compress_bound < compressed_bound_copy) {
-      compressed_buffer_data = std::make_unique<uint8_t[]>(compress_bound);
-      std::memcpy(compressed_buffer_data.get(), compressed_data.get(), compress_bound);
-      return {std::move(compressed_buffer_data), compressed_size, original_size};
-    }
-    return {std::move(compressed_data), compressed_size, original_size};
-  }
-  return {};
+  if (result != Z_OK) return std::nullopt;
+
+  return DecompressedBuffer{std::move(uncompressed_data), original_size};
 }
 
-DataBuffer ZlibCompressor::Decompress(const uint8_t *compressed_data, uint32_t compressed_size,
-                                      uint32_t original_size) {
-  if (compressed_size == 0 || original_size == 0 || compressed_data == nullptr) {
-    return {};
-  }
-
-  std::unique_ptr<uint8_t[]> uncompressed_data(new uint8_t[original_size]);
-
-  uLongf original_size_ = original_size;
-  const int result = uncompress(uncompressed_data.get(), &original_size_, compressed_data, compressed_size);
-
-  if (result == Z_OK) return {std::move(uncompressed_data), compressed_size, original_size};
-
-  return {};
-}
-
-ZlibCompressor *ZlibCompressor::GetInstance() {
-  if (instance_ == nullptr) {
-    instance_ = new ZlibCompressor();
-  }
-  return instance_;
+auto Compressor::GetInstance() -> Compressor const * {
+  static std::unique_ptr<Compressor> const instance = std::make_unique<ZlibCompressor>();
+  return instance.get();
 }
 
 }  // namespace memgraph::utils

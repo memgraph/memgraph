@@ -39,75 +39,65 @@ int StoragePropertyStoreCompressionLevelToInt(std::string_view value);
 
 namespace memgraph::utils {
 
-struct DataBuffer {
-  std::unique_ptr<uint8_t[]> data;
-  uint32_t compressed_size = 0;
-  uint32_t original_size = 0;
+struct CompressedBuffer {
+  CompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size)
+      : data_(std::move(data)), compressed_size_(compressed_size), original_size_(original_size) {}
 
-  // Default constructor
-  DataBuffer() = default;
+  CompressedBuffer() = default;
+  CompressedBuffer(CompressedBuffer &&other) noexcept = default;
+  CompressedBuffer &operator=(CompressedBuffer &&other) noexcept = default;
 
-  DataBuffer(uint8_t *data, uint32_t compressed_size, uint32_t original_size);
+  auto original_size() const -> uint32_t { return original_size_; }
 
-  DataBuffer(std::unique_ptr<uint8_t[]> data, uint32_t compressed_size, uint32_t original_size);
+  auto view() -> std::span<uint8_t> { return std::span{data_.get(), compressed_size_}; }
+  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), compressed_size_}; }
 
-  // Destructor
-  ~DataBuffer() = default;
-
-  // Copy constructor
-  DataBuffer(const DataBuffer &other) = delete;
-
-  // Copy assignment operator
-  DataBuffer &operator=(const DataBuffer &other) = delete;
-
-  // Move constructor
-  DataBuffer(DataBuffer &&other) noexcept;
-
-  // Move assignment operator
-  DataBuffer &operator=(DataBuffer &&other) noexcept;
-};
-
-class Compressor {
- public:
-  Compressor() = default;
-  virtual ~Compressor() {}
-
-  Compressor(const Compressor &) = default;
-  Compressor &operator=(const Compressor &) = default;
-  Compressor(Compressor &&) = default;
-  Compressor &operator=(Compressor &&) = default;
-
-  virtual DataBuffer Compress(const uint8_t *input, uint32_t original_size) = 0;
-
-  virtual DataBuffer Decompress(const uint8_t *compressed_data, uint32_t compressed_size, uint32_t original_size) = 0;
-};
-
-class ZlibCompressor : public Compressor {
  private:
-  ZlibCompressor() = default;
+  std::unique_ptr<uint8_t[]> data_;
+  uint32_t compressed_size_ = 0;
+  uint32_t original_size_ = 0;
+};
 
-  // NOLINTNEXTLINE
-  inline static ZlibCompressor *instance_;
+struct DecompressedBuffer {
+  DecompressedBuffer(std::unique_ptr<uint8_t[]> data, uint32_t original_size)
+      : data_(std::move(data)), original_size_(original_size) {}
 
- public:
-  static ZlibCompressor *GetInstance();
+  DecompressedBuffer() = default;
+  DecompressedBuffer(DecompressedBuffer &&other) noexcept = default;
+  DecompressedBuffer &operator=(DecompressedBuffer &&other) noexcept = default;
 
-  ~ZlibCompressor() override {
-    if (instance_) {
-      delete instance_;
-      instance_ = nullptr;
-    }
+  auto view() -> std::span<uint8_t> { return std::span{data_.get(), original_size_}; }
+  auto view() const -> std::span<uint8_t const> { return std::span{data_.get(), original_size_}; }
+
+  void release() {
+    data_.release();
+    original_size_ = 0;
   }
 
-  void operator=(const ZlibCompressor &) = delete;
+ private:
+  std::unique_ptr<uint8_t[]> data_;
+  uint32_t original_size_ = 0;
+};
 
-  ZlibCompressor(const ZlibCompressor &) = delete;
-  ZlibCompressor(ZlibCompressor &&) = delete;
-  ZlibCompressor &operator=(ZlibCompressor &&) = delete;
+struct Compressor {
+  static auto GetInstance() -> Compressor const *;
 
-  DataBuffer Compress(const uint8_t *input, uint32_t original_size) override;
+  Compressor() = default;
+  virtual ~Compressor() = default;
 
-  DataBuffer Decompress(const uint8_t *compressed_data, uint32_t compressed_size, uint32_t original_size) override;
+  virtual auto Compress(std::span<uint8_t const> uncompressed_data) const -> std::optional<CompressedBuffer> = 0;
+
+  virtual auto Decompress(std::span<uint8_t const> compressed_data, uint32_t original_size) const
+      -> std::optional<DecompressedBuffer> = 0;
+};
+
+struct ZlibCompressor : public Compressor {
+  ZlibCompressor() = default;
+
+  auto Compress(std::span<uint8_t const> uncompressed_data) const -> std::optional<CompressedBuffer> override;
+
+  auto Decompress(std::span<uint8_t const> compressed_data, uint32_t original_size) const
+      -> std::optional<DecompressedBuffer> override;
 };
 
 }  // namespace memgraph::utils
