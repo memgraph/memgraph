@@ -343,8 +343,10 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
       break;
     case Type::Point2d:
       new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      break;
     case Type::Point3d:
       new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      break;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       break;
@@ -802,8 +804,10 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         break;
       case Type::Point2d:
         new (&point_2d_v) storage::Point2d(other.point_2d_v);
+        break;
       case Type::Point3d:
         new (&point_3d_v) storage::Point3d(other.point_3d_v);
+        break;
       case Type::Function:
         new (&function_v) std::function<void(TypedValue *)>{other.function_v};
         break;

@@ -31,6 +31,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "string_helpers.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"

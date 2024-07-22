@@ -42,6 +42,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/view.hpp"
+#include "string_helpers.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
@@ -3952,9 +3953,9 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
       // TODO: need to convert to EnumType::EnumValue form
       LOG_FATAL("enum not printable - not yet implemented");
     case TypedValue::Type::Point2d:
-      return (*stream) << value.ValuePoint2d();
+      return (*stream) << CypherConstructionFor(value.ValuePoint2d());
     case TypedValue::Type::Point3d:
-      return (*stream) << value.ValuePoint3d();
+      return (*stream) << CypherConstructionFor(value.ValuePoint3d());
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:

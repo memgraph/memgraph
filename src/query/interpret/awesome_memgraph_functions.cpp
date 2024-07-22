@@ -30,10 +30,12 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/point.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 namespace {
@@ -1442,6 +1444,12 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
   auto const &input = args[0].ValueMap();
 
+  for (auto const &[k, v] : input) {
+    if (v.IsNull()) {
+      return {};
+    }
+  }
+
   auto numeric_as_double = [](TypedValue const &value, std::string_view arg_name) -> double {
     if (value.IsDouble()) {
       return value.ValueDouble();
@@ -1449,9 +1457,6 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     if (value.IsInt()) {
       return value.ValueInt();
     }
-
-    // null is problem here
-
     throw QueryRuntimeException("Argument {} is not numeric.", arg_name);
   };
 
@@ -1479,8 +1484,12 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     throw QueryRuntimeException("Argument latitude/y is missing.");
   });
 
+  if (from_longitude != from_latitude) {
+    throw QueryRuntimeException("Use either x, y, z or longitude, latitude, height.");
+  }
+
   using z_type = std::optional<std::pair<double, bool>>;
-  auto z = std::invoke([&]() -> z_type {
+  auto z_opt = std::invoke([&]() -> z_type {
     auto it_z = input.find("z");
     if (it_z != input.end()) {
       return z_type{std::in_place, numeric_as_double(it_z->second, "height/z"), false};
@@ -1492,7 +1501,53 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     return std::nullopt;
   });
 
-  return TypedValue(storage::Point2d{}, ctx.memory);
+  auto crs = std::invoke([&]() -> std::optional<std::string_view> {
+    auto value = input.find("crs");
+    if (value == input.end() || !value->second.IsString()) {
+      return std::nullopt;
+    }
+    return value->second.ValueString();
+  });
+
+  auto srid = std::invoke([&]() -> std::optional<int> {
+    auto value = input.find("srid");
+    if (value == input.end() || !value->second.IsInt()) {
+      return std::nullopt;
+    }
+    return value->second.ValueInt();
+  });
+
+  if (crs.has_value() && srid.has_value()) {
+    throw QueryRuntimeException("Cannot specify both CRS and SRID");
+  }
+
+  std::optional<storage::CoordinateReferenceSystem> mg_crs;
+  if (crs.has_value()) {
+    mg_crs = storage::StringToCrs(utils::ToUpperCase(*crs));
+    if (!mg_crs.has_value()) {
+      throw QueryRuntimeException("Invalid CRS");
+    }
+  } else if (srid.has_value()) {
+    mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
+    if (!mg_crs.has_value()) {
+      throw QueryRuntimeException("Invalid SRID");
+    }
+  }
+
+  if (!mg_crs.has_value()) {
+    auto is_wgs = (from_longitude || from_latitude);
+    using CRS = storage::CoordinateReferenceSystem;
+    if (!z_opt.has_value()) {
+      mg_crs = is_wgs ? CRS::WGS84_2d : CRS::Cartesian_2d;
+    } else {
+      mg_crs = is_wgs ? CRS::WGS84_3d : CRS::Cartesian_3d;
+    }
+  }
+
+  if (!z_opt.has_value()) {
+    return TypedValue(storage::Point2d{*mg_crs, x, y});
+  }
+  return TypedValue(storage::Point3d{*mg_crs, x, y, (*z_opt).first});
 }
 
 }  // namespace
