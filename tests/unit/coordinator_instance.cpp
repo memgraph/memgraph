@@ -12,6 +12,7 @@
 #include "coordination/coordinator_instance.hpp"
 #include "interpreter_faker.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/counter.hpp"
 
 #include "utils/file.hpp"
 
@@ -48,6 +49,23 @@ class CoordinatorInstanceTest : public ::testing::Test {
   std::vector<uint16_t> const management_ports = {20113, 20114, 20115};
 };
 
+namespace {
+
+auto HasBecomeEqual(std::function<int()> const &func, int expected_value) -> bool {
+  constexpr int max_tries{200};
+  constexpr int waiting_period_ms{100};
+  auto maybe_stop = memgraph::utils::ResettableCounter<max_tries>();
+  while (!maybe_stop()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period_ms));
+    if (func() == expected_value) {
+      return true;
+    }
+  }
+  return false;
+};
+
+}  // namespace
+
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
@@ -69,7 +87,6 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     while (instance.ShowInstances().size() != 3) {
     }
   };
-
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -110,9 +127,10 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                      .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
                                      .management_server = Endpoint{"localhost", management_ports[2]},
                                      .coordinator_hostname = "localhost"});
-  {
-    wait_until_added(instance1);
-    auto const instances = instance1.ShowInstances();
+
+  auto const wait_and_assert = [this](auto const &instance) {
+    ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
+    auto const instances = instance.ShowInstances();
     auto const coord1_it = std::ranges::find_if(instances, [this](auto &instance) {
       return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
     });
@@ -125,39 +143,11 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
       return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
     });
     ASSERT_NE(coord3_it, instances.end());
-  }
-  {
-    wait_until_added(instance2);
-    auto const instances = instance2.ShowInstances();
-    auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
-    });
-    ASSERT_NE(coord1_it, instances.end());
-    auto const coord2_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[1]);
-    });
-    ASSERT_NE(coord2_it, instances.end());
-    auto const coord3_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
-    });
-    ASSERT_NE(coord3_it, instances.end());
-  }
-  {
-    wait_until_added(instance3);
-    auto const instances = instance3.ShowInstances();
-    auto const coord1_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[0]);
-    });
-    ASSERT_NE(coord1_it, instances.end());
-    auto const coord2_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[1]);
-    });
-    ASSERT_NE(coord2_it, instances.end());
-    auto const coord3_it = std::ranges::find_if(instances, [this](auto const &instance) {
-      return instance.instance_name == fmt::format("coordinator_{}", coordinator_ids[2]);
-    });
-    ASSERT_NE(coord3_it, instances.end());
-  }
+  };
+
+  { wait_and_assert(instance1); }
+  { wait_and_assert(instance2); }
+  { wait_and_assert(instance3); }
 }
 
 TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
@@ -166,7 +156,6 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
     while (instance.ShowInstances().size() != 3) {
     }
   };
-
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -217,9 +206,10 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
                                      .coordinator_server = Endpoint{"localhost", coordinator_ports[0]},
                                      .management_server = Endpoint{"localhost", management_ports[0]},
                                      .coordinator_hostname = "localhost"};
-
   auto const wait_and_assert = [&](auto const &instance) {
-    wait_until_added(instance);
+    ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual(
+        [&instance]() { return instance.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const coord_to_coord_configs = instance.GetRaftState().GetCoordinatorToCoordinatorConfigs();
     auto const coord1_config_it = std::ranges::find_if(
         coord_to_coord_configs, [this](auto const &config) { return config.coordinator_id == coordinator_ids[0]; });
@@ -247,7 +237,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
     while (instance.ShowInstances().size() != 3) {
     }
   };
-
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -291,7 +280,9 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   spdlog::trace("Added coordinator instances!");
   {
-    wait_until_added(instance1);
+    ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.ShowInstances().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual(
+        [&instance1]() { return instance1.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance1.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -309,7 +300,9 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   }
 
   {
-    wait_until_added(instance2);
+    ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.ShowInstances().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual(
+        [&instance2]() { return instance2.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance2.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -327,7 +320,9 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   }
 
   {
-    wait_until_added(instance3);
+    ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.ShowInstances().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual(
+        [&instance3]() { return instance3.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance3.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
