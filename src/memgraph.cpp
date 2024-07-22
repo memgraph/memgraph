@@ -761,5 +761,7 @@ int main(int argc, char **argv) {
   PyMem_RawFree(program_name);
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
+  memgraph::flags::Flush();
+  memgraph::flags::ShutDownLogger();
   return 0;
 }

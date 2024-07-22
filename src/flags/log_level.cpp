@@ -78,6 +78,8 @@ void CreateLoggerFromSink(const auto &sinks, const auto log_level) {
   spdlog::set_default_logger(std::move(logger));
 }
 
+void memgraph::flags::Flush() { spdlog::default_logger()->flush(); }
+void memgraph::flags::ShutDownLogger() { spdlog::shutdown(); }
 void memgraph::flags::InitializeLogger() {
   std::vector<spdlog::sink_ptr> sinks;
 

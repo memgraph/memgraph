@@ -63,7 +63,7 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": "high_availability/single_coordinator/instance_2.log",
+            "log_file": f"high_availability/single_coordinator/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -79,7 +79,7 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": "high_availability/single_coordinator/instance_3.log",
+            "log_file": f"high_availability/single_coordinator/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -94,7 +94,7 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/single_coordinator/coordinator.log",
+            "log_file": f"high_availability/single_coordinator/{test_name}/coordinator.log",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -219,12 +219,26 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
     safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_replication_works_on_failover_replica_1_epoch_2_commits_away",
+        test_name="test_replication_works_on_failover_replica_1_epoch_2_commits_away_data_recovery_"
+        + str(data_recovery),
         data_recovery_on_startup=data_recovery,
     )
 
     # 1
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
@@ -358,14 +372,26 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 15. Everything is replicated
 
     safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
+    memgraph_instances_description = get_memgraph_instances_description_4_instances(
         test_name="test_replication_works_on_failover_replica_2_epochs_more_commits_away_" + data_recovery,
         data_recovery_on_startup=data_recovery,
     )
-
     # 1
 
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     expected_data_on_main = [
         (
@@ -554,14 +580,14 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 14 Force data from instance 1 to instance 2
 
     safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
+    memgraph_instances_description = get_memgraph_instances_description_4_instances(
         test_name="test_replication_forcefully_works_on_failover_replica_misses_epoch_" + data_recovery,
         data_recovery_on_startup=data_recovery,
     )
 
     # 1
 
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     # 2
 
@@ -752,10 +778,25 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     # 1
 
     safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_replication_correct_replica_chosen_up_to_date_data" + data_recovery,
+    memgraph_instances_description = get_memgraph_instances_description_4_instances(
+        test_name="test_replication_correct_replica_chosen_up_to_date_data_" + str(data_recovery),
         data_recovery_on_startup=data_recovery,
     )
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
+
+    coord_cursor = connect(host="localhost", port=7690).cursor()
+
+    def retrieve_data_show_instances():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
+
+    expected_data_on_coord = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
+    ]
+    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 2
 
@@ -911,7 +952,7 @@ def test_replication_works_on_failover_simple():
         test_name="test_replication_works_on_failover_simple"
     )
     # 1
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
@@ -1034,7 +1075,7 @@ def test_replication_works_on_replica_instance_restart():
         test_name="test_replication_works_on_replica_instance_restart"
     )
     # 1
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
@@ -1173,7 +1214,7 @@ def test_replication_works_on_replica_instance_restart():
 def test_show_instances():
     safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description(test_name="test_show_instances")
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     instance1_cursor = connect(host="localhost", port=7688).cursor()
     instance2_cursor = connect(host="localhost", port=7689).cursor()
@@ -1228,7 +1269,7 @@ def test_show_instances():
 def test_simple_automatic_failover():
     safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description(test_name="test_simple_automatic_failover")
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     main_cursor = connect(host="localhost", port=7687).cursor()
     expected_data_on_main = [
@@ -1318,7 +1359,7 @@ def test_registering_replica_fails_name_exists():
     memgraph_instances_description = get_memgraph_instances_description(
         test_name="test_registering_replica_fails_name_exists"
     )
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()
     with pytest.raises(Exception) as e:
@@ -1336,7 +1377,7 @@ def test_registering_replica_fails_endpoint_exists():
         test_name="test_registering_replica_fails_endpoint_exists"
     )
 
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()
     with pytest.raises(Exception) as e:
@@ -1352,7 +1393,7 @@ def test_registering_replica_fails_endpoint_exists():
 def test_replica_instance_restarts():
     safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description(test_name="test_replica_instance_restarts")
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     cursor = connect(host="localhost", port=7690).cursor()
 
@@ -1396,7 +1437,7 @@ def test_automatic_failover_main_back_as_replica():
         test_name="test_automatic_failover_main_back_as_replica"
     )
 
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_3")
 
@@ -1438,7 +1479,7 @@ def test_automatic_failover_main_back_as_main():
         test_name="test_automatic_failover_main_back_as_main"
     )
 
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_1")
     interactive_mg_runner.kill(memgraph_instances_description, "instance_2")
@@ -1504,7 +1545,7 @@ def test_disable_multiple_mains():
     safe_execute(shutil.rmtree, TEMP_DIR)
 
     memgraph_instances_description = get_memgraph_instances_description(test_name="disable_multiple_mains")
-    interactive_mg_runner.start_all(memgraph_instances_description)
+    interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()
 

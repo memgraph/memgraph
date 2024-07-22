@@ -370,7 +370,7 @@ def test_even_number_coords(use_durability):
     # 1
     safe_execute(shutil.rmtree, TEMP_DIR)
     inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name="test_even_number_coords", use_durability=use_durability
+        test_name="test_even_number_coords_" + str(use_durability), use_durability=use_durability
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -935,7 +935,7 @@ def test_distributed_automatic_failover_with_leadership_change():
 
 
 def test_no_leader_after_leader_and_follower_die():
-    # 1. Register all but one replication instnce on the first leader.
+    # 1. Register all but one replication instance on the first leader.
     # 2. Kill the leader and a follower.
     # 3. Check that the remaining follower is not promoted to leader by trying to register remaining replication instance.
 
@@ -954,7 +954,21 @@ def test_no_leader_after_leader_and_follower_die():
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_3")
     interactive_mg_runner.kill(inner_memgraph_instances, "coordinator_2")
 
+    coord_1_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "unknown", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "unknown", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "unknown", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "unknown", "main"),
+    ]
+
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
+
+    mg_sleep_and_assert(coord_1_data, show_instances_coord1)
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
@@ -1065,6 +1079,7 @@ def test_old_main_comes_back_on_new_leader_as_main():
 def test_registering_4_coords():
     # Goal of this test is to assure registering of multiple coordinators in row works
     safe_execute(shutil.rmtree, TEMP_DIR)
+    test_name = "test_registering_4_coords"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -1076,7 +1091,7 @@ def test_registering_4_coords():
                 "--management-port",
                 "10011",
             ],
-            "log_file": "high_availability/distributed_coords/instance_1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -1090,7 +1105,7 @@ def test_registering_4_coords():
                 "--management-port",
                 "10012",
             ],
-            "log_file": "high_availability/distributed_coords/instance_2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -1104,7 +1119,7 @@ def test_registering_4_coords():
                 "--management-port",
                 "10013",
             ],
-            "log_file": "high_availability/distributed_coords/instance_3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -1119,7 +1134,7 @@ def test_registering_4_coords():
                 "--management-port=10121",
                 "--coordinator-hostname=localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -1133,7 +1148,7 @@ def test_registering_4_coords():
                 "--management-port=10122",
                 "--coordinator-hostname=localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -1147,7 +1162,7 @@ def test_registering_4_coords():
                 "--management-port=10123",
                 "--coordinator-hostname=localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
             "setup_queries": [],
         },
         "coordinator_4": {
@@ -1161,7 +1176,7 @@ def test_registering_4_coords():
                 "--management-port=10124",
                 "--coordinator-hostname=localhost",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator4.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator4.log",
             "setup_queries": [
                 "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
                 "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
@@ -1207,7 +1222,7 @@ def test_registering_coord_log_store():
     # 9. Drop 1 new instance # 1 log -> 2nd snapshot
     # 10. Check correct state
     safe_execute(shutil.rmtree, TEMP_DIR)
-
+    test_name = "test_registering_coord_log_store"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -1219,7 +1234,7 @@ def test_registering_coord_log_store():
                 "--management-port",
                 "10011",
             ],
-            "log_file": "high_availability/distributed_coords/instance_1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -1233,7 +1248,7 @@ def test_registering_coord_log_store():
                 "--management-port",
                 "10012",
             ],
-            "log_file": "high_availability/distributed_coords/instance_2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -1247,7 +1262,7 @@ def test_registering_coord_log_store():
                 "--management-port",
                 "10013",
             ],
-            "log_file": "high_availability/distributed_coords/instance_3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -1263,7 +1278,7 @@ def test_registering_coord_log_store():
                 "localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator1.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -1278,7 +1293,7 @@ def test_registering_coord_log_store():
                 "localhost",
                 "--management-port=10122",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator2.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -1293,7 +1308,7 @@ def test_registering_coord_log_store():
                 "localhost",
                 "--management-port=10123",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator3.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator3.log",
             "setup_queries": [],
         },
         "coordinator_4": {
@@ -1308,7 +1323,7 @@ def test_registering_coord_log_store():
                 "localhost",
                 "--management-port=10124",
             ],
-            "log_file": "high_availability/distributed_coords/coordinator4.log",
+            "log_file": f"high_availability/distributed_coords/{test_name}/coordinator4.log",
             "setup_queries": [
                 "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
                 "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
