@@ -752,8 +752,11 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   metrics_server.AwaitShutdown();
 #endif
-  memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
-
+  try {
+    memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+  } catch (memgraph::query::QueryException &) {
+    spdlog::warn("Failed to unload query modules while shutting down.");
+  }
   python_gc_scheduler.Stop();
   Py_END_ALLOW_THREADS;
   // Shutdown Python
