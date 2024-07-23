@@ -165,13 +165,14 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
 
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
+  Branch(*op.list_collection_branch_);
+  op.input_->Accept(*this);
+  return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::PeriodicCommit &op) {
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  op.input_->Accept(*this);
-  return false;
+  return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::CallProcedure &op) {

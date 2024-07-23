@@ -6001,6 +6001,7 @@ class PeriodicCommitCursor : public Cursor {
   PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {
     MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
+    MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
@@ -6011,12 +6012,7 @@ class PeriodicCommitCursor : public Cursor {
     if (commit_frequency_ == -1) {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
-      TypedValue commit_frequency = self_.commit_frequency_->Accept(evaluator);
-      if (commit_frequency.type() != TypedValue::Type::Int)
-        throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
-
-      commit_frequency_ = commit_frequency.ValueInt();
-      if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
+      commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
     }
 
     bool const pull_value = input_cursor_->Pull(frame, context);
@@ -6069,89 +6065,97 @@ bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
-
-  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
-}
-
-PeriodicSubquery::PeriodicSubqueryCursor::PeriodicSubqueryCursor(const PeriodicSubquery &self,
-                                                                 utils::MemoryResource *mem)
-    : self_(self),
-      input_(self.input_->MakeCursor(mem)),
-      subquery_(self.subquery_->MakeCursor(mem)),
-      subquery_has_return_(self.subquery_has_return_) {}
-
 std::vector<Symbol> PeriodicSubquery::ModifiedSymbols(const SymbolTable &table) const {
-  // Since Apply is the Cartesian product, modified symbols are combined from
-  // both execution branches.
+  // Modified symbols are combined from both execution branches.
   auto symbols = input_->ModifiedSymbols(table);
   auto subquery_symbols = subquery_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
   return symbols;
 }
 
-bool PeriodicSubquery::PeriodicSubqueryCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("PeriodicSubquery");
-
-  if (commit_frequency_ == -1) {
-    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
-                                  storage::View::OLD);
-    TypedValue commit_frequency = self_.commit_frequency_->Accept(evaluator);
-    if (commit_frequency.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Limit on number of returned elements must be an integer.");
-
-    commit_frequency_ = commit_frequency.ValueInt();
-    if (commit_frequency_ < 0) throw QueryRuntimeException("Periodic commit frequency must be non-negative.");
+namespace {
+class PeriodicSubqueryCursor : public Cursor {
+ public:
+  PeriodicSubqueryCursor(const PeriodicSubquery &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_(self.input_->MakeCursor(mem)),
+        subquery_(self.subquery_->MakeCursor(mem)),
+        subquery_has_return_(self.subquery_has_return_) {
+    MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
-  while (true) {
-    if (pull_input_) {
-      if (input_->Pull(frame, context)) {
-        pulled_++;
-      } else {
-        if (pulled_ > 0) {
-          // do periodic commit for the rest of pulled items
-          [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("PeriodicSubquery");
+
+    if (commit_frequency_ == -1) {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+    }
+
+    while (true) {
+      if (pull_input_) {
+        if (input_->Pull(frame, context)) {
+          pulled_++;
+        } else {
+          if (pulled_ > 0) {
+            // do periodic commit for the rest of pulled items
+            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+          }
+          return false;
         }
-        return false;
       }
+
+      if (subquery_->Pull(frame, context)) {
+        // if successful, next Pull from this should not pull_input_
+        pull_input_ = false;
+        return true;
+      }
+
+      if (pulled_ >= commit_frequency_) {
+        // do periodic commit since we pulled that many times
+        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        pulled_ = 0;
+      }
+
+      // failed to pull from subquery cursor
+      // skip that row
+      pull_input_ = true;
+      subquery_->Reset();
+
+      // don't skip row if no rows are returned from subquery, return input_ rows
+      if (!subquery_has_return_) return true;
     }
-
-    if (subquery_->Pull(frame, context)) {
-      // if successful, next Pull from this should not pull_input_
-      pull_input_ = false;
-      return true;
-    }
-
-    if (pulled_ >= commit_frequency_) {
-      // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
-      pulled_ = 0;
-    }
-
-    // failed to pull from subquery cursor
-    // skip that row
-    pull_input_ = true;
-    subquery_->Reset();
-
-    // don't skip row if no rows are returned from subquery, return input_ rows
-    if (!subquery_has_return_) return true;
   }
-}
 
-void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
-  input_->Shutdown();
-  subquery_->Shutdown();
-}
+  void Shutdown() override {
+    input_->Shutdown();
+    subquery_->Shutdown();
+  }
 
-void PeriodicSubquery::PeriodicSubqueryCursor::Reset() {
-  input_->Reset();
-  subquery_->Reset();
-  pull_input_ = true;
-  commit_frequency_ = -1;
-  pulled_ = 0;
-}
+  void Reset() override {
+    input_->Reset();
+    subquery_->Reset();
+    pull_input_ = true;
+    commit_frequency_ = -1;
+    pulled_ = 0;
+  }
 
+ private:
+  const PeriodicSubquery &self_;
+  UniqueCursorPtr input_;
+  UniqueCursorPtr subquery_;
+  bool subquery_has_return_{true};
+  bool pull_input_{true};
+  uint64_t pulled_{0};
+  int64_t commit_frequency_{-1};
+};
+}  // namespace
+
+UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
+
+  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
+}
 }  // namespace memgraph::query::plan

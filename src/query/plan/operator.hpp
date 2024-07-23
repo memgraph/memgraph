@@ -2828,24 +2828,6 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
     object->commit_frequency_ = commit_frequency_;
     return object;
   }
-
- private:
-  class PeriodicSubqueryCursor : public Cursor {
-   public:
-    PeriodicSubqueryCursor(const PeriodicSubquery &, utils::MemoryResource *);
-    bool Pull(Frame &, ExecutionContext &) override;
-    void Shutdown() override;
-    void Reset() override;
-
-   private:
-    const PeriodicSubquery &self_;
-    UniqueCursorPtr input_;
-    UniqueCursorPtr subquery_;
-    bool subquery_has_return_{true};
-    bool pull_input_{true};
-    uint64_t commit_frequency_ = -1;
-    uint64_t pulled_ = 0;
-  };
 };
 
 }  // namespace plan
