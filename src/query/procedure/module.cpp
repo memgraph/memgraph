@@ -15,7 +15,6 @@
 #include <fstream>
 #include <optional>
 #include <utility>
-#include "spdlog/spdlog.h"
 
 extern "C" {
 #include <dlfcn.h>
