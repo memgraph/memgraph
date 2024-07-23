@@ -29,6 +29,14 @@ std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Ex
   return limit.ValueInt();
 }
 
+std::optional<int64_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  if (!expr) return std::nullopt;
+  auto frequency = expr->Accept(eval);
+  if (!frequency.IsInt() || frequency.ValueInt() < 0)
+    throw QueryRuntimeException("Commit frequency must be a non-negative integer.");
+  return frequency.ValueInt();
+}
+
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale) {
   if (!memory_limit) return std::nullopt;
