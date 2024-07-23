@@ -1454,7 +1454,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
       return value.ValueDouble();
     }
     if (value.IsInt()) {
-      return value.ValueInt();
+      return static_cast<double>(value.ValueInt());
     }
     throw QueryRuntimeException("Argument {} is not numeric.", arg_name);
   };
@@ -1517,25 +1517,25 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   });
 
   if (crs.has_value() && srid.has_value()) {
-    throw QueryRuntimeException("Cannot specify both CRS and SRID");
+    throw QueryRuntimeException("Cannot specify both CRS and SRID.");
   }
 
   std::optional<storage::CoordinateReferenceSystem> mg_crs;
   if (crs.has_value()) {
     mg_crs = storage::StringToCrs(utils::ToUpperCase(*crs));
     if (!mg_crs.has_value()) {
-      throw QueryRuntimeException("Invalid CRS");
+      throw QueryRuntimeException("Invalid CRS.");
     }
   } else if (srid.has_value()) {
     mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
     if (!mg_crs.has_value()) {
-      throw QueryRuntimeException("Invalid SRID");
+      throw QueryRuntimeException("Invalid SRID.");
     }
   }
 
+  using CRS = storage::CoordinateReferenceSystem;
   if (!mg_crs.has_value()) {
     auto is_wgs = (from_longitude || from_latitude);
-    using CRS = storage::CoordinateReferenceSystem;
     if (!z_opt.has_value()) {
       mg_crs = is_wgs ? CRS::WGS84_2d : CRS::Cartesian_2d;
     } else {
@@ -1543,10 +1543,20 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     }
   }
 
-  if (!z_opt.has_value()) {
-    return TypedValue(storage::Point2d{*mg_crs, x, y});
+  auto check_point_ranges = [](auto const &x, auto const &y) {
+    return (x >= -180.0 && x <= 180.0 && y >= -90.0 && y <= 90.0);
+  };
+
+  auto mg_crs_value = *mg_crs;
+  if ((mg_crs_value == CRS::WGS84_2d || mg_crs_value == CRS::WGS84_3d) && !check_point_ranges(x, y)) {
+    throw QueryRuntimeException(
+        "Longitude/x [-180, 180] and latitude/y [-90, 90] must be in the given range for WGS point types.");
   }
-  return TypedValue(storage::Point3d{*mg_crs, x, y, (*z_opt).first});
+
+  if (!z_opt.has_value()) {
+    return TypedValue(storage::Point2d{*mg_crs, x, y}, ctx.memory);
+  }
+  return TypedValue(storage::Point3d{*mg_crs, x, y, (*z_opt).first}, ctx.memory);
 }
 
 }  // namespace
