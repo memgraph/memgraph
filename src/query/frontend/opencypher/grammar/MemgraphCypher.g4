@@ -19,9 +19,10 @@ options { tokenVocab=MemgraphCypherLexer; }
 
 import Cypher ;
 
+/* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
-                      | ADD
                       | ACTIVE
+                      | ADD
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -32,8 +33,8 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
-                      | BUILD
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CALL
                       | CHECK
                       | CLEAR
@@ -49,13 +50,13 @@ memgraphCypherKeyword : cypherKeyword
                       | CSV
                       | CURRENT
                       | DATA
-                      | DO
-                      | DELIMITER
                       | DATABASE
                       | DATABASES
+                      | DELIMITER
                       | DEMOTE
                       | DENY
                       | DIRECTORY
+                      | DO
                       | DROP
                       | DUMP
                       | DURABILITY
@@ -73,17 +74,18 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GLOBAL
                       | GRANT
-                      | GRAPH
                       | GRANTS
+                      | GRAPH
                       | HEADER
                       | IDENTIFIED
+                      | IF
                       | IGNORE
                       | IMPORT
                       | INACTIVE
-                      | IN_MEMORY_ANALYTICAL
-                      | IN_MEMORY_TRANSACTIONAL
                       | INSTANCE
                       | INSTANCES
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | ISOLATION
                       | KAFKA
                       | LABELS
@@ -103,11 +105,13 @@ memgraphCypherKeyword : cypherKeyword
                       | OF
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
+                      | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
+                      | QUOTE
                       | READ
                       | READ_FILE
                       | REGISTER
@@ -121,6 +125,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | ROWS
                       | QUOTE
+                      | SCHEMA
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -143,8 +148,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TO
                       | TOPICS
                       | TRANSACTION
-                      | TRANSACTION_MANAGEMENT
                       | TRANSACTIONS
+                      | TRANSACTION_MANAGEMENT
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
