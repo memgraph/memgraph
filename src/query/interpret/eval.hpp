@@ -576,6 +576,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
+    auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "x" || prop_name == "longitude") {
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "y" || prop_name == "latitude") {
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
+    auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
+      if (prop_name == "x" || prop_name == "longitude") {
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "y" || prop_name == "latitude") {
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "z" || prop_name == "height") {
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
     auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "nodes") {
         utils::pmr::vector<TypedValue> vertices(ctx_->memory);
@@ -677,6 +698,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
       }
+      case TypedValue::Type::Point2d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_2d = expression_result_ptr->ValuePoint2d();
+        if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
+          return TypedValue(*point_2d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
+      }
+      case TypedValue::Type::Point3d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_3d = expression_result_ptr->ValuePoint3d();
+        if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
+          return TypedValue(*point_3d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
+      }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &graph = expression_result_ptr->ValueGraph();
@@ -685,7 +722,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
-      // TODO: point lookup
       default:
         throw QueryRuntimeException(
             "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
