@@ -6037,43 +6037,50 @@ bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
-
-  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
-}
-
-PeriodicSubquery::PeriodicSubqueryCursor::PeriodicSubqueryCursor(const PeriodicSubquery &self,
-                                                                 utils::MemoryResource *mem)
-    : self_(self),
-      input_(self.input_->MakeCursor(mem)),
-      subquery_(self.subquery_->MakeCursor(mem)),
-      subquery_has_return_(self.subquery_has_return_) {}
-
 std::vector<Symbol> PeriodicSubquery::ModifiedSymbols(const SymbolTable &table) const {
-  // Since Apply is the Cartesian product, modified symbols are combined from
-  // both execution branches.
+  // Modified symbols are combined from both execution branches.
   auto symbols = input_->ModifiedSymbols(table);
   auto subquery_symbols = subquery_->ModifiedSymbols(table);
   symbols.insert(symbols.end(), subquery_symbols.begin(), subquery_symbols.end());
   return symbols;
 }
 
-bool PeriodicSubquery::PeriodicSubqueryCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("PeriodicSubquery");
+namespace {
+class PeriodicSubqueryCursor : public Cursor {
+ public:
+  PeriodicSubqueryCursor(const PeriodicSubquery &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_(self.input_->MakeCursor(mem)),
+        subquery_(self.subquery_->MakeCursor(mem)),
+        subquery_has_return_(self.subquery_has_return_) {}
 
-  throw utils::NotYetImplemented("periodic commit");
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("PeriodicSubquery");
+
+    throw utils::NotYetImplemented("periodic commit");
+  }
+
+  void Shutdown() override {
+    input_->Shutdown();
+    subquery_->Shutdown();
+  }
+  void Reset() override {
+    input_->Reset();
+    subquery_->Reset();
+  }
+
+ private:
+  [[maybe_unused]] const PeriodicSubquery &self_;
+  UniqueCursorPtr input_;
+  UniqueCursorPtr subquery_;
+  [[maybe_unused]] bool subquery_has_return_{true};
+};
+}  // namespace
+
+UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::PeriodicSubqueryOperator);
+
+  return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
 }
-
-void PeriodicSubquery::PeriodicSubqueryCursor::Shutdown() {
-  input_->Shutdown();
-  subquery_->Shutdown();
-}
-
-void PeriodicSubquery::PeriodicSubqueryCursor::Reset() {
-  input_->Reset();
-  subquery_->Reset();
-}
-
 }  // namespace memgraph::query::plan

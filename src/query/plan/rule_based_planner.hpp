@@ -201,7 +201,7 @@ class RuleBasedPlanner {
     // due to swapping mechanism of procedure
     // tracking
     uint64_t procedure_id = 1;
-    bool const has_periodic_commit = !!query_parts.commit_frequency;
+    bool const has_periodic_commit = query_parts.commit_frequency != nullptr;
     bool const is_root_query = !query_parts.is_subquery;
     for (const auto &query_part : query_parts.query_parts) {
       std::unique_ptr<LogicalOperator> input_op;
@@ -275,8 +275,13 @@ class RuleBasedPlanner {
             input_op = HandleForeachClause(foreach, std::move(input_op), *context.symbol_table, context.bound_symbols,
                                            single_query_part, merge_id);
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
-            input_op = HandleSubquery(call_sub, std::move(input_op), single_query_part.subqueries[subquery_id++],
-                                      *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops);
+            input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
+                                      *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops,
+                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
+            if (context.is_write_query && !has_periodic_commit) {
+              input_op = std::make_unique<Accumulate>(std::move(input_op),
+                                                      input_op->ModifiedSymbols(*context.symbol_table), true);
+            }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
           }
@@ -897,10 +902,10 @@ class RuleBasedPlanner {
                                            symbol);
   }
 
-  std::unique_ptr<LogicalOperator> HandleSubquery(query::CallSubquery *call_subquery,
-                                                  std::unique_ptr<LogicalOperator> last_op,
+  std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
                                                   std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
-                                                  AstStorage &storage, PatternComprehensionDataMap &pc_ops) {
+                                                  AstStorage &storage, PatternComprehensionDataMap &pc_ops,
+                                                  Expression *commit_frequency) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
@@ -919,18 +924,13 @@ class RuleBasedPlanner {
       subquery_has_return = false;
     }
 
-    bool has_periodic_commit = !!call_subquery->cypher_query_->pre_query_directives_.commit_frequency_;
+    bool has_periodic_commit = commit_frequency != nullptr;
     if (!has_periodic_commit) {
       last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
     } else {
       // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
-      last_op = std::make_unique<PeriodicSubquery>(
-          std::move(last_op), std::move(subquery_op),
-          call_subquery->cypher_query_->pre_query_directives_.commit_frequency_, subquery_has_return);
-    }
-
-    if (context_->is_write_query) {
-      last_op = std::make_unique<Accumulate>(std::move(last_op), last_op->ModifiedSymbols(symbol_table), true);
+      last_op = std::make_unique<PeriodicSubquery>(std::move(last_op), std::move(subquery_op), commit_frequency,
+                                                   subquery_has_return);
     }
 
     return last_op;
