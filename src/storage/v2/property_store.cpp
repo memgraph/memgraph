@@ -988,7 +988,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
-    case Type::ENUM:
+    case Type::ENUM: {
       // double payload
       // - first for enum type
       // - second for enum value
@@ -996,6 +996,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!reader->SkipBytes(bytes)) return false;
       property_size += bytes;
       return true;
+    }
     case Type::POINT_2D: {
       auto bytes_size = 2 * SizeToByteSize(Size::INT64);
       if (!reader->SkipBytes(bytes_size)) return false;
