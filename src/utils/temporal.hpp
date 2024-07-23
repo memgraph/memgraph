@@ -16,9 +16,7 @@
 #include <iosfwd>
 #include <limits>
 
-#include "fmt/format.h"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::utils {
 
@@ -139,6 +137,7 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t
   return ToChronoSysDaysYMD(year, month, day).time_since_epoch();
 }
 
+// No timezone conversion supported
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normalized using the epoch time point
@@ -194,6 +193,7 @@ struct LocalTimeParameters {
 
 std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
 
+// No timezone conversion supported
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
   explicit LocalTime(int64_t microseconds);
@@ -253,14 +253,23 @@ struct LocalTimeHash {
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
 
 struct LocalDateTime {
+  // UTC
   explicit LocalDateTime(int64_t microseconds);
+
+  // NOT UTC
   explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters);
   explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
+  // UTC
+  int64_t SysMicrosecondsSinceEpoch() const;
+
+  // NOT UTC
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t SecondsSinceEpoch() const;  // seconds since epoch
+  int64_t SecondsSinceEpoch() const;
   int64_t SubSecondsAsNanoseconds() const;
   std::string ToString() const;
+  Date date() const;
+  LocalTime local_time() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
@@ -285,9 +294,10 @@ struct LocalDateTime {
     return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
   }
 
-  Date date;
-  LocalTime local_time;
+  // UTC
+  std::chrono::sys_time<std::chrono::microseconds> us_since_epoch_;
 };
+static_assert(sizeof(LocalDateTime) == 8);
 
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;

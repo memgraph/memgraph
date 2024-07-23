@@ -1050,7 +1050,8 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(arg.ValueLocalTime().MicrosecondsSinceEpoch(), ctx.memory);
   }
   if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
+    // Timestamps need to be in system time (UTC)
+    return TypedValue(arg.ValueLocalDateTime().SysMicrosecondsSinceEpoch(), ctx.memory);
   }
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
@@ -1227,11 +1228,11 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<String, Map, LocalDateTime>>>("date", args, nargs);
   if (nargs == 0) {
-    return TypedValue(utils::LocalDateTime(ctx.timestamp).date, ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::Date date{args[0].ValueLocalDateTime().date};
+    utils::Date date{args[0].ValueLocalDateTime().date()};
     return TypedValue(date, ctx.memory);
   }
 
@@ -1255,11 +1256,11 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Optional<Or<String, Map, LocalDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
-    return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time, ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::LocalTime local_time{args[0].ValueLocalDateTime().local_time};
+    utils::LocalTime local_time{args[0].ValueLocalDateTime().local_time()};
     return TypedValue(local_time, ctx.memory);
   }
 
