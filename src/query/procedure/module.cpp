@@ -116,7 +116,7 @@ void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
 
 namespace {
 
-void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+void RegisterMgLoad(ModuleRegistry *module_registry, BuiltinModule *module) {
   // Loading relies on the fact that regular procedure invocation through
   // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
   // load modules we have to upgrade our READ access to WRITE access,
@@ -170,15 +170,13 @@ std::string GetPathString(const std::optional<std::filesystem::path> &path) {
 }
 }  // namespace
 
-void RegisterMgProcedures(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                     mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                          utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto procedures_cb = [all_modules, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                           mgp_memory *memory) {
     // For details on how the invocation is done, take a look at the
     // CallProcedureCursor::Pull implementation.
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
@@ -265,13 +263,14 @@ void RegisterMgProcedures(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("procedures", std::move(procedures));
+  builtin_module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformations(const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules,
-                               BuiltinModule *module) {
-  auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
-                                          mgp_memory *memory) {
+void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                               utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto transformations_cb = [all_modules, lock](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
+                                                mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
       static_assert(
@@ -329,16 +328,14 @@ void RegisterMgTransformations(const std::map<std::string, std::shared_ptr<Modul
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("transformations", std::move(procedures));
+  builtin_module->AddProcedure("transformations", std::move(procedures));
 }
 
-void RegisterMgFunctions(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::shared_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                    mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of magic
-    // functions invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                         utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto functions_cb = [all_modules, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                          mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by function_name.
       static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
@@ -410,7 +407,7 @@ void RegisterMgFunctions(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("functions", std::move(functions));
+  builtin_module->AddProcedure("functions", std::move(functions));
 }
 namespace {
 bool IsAllowedExtension(const auto &extension) {
@@ -1209,10 +1206,10 @@ void ModuleRegistry::DoUnloadAllModules() {
 
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
-  RegisterMgProcedures(&modules_, module.get());
-  RegisterMgTransformations(&modules_, module.get());
-  RegisterMgFunctions(&modules_, module.get());
-  RegisterMgLoad(this, &lock_, module.get());
+  RegisterMgProcedures(&modules_, &lock_, module.get());
+  RegisterMgTransformations(&modules_, &lock_, module.get());
+  RegisterMgFunctions(&modules_, &lock_, module.get());
+  RegisterMgLoad(this, module.get());
   RegisterMgGetModuleFiles(this, module.get());
   RegisterMgGetModuleFile(this, module.get());
   RegisterMgCreateModuleFile(this, module.get());
