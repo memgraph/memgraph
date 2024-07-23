@@ -1392,6 +1392,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   /// Whether the vertex should be detached before deletion. If not detached,
   ///            and has connections, an error is raised when deleting edges.
   bool detach_;
+  // when buffer size is reached, delete will be triggered
   Expression *buffer_size_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {

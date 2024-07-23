@@ -286,6 +286,7 @@ class RuleBasedPlanner {
       // Is this the only situation that should be covered
       if (input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
+          // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
@@ -922,6 +923,7 @@ class RuleBasedPlanner {
     if (!has_periodic_commit) {
       last_op = std::make_unique<Apply>(std::move(last_op), std::move(subquery_op), subquery_has_return);
     } else {
+      // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
       last_op = std::make_unique<PeriodicSubquery>(
           std::move(last_op), std::move(subquery_op),
           call_subquery->cypher_query_->pre_query_directives_.commit_frequency_, subquery_has_return);
