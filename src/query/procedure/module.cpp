@@ -15,6 +15,7 @@
 #include <fstream>
 #include <optional>
 #include <utility>
+#include "spdlog/spdlog.h"
 
 extern "C" {
 #include <dlfcn.h>
@@ -129,14 +130,13 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   // single thread may only take either a READ or a WRITE lock, it's not
   // possible for a thread to hold both. If a thread tries to do that, it will
   // deadlock immediately (no other thread needs to do anything).
-  auto load_all_cb = [module_registry, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
-                                             mgp_memory * /*memory*/) {
+  auto load_all_cb = [module_registry](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
+                                       mgp_memory * /*memory*/) {
     module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                         mgp_memory * /*memory*/) {
+  auto load_cb = [module_registry](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
@@ -583,9 +583,9 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
 }
 }  // namespace
 
-void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto create_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory *memory) {
+void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto create_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
@@ -654,9 +654,9 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("create_module_file", std::move(create_module_file));
 }
 
-void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto update_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
+void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto update_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -710,9 +710,9 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("update_module_file", std::move(update_module_file));
 }
 
-void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto delete_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
+void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto delete_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -1164,9 +1164,6 @@ bool ModuleRegistry::TryEraseModule(std::string_view name) {
   if (module.use_count() != 1) {
     return false;
   }
-  if (!module->Close()) {
-    spdlog::warn("Failed to close module {}", it->first);
-  }
 
   modules_.erase(it);
   return true;
@@ -1178,13 +1175,6 @@ bool ModuleRegistry::TryEraseAllModules() {
   if (any_used) {
     spdlog::warn("At least one module was still in use");
     return false;
-  }
-
-  for (auto &[name, module] : modules_) {
-    if (!module->Close()) {
-      spdlog::warn("Failed to close module {}", name);
-      return false;
-    }
   }
 
   modules_.clear();
@@ -1215,7 +1205,6 @@ void ModuleRegistry::DoUnloadAllModules() {
   modules_.erase(mg_it);
   auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
 
-  // TODO Ivan: throw error if failed, but flow is correct
   if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used");
 }
 
@@ -1227,9 +1216,9 @@ ModuleRegistry::ModuleRegistry() {
   RegisterMgLoad(this, &lock_, module.get());
   RegisterMgGetModuleFiles(this, module.get());
   RegisterMgGetModuleFile(this, module.get());
-  RegisterMgCreateModuleFile(this, &lock_, module.get());
-  RegisterMgUpdateModuleFile(this, &lock_, module.get());
-  RegisterMgDeleteModuleFile(this, &lock_, module.get());
+  RegisterMgCreateModuleFile(this, module.get());
+  RegisterMgUpdateModuleFile(this, module.get());
+  RegisterMgDeleteModuleFile(this, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
@@ -1265,7 +1254,6 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   if (name.empty()) return false;
   auto guard = std::unique_lock{lock_};
 
-  // TODO error handling
   if (!TryEraseModule(name))
     throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
 
