@@ -302,10 +302,13 @@ int main(int argc, char **argv) {
   TestDate(*client);
   TestLocalTime(*client);
   TestLocalDateTime(*client);
+  MaybeExecuteQuery(*client, "MATCH(n) DETACH DELETE n", "Clear");
   MaybeExecuteQuery(*client, R"(SET DATABASE SETTING "timezone" TO "Europe/Rome")", "Timezone");
   TestLocalDateTime(*client);
+  MaybeExecuteQuery(*client, "MATCH(n) DETACH DELETE n", "Clear");
   MaybeExecuteQuery(*client, R"(SET DATABASE SETTING "timezone" TO "America/Los_Angeles")", "Timezone");
   TestLocalDateTime(*client);
+  MaybeExecuteQuery(*client, "MATCH(n) DETACH DELETE n", "Clear");
   MaybeExecuteQuery(*client, R"(SET DATABASE SETTING "timezone" TO "UTC")", "Timezone");
   TestZonedDateTime(*client);
   TestDuration(*client);
