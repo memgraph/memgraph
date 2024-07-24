@@ -384,41 +384,20 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be empty
 
-    Scenario: Point2d-WGS48 lookup x:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.x as result;
+            MATCH (n)
+            RETURN
+                n.coordinates.x as x_result,
+                n.coordinates.longitude as longitude_result,
+                n.coordinates.y as y_result,
+                n.coordinates.latitude as latitude_result,
+                n.coordinates.crs as crs_result,
+                n.coordinates.srid as srid_result;
             """
         Then the result should be:
-            | result |
-            | 1.0 |
-
-    Scenario: Point2d-WGS48 lookup longitude:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.longitude as result;
-            """
-        Then the result should be:
-            | result |
-            | 1.0 |
-
-    Scenario: Point2d-WGS48 lookup y:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.y as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
-
-    Scenario: Point2d-WGS48 lookup latitude:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.latitude as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
+            | x_result | longitude_result | y_result | latitude_result | crs_result | srid_result |
+            | 1.0      | 1.0              | 2.0      | 2.0             | 'wgs-84'   | 4326        |
 
     Scenario: Point2d-WGS48 lookup z:
         When executing query:
@@ -434,24 +413,6 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-    Scenario: Point2d-WGS48 lookup crs:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.crs as result;
-            """
-        Then the result should be:
-            | result |
-            | 'wgs-84' |
-
-    Scenario: Point2d-WGS48 lookup srid:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.srid as result;
-            """
-        Then the result should be:
-            | result |
-            | 4326 |
-
     Scenario: Point3d-WGS48 lookup:
         Given an empty graph
         When executing query:
@@ -460,77 +421,22 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be empty
 
-    Scenario: Point3d-WGS48 lookup x:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.x as result;
+            MATCH (n)
+            RETURN
+                n.coordinates.x as x_result,
+                n.coordinates.longitude as longitude_result,
+                n.coordinates.y as y_result,
+                n.coordinates.latitude as latitude_result,
+                n.coordinates.z as z_result,
+                n.coordinates.height as height_result,
+                n.coordinates.crs as crs_result,
+                n.coordinates.srid as srid_result;
             """
         Then the result should be:
-            | result |
-            | 1.0 |
-
-    Scenario: Point3d-WGS48 lookup longitude:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.longitude as result;
-            """
-        Then the result should be:
-            | result |
-            | 1.0 |
-
-    Scenario: Point3d-WGS48 lookup y:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.y as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
-
-    Scenario: Point3d-WGS48 lookup latitude:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.latitude as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
-
-    Scenario: Point3d-WGS48 lookup z:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.z as result;
-            """
-        Then the result should be:
-            | result |
-            | 3.0 |
-
-    Scenario: Point3d-WGS48 lookup height:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.height as result;
-            """
-        Then the result should be:
-            | result |
-            | 3.0 |
-
-    Scenario: Point3d-WGS48 lookup crs:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.crs as result;
-            """
-        Then the result should be:
-            | result |
-            | 'wgs-84' |
-
-    Scenario: Point3d-WGS48 lookup srid:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.srid as result;
-            """
-        Then the result should be:
-            | result |
-            | 4979 |
+            | x_result | longitude_result | y_result | latitude_result | z_result | height_result | crs_result | srid_result |
+            | 1.0      | 1.0              | 2.0      | 2.0             | 3.0      | 3.0           | 'wgs-84'   | 4979        |
 
     Scenario: Point2d-cartesian lookup:
         Given an empty graph
@@ -539,15 +445,18 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             CREATE (n:Location {coordinates: point({x: 1, y: 2})});
             """
         Then the result should be empty
-
-    Scenario: Point2d-cartesian lookup x:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.x as result;
+            MATCH (n)
+            RETURN
+                n.coordinates.x as x_result,
+                n.coordinates.y as y_result,
+                n.coordinates.crs as crs_result,
+                n.coordinates.srid as srid_result;
             """
         Then the result should be:
-            | result |
-            | 1.0 |
+            | x_result | y_result | crs_result  | srid_result |
+            | 1.0      | 2.0      | 'cartesian' | 7203        |
 
     Scenario: Point2d-cartesian lookup longitude:
         When executing query:
@@ -555,15 +464,6 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n) RETURN n.coordinates.longitude as result;
             """
         Then an error should be raised
-
-    Scenario: Point2d-cartesian lookup y:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.y as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
 
     Scenario: Point2d-cartesian lookup latitude:
         When executing query:
@@ -586,40 +486,26 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-    Scenario: Point2d-cartesian lookup crs:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.crs as result;
-            """
-        Then the result should be:
-            | result |
-            | 'cartesian' |
-
-    Scenario: Point2d-cartesian lookup srid:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.srid as result;
-            """
-        Then the result should be:
-            | result |
-            | 7203 |
-
-    Scenario: Point3d-cartesian lookup:
+   Scenario: Point3d-cartesian lookup:
         Given an empty graph
         When executing query:
             """
             CREATE (n:Location {coordinates: point({x: 1, y: 2, z: 3})});
             """
         Then the result should be empty
-
-    Scenario: Point3d-cartesian lookup x:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.x as result;
+            MATCH (n)
+            RETURN
+                n.coordinates.x as x_result,
+                n.coordinates.y as y_result,
+                n.coordinates.z as z_result,
+                n.coordinates.crs as crs_result,
+                n.coordinates.srid as srid_result;
             """
         Then the result should be:
-            | result |
-            | 1.0 |
+            | x_result | y_result | z_result | crs_result  | srid_result |
+            | 1.0      | 2.0      | 3.0      | 'cartesian' | 9757        |
 
     Scenario: Point3d-cartesian lookup longitude:
         When executing query:
@@ -628,15 +514,6 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-    Scenario: Point3d-cartesian lookup y:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.y as result;
-            """
-        Then the result should be:
-            | result |
-            | 2.0 |
-
     Scenario: Point3d-cartesian lookup latitude:
         When executing query:
             """
@@ -644,39 +521,12 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-    Scenario: Point3d-cartesian lookup z:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.z as result;
-            """
-        Then the result should be:
-            | result |
-            | 3.0 |
-
     Scenario: Point3d-cartesian lookup height:
         When executing query:
             """
             MATCH (n) RETURN n.coordinates.height as result;
             """
         Then an error should be raised
-
-    Scenario: Point3d-cartesian lookup crs:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.crs as result;
-            """
-        Then the result should be:
-            | result |
-            | 'cartesian' |
-
-    Scenario: Point3d-cartesian lookup srid:
-        When executing query:
-            """
-            MATCH (n) RETURN n.coordinates.srid as result;
-            """
-        Then the result should be:
-            | result |
-            | 9757 |
 
     Scenario: Show schema info:
         Given an empty graph
