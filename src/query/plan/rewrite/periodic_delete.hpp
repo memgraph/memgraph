@@ -54,8 +54,6 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // TODO: there are more places where an expression could be holding onto an EnumValueAccess
-
  private:
   SymbolTable *symbol_table;
   AstStorage *ast_storage;

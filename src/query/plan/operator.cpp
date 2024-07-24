@@ -1321,7 +1321,7 @@ class ExpandVariableCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       auto calc_bound = [&evaluator](auto &bound) {
-        auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
+        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
         return value;
       };
@@ -1504,9 +1504,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       const auto &sink = sink_tv.ValueVertex();
 
       int64_t lower_bound =
-          self_.lower_bound_ ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
+          self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
       int64_t upper_bound = self_.upper_bound_
-                                ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                                ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
                                 : std::numeric_limits<int64_t>::max();
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
@@ -1851,11 +1851,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
-        lower_bound_ = self_.lower_bound_
-                           ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion")
-                           : 1;
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
         upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
                            : std::numeric_limits<int64_t>::max();
 
         if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
@@ -2120,7 +2119,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
         }
         if (self_.upper_bound_) {
-          upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+          upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
           upper_bound_set_ = true;
         } else {
           upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -2490,7 +2489,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
     // if they are shorter in depth
     if (self_.upper_bound_) {
-      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
+      upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
       upper_bound_set_ = true;
     } else {
       upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -3007,17 +3006,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (self_.buffer_size_ && buffer_size_ == -1) {
-    // Limit expression doesn't contain identifiers so graph view is not
-    // important.
+  if (self_.buffer_size_ && buffer_size_ == -1) [[unlikely]] {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
-    TypedValue buffer_size = self_.buffer_size_->Accept(evaluator);
-    if (buffer_size.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Number of periodically deleted elements must be an integer.");
-
-    buffer_size_ = buffer_size.ValueInt();
-    if (buffer_size_ < 0) throw QueryRuntimeException("Number of periodically deleted elements must be non-negative.");
+    buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
   bool const has_more = input_cursor_->Pull(frame, context);
@@ -3027,7 +3019,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     pulled_++;
   }
 
-  if (!has_more || (buffer_size_ > -1 && pulled_ >= buffer_size_)) {
+  if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
     auto &dba = *context.db_accessor;
     auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
     if (res.HasError()) {
@@ -5685,7 +5677,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     subquery_->Reset();
@@ -5750,7 +5742,8 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     sub_branch_->Reset();
@@ -6022,7 +6015,7 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     const SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (commit_frequency_ == -1) {
+    if (!commit_frequency_.has_value()) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -6047,14 +6040,14 @@ class PeriodicCommitCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    commit_frequency_ = -1;
+    commit_frequency_.reset();
     pulled_ = 0;
   }
 
  private:
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
-  uint64_t commit_frequency_ = -1;
+  std::optional<uint64_t> commit_frequency_;
   uint64_t pulled_ = 0;
 };
 }  // namespace
@@ -6102,7 +6095,7 @@ class PeriodicSubqueryCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
-    if (commit_frequency_ == -1) {
+    if (!commit_frequency_.has_value()) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -6133,7 +6126,7 @@ class PeriodicSubqueryCursor : public Cursor {
         pulled_ = 0;
       }
 
-      // failed to pull from subquery cursor
+      // subquery cursor has been exhausted
       // skip that row
       pull_input_ = true;
       subquery_->Reset();
@@ -6152,7 +6145,7 @@ class PeriodicSubqueryCursor : public Cursor {
     input_->Reset();
     subquery_->Reset();
     pull_input_ = true;
-    commit_frequency_ = -1;
+    commit_frequency_.reset();
     pulled_ = 0;
   }
 
@@ -6163,7 +6156,7 @@ class PeriodicSubqueryCursor : public Cursor {
   bool subquery_has_return_{true};
   bool pull_input_{true};
   uint64_t pulled_{0};
-  int64_t commit_frequency_{-1};
+  std::optional<uint64_t> commit_frequency_;
 };
 }  // namespace
 
