@@ -13,7 +13,11 @@
 
 namespace memgraph::query {
 
-int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+std::optional<int64_t> EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  if (!expr) {
+    return std::nullopt;
+  }
+
   TypedValue value = expr->Accept(eval);
   try {
     return value.ValueInt();
@@ -22,7 +26,11 @@ int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::
   }
 }
 
-int64_t EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+std::optional<int64_t> EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  if (!expr) {
+    return std::nullopt;
+  }
+
   TypedValue value = expr->Accept(eval);
   try {
     auto value_uint = value.ValueInt();
