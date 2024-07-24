@@ -579,10 +579,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
       auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
-      if (prop_name == "x" || (is_wgs && prop_name == "longitude")) {
+      if (prop_name == "x") {
         return TypedValue(point_2d.x(), ctx_->memory);
       }
-      if (prop_name == "y" || (is_wgs && prop_name == "latitude")) {
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
         return TypedValue(point_2d.y(), ctx_->memory);
       }
       if (prop_name == "crs") {
@@ -595,10 +603,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     };
     auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
       auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
-      if (prop_name == "x" || (is_wgs && prop_name == "longitude")) {
+      if (prop_name == "x") {
         return TypedValue(point_3d.x(), ctx_->memory);
       }
-      if (prop_name == "y" || (is_wgs && prop_name == "latitude")) {
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
         return TypedValue(point_3d.y(), ctx_->memory);
       }
       if (prop_name == "z" || (is_wgs && prop_name == "height")) {
