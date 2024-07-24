@@ -6010,7 +6010,7 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     const SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (!commit_frequency_ == -1) [[unlikelly]] {
+    if (!commit_frequency_.has_value()) [[unlikelly]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -6089,7 +6089,7 @@ class PeriodicSubqueryCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
-    if (!commit_frequency_) [[unlikelly]] {
+    if (!commit_frequency_.has_value()) [[unlikelly]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
