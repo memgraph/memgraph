@@ -70,6 +70,21 @@ inline auto StringToCrs(std::string_view crs) -> std::optional<CoordinateReferen
   return std::nullopt;
 }
 
+// TODO Ivan: not consistent with neo4j, I think this is fine
+inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
+  switch (crs) {
+    using enum CoordinateReferenceSystem;
+    case WGS84_2d:
+      return "wgs-84-2d";
+    case WGS84_3d:
+      return "wgs-84-3d";
+    case Cartesian_2d:
+      return "cartesian-2d";
+    case Cartesian_3d:
+      return "cartesian-3d";
+  }
+}
+
 inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
   switch (val.value_of()) {
     using enum CoordinateReferenceSystem;
