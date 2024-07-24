@@ -5685,7 +5685,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     subquery_->Reset();
@@ -5750,7 +5750,8 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     sub_branch_->Reset();
@@ -6022,7 +6023,7 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     const SCOPED_PROFILE_OP_BY_REF(self_);
 
-    if (commit_frequency_ == -1) {
+    if (!commit_frequency_ == -1) [[unlikelly]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -6047,14 +6048,14 @@ class PeriodicCommitCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    commit_frequency_ = -1;
+    commit_frequency_.reset();
     pulled_ = 0;
   }
 
  private:
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
-  uint64_t commit_frequency_ = -1;
+  std::optional<uint64_t> commit_frequency_;
   uint64_t pulled_ = 0;
 };
 }  // namespace
@@ -6102,7 +6103,7 @@ class PeriodicSubqueryCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
-    if (commit_frequency_ == -1) {
+    if (!commit_frequency_) [[unlikelly]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
@@ -6133,7 +6134,7 @@ class PeriodicSubqueryCursor : public Cursor {
         pulled_ = 0;
       }
 
-      // failed to pull from subquery cursor
+      // subquery cursor has been exhausted
       // skip that row
       pull_input_ = true;
       subquery_->Reset();
@@ -6152,7 +6153,7 @@ class PeriodicSubqueryCursor : public Cursor {
     input_->Reset();
     subquery_->Reset();
     pull_input_ = true;
-    commit_frequency_ = -1;
+    commit_frequency_.reset();
     pulled_ = 0;
   }
 
@@ -6163,7 +6164,7 @@ class PeriodicSubqueryCursor : public Cursor {
   bool subquery_has_return_{true};
   bool pull_input_{true};
   uint64_t pulled_{0};
-  int64_t commit_frequency_{-1};
+  std::optional<uint64_t> commit_frequency_;
 };
 }  // namespace
 
