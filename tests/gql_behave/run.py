@@ -66,6 +66,7 @@ def main():
     add_argument("--single-feature", action="store_true", help="pause after every feature")
     add_argument("--stats-file", default="", help="statistics output file")
     add_argument("--storage-mode", help="Memgraph storage mode")
+    add_argument("--scenario", help="Single scenario to run")
 
     # Parse arguments
     parsed_args = argp.parse_args()
@@ -103,6 +104,8 @@ def main():
         if current != arg_val:
             behave_args.append(arg_name)
     behave_args.extend(["--test-suite", parsed_args.test_suite])
+    if parsed_args.scenario is not None:
+        behave_args.extend(["-n", parsed_args.scenario])
     behave_args.extend(["--test-directory", test_directory])
 
     # Run Behave tests

@@ -75,13 +75,13 @@ inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
   switch (crs) {
     using enum CoordinateReferenceSystem;
     case WGS84_2d:
-      return "wgs-84-2d";
+      return "wgs-84";
     case WGS84_3d:
-      return "wgs-84-3d";
+      return "wgs-84";
     case Cartesian_2d:
-      return "cartesian-2d";
+      return "cartesian";
     case Cartesian_3d:
-      return "cartesian-3d";
+      return "cartesian";
   }
 }
 

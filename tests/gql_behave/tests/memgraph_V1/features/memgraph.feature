@@ -225,6 +225,445 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
+    Scenario: Point creation default:
+        When executing query:
+            """
+            RETURN point({x:null, y:2}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | null |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, z:3, k:null}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | null |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 7203 |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, z:3}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 9757 |
+
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4326 |
+
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, height:3}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4979 |
+
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, z:3}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4979 |
+
+    Scenario: Point creation srid:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, srid:7203}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 7203 |
+
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, height:3, srid:9757}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 9757 |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, srid:4326}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4326 |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, z:3, srid:4979}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4979 |
+
+    Scenario: Point creation crs:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, crs:'cartesian'}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 7203 |
+
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, height:3, crs:'cartesian-3d'}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 9757 |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, crs:'wgs-84'}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4326 |
+
+        When executing query:
+            """
+            RETURN point({x:1, y:2, z:3, crs:'wgs-84-3d'}).srid AS result;
+            """
+        Then the result should be:
+            | result |
+            | 4979 |
+
+    Scenario: Point creation failure 1:
+        When executing query:
+            """
+            RETURN point({longitude:1, y:2}).srid AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 2:
+        When executing query:
+            """
+            RETURN point({x:1, latitude:2}).srid AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-WGS48 lookup:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Location {coordinates: point({longitude: 1, latitude: 2})});
+            """
+        Then the result should be empty
+
+    Scenario: Point2d-WGS48 lookup x:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.x as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point2d-WGS48 lookup longitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.longitude as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point2d-WGS48 lookup y:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.y as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point2d-WGS48 lookup latitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.latitude as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point2d-WGS48 lookup z:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.z as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-WGS48 lookup height:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.height as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-WGS48 lookup crs:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.crs as result;
+            """
+        Then the result should be:
+            | result |
+            | 'wgs-84' |
+
+    Scenario: Point2d-WGS48 lookup srid:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.srid as result;
+            """
+        Then the result should be:
+            | result |
+            | 4326 |
+
+    Scenario: Point3d-WGS48 lookup:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Location {coordinates: point({longitude: 1, latitude: 2, height: 3})});
+            """
+        Then the result should be empty
+
+    Scenario: Point3d-WGS48 lookup x:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.x as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point3d-WGS48 lookup longitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.longitude as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point3d-WGS48 lookup y:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.y as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point3d-WGS48 lookup latitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.latitude as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point3d-WGS48 lookup z:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.z as result;
+            """
+        Then the result should be:
+            | result |
+            | 3.0 |
+
+    Scenario: Point3d-WGS48 lookup height:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.height as result;
+            """
+        Then the result should be:
+            | result |
+            | 3.0 |
+
+    Scenario: Point3d-WGS48 lookup crs:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.crs as result;
+            """
+        Then the result should be:
+            | result |
+            | 'wgs-84' |
+
+    Scenario: Point3d-WGS48 lookup srid:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.srid as result;
+            """
+        Then the result should be:
+            | result |
+            | 4979 |
+
+    Scenario: Point2d-cartesian lookup:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Location {coordinates: point({x: 1, y: 2})});
+            """
+        Then the result should be empty
+
+    Scenario: Point2d-cartesian lookup x:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.x as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point2d-cartesian lookup longitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.longitude as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-cartesian lookup y:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.y as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point2d-cartesian lookup latitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.latitude as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-cartesian lookup z:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.z as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-cartesian lookup height:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.height as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point2d-cartesian lookup crs:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.crs as result;
+            """
+        Then the result should be:
+            | result |
+            | 'cartesian' |
+
+    Scenario: Point2d-cartesian lookup srid:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.srid as result;
+            """
+        Then the result should be:
+            | result |
+            | 7203 |
+
+    Scenario: Point3d-cartesian lookup:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Location {coordinates: point({x: 1, y: 2, z: 3})});
+            """
+        Then the result should be empty
+
+    Scenario: Point3d-cartesian lookup x:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.x as result;
+            """
+        Then the result should be:
+            | result |
+            | 1.0 |
+
+    Scenario: Point3d-cartesian lookup longitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.longitude as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point3d-cartesian lookup y:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.y as result;
+            """
+        Then the result should be:
+            | result |
+            | 2.0 |
+
+    Scenario: Point3d-cartesian lookup latitude:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.latitude as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point3d-cartesian lookup z:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.z as result;
+            """
+        Then the result should be:
+            | result |
+            | 3.0 |
+
+    Scenario: Point3d-cartesian lookup height:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.height as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point3d-cartesian lookup crs:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.crs as result;
+            """
+        Then the result should be:
+            | result |
+            | 'cartesian' |
+
+    Scenario: Point3d-cartesian lookup srid:
+        When executing query:
+            """
+            MATCH (n) RETURN n.coordinates.srid as result;
+            """
+        Then the result should be:
+            | result |
+            | 9757 |
+
     Scenario: Show schema info:
         Given an empty graph
         When executing query:
