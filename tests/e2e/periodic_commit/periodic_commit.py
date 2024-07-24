@@ -21,6 +21,7 @@ def test_create_trigger_on_create_periodic_commit(memgraph):
         ON () CREATE
         BEFORE COMMIT
         EXECUTE
+        UNWIND createdVertices AS createdVertex
         CREATE (n:TriggerCreated)
     """
 
