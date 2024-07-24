@@ -13,8 +13,8 @@
 
 namespace memgraph::query {
 
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what) {
-  TypedValue value = expr->Accept(*evaluator);
+int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  TypedValue value = expr->Accept(eval);
   try {
     return value.ValueInt();
   } catch (TypedValueException &e) {
@@ -22,10 +22,14 @@ int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::strin
   }
 }
 
-int64_t EvaluateUint(ExpressionEvaluator<TypedValue> &evaluator, Expression *expr, std::string_view what) {
-  TypedValue value = expr->Accept(*evaluator);
+int64_t EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  TypedValue value = expr->Accept(eval);
   try {
-    return value.ValueInt();
+    auto value_uint = value.ValueInt();
+    if (value_uint < 0) {
+      throw QueryRuntimeException(std::string(what) + " must be a non-negative integer");
+    }
+    return value_uint;
   } catch (TypedValueException &e) {
     throw QueryRuntimeException(std::string(what) + " must be a non-negative integer");
   }
