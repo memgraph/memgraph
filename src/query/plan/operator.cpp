@@ -3007,17 +3007,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (self_.buffer_size_ && buffer_size_ == -1) {
-    // Limit expression doesn't contain identifiers so graph view is not
-    // important.
+  if (self_.buffer_size_ && buffer_size_ == -1) [[unlikely]] {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
-    TypedValue buffer_size = self_.buffer_size_->Accept(evaluator);
-    if (buffer_size.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Number of periodically deleted elements must be an integer.");
-
-    buffer_size_ = buffer_size.ValueInt();
-    if (buffer_size_ < 0) throw QueryRuntimeException("Number of periodically deleted elements must be non-negative.");
+    buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
   bool const has_more = input_cursor_->Pull(frame, context);
@@ -3027,7 +3020,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
     pulled_++;
   }
 
-  if (!has_more || (buffer_size_ > -1 && pulled_ >= buffer_size_)) {
+  if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
     auto &dba = *context.db_accessor;
     auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
     if (res.HasError()) {
