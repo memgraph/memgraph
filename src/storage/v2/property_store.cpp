@@ -1598,7 +1598,7 @@ auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
   auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
   switch (special_mode_value) {
     case kUseLocalBuffer: {
-      auto *local_start = &buffer[1];
+      auto const *local_start = &buffer[1];
       auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
       return {std::span{local_start, local_size}, StorageMode::LOCAL};
     }
