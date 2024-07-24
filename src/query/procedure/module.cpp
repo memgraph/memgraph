@@ -1265,7 +1265,6 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   if (name.empty()) return false;
   auto guard = std::unique_lock{lock_};
 
-  // TODO error handling
   if (!TryEraseModule(name))
     throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
 
