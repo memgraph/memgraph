@@ -32,6 +32,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
@@ -577,23 +578,37 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return std::nullopt;
     };
     auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "x" || prop_name == "longitude") {
+      auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
+      if (prop_name == "x" || (is_wgs && prop_name == "longitude")) {
         return TypedValue(point_2d.x(), ctx_->memory);
       }
-      if (prop_name == "y" || prop_name == "latitude") {
+      if (prop_name == "y" || (is_wgs && prop_name == "latitude")) {
         return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_2d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory);
       }
       return std::nullopt;
     };
     auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "x" || prop_name == "longitude") {
+      auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
+      if (prop_name == "x" || (is_wgs && prop_name == "longitude")) {
         return TypedValue(point_3d.x(), ctx_->memory);
       }
-      if (prop_name == "y" || prop_name == "latitude") {
+      if (prop_name == "y" || (is_wgs && prop_name == "latitude")) {
         return TypedValue(point_3d.y(), ctx_->memory);
       }
-      if (prop_name == "z" || prop_name == "height") {
+      if (prop_name == "z" || (is_wgs && prop_name == "height")) {
         return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_3d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory);
       }
       return std::nullopt;
     };
@@ -722,7 +737,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
       }
-      // TODO: point lookup
       default:
         throw QueryRuntimeException(
             "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
@@ -799,6 +813,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::ZonedDateTime: {
         throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
+      }
+      // TODO Ivan: Where is enum
+      case TypedValue::Type::Point2d: {
+        auto const &point_2d = expression_result.ValuePoint2d();
+        result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_2d.y(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Point3d: {
+        auto const &point_3d = expression_result.ValuePoint3d();
+        result.emplace("x", TypedValue(point_3d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_3d.y(), ctx_->memory));
+        result.emplace("z", TypedValue(point_3d.z(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
       }
       case TypedValue::Type::Graph: {
         const auto &graph = expression_result.ValueGraph();
