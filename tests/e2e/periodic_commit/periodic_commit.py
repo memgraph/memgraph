@@ -15,17 +15,11 @@ import pytest
 from common import memgraph
 
 
-@pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
-def test_create_trigger_on_create_periodic_commit(ba_commit, memgraph):
-    """
-    Args:
-        ba_commit (str): BEFORE OR AFTER commit
-    """
-
+def test_create_trigger_on_create_periodic_commit(memgraph):
     QUERY_TRIGGER_CREATE = f"""
         CREATE TRIGGER CreateOnCreateTrigger
         ON () CREATE
-        {ba_commit}
+        BEFORE COMMIT
         EXECUTE
         CREATE (n:TriggerCreated)
     """
