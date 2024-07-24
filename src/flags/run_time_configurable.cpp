@@ -25,7 +25,7 @@
 
 namespace {
 bool ValidTimezone(std::string_view tz);
-}
+}  // namespace
 
 /*
  * Setup GFlags

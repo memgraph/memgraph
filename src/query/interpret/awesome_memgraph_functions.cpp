@@ -1232,8 +1232,7 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::Date date{args[0].ValueLocalDateTime().date()};
-    return TypedValue(date, ctx.memory);
+    return TypedValue(utils::Date{args[0].ValueLocalDateTime().date()}, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1260,8 +1259,7 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::LocalTime local_time{args[0].ValueLocalDateTime().local_time()};
-    return TypedValue(local_time, ctx.memory);
+    return TypedValue(utils::LocalTime{args[0].ValueLocalDateTime().local_time()}, ctx.memory);
   }
 
   if (args[0].IsString()) {
