@@ -351,14 +351,28 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point creation failure 1:
         When executing query:
             """
-            RETURN point({longitude:1, y:2}).srid AS result;
+            RETURN point({longitude:1, y:2}) AS result;
             """
         Then an error should be raised
 
     Scenario: Point creation failure 2:
         When executing query:
             """
-            RETURN point({x:1, latitude:2}).srid AS result;
+            RETURN point({x:1, latitude:2}) AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 3:
+        When executing query:
+            """
+            RETURN point({longitude:-191, latitude:0}) AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 4:
+        When executing query:
+            """
+            RETURN point({longitude:0, latitude:91}) AS result;
             """
         Then an error should be raised
 
