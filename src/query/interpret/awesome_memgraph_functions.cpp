@@ -998,9 +998,19 @@ TypedValue Id(const TypedValue *args, int64_t nargs, const FunctionContext &ctx)
 }
 
 TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
-                                                                                                       nargs);
+  FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>,
+        Optional<String>>("toString", args, nargs);
+
   const auto &arg = args[0];
+  std::optional<std::string> formatting;
+
+  if (nargs == 2) {
+    if (!arg.IsLocalDateTime()) {
+      throw QueryRuntimeException("Second argument is supported only with LocalDateTime.");
+    }
+    formatting = args[1].ValueString();
+  }
+
   if (arg.IsNull()) {
     return TypedValue(ctx.memory);
   }
@@ -1022,7 +1032,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
   }
   if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+    return TypedValue(arg.ValueLocalDateTime().ToString(formatting), ctx.memory);
   }
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().ToString(), ctx.memory);

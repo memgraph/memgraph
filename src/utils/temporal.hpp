@@ -260,7 +260,7 @@ struct LocalDateTime {
   int64_t MicrosecondsSinceEpoch() const;
   int64_t SecondsSinceEpoch() const;  // seconds since epoch
   int64_t SubSecondsAsNanoseconds() const;
-  std::string ToString() const;
+  std::string ToString(std::optional<std::string> formatting = {}) const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 

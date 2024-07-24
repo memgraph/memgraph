@@ -28,6 +28,8 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
+#include <fmt/chrono.h>
+
 namespace memgraph::utils {
 namespace {
 
@@ -516,7 +518,16 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   return (milli_as_nanos + micros_as_nanos).count();
 }
 
-std::string LocalDateTime::ToString() const { return date.ToString() + 'T' + local_time.ToString(); }
+std::string LocalDateTime::ToString(std::optional<std::string> formatting) const {
+  if (!formatting) return date.ToString() + 'T' + local_time.ToString();
+  try {
+    return fmt::format(fmt::runtime(*formatting),
+                       std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds{
+                           date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch()}));
+  } catch (const std::exception &e) {
+    throw utils::BasicException(e.what());
+  }
+}
 
 LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
     : date(date_parameters), local_time(local_time_parameters) {}
