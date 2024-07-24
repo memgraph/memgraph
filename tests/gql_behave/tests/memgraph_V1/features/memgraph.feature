@@ -228,125 +228,44 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point creation default:
         When executing query:
             """
-            RETURN point({x:null, y:2}).srid AS result;
+            RETURN
+                point({x:null, y:2}).srid AS result1,
+                point({x:1, y:2, z:3, k:null}).srid AS result2,
+                point({x:1, y:2}).srid AS result3,
+                point({x:1, y:2, z:3}).srid AS result4,
+                point({longitude:1, latitude:2}).srid AS result5,
+                point({longitude:1, latitude:2, height:3}).srid AS result6,
+                point({longitude:1, latitude:2, z:3}).srid AS result7;
             """
         Then the result should be:
-            | result |
-            | null |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, z:3, k:null}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | null |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 7203 |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, z:3}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 9757 |
-
-        When executing query:
-            """
-            RETURN point({longitude:1, latitude:2}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4326 |
-
-        When executing query:
-            """
-            RETURN point({longitude:1, latitude:2, height:3}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4979 |
-
-        When executing query:
-            """
-            RETURN point({longitude:1, latitude:2, z:3}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4979 |
+            | result1 | result2 | result3 | result4 | result5 | result6 | result7 |
+            | null    | null    | 7203    | 9757    | 4326    | 4979    | 4979    |
 
     Scenario: Point creation srid:
         When executing query:
             """
-            RETURN point({longitude:1, latitude:2, srid:7203}).srid AS result;
+            RETURN
+                point({longitude:1, latitude:2, srid:7203}).srid AS result1,
+                point({longitude:1, latitude:2, height:3, srid:9757}).srid AS result2,
+                point({x:1, y:2, srid:4326}).srid AS result3,
+                point({x:1, y:2, z:3, srid:4979}).srid AS result4;
             """
         Then the result should be:
-            | result |
-            | 7203 |
-
-        When executing query:
-            """
-            RETURN point({longitude:1, latitude:2, height:3, srid:9757}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 9757 |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, srid:4326}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4326 |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, z:3, srid:4979}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4979 |
+            | result1 | result2 | result3 | result4 |
+            | 7203    | 9757    | 4326    | 4979    |
 
     Scenario: Point creation crs:
         When executing query:
             """
-            RETURN point({longitude:1, latitude:2, crs:'cartesian'}).srid AS result;
+            RETURN
+                point({longitude:1, latitude:2, crs:'cartesian'}).srid AS result1,
+                point({longitude:1, latitude:2, height:3, crs:'cartesian-3d'}).srid AS result2,
+                point({x:1, y:2, crs:'wgs-84'}).srid AS result3,
+                point({x:1, y:2, z:3, crs:'wgs-84-3d'}).srid AS result4;
             """
         Then the result should be:
-            | result |
-            | 7203 |
-
-        When executing query:
-            """
-            RETURN point({longitude:1, latitude:2, height:3, crs:'cartesian-3d'}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 9757 |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, crs:'wgs-84'}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4326 |
-
-        When executing query:
-            """
-            RETURN point({x:1, y:2, z:3, crs:'wgs-84-3d'}).srid AS result;
-            """
-        Then the result should be:
-            | result |
-            | 4979 |
+            | result1 | result2 | result3 | result4 |
+            | 7203    | 9757    | 4326    | 4979    |
 
     Scenario: Point creation failure 1:
         When executing query:
