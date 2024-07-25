@@ -33,7 +33,7 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 TEMP_DIR = tempfile.TemporaryDirectory().name
 
 
-def get_instances_description():
+def get_instances_description(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -45,7 +45,7 @@ def get_instances_description():
                 "--management-port",
                 "10011",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -59,7 +59,7 @@ def get_instances_description():
                 "--management-port",
                 "10012",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -73,7 +73,7 @@ def get_instances_description():
                 "--management-port",
                 "10013",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_3.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -88,7 +88,7 @@ def get_instances_description():
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -102,7 +102,7 @@ def get_instances_description():
                 "--coordinator-hostname=localhost",
                 "--management-port=10122",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -116,13 +116,13 @@ def get_instances_description():
                 "--coordinator-hostname=localhost",
                 "--management-port=10123",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
             "setup_queries": [],
         },
     }
 
 
-def get_instances_description_no_coord():
+def get_instances_description_no_coord(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -136,7 +136,7 @@ def get_instances_description_no_coord():
                 "--data-recovery-on-startup=false",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -152,7 +152,7 @@ def get_instances_description_no_coord():
                 "--data-recovery-on-startup=false",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -168,7 +168,7 @@ def get_instances_description_no_coord():
                 "--data-recovery-on-startup=false",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_3.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_3.log",
             "data_directory": f"{TEMP_DIR}/instance_3",
             "setup_queries": [],
         },
@@ -183,7 +183,7 @@ def get_instances_description_no_coord():
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -197,7 +197,7 @@ def get_instances_description_no_coord():
                 "--coordinator-hostname=localhost",
                 "--management-port=10122",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
             "setup_queries": [],
         },
     }
@@ -215,8 +215,8 @@ def unset_env_flags():
 
 def test_register_repl_instances_then_coordinators():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description()
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_repl_instances_then_coordinators")
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
@@ -278,8 +278,8 @@ def test_register_repl_instances_then_coordinators():
 
 def test_register_coordinator_then_repl_instances():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description()
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_coordinator_then_repl_instances")
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
@@ -342,8 +342,8 @@ def test_register_coordinator_then_repl_instances():
 def test_coordinators_communication_with_restarts():
     # 1 Start all instances
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description()
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="coordinators_communication_with_restarts")
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
@@ -420,7 +420,9 @@ def test_coordinators_communication_with_restarts():
 )
 def test_unregister_replicas(kill_instance):
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description()
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(
+        test_name="test_unregister_replicas_kill_instance_" + str(kill_instance)
+    )
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -548,7 +550,7 @@ def test_unregister_replicas(kill_instance):
 
 def test_unregister_main():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description()
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="test_unregister_main")
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -661,7 +663,7 @@ def test_unregister_main():
 
 def test_register_one_coord_with_env_vars():
     safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_desc = get_instances_description_no_coord()
+    memgraph_instances_desc = get_instances_description_no_coord(test_name="test_register_one_coord_with_env_vars")
     interactive_mg_runner.start_all(memgraph_instances_desc)
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
@@ -797,6 +799,7 @@ def test_register_one_data_with_env_vars():
     """
     safe_execute(shutil.rmtree, TEMP_DIR)
     unset_env_flags()
+    test_name = "test_register_one_data_with_env_vars"
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -810,7 +813,7 @@ def test_register_one_data_with_env_vars():
                 "--data-recovery-on-startup=false",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_1.log",
             "data_directory": f"{TEMP_DIR}/instance_1",
             "setup_queries": [],
         },
@@ -826,7 +829,7 @@ def test_register_one_data_with_env_vars():
                 "--data-recovery-on-startup=false",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "high_availability/coord_cluster_registration/instance_2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_2.log",
             "data_directory": f"{TEMP_DIR}/instance_2",
             "setup_queries": [],
         },
@@ -842,7 +845,7 @@ def test_register_one_data_with_env_vars():
                 "localhost",
                 "--management-port=10121",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator1.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -857,7 +860,7 @@ def test_register_one_data_with_env_vars():
                 "localhost",
                 "--management-port=10122",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator2.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -872,7 +875,7 @@ def test_register_one_data_with_env_vars():
                 "localhost",
                 "--management-port=10123",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
             "setup_queries": [],
         },
     }
@@ -891,7 +894,7 @@ def test_register_one_data_with_env_vars():
                     "--data-recovery-on-startup=false",
                     "--replication-restore-state-on-startup=true",
                 ],
-                "log_file": "high_availability/coord_cluster_registration/instance_3.log",
+                "log_file": f"high_availability/coord_cluster_registration/{test_name}/instance_3.log",
                 "data_directory": f"{TEMP_DIR}/instance_3",
                 "setup_queries": [],
                 "default_bolt_port": 7689,
@@ -978,7 +981,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
 
     safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.stop_all()
-    memgraph_instances_desc = get_instances_description_no_coord()
+    memgraph_instances_desc = get_instances_description_no_coord(
+        test_name="test_register_one_coord_with_env_vars_no_instances_alive_on_start"
+    )
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
@@ -1001,12 +1006,13 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     with open(file_path, "w") as writer:
         writer.writelines("\n".join(setup_queries))
 
+    test_name = "test_register_one_coord_with_env_vars_no_instances_alive_on_start"
     coordinator_3_description = {
         "coordinator_3": {
             "args": [
                 "--log-level=TRACE",
             ],
-            "log_file": "high_availability/coord_cluster_registration/coordinator3.log",
+            "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
             "setup_queries": [],
             "default_bolt_port": 7692,
         },
@@ -1137,7 +1143,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
 def test_add_coord_instance_fails():
     interactive_mg_runner.stop_all()
     safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description_all = get_instances_description()
+    memgraph_instances_description_all = get_instances_description(test_name="test_add_coord_instance_fails")
     interactive_mg_runner.start_all(memgraph_instances_description_all)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
