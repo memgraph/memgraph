@@ -31,7 +31,10 @@ using memgraph::query::TypedValueException;
 using memgraph::storage::Enum;
 using memgraph::storage::EnumTypeId;
 using memgraph::storage::EnumValueId;
+using memgraph::storage::Point2d;
+using memgraph::storage::Point3d;
 using memgraph::storage::PropertyValue;
+using enum memgraph::storage::CoordinateReferenceSystem;
 
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
@@ -67,6 +70,10 @@ class AllTypesFixture : public testing::Test {
     graph.InsertEdge(*edge);
     values_.emplace_back(std::move(graph));
     values_.emplace_back(Enum{EnumTypeId{2}, EnumValueId{42}});
+    values_.emplace_back(Point2d{Cartesian_2d, 1.0, 2.0});
+    values_.emplace_back(Point2d{WGS84_2d, 1.0, 2.0});
+    values_.emplace_back(Point3d{Cartesian_3d, 1.0, 2.0, 3.0});
+    values_.emplace_back(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
   }
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
@@ -107,6 +114,9 @@ TEST(TypedValue, CreationTypes) {
   EXPECT_TRUE(TypedValue(42.5).type() == TypedValue::Type::Double);
 
   EXPECT_TRUE(TypedValue(Enum{EnumTypeId{2}, EnumValueId{42}}).type() == TypedValue::Type::Enum);
+
+  EXPECT_TRUE(TypedValue(Point2d{Cartesian_2d, 1.0, 2.0}).type() == TypedValue::Type::Point2d);
+  EXPECT_TRUE(TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, 3.0}).type() == TypedValue::Type::Point3d);
 }
 
 TEST(TypedValue, CreationValues) {
@@ -122,6 +132,11 @@ TEST(TypedValue, CreationValues) {
 
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   EXPECT_EQ(TypedValue(enum_val).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  EXPECT_EQ(TypedValue(point2d_val).ValuePoint2d(), point2d_val);
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  EXPECT_EQ(TypedValue(point3d_val).ValuePoint3d(), point3d_val);
 }
 
 TEST(TypedValue, CreationValuesFromPropertyValues) {
@@ -153,6 +168,16 @@ TEST(TypedValue, CreationValuesFromPropertyValues) {
   auto pv_enum = PropertyValue{enum_val};
   EXPECT_EQ(TypedValue(pv_enum).ValueEnum(), enum_val);
   EXPECT_EQ(TypedValue(PropertyValue{enum_val}).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  auto pv_point2d = PropertyValue{point2d_val};
+  EXPECT_EQ(TypedValue(pv_point2d).ValuePoint2d(), point2d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}).ValuePoint2d(), point2d_val);
+
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  auto pv_point3d = PropertyValue{point3d_val};
+  EXPECT_EQ(TypedValue(pv_point3d).ValuePoint3d(), point3d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}).ValuePoint3d(), point3d_val);
 }
 
 TEST(TypedValue, Equals) {
