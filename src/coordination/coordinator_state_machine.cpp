@@ -86,7 +86,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 }
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
-  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+  if (stored_version == LogStoreVersion::kV1) {
     auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
     for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
          kv_store_snapshot_it != end_iter; ++kv_store_snapshot_it) {
@@ -120,6 +120,11 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
     logger_.Log(nuraft_log_level::TRACE,
                 fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
     return true;
+  } else if (stored_version == LogStoreVersion::kV2) {
+    auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
+    last_committed_idx_ = maybe_last_commited_idx.has_value() ? std::stoul(maybe_last_commited_idx.value()) : 0;
+    logger_.Log(nuraft_log_level::TRACE,
+                fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
   }
 
   return false;  // fill up afterwards
@@ -215,6 +220,9 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   auto const &[parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
+  if (durability_) {
+    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_.load()));
+  }
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));

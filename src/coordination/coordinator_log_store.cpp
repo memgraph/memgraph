@@ -58,7 +58,7 @@ CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<Log
 
 bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version,
                                                  memgraph::coordination::LogStoreVersion active_version) {
-  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+  if (stored_version == LogStoreVersion::kV1) {
     auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
     auto const maybe_start_idx = durability_->Get(kStartIdx);
     bool is_first_start{false};
@@ -86,7 +86,8 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
     for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
       auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
-      MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry);
+      logger_.Log(nuraft_log_level::TRACE,
+                  fmt::format("Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry));
 
       auto const j = nlohmann::json::parse(entry.value());
       auto const term = j.at(kLogEntryTermKey).get<int>();
@@ -100,6 +101,7 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
                   fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
     }
     return true;
+  } else if (stored_version == LogStoreVersion::kV2) {
   }
 
   // Handle migration from older versions to newer ones.
