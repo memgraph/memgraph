@@ -49,7 +49,10 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.buffer_size_ = commit_frequency_;
     }
     if (periodic_subquery_seen_) {
-      throw utils::NotYetImplemented("Delete can not be used with periodic subquery, please use USING PERIODIC COMMIT");
+      throw utils::NotYetImplemented(
+          "Unfortunately, using DELETE with CALL IN TRANSACTIONS is currently not possible inside our query planner. "
+          "Please use DELETE with the "
+          "pre-query directive USING PERIODIC COMMIT.");
     }
     return true;
   }
