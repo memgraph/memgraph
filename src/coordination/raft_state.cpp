@@ -121,13 +121,16 @@ auto RaftState::InitRaftServer() -> void {
   params.client_req_timeout_ = 3000;
   params.return_method_ = raft_params::blocking;
 
-  // If the leader doesn't receive any response from quorum nodes
-  // in 1800ms, it will step down.
-  // This allows us to achieve strong consistency even if network partition
-  // happens between the current leader and followers.
-  // The value must be <= election_timeout_lower_bound_ so that cluster can never
-  // have multiple leaders.
-  params.leadership_expiry_ = 1800;
+  // leadership expiry needs to be above 0, otherwise leadership never expires
+  // this is bug in nuraft code
+  params.leadership_expiry_ = 2000;
+
+  // https://github.com/eBay/NuRaft/blob/master/docs/custom_commit_policy.md#full-consensus-mode
+  // we want to set coordinator to unhealthy as soon as it is down and doesn't respond
+  auto limits = raft_server::get_raft_limits();
+  // Limit is set to 2 because 2*params.heart_beat_interval_ == params.leadership_expiry_ which is 2000
+  limits.response_limit_.store(2);
+  raft_server::set_raft_limits(limits);
 
   raft_server::init_options init_opts;
 
