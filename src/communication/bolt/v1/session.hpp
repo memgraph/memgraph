@@ -13,6 +13,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <thread>
 
@@ -32,6 +33,7 @@
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
@@ -68,7 +70,10 @@ class Session {
    * @param impl a default high-level implementation to use (has to be defined)
    */
   Session(TInputStream *input_stream, TOutputStream *output_stream)
-      : input_stream_(*input_stream), output_stream_(*output_stream), session_uuid_(utils::GenerateUUID()) {}
+      : input_stream_(*input_stream),
+        output_stream_(*output_stream),
+        session_uuid_(utils::GenerateUUID()),
+        timestamp_(utils::Timestamp::Now().ToString()) {}
 
   virtual ~Session() = default;
 
@@ -219,6 +224,7 @@ class Session {
 
   virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
+  std::string GetTimestamp() const { return timestamp_; }
 
  private:
   void ClientFailureInvalidData() {
@@ -237,6 +243,7 @@ class Session {
   }
 
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
+  const std::string timestamp_;
 };
 
 }  // namespace memgraph::communication::bolt
