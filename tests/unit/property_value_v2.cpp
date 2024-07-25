@@ -18,6 +18,21 @@
 #include "storage/v2/temporal.hpp"
 
 using namespace memgraph::storage;
+using enum CoordinateReferenceSystem;
+
+///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+///!!!!!!!!!!!THIS FILE IS TOO LONG!!!!!!!!!!!!
+///!!!!!!!!!!!!! TODO: REFACTOR !!!!!!!!!!!!!!!
+///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+///!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+// helpers
+bool IsOnlyOneType(PropertyValue const &pv) {
+  auto count = pv.IsNull() + pv.IsBool() + pv.IsInt() + pv.IsDouble() + pv.IsString() + pv.IsList() + pv.IsMap() +
+               pv.IsEnum() + pv.IsPoint2d() + pv.IsPoint3d();
+  return count == 1;
+}
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Null) {
@@ -26,13 +41,7 @@ TEST(PropertyValue, Null) {
   ASSERT_EQ(pv.type(), PropertyValue::Type::Null);
 
   ASSERT_TRUE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -41,6 +50,8 @@ TEST(PropertyValue, Null) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -70,14 +81,8 @@ TEST(PropertyValue, Bool) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Bool);
 
-  ASSERT_FALSE(pv.IsNull());
   ASSERT_TRUE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_EQ(pv.ValueBool(), false);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -86,6 +91,8 @@ TEST(PropertyValue, Bool) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -96,6 +103,8 @@ TEST(PropertyValue, Bool) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -121,14 +130,8 @@ TEST(PropertyValue, Int) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Int);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
   ASSERT_TRUE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_EQ(pv.ValueInt(), 123L);
@@ -137,6 +140,8 @@ TEST(PropertyValue, Int) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -147,6 +152,8 @@ TEST(PropertyValue, Int) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -171,14 +178,8 @@ TEST(PropertyValue, Double) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Double);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
   ASSERT_TRUE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -187,6 +188,8 @@ TEST(PropertyValue, Double) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -197,6 +200,8 @@ TEST(PropertyValue, Double) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -217,14 +222,8 @@ TEST(PropertyValue, Enum) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Enum);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
   ASSERT_TRUE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -233,6 +232,8 @@ TEST(PropertyValue, Enum) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_EQ(pv.ValueEnum(), enum_val);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -243,6 +244,8 @@ TEST(PropertyValue, Enum) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_EQ(cpv.ValueEnum(), enum_val);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -265,14 +268,8 @@ TEST(PropertyValue, StringCopy) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::String);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
   ASSERT_TRUE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -281,6 +278,8 @@ TEST(PropertyValue, StringCopy) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -291,6 +290,8 @@ TEST(PropertyValue, StringCopy) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -313,14 +314,8 @@ TEST(PropertyValue, StringMove) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::String);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
   ASSERT_TRUE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -329,6 +324,8 @@ TEST(PropertyValue, StringMove) {
   ASSERT_THROW(pv.ValueList(), PropertyValueException);
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -339,6 +336,8 @@ TEST(PropertyValue, StringMove) {
   ASSERT_THROW(cpv.ValueList(), PropertyValueException);
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -363,14 +362,8 @@ TEST(PropertyValue, ListCopy) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::List);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
   ASSERT_TRUE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -384,6 +377,8 @@ TEST(PropertyValue, ListCopy) {
   }
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -399,6 +394,8 @@ TEST(PropertyValue, ListCopy) {
   }
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -421,14 +418,8 @@ TEST(PropertyValue, ListMove) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::List);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
   ASSERT_TRUE(pv.IsList());
-  ASSERT_FALSE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -442,6 +433,8 @@ TEST(PropertyValue, ListMove) {
   }
   ASSERT_THROW(pv.ValueMap(), PropertyValueException);
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -457,6 +450,8 @@ TEST(PropertyValue, ListMove) {
   }
   ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -480,14 +475,8 @@ TEST(PropertyValue, MapCopy) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
   ASSERT_TRUE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -500,6 +489,8 @@ TEST(PropertyValue, MapCopy) {
     ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
   }
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -514,6 +505,8 @@ TEST(PropertyValue, MapCopy) {
     ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
   }
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -536,14 +529,8 @@ TEST(PropertyValue, MapMove) {
 
   ASSERT_EQ(pv.type(), PropertyValue::Type::Map);
 
-  ASSERT_FALSE(pv.IsNull());
-  ASSERT_FALSE(pv.IsBool());
-  ASSERT_FALSE(pv.IsInt());
-  ASSERT_FALSE(pv.IsDouble());
-  ASSERT_FALSE(pv.IsString());
-  ASSERT_FALSE(pv.IsList());
   ASSERT_TRUE(pv.IsMap());
-  ASSERT_FALSE(pv.IsEnum());
+  ASSERT_TRUE(IsOnlyOneType(pv));
 
   ASSERT_THROW(pv.ValueBool(), PropertyValueException);
   ASSERT_THROW(pv.ValueInt(), PropertyValueException);
@@ -556,6 +543,8 @@ TEST(PropertyValue, MapMove) {
     ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
   }
   ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
 
   const auto &cpv = pv;
 
@@ -570,6 +559,8 @@ TEST(PropertyValue, MapMove) {
     ASSERT_EQ(ret.at("nandare").ValueInt(), 123);
   }
   ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
 
   {
     std::stringstream ss;
@@ -580,6 +571,94 @@ TEST(PropertyValue, MapMove) {
     std::stringstream ss;
     ss << pv;
     ASSERT_EQ(ss.str(), "{nandare: 123}");
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PropertyValue, Point2d) {
+  auto point_val = Point2d{CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0};
+  PropertyValue pv(point_val);
+
+  ASSERT_EQ(pv.type(), PropertyValue::Type::Point2d);
+
+  ASSERT_TRUE(pv.IsPoint2d());
+  ASSERT_TRUE(IsOnlyOneType(pv));
+
+  ASSERT_THROW(pv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), PropertyValueException);
+  ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_EQ(pv.ValuePoint2d(), point_val);
+  ASSERT_THROW(pv.ValuePoint3d(), PropertyValueException);
+
+  const auto &cpv = pv;
+
+  ASSERT_THROW(cpv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_EQ(cpv.ValuePoint2d(), point_val);
+  ASSERT_THROW(cpv.ValuePoint3d(), PropertyValueException);
+
+  {
+    std::stringstream ss;
+    ss << pv.type();
+    ASSERT_EQ(ss.str(), "point");
+  }
+  {
+    std::stringstream ss;
+    ss << pv;
+    ASSERT_EQ(ss.str(), "FIXME: point({ x:1, y:2, srid:4326 })");
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(PropertyValue, Point3d) {
+  auto point_val = Point3d{CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0};
+  PropertyValue pv(point_val);
+
+  ASSERT_EQ(pv.type(), PropertyValue::Type::Point3d);
+
+  ASSERT_TRUE(pv.IsPoint3d());
+  ASSERT_TRUE(IsOnlyOneType(pv));
+
+  ASSERT_THROW(pv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(pv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(pv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(pv.ValueString(), PropertyValueException);
+  ASSERT_THROW(pv.ValueList(), PropertyValueException);
+  ASSERT_THROW(pv.ValueMap(), PropertyValueException);
+  ASSERT_THROW(pv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(pv.ValuePoint2d(), PropertyValueException);
+  ASSERT_EQ(pv.ValuePoint3d(), point_val);
+
+  const auto &cpv = pv;
+
+  ASSERT_THROW(cpv.ValueBool(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueInt(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueDouble(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueString(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueList(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueMap(), PropertyValueException);
+  ASSERT_THROW(cpv.ValueEnum(), PropertyValueException);
+  ASSERT_THROW(cpv.ValuePoint2d(), PropertyValueException);
+  ASSERT_EQ(cpv.ValuePoint3d(), point_val);
+
+  {
+    std::stringstream ss;
+    ss << pv.type();
+    ASSERT_EQ(ss.str(), "point");
+  }
+  {
+    std::stringstream ss;
+    ss << pv;
+    ASSERT_EQ(ss.str(), "FIXME: point({ x:1, y:2, z:3, srid:4979 })");
   }
 }
 
@@ -601,6 +680,10 @@ TEST(PropertyValue, CopyConstructor) {
       PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))),
       PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
+      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
 
   for (const auto &item : data) {
@@ -637,6 +720,12 @@ TEST(PropertyValue, CopyConstructor) {
       case PropertyValue::Type::Enum:
         ASSERT_EQ(pv.ValueEnum(), item.ValueEnum());
         break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), item.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), item.ValuePoint3d());
+        break;
     }
   }
 }
@@ -659,6 +748,10 @@ TEST(PropertyValue, MoveConstructor) {
       PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))),
       PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
+      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
 
   for (auto &item : data) {
@@ -696,6 +789,12 @@ TEST(PropertyValue, MoveConstructor) {
       case PropertyValue::Type::Enum:
         ASSERT_EQ(pv.ValueEnum(), copy.ValueEnum());
         break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), copy.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), copy.ValuePoint3d());
+        break;
     }
   }
 }
@@ -718,6 +817,10 @@ TEST(PropertyValue, CopyAssignment) {
       PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))),
       PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
+      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
 
   for (const auto &item : data) {
@@ -755,6 +858,12 @@ TEST(PropertyValue, CopyAssignment) {
       case PropertyValue::Type::Enum:
         ASSERT_EQ(pv.ValueEnum(), item.ValueEnum());
         break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), item.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), item.ValuePoint3d());
+        break;
     }
   }
 }
@@ -777,6 +886,10 @@ TEST(PropertyValue, MoveAssignment) {
       PropertyValue(ZonedTemporalData(ZonedTemporalType::ZonedDateTime, zdt_dur,
                                       memgraph::utils::Timezone(std::chrono::minutes{-60}))),
       PropertyValue{Enum{EnumTypeId{2}, EnumValueId{42}}},
+      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
 
   for (auto &item : data) {
@@ -815,6 +928,12 @@ TEST(PropertyValue, MoveAssignment) {
       case PropertyValue::Type::Enum:
         ASSERT_EQ(pv.ValueEnum(), copy.ValueEnum());
         break;
+      case PropertyValue::Type::Point2d:
+        ASSERT_EQ(pv.ValuePoint2d(), copy.ValuePoint2d());
+        break;
+      case PropertyValue::Type::Point3d:
+        ASSERT_EQ(pv.ValuePoint3d(), copy.ValuePoint3d());
+        break;
     }
   }
 }
@@ -847,8 +966,16 @@ TEST(PropertyValue, Equal) {
   auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
-      PropertyValue(),          PropertyValue(true), PropertyValue(123), PropertyValue(123.5),
-      PropertyValue("nandare"), PropertyValue(vec),  PropertyValue(map), PropertyValue{enum_val},
+      PropertyValue(),
+      PropertyValue(true),
+      PropertyValue(123),
+      PropertyValue(123.5),
+      PropertyValue("nandare"),
+      PropertyValue(vec),
+      PropertyValue(map),
+      PropertyValue{enum_val},
+      PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
   };
   for (const auto &item1 : data) {
     for (const auto &item2 : data) {
@@ -884,8 +1011,16 @@ TEST(PropertyValue, Less) {
   auto map = PropertyValue::map_t{{"nandare", PropertyValue(false)}};
   auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
   std::vector<PropertyValue> data{
-      PropertyValue(),          PropertyValue(true), PropertyValue(123), PropertyValue(123.5),
-      PropertyValue("nandare"), PropertyValue(vec),  PropertyValue(map), PropertyValue{enum_val},
+      PropertyValue(),
+      PropertyValue(true),
+      PropertyValue(123),
+      PropertyValue(123.5),
+      PropertyValue("nandare"),
+      PropertyValue(vec),
+      PropertyValue(map),
+      PropertyValue{enum_val},
+      PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+      PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
   };
   for (size_t i = 0; i < data.size(); ++i) {
     for (size_t j = 0; j < data.size(); ++j) {

@@ -22,6 +22,7 @@
 using testing::UnorderedElementsAre;
 
 using namespace memgraph::storage;
+using enum CoordinateReferenceSystem;
 
 ZonedTemporalData GetSampleZonedTemporal() {
   const auto common_duration =
@@ -58,7 +59,11 @@ const PropertyValue kSampleValues[] = {
         {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
     PropertyValue(TemporalData(TemporalType::Date, 23)),
     PropertyValue(GetSampleZonedTemporal()),
-    PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}}
+    PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}},
+    PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+    PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+    PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+    PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
 
 };
 
