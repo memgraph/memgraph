@@ -3006,10 +3006,10 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (self_.buffer_size_ && buffer_size_ == -1) [[unlikely]] {
+  if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
-    buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
+    buffer_size_ = EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
   bool const has_more = input_cursor_->Pull(frame, context);
