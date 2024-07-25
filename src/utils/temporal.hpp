@@ -253,22 +253,89 @@ struct LocalTimeHash {
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
 
 struct LocalDateTime {
-  // UTC
-  explicit LocalDateTime(int64_t microseconds);
+  /**
+   * @brief Construct a new LocalDateTime object using system time (UTC).
+   *
+   * @param offset_epoch_us Offset from POSIX epoch in microseconds
+   */
+  explicit LocalDateTime(int64_t offset_epoch_us);
 
-  // NOT UTC
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date_parameters
+   * @param local_time_parameters
+   */
   explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters);
+
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date
+   * @param local_time
+   */
   explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
-  // UTC
+  /**
+   * @brief Returns offset in system time (UTC).
+   *
+   * @return int64_t
+   */
   int64_t SysMicrosecondsSinceEpoch() const;
 
-  // NOT UTC
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see Date LocalTime
+   *
+   * @return int64_t
+   */
   int64_t MicrosecondsSinceEpoch() const;
+
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see bolt base_encoder
+   *
+   * @return int64_t
+   */
   int64_t SecondsSinceEpoch() const;
+
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see bolt base_encoder
+   *
+   * @return int64_t
+   */
   int64_t SubSecondsAsNanoseconds() const;
+
+  /**
+   * @brief Return string representing calendar time (local/user timezone)
+   *
+   * @return std::string
+   */
   std::string ToString() const;
+
+  /**
+   * @brief Return calendar date (local/user timezone)
+   *
+   * @return Date
+   */
   Date date() const;
+
+  /**
+   * @brief Return calendar time (local/user timezone)
+   *
+   * @return Date
+   */
   LocalTime local_time() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
@@ -276,6 +343,7 @@ struct LocalDateTime {
   friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) { return os << ldt.ToString(); }
 
   friend LocalDateTime operator+(const LocalDateTime &dt, const Duration &dur) {
+    // Use calendar time since we want to restrict allowed dates
     const auto local_date_time_as_duration = Duration(dt.MicrosecondsSinceEpoch());
     const auto result = local_date_time_as_duration + dur;
     namespace chrono = std::chrono;
@@ -294,8 +362,8 @@ struct LocalDateTime {
     return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
   }
 
-  // UTC
-  std::chrono::sys_time<std::chrono::microseconds> us_since_epoch_;
+  std::chrono::sys_time<std::chrono::microseconds>
+      us_since_epoch_;  //!< system time representing the local date time (no timezone applied)
 };
 static_assert(sizeof(LocalDateTime) == 8);
 
