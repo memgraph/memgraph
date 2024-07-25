@@ -445,9 +445,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
     case PropertyValueType::Enum:
       return os << "enum";
     case PropertyValueType::Point2d:
-      return os << "point2d";
+      return os << "point";
     case PropertyValueType::Point3d:
-      return os << "point3d";
+      return os << "point";
   }
 }
 
@@ -491,13 +491,14 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
       // TODO: not sure where this will hit, test+check
       //       CODE REVIEWER DO NOT LET THIS MERGE
       const auto point = value.ValuePoint2d();
-      return os << fmt::format("FIXME: {} {} {}", point.x(), point.y(), CrsToSrid(point.crs()).value_of());
+      return os << fmt::format("FIXME: point({{ x:{}, y:{}, srid:{} }})", point.x(), point.y(),
+                               CrsToSrid(point.crs()).value_of());
     }
     case PropertyValueType::Point3d: {
       // TODO: not sure where this will hit, test+check
       //       CODE REVIEWER DO NOT LET THIS MERGE
       const auto point = value.ValuePoint3d();
-      return os << fmt::format("FIXME: {} {} {} {}", point.x(), point.y(), point.z(),
+      return os << fmt::format("FIXME: point({{ x:{}, y:{}, z:{}, srid:{} }})", point.x(), point.y(), point.z(),
                                CrsToSrid(point.crs()).value_of());
     }
   }
