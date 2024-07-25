@@ -69,6 +69,9 @@ class Base {
 
   virtual EdgeTypeIx EdgeType(const std::string &edge_type_name) = 0;
 
+  // At end of test clear any persisted state
+  virtual void Reset() = 0;
+
   TypedValue LiteralValue(Expression *expression) {
     if (context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
@@ -131,6 +134,8 @@ class AstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -173,6 +178,8 @@ class ClonedAstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -197,6 +204,8 @@ class CachedAstGenerator : public Base {
   LabelIx Label(const std::string &name) override { return ast_storage_.GetLabelIx(name); }
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
+
+  void Reset() override { ast_storage_ = AstStorage{}; }
 
   AstStorage ast_storage_;
 };
@@ -250,6 +259,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
   }
 
   void TearDown() override {
+    GetParam()->Reset();
     // To release any_type
     procedure::gModuleRegistry.UnloadAllModules();
   }
@@ -291,6 +301,9 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
 
 const procedure::AnyType CypherMainVisitorTest::any_type{};
 
+/// DEVNOTE: I DO NOT LIKE THIS
+///          We are using global values that maybe have persistent state
+///          hence the need for calling Reset() in TearDown()
 std::shared_ptr<Base> gAstGeneratorTypes[] = {
     std::make_shared<AstGenerator>(),
     std::make_shared<OriginalAfterCloningAstGenerator>(),

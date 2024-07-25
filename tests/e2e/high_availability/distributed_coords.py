@@ -266,14 +266,18 @@ def get_instances_description_no_setup_4_coords(temp_dir, test_name: str, use_du
     }
 
 
-def find_leader_and_assert_leaders(N=3, skip_coords=None):
-    if skip_coords is None:
-        skip_coords = set()
+def find_instance_and_assert_instances(
+    instance_role: str, num_coordinators: int = 3, coord_ids_to_skip_validation=None, wait_period=10
+):
+    if coord_ids_to_skip_validation is None:
+        coord_ids_to_skip_validation = set()
 
-    def find_leaders():
-        all_leaders = []
-        for i in range(0, N):
-            if skip_coords is not None and (i + 1) in skip_coords:
+    start_time = time.time()
+
+    def find_instances():
+        all_instances = []
+        for i in range(0, num_coordinators):
+            if (i + 1) in coord_ids_to_skip_validation:
                 continue
             coord_cursor = connect(host="localhost", port=7690 + i).cursor()
 
@@ -284,52 +288,30 @@ def find_leader_and_assert_leaders(N=3, skip_coords=None):
 
             instances = show_instances()
             for instance in instances:
-                if instance[-1] == "leader":
-                    all_leaders.append(instance[0])  # coordinator name
+                if instance[-1] == instance_role:
+                    all_instances.append(instance[0])  # coordinator name
 
-        return all_leaders
+        return all_instances
 
-    all_leaders = find_leaders()
+    all_instances = []
+    expected_num_instances = num_coordinators - len(coord_ids_to_skip_validation)
+    while True:
+        if len(all_instances) == expected_num_instances or time.time() - start_time > wait_period:
+            break
+        all_instances = find_instances()
+        time.sleep(0.5)
 
-    leader = all_leaders[0]
+    assert (
+        len(all_instances) == expected_num_instances
+    ), f"{instance_role}s not found, got {all_instances}, expected {expected_num_instances}, as num_coordinators: {num_coordinators}, coord_ids_to_skip_validation: {coord_ids_to_skip_validation}"
 
-    for l in all_leaders:
-        assert l == leader, "Leaders are not the same"
+    instance = all_instances[0]
 
-    assert leader is not None and leader != "" and len(all_leaders) > 0, "Main not found"
+    for l in all_instances:
+        assert l == instance, "Leaders are not the same"
 
-    return leader
-
-
-def find_main_and_assert_mains(N=3, skip_coords=None):
-    def find_mains():
-        all_mains = []
-        for i in range(0, N):
-            if skip_coords is not None and (i + 1) in skip_coords:
-                continue
-            coord_cursor = connect(host="localhost", port=7690 + i).cursor()
-
-            def show_instances():
-                return ignore_elapsed_time_from_results(
-                    sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
-                )
-
-            instances = show_instances()
-            for instance in instances:
-                if instance[-1] == "main":
-                    all_mains.append(instance[0])  # main instance name
-
-        return all_mains
-
-    all_mains = find_mains()
-
-    main = all_mains[0]
-
-    for other_main in all_mains:
-        assert other_main == main, "Mains are not the same"
-    assert main is not None and main != "" and len(all_mains) > 0, "Main not found"
-
-    return main
+    assert instance is not None and instance != "" and len(all_instances) > 0, f"{instance_role} not found"
+    return instance
 
 
 def update_tuple_value(
@@ -494,7 +476,7 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
 
     # 7
-    leader_coord_instance_3_demoted = find_leader_and_assert_leaders(N=3)
+    leader_coord_instance_3_demoted = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
 
     leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
@@ -594,8 +576,12 @@ def test_old_main_comes_back_on_new_leader_as_replica():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    leader_instance_3_down = find_leader_and_assert_leaders(N=3, skip_coords={3})
-    main_instance_3_down = find_main_and_assert_mains(N=3, skip_coords={3})
+    leader_instance_3_down = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    main_instance_3_down = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     leader_data = update_tuple_value(leader_data, leader_instance_3_down, 0, -1, "leader")
     leader_data = update_tuple_value(leader_data, main_instance_3_down, 0, -1, "main")
@@ -615,8 +601,12 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 
     interactive_mg_runner.start(inner_instances_description, "instance_3")
 
-    coordinator_leader_instance = find_leader_and_assert_leaders(N=3, skip_coords={3})
-    main_instance_id_instance_3_start = find_main_and_assert_mains(N=3, skip_coords={3})
+    coordinator_leader_instance = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    main_instance_id_instance_3_start = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     assert (
         main_instance_id_instance_3_start == main_instance_3_down
@@ -846,8 +836,12 @@ def test_distributed_automatic_failover_with_leadership_change():
     wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
     wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
-    leader_name = find_leader_and_assert_leaders(N=3, skip_coords={3})
-    main_name = find_main_and_assert_mains(N=3, skip_coords={3})
+    leader_name = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    main_name = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     leader_data = update_tuple_value(leader_data, main_name, 0, -1, "main")
     leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
@@ -2385,7 +2379,9 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    leader_name = find_leader_and_assert_leaders(N=3, skip_coords={3})
+    leader_name = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
 
     leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
 

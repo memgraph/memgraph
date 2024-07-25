@@ -101,12 +101,10 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 
       get_information_from_cache(it->second);
     } else {
-      result.ast_storage.properties_ = ast_storage.properties_;
-      result.ast_storage.labels_ = ast_storage.labels_;
-      result.ast_storage.edge_types_ = ast_storage.edge_types_;
-
-      result.query = visitor.query()->Clone(&result.ast_storage);
+      // Carefully use the query we just built, preserving the ast_storage we used to build it
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
+      result.query = visitor.query();
+      result.ast_storage = std::move(ast_storage);
 
       is_cacheable = false;
     }
