@@ -27,6 +27,7 @@ using namespace std::literals;
 constexpr auto kHashAlgo = "hash_algo";
 constexpr auto kPasswordHash = "password_hash";
 
+// Needs to be stable user queries depend on this
 inline constexpr std::array password_hash_mappings{
     std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
     std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
@@ -262,7 +263,7 @@ PasswordHashAlgorithm &InternalCurrentHashAlgorithm() {
 std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
   // header = algo name + :
   const auto header = std::string{AsString(algo)} + ":";
-  const auto hash_size = HashSize(algo);
+  const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
   if (str.size() == header.size() + hash_size) {
     int i = 0;
     if (std::all_of(header.begin(), header.end(), [&](const auto ch) { return tolower(ch) == str[i++]; })) {
@@ -297,13 +298,13 @@ auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
   return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
 }
 
-auto HashSize(PasswordHashAlgorithm hash_algo) -> size_t {
+auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
   switch (hash_algo) {
     case PasswordHashAlgorithm::BCRYPT:
-      return 60;  // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
+      return {60, 60};  // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
     case PasswordHashAlgorithm::SHA256:
     case PasswordHashAlgorithm::SHA256_MULTIPLE:
-      return SHA::SHA_LENGTH;
+      return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
   }
 }
 

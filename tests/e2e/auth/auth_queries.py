@@ -42,5 +42,32 @@ def test_show_current_user(provide_user):
     assert len(results) == 1 and "user" in results[0] and results[0]["user"] == USERNAME
 
 
+def test_add_user_w_sha256(memgraph):
+    memgraph.execute(
+        "CREATE USER sha256 IDENTIFIED BY 'sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8';"
+    )
+    memgraph_with_user = Memgraph(username="sha256", password="password")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT USER;"))
+    assert len(results) == 1 and "user" in results[0] and results[0]["user"] == "sha256"
+
+
+def test_add_user_w_sha256_multiple(memgraph):
+    memgraph.execute(
+        "CREATE USER sha256_multiple IDENTIFIED BY 'sha256-multiple:c9b03b8e38797c175ad62939faa723ad506e272face534e2d4fe991f0b000cec';"
+    )
+    memgraph_with_user = Memgraph(username="sha256_multiple", password="pass")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT USER;"))
+    assert len(results) == 1 and "user" in results[0] and results[0]["user"] == "sha256_multiple"
+
+
+def test_add_user_w_bcrypt(memgraph):
+    memgraph.execute(
+        "CREATE USER bcrypt IDENTIFIED BY 'bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy';"
+    )
+    memgraph_with_user = Memgraph(username="bcrypt", password="word")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT USER;"))
+    assert len(results) == 1 and "user" in results[0] and results[0]["user"] == "bcrypt"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
