@@ -1571,7 +1571,7 @@ TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext
   auto type2 = args[1].type();
 
   if (type1 != type2) {
-    throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
+    throw QueryRuntimeException("Points must use the same CRS to calculate the distance between them.");
   }
   std::variant<std::pair<storage::Point2d, storage::Point2d>, std::pair<storage::Point3d, storage::Point3d>> points;
   if (type1 == TypedValue::Type::Point2d) {
@@ -1580,26 +1580,50 @@ TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext
     points = std::make_pair(args[0].ValuePoint3d(), args[1].ValuePoint3d());
   }
 
-  return TypedValue(
-      std::visit(utils::Overloaded{
-                     [](std::pair<storage::Point2d, storage::Point2d> &points) {
-                       auto const &point1 = points.first;
-                       auto const &point2 = points.second;
-                       if (point1.crs() != point2.crs()) {
-                         throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
-                       }
-                       return storage::Distance(point1, point2);
-                     },
-                     [](std::pair<storage::Point3d, storage::Point3d> &points) {
-                       auto const &point1 = points.first;
-                       auto const &point2 = points.second;
-                       if (point1.crs() != point2.crs()) {
-                         throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
-                       }
-                       return storage::Distance(point1, point2);
-                     }},
-                 points),
-      ctx.memory);
+  return TypedValue(std::visit(utils::Overloaded{[](auto const &points) {
+                                 auto const &point1 = points.first;
+                                 auto const &point2 = points.second;
+                                 if (point1.crs() != point2.crs()) {
+                                   throw QueryRuntimeException(
+                                       "Points must use the same CRS to calculate the distance between them.");
+                                 }
+                                 return storage::Distance(point1, point2);
+                               }},
+                               points),
+                    ctx.memory);
+}
+
+TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Point2d, Point3d>, Or<Point2d, Point3d>, Or<Point2d, Point3d>>("withinbbox", args, nargs);
+
+  auto type1 = args[0].type();
+  auto type2 = args[1].type();
+  auto type3 = args[2].type();
+
+  if (type1 != type2 || type1 != type3) {
+    return TypedValue(ctx.memory);
+  }
+  std::variant<std::tuple<storage::Point2d, storage::Point2d, storage::Point2d>,
+               std::tuple<storage::Point3d, storage::Point3d, storage::Point3d>>
+      points;
+  if (type1 == TypedValue::Type::Point2d) {
+    points = std::make_tuple(args[0].ValuePoint2d(), args[1].ValuePoint2d(), args[2].ValuePoint2d());
+  } else {
+    points = std::make_tuple(args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
+  }
+
+  return std::visit(utils::Overloaded{[&ctx](auto const &points) {
+                      auto const &point = std::get<0>(points);
+                      auto const &lower_left = std::get<1>(points);
+                      auto const &upper_right = std::get<2>(points);
+
+                      if (point.crs() != lower_left.crs() || point.crs() != upper_right.crs()) {
+                        return TypedValue(ctx.memory);
+                      }
+
+                      return TypedValue(storage::WithinBBox(point, lower_left, upper_right), ctx.memory);
+                    }},
+                    points);
 }
 
 }  // namespace
@@ -1695,8 +1719,8 @@ auto NameToFunction(const std::string &function_name) -> std::variant<func_impl,
 
   // Functions for point types
   if (function_name == "POINT") return Point;
-  // if (function_name == "WITHINBBOX") return WithinBBox;
-  if (function_name == "DISTANCE") return Distance;
+  if (function_name == "point.distance") return Distance;
+  if (function_name == "point.withinBBox") return WithinBBox;
 
   auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
 

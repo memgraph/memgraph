@@ -13,6 +13,7 @@
 
 #include "utils/logging.hpp"
 
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <string_view>
@@ -138,15 +139,6 @@ struct Point2d {
   double y_;
 };
 
-inline double Distance(const Point2d &point1, const Point2d &point2) {
-  MG_ASSERT(point1.crs() == point2.crs());
-  if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
-    return std::sqrt(std::pow(point1.x() - point2.x(), 2) + std::pow(point1.y() - point2.y(), 2));
-  }
-  // TODO Haversine
-  return 0;
-}
-
 struct Point3d {
   Point3d() = default;  // needed for slk
 
@@ -178,14 +170,83 @@ struct Point3d {
   double z_;
 };
 
-inline double Distance(const Point3d &point1, const Point3d &point2) {
+inline double Haversine(const Point2d &point1, const Point2d &point2) {
+  constexpr double R = 6371e3;
+  const double PI_RADIANS = std::atan(1) * 4 / 180.00;
+
+  auto phi_1 = point1.y() * PI_RADIANS;
+  auto phi_2 = point2.y() * PI_RADIANS;
+  auto delta_phi = (point2.y() - point1.y()) * PI_RADIANS;
+  auto delta_lambda = (point2.x() - point1.x()) * PI_RADIANS;
+
+  auto sin_delta_phi = std::sin(delta_phi / 2.0);
+  auto sin_delta_lambda = std::sin(delta_lambda / 2.0);
+
+  auto a = sin_delta_phi * sin_delta_phi + std::cos(phi_1) * std::cos(phi_2) * (sin_delta_lambda * sin_delta_lambda);
+  auto c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
+
+  return R * c;
+}
+
+inline double Haversine(const Point3d &point1, const Point3d &point2) {
+  constexpr double R = 6371e3;
+  const double PI_RADIANS = std::atan(1) * 4 / 180.0;
+  auto phi_1 = point1.y() * PI_RADIANS;
+  auto phi_2 = point2.y() * PI_RADIANS;
+  auto delta_phi = (point2.y() - point1.y()) * PI_RADIANS;
+  auto delta_lambda = (point2.x() - point1.x()) * PI_RADIANS;
+
+  auto sin_delta_phi = std::sin(delta_phi / 2.0);
+  auto sin_delta_lambda = std::sin(delta_lambda / 2.0);
+
+  auto a = sin_delta_phi * sin_delta_phi + std::cos(phi_1) * std::cos(phi_2) * (sin_delta_lambda * sin_delta_lambda);
+  auto c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
+
+  auto horizontal_distance = R * c;
+  auto delta_height = point2.z() - point1.z();
+
+  return std::sqrt(horizontal_distance * horizontal_distance + delta_height * delta_height);
+}
+
+inline double Distance(const Point2d &point1, const Point2d &point2) {
   MG_ASSERT(point1.crs() == point2.crs());
   if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
-    return std::sqrt(std::pow(point1.x() - point2.x(), 2) + std::pow(point1.y() - point2.y(), 2) +
-                     std::pow(point1.z() - point2.z(), 2));
+    auto dx = point1.x() - point2.x();
+    auto dy = point1.y() - point2.y();
+    return std::sqrt(dx * dx + dy * dy);
   }
-  // TODO Haversine
-  return 0;
+  return Haversine(point1, point2);
+}
+
+inline double Distance(const Point3d &point1, const Point3d &point2) {
+  MG_ASSERT(point1.crs() == point2.crs());
+  if (point1.crs() == CoordinateReferenceSystem::Cartesian_3d) {
+    auto dx = point1.x() - point2.x();
+    auto dy = point1.y() - point2.y();
+    auto dz = point1.z() - point2.z();
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+  }
+  return Haversine(point1, point2);
+}
+
+inline bool WithinBBox(const storage::Point2d &point, const storage::Point2d &lower_bound,
+                       const storage::Point2d &upper_bound) {
+  if (lower_bound.x() > upper_bound.x()) {
+    return point.x() >= upper_bound.x() && point.x() <= lower_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
+           point.y() <= upper_bound.y();
+  }
+  return point.x() >= lower_bound.x() && point.x() <= upper_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
+         point.y() <= upper_bound.y();
+}
+
+inline bool WithinBBox(const storage::Point3d &point, const storage::Point3d &lower_bound,
+                       const storage::Point3d &upper_bound) {
+  if (lower_bound.x() > upper_bound.x()) {
+    return point.x() >= upper_bound.x() && point.x() <= lower_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
+           point.y() <= upper_bound.y() && point.z() >= lower_bound.z() && point.z() <= upper_bound.z();
+  }
+  return point.x() >= lower_bound.x() && point.x() <= upper_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
+         point.y() <= upper_bound.y() && point.z() >= lower_bound.z() && point.z() <= upper_bound.z();
 }
 
 static_assert(std::is_trivially_destructible_v<Point2d>);
