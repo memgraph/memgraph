@@ -1393,7 +1393,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   ///            and has connections, an error is raised when deleting edges.
   bool detach_;
   // when buffer size is reached, delete will be triggered
-  Expression *buffer_size_;
+  Expression *buffer_size_{nullptr};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Delete>();
