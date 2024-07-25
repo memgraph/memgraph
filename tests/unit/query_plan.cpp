@@ -2708,4 +2708,18 @@ TYPED_TEST(TestPlanner, PeriodicSubqueryWithDeleteCantCombine) {
   ASSERT_THROW(MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query), memgraph::utils::NotYetImplemented);
 }
 
+TYPED_TEST(TestPlanner, PeriodicCommitWithDelete) {
+  // Test USING PERIODIC COMMIT 1 MATCH (n) DETACH DELETE n;
+  FakeDbAccessor dba;
+
+  auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+  auto *query =
+      PERIODIC_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))), COMMIT_FREQUENCY(LITERAL(1)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectDelete(), ExpectPeriodicCommit(), ExpectEmptyResult());
+}
+
 }  // namespace
