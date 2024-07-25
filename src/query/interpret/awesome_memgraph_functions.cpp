@@ -23,6 +23,7 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -221,6 +222,10 @@ constexpr const char *ArgTypeName() {
     return "graph";
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return "Enum";
+  } else if constexpr (std::is_same_v<ArgType, Point2d>) {
+    return "Point";
+  } else if constexpr (std::is_same_v<ArgType, Point3d>) {
+    return "Point";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -1559,6 +1564,44 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   return TypedValue(storage::Point3d{*mg_crs, x, y, (*z_opt).first}, ctx.memory);
 }
 
+TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Point2d, Point3d>, Or<Point2d, Point3d>>("distance", args, nargs);
+
+  auto type1 = args[0].type();
+  auto type2 = args[1].type();
+
+  if (type1 != type2) {
+    throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
+  }
+  std::variant<std::pair<storage::Point2d, storage::Point2d>, std::pair<storage::Point3d, storage::Point3d>> points;
+  if (type1 == TypedValue::Type::Point2d) {
+    points = std::make_pair(args[0].ValuePoint2d(), args[1].ValuePoint2d());
+  } else {
+    points = std::make_pair(args[0].ValuePoint3d(), args[1].ValuePoint3d());
+  }
+
+  return TypedValue(
+      std::visit(utils::Overloaded{
+                     [](std::pair<storage::Point2d, storage::Point2d> &points) {
+                       auto const &point1 = points.first;
+                       auto const &point2 = points.second;
+                       if (point1.crs() != point2.crs()) {
+                         throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
+                       }
+                       return storage::Distance(point1, point2);
+                     },
+                     [](std::pair<storage::Point3d, storage::Point3d> &points) {
+                       auto const &point1 = points.first;
+                       auto const &point2 = points.second;
+                       if (point1.crs() != point2.crs()) {
+                         throw QueryRuntimeException("Points must have same CRS to calculate distance between them.");
+                       }
+                       return storage::Distance(point1, point2);
+                     }},
+                 points),
+      ctx.memory);
+}
+
 }  // namespace
 
 auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
@@ -1652,6 +1695,8 @@ auto NameToFunction(const std::string &function_name) -> std::variant<func_impl,
 
   // Functions for point types
   if (function_name == "POINT") return Point;
+  // if (function_name == "WITHINBBOX") return WithinBBox;
+  if (function_name == "DISTANCE") return Distance;
 
   auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
 
