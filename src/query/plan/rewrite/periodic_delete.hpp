@@ -61,7 +61,7 @@ class PeriodicDeleteRewriter final : public HierarchicalLogicalOperatorVisitor {
   SymbolTable *symbol_table;
   AstStorage *ast_storage;
   TDbAccessor *db;
-  Expression *commit_frequency_;
+  Expression *commit_frequency_{nullptr};
   bool periodic_subquery_seen_{false};
   bool delete_seen_{false};
 };
