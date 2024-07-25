@@ -138,6 +138,15 @@ struct Point2d {
   double y_;
 };
 
+inline double Distance(const Point2d &point1, const Point2d &point2) {
+  MG_ASSERT(point1.crs() == point2.crs());
+  if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
+    return std::sqrt(std::pow(point1.x() - point2.x(), 2) + std::pow(point1.y() - point2.y(), 2));
+  }
+  // TODO Haversine
+  return 0;
+}
+
 struct Point3d {
   Point3d() = default;  // needed for slk
 
@@ -168,6 +177,16 @@ struct Point3d {
   double y_;
   double z_;
 };
+
+inline double Distance(const Point3d &point1, const Point3d &point2) {
+  MG_ASSERT(point1.crs() == point2.crs());
+  if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
+    return std::sqrt(std::pow(point1.x() - point2.x(), 2) + std::pow(point1.y() - point2.y(), 2) +
+                     std::pow(point1.z() - point2.z(), 2));
+  }
+  // TODO Haversine
+  return 0;
+}
 
 static_assert(std::is_trivially_destructible_v<Point2d>);
 static_assert(std::is_trivially_destructible_v<Point3d>);
