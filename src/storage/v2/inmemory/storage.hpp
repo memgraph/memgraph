@@ -369,6 +369,11 @@ class InMemoryStorage final : public Storage {
     void FastDiscardOfDeltas(uint64_t oldest_active_timestamp, std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices, std::list<Gid> &current_deleted_edges);
     SalientConfig::Items config_;
+
+   private:
+    // Used by CreateVertex and CreateVertexEx
+    // @throw std::bad_alloc
+    VertexAccessor CreateVertexInternal(storage::Gid gid);
   };
 
   class ReplicationAccessor final : public InMemoryAccessor {

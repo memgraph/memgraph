@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -122,6 +123,9 @@ struct Transaction {
   bool scanned_all_vertices_ = false;
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
+
+  // Transaction-local schema info object which is merged with the database schema info on commit.
+  SchemaInfo schema_info_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

@@ -31,6 +31,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/resource_lock.hpp"
@@ -252,20 +253,24 @@ InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   FinalizeTransaction();
 }
 
-VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
+VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexInternal(storage::Gid gid) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  auto gid = mem_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
   auto acc = mem_storage->vertices_.access();
-
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
+  auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-
   if (delta) {
     delta->prev.Set(&*it);
   }
+  storage_->schema_info_.AddVertex();
   return {&*it, storage_, &transaction_};
+}
+
+VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  auto gid = mem_storage->vertex_id_.fetch_add(1, std::memory_order_acq_rel);
+  return CreateVertexInternal(storage::Gid::FromUint(gid));
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
@@ -278,16 +283,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   mem_storage->vertex_id_.store(std::max(mem_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
                                 std::memory_order_release);
-  auto acc = mem_storage->vertices_.access();
-
-  auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
-  MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
-  if (delta) {
-    delta->prev.Set(&*it);
-  }
-  return {&*it, storage_, &transaction_};
+  return CreateVertexInternal(gid);
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {
@@ -998,6 +994,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
+
+        mem_storage->schema_info_.MergeStats(std::move(transaction_.schema_info_));
 
         // while still holding engine lock
         // and after durability + replication

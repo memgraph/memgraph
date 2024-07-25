@@ -379,6 +379,12 @@ target_link_libraries(${test_prefix}database_get_info mg-storage-v2 mg-glue mg-d
 add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
 
+add_unit_test(storage_v2_schema_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_schema_info mg-storage-v2)
+
+add_unit_test(storage_v2_get_schema_info_from_storage.cpp)
+target_link_libraries(${test_prefix}storage_v2_get_schema_info_from_storage mg-storage-v2)
+
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
 

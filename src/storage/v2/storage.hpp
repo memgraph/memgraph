@@ -38,6 +38,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -400,6 +401,8 @@ class Storage {
       return storage_->enum_store_.ToEnum(enum_str);
     }
 
+    auto GetSchemaInfo() { return storage_->schema_info_; }
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
@@ -547,6 +550,9 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+
+  // Database schema info about nodes, edges, indices and constraints
+  SchemaInfo schema_info_;
 };
 
 }  // namespace memgraph::storage
