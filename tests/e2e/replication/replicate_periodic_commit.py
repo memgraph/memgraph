@@ -13,6 +13,7 @@ import os
 import sys
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import execute_and_fetch_all
 from mg_utils import mg_sleep_and_assert_collection
@@ -41,6 +42,7 @@ def test_periodic_commit_replication(connection):
     # 0/ Setup replication
     # 1/ MAIN query: USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})"
     # 2/ Validate data has arrived at REPLICA
+    # 3/ Validate you can't periodically commit to replica
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -93,6 +95,12 @@ def test_periodic_commit_replication(connection):
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     replica_1_data = get_periodic_commit_data(cursor_replica)
     assert replica_1_data == [(1,), (2,), (3,)]
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor_replica, "USING PERIODIC COMMIT 1 CREATE (n)")
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor_replica, "USING PERIODIC COMMIT 1 CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS")
 
 
 if __name__ == "__main__":
