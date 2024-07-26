@@ -330,7 +330,7 @@ std::optional<Point2d> Decoder::ReadPoint2dValue() {
 
 std::optional<Point3d> Decoder::ReadPoint3dValue() {
   auto marker = ReadMarker();
-  if (!marker || *marker != Marker::TYPE_POINT_2D) return std::nullopt;
+  if (!marker || *marker != Marker::TYPE_POINT_3D) return std::nullopt;
 
   const auto srid = ReadUint();
   if (!srid) return std::nullopt;
