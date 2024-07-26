@@ -2998,6 +2998,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
         buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
+        break;
       }
       case TypedValue::Type::Null:
         break;
