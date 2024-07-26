@@ -229,8 +229,8 @@ inline double Distance(const Point3d &point1, const Point3d &point2) {
   return Haversine(point1, point2);
 }
 
-inline bool WithinBBox(const storage::Point2d &point, const storage::Point2d &lower_bound,
-                       const storage::Point2d &upper_bound) {
+inline bool WithinBBox(const Point2d &point, const Point2d &lower_bound, const Point2d &upper_bound) {
+  using enum CoordinateReferenceSystem;
   auto lb_x = lower_bound.x();
   auto ub_x = upper_bound.x();
 
@@ -239,22 +239,36 @@ inline bool WithinBBox(const storage::Point2d &point, const storage::Point2d &lo
 
   auto p_x = point.x();
   auto p_y = point.y();
+  auto crs = point.crs();
 
-  if (lb_x <= ub_x) [[likely]] {
+  if (lb_x <= ub_x || crs == Cartesian_2d) [[likely]] {
     return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y;
   } else {
     return ub_x <= p_x && p_x <= lb_x + 360.0 && lb_y <= p_y && p_y <= ub_y;
   }
 }
 
-inline bool WithinBBox(const storage::Point3d &point, const storage::Point3d &lower_bound,
-                       const storage::Point3d &upper_bound) {
-  if (lower_bound.x() > upper_bound.x()) {
-    return point.x() >= upper_bound.x() && point.x() <= lower_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
-           point.y() <= upper_bound.y() && point.z() >= lower_bound.z() && point.z() <= upper_bound.z();
+inline bool WithinBBox(const Point3d &point, const Point3d &lower_bound, const Point3d &upper_bound) {
+  using enum CoordinateReferenceSystem;
+  auto lb_x = lower_bound.x();
+  auto ub_x = upper_bound.x();
+
+  auto lb_y = lower_bound.y();
+  auto ub_y = upper_bound.y();
+
+  auto lb_z = lower_bound.z();
+  auto ub_z = upper_bound.z();
+
+  auto p_x = point.x();
+  auto p_y = point.y();
+  auto p_z = point.z();
+  auto crs = point.crs();
+
+  if (lb_x <= ub_x || crs == Cartesian_3d) [[likely]] {
+    return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
+  } else {
+    return ub_x <= p_x && p_x <= lb_x + 360.0 && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
   }
-  return point.x() >= lower_bound.x() && point.x() <= upper_bound.x() + 360.0 && point.y() >= lower_bound.y() &&
-         point.y() <= upper_bound.y() && point.z() >= lower_bound.z() && point.z() <= upper_bound.z();
 }
 
 static_assert(std::is_trivially_destructible_v<Point2d>);
