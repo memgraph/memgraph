@@ -125,11 +125,12 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
+                                             DbAccessor *db_accessor, DatabaseAccessProtector db_acc,
                                              const std::vector<Identifier *> &predefined_identifiers) {
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
-  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
+  auto planning_context =
+      plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts, std::move(db_acc));
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
                                                  std::move(symbol_table));
@@ -137,7 +138,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
 
 std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
                                                const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+                                               DbAccessor *db_accessor, DatabaseAccessProtector db_acc,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
     auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
@@ -146,8 +147,8 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto plan = std::make_shared<PlanWrapper>(MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor,
+                                                            std::move(db_acc), predefined_identifiers));
 
   if (plan_cache) {
     plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });

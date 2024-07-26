@@ -460,7 +460,7 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
                       memgraph::query::SymbolTable &symbol_table, InteractiveDbAccessor *dba) {
   auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query, false);
   std::vector<InteractivePlan> interactive_plans;
-  auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
+  auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba, 42);
   if (query_parts.query_parts.size() <= 0) {
     std::cerr << "Failed to extract query parts" << std::endl;
     std::exit(EXIT_FAILURE);

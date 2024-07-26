@@ -2298,7 +2298,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *plan_cache = is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
 
   auto plan = CypherQueryToPlan(parsed_query.stripped_query.hash(), std::move(parsed_query.ast_storage), cypher_query,
-                                parsed_query.parameters, plan_cache, dba);
+                                parsed_query.parameters, plan_cache, dba, current_db.db_acc_);
 
   auto hints = plan::ProvidePlanHints(&plan->plan(), plan->symbol_table());
   for (const auto &hint : hints) {
@@ -2367,7 +2367,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, plan_cache, dba);
+                        cypher_query, parsed_inner_query.parameters, plan_cache, dba, current_db.db_acc_);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
@@ -2456,7 +2456,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto *plan_cache = parsed_inner_query.is_cacheable ? current_db.db_acc_->get()->plan_cache() : nullptr;
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query.hash(), std::move(parsed_inner_query.ast_storage),
-                        cypher_query, parsed_inner_query.parameters, plan_cache, dba);
+                        cypher_query, parsed_inner_query.parameters, plan_cache, dba, current_db.db_acc_);
   TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
@@ -5207,7 +5207,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
+      trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
@@ -5364,7 +5364,7 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, execution_memory.resource(),
+        trigger.Execute(&*current_db_.execution_db_accessor_, current_db_.db_acc_, execution_memory.resource(),
                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
                         &transaction_status_, *trigger_context);
       } catch (const utils::BasicException &e) {

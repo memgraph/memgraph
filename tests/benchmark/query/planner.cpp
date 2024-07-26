@@ -55,7 +55,7 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     int num_matches = state.range(0);
     auto *query = AddChainedMatches(num_matches, storage);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
-    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
+    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba, 42);
     state.ResumeTiming();
     auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query, false);
     if (query_parts.query_parts.size() == 0) {
@@ -129,7 +129,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
-    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba);
+    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &dba, 42);
     auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query, false);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);
@@ -160,7 +160,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
     auto *query = AddIndexedMatches(index_count, label, prop, storage);
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     state.ResumeTiming();
-    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &vertex_counts);
+    auto ctx = memgraph::query::plan::MakePlanningContext(&storage, &symbol_table, query, &vertex_counts, 42);
     auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, storage, query, false);
     if (query_parts.query_parts.size() == 0) {
       std::exit(EXIT_FAILURE);

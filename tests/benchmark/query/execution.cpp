@@ -141,7 +141,7 @@ static void Distinct(benchmark::State &state) {
   auto query_string = "MATCH (s) RETURN DISTINCT s";
   auto *cypher_query = ParseCypherQuery(query_string, &ast);
   auto symbol_table = memgraph::query::MakeSymbolTable(cypher_query);
-  auto context = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba);
+  auto context = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, cypher_query, &dba, 42);
   auto plan_and_cost = memgraph::query::plan::MakeLogicalPlan(&context, parameters, false);
   ResultStreamFaker results(db.get());
   // We need to only set the memory for temporary (per pull) evaluations

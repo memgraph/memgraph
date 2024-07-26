@@ -37,64 +37,62 @@ def show_replicas_func(cursor):
 
 
 def test_periodic_commit_replication(connection):
-    # TODO: Do work to enable periodic commit on replication
-    assert True
-    # # Goal: That periodic commit query is replicated to REPLICAs
-    # # 0/ Setup replication
-    # # 1/ MAIN query: USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})"
-    # # 2/ Validate data has arrived at REPLICA
+    # Goal: That periodic commit query is replicated to REPLICAs
+    # 0/ Setup replication
+    # 1/ MAIN query: USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})"
+    # 2/ Validate data has arrived at REPLICA
 
-    # MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
-    #     "replica_1": {
-    #         "args": [
-    #             "--bolt-port",
-    #             f"{BOLT_PORTS['replica_1']}",
-    #             "--log-level=TRACE",
-    #         ],
-    #         "log_file": "replica1.log",
-    #         "setup_queries": [
-    #             f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
-    #         ],
-    #     },
-    #     "main": {
-    #         "args": [
-    #             "--bolt-port",
-    #             f"{BOLT_PORTS['main']}",
-    #             "--log-level=TRACE",
-    #         ],
-    #         "log_file": "main.log",
-    #         "setup_queries": [
-    #             f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
-    #         ],
-    #     },
-    # }
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            ],
+        },
+    }
 
-    # # 0/
-    # interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    # cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
-    # # 1/
-    # execute_and_fetch_all(cursor, "USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})")
+    # 1/
+    execute_and_fetch_all(cursor, "USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})")
 
-    # # 2/
-    # expected_data = [
-    #     (
-    #         "replica_1",
-    #         f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
-    #         "sync",
-    #         {"behind": None, "status": "ready", "ts": 0},
-    #         {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
-    #     )
-    # ]
+    # 2/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 6}},
+        )
+    ]
 
-    # mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
 
-    # def get_periodic_commit_data(cursor):
-    #     return execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.id AS id;")
+    def get_periodic_commit_data(cursor):
+        return execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.id AS id;")
 
-    # cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
-    # replica_1_data = get_periodic_commit_data(cursor_replica)
-    # assert replica_1_data == [(1,), (2,), (3,)]
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica_1_data = get_periodic_commit_data(cursor_replica)
+    assert replica_1_data == [(1,), (2,), (3,)]
 
 
 if __name__ == "__main__":

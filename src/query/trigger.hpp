@@ -38,9 +38,9 @@ struct Trigger {
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
-  void Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
-               const TriggerContext &context) const;
+  void Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+               double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -63,7 +63,7 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, DatabaseAccessProtector db_acc) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
