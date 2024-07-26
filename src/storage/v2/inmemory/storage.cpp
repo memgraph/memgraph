@@ -1010,7 +1010,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
           auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
           if (gc_guard.try_lock()) {
-            FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
+            FastDiscardOfDeltas(std::move(gc_guard));
           }
         }
       }
@@ -1101,43 +1101,19 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   unlink_remove_clear(transaction_.deltas);
 }
 
-void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
-                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // STEP 1 + STEP 2
+  // STEP 1 + STEP 2 - delta cleanup
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
   GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
 
-  // STEP 3) skip_list removals
-  if (!current_deleted_vertices.empty()) {
-    // 3.a) clear from vertex indexes first
-    const std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteVertexEntries(oldest_active_timestamp, dummy.get_token());
-    auto *mem_unique_constraints =
-        static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
-
-    // 3.b) remove from vertex skip_list
-    auto vertex_acc = mem_storage->vertices_.access();
-    for (auto gid : current_deleted_vertices) {
-      vertex_acc.remove(gid);
-    }
-  }
-
-  if (!current_deleted_edges.empty()) {
-    // 3.c) clear from edge indexes first
-    const std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEdgeEntries(oldest_active_timestamp, dummy.get_token());
-    // 3.d) remove from edge skip_list
-    auto edge_acc = mem_storage->edges_.access();
-    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
-    for (auto gid : current_deleted_edges) {
-      edge_acc.remove(gid);
-      edge_metadata_acc.remove(gid);
-    }
-  }
+  // STEP 3) hand over the deleted vertices and edges to the GC
+  mem_storage->deleted_vertices_.WithLock(
+      [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
+  mem_storage->deleted_edges_.WithLock(
+      [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
 }
 
 void InMemoryStorage::InMemoryAccessor::Abort() {
@@ -1814,8 +1790,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges{};
+  std::list<Gid> current_deleted_vertices{};
+
+  deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
+  deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
 
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
