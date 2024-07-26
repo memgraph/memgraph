@@ -243,6 +243,9 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
+  if (durability_) {
+    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_.load()));
+  }
   last_committed_idx_ = log_idx;
 }
 
