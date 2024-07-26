@@ -29,6 +29,7 @@ using nuraft::buffer_serializer;
 using nuraft::cs_new;
 
 namespace {
+constexpr int kIgnoreId = 0;
 
 ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
   return cs_new<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
@@ -51,14 +52,12 @@ CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<Log
     return;
   }
 
-  MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_,
-                                   log_store_durability->active_log_store_version_),
+  MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_),
             "Couldn't handle version migration");
 }
 
-bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version,
-                                                 memgraph::coordination::LogStoreVersion active_version) {
-  if (active_version == LogStoreVersion::kV2 &&
+bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version) {
+  if (kActiveVersion == LogStoreVersion::kV2 &&
       (stored_version == LogStoreVersion::kV1 || stored_version == LogStoreVersion::kV2)) {
     auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
     auto const maybe_start_idx = durability_->Get(kStartIdx);
@@ -179,7 +178,7 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
 
 ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start, uint64_t end) {
   auto ret = cs_new<std::vector<ptr<log_entry>>>();
-  ret->resize(end - start);
+  ret->reserve(end - start);
 
   for (uint64_t i = start, curr_index = 0; i < end; i++, curr_index++) {
     ptr<log_entry> src;
@@ -199,9 +198,14 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
 
 std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start, uint64_t end) {
   std::vector<std::pair<int64_t, ptr<log_entry>>> entries;
-  entries.resize(end - start);
+  entries.reserve(end - start - 1);
 
   for (uint64_t i = start; i < end; i++) {
+    // TODO(fico) - this is workaround for issue with log with id 0 which is artificial entry
+    //  We should chang not to use that entry at all
+    if (i == kIgnoreId) {
+      continue;
+    }
     ptr<log_entry> src;
     {
       auto lock = std::lock_guard{logs_lock_};

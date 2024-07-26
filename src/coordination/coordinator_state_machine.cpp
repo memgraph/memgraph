@@ -79,8 +79,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 
   logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
 
-  bool const successful_migration =
-      HandleMigration(log_store_durability->stored_log_store_version_, log_store_durability->active_log_store_version_);
+  bool const successful_migration = HandleMigration(log_store_durability->stored_log_store_version_);
 
   MG_ASSERT(successful_migration, "Couldn't handle migration of log store version.");
 }
@@ -120,24 +119,28 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
               fmt::format("Restored cluster state from snapshot with id: {}", last_committed_idx_));
 }
 
-bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
+bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   UpdateStateMachineFromSnapshotDurability();
-  if (stored_version == LogStoreVersion::kV1) {
+  if (kActiveVersion == LogStoreVersion::kV2 && stored_version == LogStoreVersion::kV1) {
     durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
     return true;
-  }
-  if (stored_version == LogStoreVersion::kV2) {
+  } else if (kActiveVersion == LogStoreVersion::kV2 && stored_version == LogStoreVersion::kV2) {
     auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
     if (!maybe_last_commited_idx.has_value()) {
-      logger_.Log(nuraft_log_level::ERROR, "Failed to retrieve last committed index from disk.");
-      return false;
+      durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+      logger_.Log(
+          nuraft_log_level::ERROR,
+          fmt::format("Failed to retrieve last committed index from disk, using last committed index from snapshot {}.",
+                      last_committed_idx_.load()));
+      return true;
     }
     last_committed_idx_ = std::stoul(maybe_last_commited_idx.value());
     logger_.Log(nuraft_log_level::TRACE,
                 fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }

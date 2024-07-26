@@ -69,7 +69,6 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
 
     log_store_durability.durability_store_ = durability_store;
-    log_store_durability.active_log_store_version_ = kActiveVersion;
     log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
         GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
     state_manager_config.log_store_durability_ = log_store_durability;
@@ -98,19 +97,22 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto log_entries =
       coordinator_log_store->GetAllEntriesRange(last_commit_index_snapshot, last_committed_index_state_machine_ + 1);
 
-  for (auto const &[commit_idx, log_entry] : log_entries) {
-    spdlog::trace("Applying log entry from log store with index {}");
-    if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
-      auto cluster_config = state_manager_->load_config();
-      state_machine_->commit_config(log_entry->get_timestamp(), cluster_config);
+  for (auto const &entry : log_entries) {
+    if (entry.second == nullptr) {
+      spdlog::error("Log entry for id {} is nullptr", entry.first);
       continue;
     }
-    state_machine_->commit(commit_idx, log_entry->get_buf());
+    spdlog::trace("Applying log entry from log store with index {}");
+    if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
+      auto cluster_config = state_manager_->load_config();
+      state_machine_->commit_config(entry.second->get_timestamp(), cluster_config);
+      continue;
+    }
+    state_machine_->commit(entry.first, entry.second->get_buf());
   }
 
-  if (log_store_durability.stored_log_store_version_ != log_store_durability.active_log_store_version_) {
-    log_store_durability.durability_store_->Put(
-        kLogStoreVersion, std::to_string(static_cast<int>(log_store_durability.active_log_store_version_)));
+  if (log_store_durability.stored_log_store_version_ != kActiveVersion) {
+    log_store_durability.durability_store_->Put(kLogStoreVersion, std::to_string(static_cast<int>(kActiveVersion)));
   }
 }
 

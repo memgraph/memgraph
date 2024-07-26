@@ -79,7 +79,6 @@ class CoordinatorLogStore : public log_store {
    * and we don't handle them in our commit policy.
    * Other logs are stored as empty strings, and state_machine DecodeLogs function doesn't apply any action
    * on empty logs
-   * TODO(antoniofilipovic) Think how to isolate this in function so that logic is in one place
    * @param clone - log entry to store
    * @param key_id - index of the log entry
    * @param is_newest_entry - if this is the newest entry
@@ -90,13 +89,12 @@ class CoordinatorLogStore : public log_store {
  private:
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 
-  bool HandleVersionMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+  bool HandleVersionMigration(LogStoreVersion stored_version);
 
-  // TODO(antoniofilipovic) Isolate into CoordinatorLogStoreInternals
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
-  std::atomic<ulong> start_idx_;
-  std::atomic<ulong> next_idx_;
+  std::atomic<ulong> start_idx_{0};
+  std::atomic<ulong> next_idx_{0};
   std::shared_ptr<kvstore::KVStore> durability_;
   LoggerWrapper logger_;
 };

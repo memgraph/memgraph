@@ -114,7 +114,7 @@ class CoordinatorStateMachine : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
-  bool HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+  bool HandleMigration(LogStoreVersion stored_version);
 
   auto CreateSnapshotInternal(ptr<snapshot> const &snapshot) -> void;
 
