@@ -99,6 +99,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
+  void UpdateStateMachineFromSnapshotDurability();
+
   // Getters
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;

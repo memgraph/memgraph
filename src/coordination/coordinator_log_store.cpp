@@ -58,7 +58,8 @@ CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<Log
 
 bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version,
                                                  memgraph::coordination::LogStoreVersion active_version) {
-  if (stored_version == LogStoreVersion::kV1) {
+  if (active_version == LogStoreVersion::kV2 &&
+      (stored_version == LogStoreVersion::kV1 || stored_version == LogStoreVersion::kV2)) {
     auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
     auto const maybe_start_idx = durability_->Get(kStartIdx);
     bool is_first_start{false};
@@ -101,8 +102,6 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
                   fmt::format("Loaded entry from disk: ID {}, \n ENTRY {} ,\n DATA:{}, ", j.dump(), id, data));
     }
     return true;
-  } else if (stored_version == LogStoreVersion::kV2) {
-    // pass
   }
 
   return false;

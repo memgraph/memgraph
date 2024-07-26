@@ -85,42 +85,42 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
   MG_ASSERT(successful_migration, "Couldn't handle migration of log store version.");
 }
 
-bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
-  auto const update_cluster_state_from_snapshots = [this]() {
-    auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
-    for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
-         kv_store_snapshot_it != end_iter; ++kv_store_snapshot_it) {
-      auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
-      try {
-        auto parsed_snapshot_id =
-            std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-        last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
+void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
+  auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
+  for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix}); kv_store_snapshot_it != end_iter;
+       ++kv_store_snapshot_it) {
+    auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
+    try {
+      auto parsed_snapshot_id =
+          std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
+      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
 
-        auto snapshot_ctx_str = durability_->Get(snapshot_key_id);
+      auto snapshot_ctx_str = durability_->Get(snapshot_key_id);
 
-        if (!snapshot_ctx_str.has_value()) {
-          throw std::runtime_error("Failed to retrieve snapshot context from disk");
-        }
-
-        // NOLINTNEXTLINE (misc-const-correctness)
-        auto snapshot_ctx = cs_new<SnapshotCtx>();
-        from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
-        snapshots_[parsed_snapshot_id] = snapshot_ctx;
-      } catch (std::exception &e) {
-        LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+      if (!snapshot_ctx_str.has_value()) {
+        throw std::runtime_error("Failed to retrieve snapshot context from disk");
       }
-      logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
-    }
 
-    if (last_committed_idx_ == 0) {
-      logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
+      // NOLINTNEXTLINE (misc-const-correctness)
+      auto snapshot_ctx = cs_new<SnapshotCtx>();
+      from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
+      snapshots_[parsed_snapshot_id] = snapshot_ctx;
+    } catch (std::exception &e) {
+      LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
     }
-    cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
-    logger_.Log(nuraft_log_level::TRACE,
-                fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
-  };
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
+  }
 
-  update_cluster_state_from_snapshots();
+  if (last_committed_idx_ == 0) {
+    logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
+  }
+  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+}
+
+bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
+  UpdateStateMachineFromSnapshotDurability();
   if (stored_version == LogStoreVersion::kV1) {
     if (durability_) {
       durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
