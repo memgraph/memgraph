@@ -25,6 +25,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
@@ -241,6 +242,17 @@ TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(enum_val_1, enum_val_1);
   EXPECT_PROP_NE(enum_val_1, enum_val_2);
   EXPECT_PROP_NE(enum_val_1, enum_val_3);
+
+  auto point_1 = TypedValue(Point2d{Cartesian_2d, 1.0, 2.0});
+  auto point_2 = TypedValue(Point2d{WGS84_2d, 1.0, 2.0});
+  auto point_3 = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, 3.0});
+  auto point_4 = TypedValue(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
+
+  EXPECT_PROP_EQ(point_1, point_1);
+  EXPECT_PROP_EQ(point_3, point_3);
+  EXPECT_PROP_NE(point_1, point_2);
+  EXPECT_PROP_NE(point_1, point_3);
+  EXPECT_PROP_NE(point_1, point_4);
 }
 
 TEST(TypedValue, Comparison) {
@@ -279,6 +291,16 @@ TEST(TypedValue, Comparison) {
 
   auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
   EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
+
+  auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
+  auto point_2 = TypedValue{Point2d{Cartesian_2d, 2.0, 3.0}};
+
+  run_comparison_cases(point_1, point_2);
+
+  auto point_3 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
+  auto point_4 = TypedValue{Point3d{WGS84_3d, 2.0, 3.0, 4.0}};
+
+  run_comparison_cases(point_3, point_4);
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -304,6 +326,11 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
   EXPECT_EQ(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
             hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}));
+  EXPECT_EQ(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}));
+  EXPECT_EQ(hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
+  EXPECT_EQ(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
+            hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}));
+  EXPECT_EQ(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
 
   // these tests are not really true since they expect
   // hashes to differ, but it's the thought that counts
@@ -318,6 +345,10 @@ TEST(TypedValue, Hash) {
             hash(TypedValue{Enum{EnumTypeId{2}, EnumValueId{11}}}));
   EXPECT_NE(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
             hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}}));
+  EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{Cartesian_2d, 1.0, 0.0}}));
+  EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
+  EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
+  EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
@@ -370,6 +401,8 @@ TEST(TypedValue, LogicalNot) {
   EXPECT_THROW(!TypedValue(0.2), TypedValueException);
   EXPECT_THROW(!TypedValue("something"), TypedValueException);
   EXPECT_THROW(!TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(!TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(!TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryMinus) {
@@ -381,6 +414,8 @@ TEST(TypedValue, UnaryMinus) {
   EXPECT_THROW(-TypedValue(true), TypedValueException);
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
   EXPECT_THROW(-TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(-TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(-TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryPlus) {
@@ -392,6 +427,8 @@ TEST(TypedValue, UnaryPlus) {
   EXPECT_THROW(+TypedValue(true), TypedValueException);
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
   EXPECT_THROW(+TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(+TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(+TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 template <typename StorageType>
@@ -495,6 +532,14 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) +
                    TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
                TypedValueException);
+
+  // Spatial types
+  EXPECT_THROW(
+      TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}) + TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}),
+      TypedValueException);
+  EXPECT_THROW(TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}) +
+                   TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
+               TypedValueException);
 }
 
 TYPED_TEST(TypedValueArithmeticTest, Difference) {
@@ -534,6 +579,14 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) -
                   TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
   EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
+               TypedValueException);
+
+  // Spatial types
+  EXPECT_THROW(
+      TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}) - TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}),
+      TypedValueException);
+  EXPECT_THROW(TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}) -
+                   TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
                TypedValueException);
 }
 

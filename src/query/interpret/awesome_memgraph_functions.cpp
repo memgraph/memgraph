@@ -1583,9 +1583,8 @@ TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext
 
   if (type1 == TypedValue::Type::Point2d) {
     return std::invoke(distance_func, args[0].ValuePoint2d(), args[1].ValuePoint2d());
-  } else {
-    return std::invoke(distance_func, args[0].ValuePoint3d(), args[1].ValuePoint3d());
   }
+  return std::invoke(distance_func, args[0].ValuePoint3d(), args[1].ValuePoint3d());
 }
 
 TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1609,9 +1608,8 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
 
   if (type1 == TypedValue::Type::Point2d) {
     return std::invoke(within_bbox_func, args[0].ValuePoint2d(), args[1].ValuePoint2d(), args[2].ValuePoint2d());
-  } else {
-    return std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
   }
+  return std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
 }  // namespace
