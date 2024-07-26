@@ -293,14 +293,10 @@ TEST(TypedValue, Comparison) {
   EXPECT_THROW(enum_val < enum_val, memgraph::query::TypedValueException);
 
   auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
-  auto point_2 = TypedValue{Point2d{Cartesian_2d, 2.0, 3.0}};
+  auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
 
-  run_comparison_cases(point_1, point_2);
-
-  auto point_3 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
-  auto point_4 = TypedValue{Point3d{WGS84_3d, 2.0, 3.0, 4.0}};
-
-  run_comparison_cases(point_3, point_4);
+  EXPECT_THROW(point_1 < point_1, memgraph::query::TypedValueException);
+  EXPECT_THROW(point_2 < point_2, memgraph::query::TypedValueException);
 }
 
 TEST(TypedValue, BoolEquals) {
