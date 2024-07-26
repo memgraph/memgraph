@@ -86,7 +86,7 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 }
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
-  if (stored_version == LogStoreVersion::kV1) {
+  auto const update_cluster_state_from_snapshots = [this]() {
     auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
     for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
          kv_store_snapshot_it != end_iter; ++kv_store_snapshot_it) {
@@ -113,21 +113,28 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
     }
 
     if (last_committed_idx_ == 0) {
-      logger_.Log(nuraft_log_level::TRACE, "Last committed index is 0");
-      return true;
+      logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
     }
     cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
     logger_.Log(nuraft_log_level::TRACE,
                 fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+  };
+
+  update_cluster_state_from_snapshots();
+  if (stored_version == LogStoreVersion::kV1) {
+    if (durability_) {
+      durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+    }
     return true;
-  } else if (stored_version == LogStoreVersion::kV2) {
+  }
+  if (stored_version == LogStoreVersion::kV2) {
     auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
     last_committed_idx_ = maybe_last_commited_idx.has_value() ? std::stoul(maybe_last_commited_idx.value()) : 0;
     logger_.Log(nuraft_log_level::TRACE,
                 fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
   }
 
-  return false;  // fill up afterwards
+  return true;
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }

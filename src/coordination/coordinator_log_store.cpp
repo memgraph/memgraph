@@ -102,10 +102,8 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
     }
     return true;
   } else if (stored_version == LogStoreVersion::kV2) {
+    // pass
   }
-
-  // Handle migration from older versions to newer ones.
-  // Currently we only have one version so we don't need to do anything.
 
   return false;
 }
@@ -190,14 +188,34 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
       auto lock = std::lock_guard{logs_lock_};
       auto const entry = logs_.find(i);
       if (entry == logs_.end()) {
-        spdlog::error("Could not find entry at index {}", i);
-        return nullptr;
+        spdlog::trace("Could not find entry at index {}", i);
+        continue;
       }
       src = entry->second;
     }
     (*ret)[curr_index] = MakeClone(src);
   }
   return ret;
+}
+
+std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start, uint64_t end) {
+  std::vector<std::pair<int64_t, ptr<log_entry>>> entries;
+  entries.resize(end - start);
+
+  for (uint64_t i = start; i < end; i++) {
+    ptr<log_entry> src;
+    {
+      auto lock = std::lock_guard{logs_lock_};
+      auto const entry = logs_.find(i);
+      if (entry == logs_.end()) {
+        spdlog::trace("Could not find entry at index {}", i);
+        continue;
+      }
+      src = entry->second;
+    }
+    entries.emplace_back(i, MakeClone(src));
+  }
+  return entries;
 }
 
 ptr<log_entry> CoordinatorLogStore::entry_at(uint64_t index) {
