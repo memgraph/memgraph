@@ -296,11 +296,13 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       storage::Point2d v;
       slk::Load(&v, reader);
       *value = storage::PropertyValue(v);
+      return;
     }
     case storage::PropertyValue::Type::Point3d: {
       storage::Point3d v;
       slk::Load(&v, reader);
       *value = storage::PropertyValue(v);
+      return;
     }
   }
 }

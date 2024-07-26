@@ -142,6 +142,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/replicate_enum.py"]
 
+  - name: "Replicate Point"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_point.py" ]
+
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/edge_delete.py"]
