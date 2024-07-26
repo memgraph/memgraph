@@ -123,9 +123,7 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
   UpdateStateMachineFromSnapshotDurability();
   if (stored_version == LogStoreVersion::kV1) {
-    if (durability_) {
-      durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
-    }
+    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
     return true;
   }
   if (stored_version == LogStoreVersion::kV2) {
