@@ -113,10 +113,11 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
 
   if (last_committed_idx_ == 0) {
     logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
+    return;
   }
   cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
   logger_.Log(nuraft_log_level::TRACE,
-              fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+              fmt::format("Restored cluster state from snapshot with id: {}", last_committed_idx_));
 }
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
