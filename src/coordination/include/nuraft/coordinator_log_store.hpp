@@ -87,6 +87,11 @@ class CoordinatorLogStore : public log_store {
   bool StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
 
  private:
+  /*
+   * Returns next slot, without taking lock
+   */
+  auto GetNextSlot() const -> ulong;
+
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 
   bool HandleVersionMigration(LogStoreVersion stored_version);

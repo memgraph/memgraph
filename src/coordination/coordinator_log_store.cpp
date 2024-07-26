@@ -29,7 +29,8 @@ using nuraft::buffer_serializer;
 using nuraft::cs_new;
 
 namespace {
-constexpr int kIgnoreId = 0;
+
+ptr<buffer> empty_entry = buffer::alloc(sizeof(uint64_t));
 
 ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
   return cs_new<log_entry>(entry->get_term(), buffer::clone(entry->get_buf()), entry->get_val_type(),
@@ -39,9 +40,6 @@ ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
 
 CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability)
     : logger_(logger) {
-  ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
-  logs_[0] = cs_new<log_entry>(0, buf);
-
   if (log_store_durability) {
     durability_ = log_store_durability->durability_store_;
   }
@@ -111,7 +109,7 @@ CoordinatorLogStore::~CoordinatorLogStore() = default;
 auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry> {
   auto entry = logs_.find(index);
   if (entry == logs_.end()) {
-    entry = logs_.find(0);
+    return cs_new<log_entry>(0, empty_entry);
   }
   return entry->second;
 }
@@ -131,14 +129,16 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
-  return start_idx_ + logs_.size() - 1;
+  return GetNextSlot();
 }
+
+auto CoordinatorLogStore::GetNextSlot() const -> uint64_t { return start_idx_ + logs_.size(); }
 
 uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
 
 ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
-  uint64_t const next_slot = start_idx_ + logs_.size() - 1;
+  uint64_t const next_slot = GetNextSlot();
   auto const last_src = FindOrDefault_(next_slot - 1);
 
   return MakeClone(last_src);
@@ -147,10 +147,10 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   auto const clone = MakeClone(entry);
   auto lock = std::lock_guard{logs_lock_};
-  uint64_t next_slot = start_idx_ + logs_.size() - 1;
+  uint64_t next_slot = GetNextSlot();
 
   if (durability_) {
-    bool const is_entry_with_biggest_id = next_slot == start_idx_ + logs_.size() - 1;
+    bool const is_entry_with_biggest_id = next_slot == GetNextSlot();
     StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
   }
 
@@ -168,10 +168,12 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   while (itr != logs_.end()) {
     itr = logs_.erase(itr);
   }
-  logs_[index] = clone;
+  if (index != 0) [[likely]] {
+    logs_[index] = clone;
+  }
 
   if (durability_) {
-    bool const is_entry_with_biggest_id = index >= start_idx_ - logs_.size() - 1;
+    bool const is_entry_with_biggest_id = index >= GetNextSlot();
     StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
   }
 }
@@ -201,11 +203,6 @@ std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntri
   entries.reserve(end - start - 1);
 
   for (uint64_t i = start; i < end; i++) {
-    // TODO(fico) - this is workaround for issue with log with id 0 which is artificial entry
-    //  We should chang not to use that entry at all
-    if (i == kIgnoreId) {
-      continue;
-    }
     ptr<log_entry> src;
     {
       auto lock = std::lock_guard{logs_lock_};
@@ -242,9 +239,13 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
     ptr<log_entry> le = nullptr;
     {
       auto lock = std::lock_guard{logs_lock_};
-      le = logs_[i];
+      if (auto elem = logs_.find(i); elem != logs_.end()) {
+        le = elem->second;
+      } else if (index == 0) {
+        le = cs_new<log_entry>(0, empty_entry);
+      }
     }
-    MG_ASSERT(le.get(), "Could not find log entry at index {}", i);
+    MG_ASSERT(le != nullptr, "Could not find log entry at index {}", i);
     auto buf = le->serialize();
     size_total += buf->size();
     logs.push_back(buf);
@@ -275,9 +276,12 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     ptr<log_entry> le = log_entry::deserialize(*buf_local);
     {
       auto lock = std::lock_guard{logs_lock_};
-      logs_[cur_idx] = le;
+      if (cur_idx != 0) [[likely]] {
+        logs_[cur_idx] = le;
+      }
+
       if (durability_) {
-        bool const is_entry_with_biggest_id = cur_idx >= start_idx_ + logs_.size() - 1;
+        bool const is_entry_with_biggest_id = cur_idx >= GetNextSlot();
         StoreEntryToDisk(le, cur_idx, is_entry_with_biggest_id);
       }
     }
