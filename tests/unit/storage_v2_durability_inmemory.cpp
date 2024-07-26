@@ -160,8 +160,33 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-        if (i % 4 == 0) {
+        if (i % 5 == 0) {
           ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+        } else if (i % (7 * 4) == 0) {
+          switch (i % 4) {
+            using enum memgraph::storage::CoordinateReferenceSystem;
+            case 0: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
+              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
+              break;
+            }
+            case 1: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
+              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
+              break;
+            }
+            case 2: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
+              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
+              break;
+            }
+            case 3: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
+              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
+              break;
+            }
+          }
+
         } else {
           ASSERT_TRUE(
               vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
@@ -518,8 +543,33 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(properties.HasValue());
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           ASSERT_EQ(properties->size(), 1);
-          if (i % 4 == 0) {
+          if (i % 5 == 0) {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+          } else if (i % (7 * 4) == 0) {
+            switch (i % 4) {
+              using enum memgraph::storage::CoordinateReferenceSystem;
+              case 0: {
+                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
+                ASSERT_EQ((*properties)[property_id], pv);
+                break;
+              }
+              case 1: {
+                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
+                ASSERT_EQ((*properties)[property_id], pv);
+                break;
+              }
+              case 2: {
+                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
+                ASSERT_EQ((*properties)[property_id], pv);
+                break;
+              }
+              case 3: {
+                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
+                ASSERT_EQ((*properties)[property_id], pv);
+                break;
+              }
+            }
+
           } else {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
           }
