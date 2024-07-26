@@ -129,7 +129,11 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, Lo
   }
   if (stored_version == LogStoreVersion::kV2) {
     auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
-    last_committed_idx_ = maybe_last_commited_idx.has_value() ? std::stoul(maybe_last_commited_idx.value()) : 0;
+    if (!maybe_last_commited_idx.has_value()) {
+      logger_.Log(nuraft_log_level::ERROR, "Failed to retrieve last committed index from disk.");
+      return false;
+    }
+    last_committed_idx_ = std::stoul(maybe_last_commited_idx.value());
     logger_.Log(nuraft_log_level::TRACE,
                 fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
   }
