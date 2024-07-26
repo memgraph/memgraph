@@ -1581,10 +1581,9 @@ TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext
     return TypedValue{storage::Distance(point1, point2), ctx.memory};
   };
 
-  if (type1 == TypedValue::Type::Point2d) {
-    return std::invoke(distance_func, args[0].ValuePoint2d(), args[1].ValuePoint2d());
-  }
-  return std::invoke(distance_func, args[0].ValuePoint3d(), args[1].ValuePoint3d());
+  return (type1 == TypedValue::Type::Point2d)
+             ? std::invoke(distance_func, args[0].ValuePoint2d(), args[1].ValuePoint2d())
+             : std::invoke(distance_func, args[0].ValuePoint3d(), args[1].ValuePoint3d());
 }
 
 TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1606,10 +1605,9 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
     return TypedValue(storage::WithinBBox(point, lower_left, upper_right), ctx.memory);
   };
 
-  if (type1 == TypedValue::Type::Point2d) {
-    return std::invoke(within_bbox_func, args[0].ValuePoint2d(), args[1].ValuePoint2d(), args[2].ValuePoint2d());
-  }
-  return std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
+  return (type1 == TypedValue::Type::Point2d)
+             ? std::invoke(within_bbox_func, args[0].ValuePoint2d(), args[1].ValuePoint2d(), args[2].ValuePoint2d())
+             : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
 }  // namespace
