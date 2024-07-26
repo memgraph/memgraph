@@ -38,6 +38,8 @@
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "absl/container/flat_hash_map.h"
+
 namespace memgraph::query {
 namespace {
 
@@ -1400,34 +1402,6 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
 
-auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
-  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    // Lock on the module is already acquired in the AST construction
-    procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
-
-    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-    auto function_argument_list = mgp_list(ctx.memory);
-    procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
-
-    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
-    auto maybe_res = mgp_func_result{};
-    auto memory = mgp_memory{ctx.memory};
-    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
-    if (maybe_res.error_msg) [[unlikely]] {
-      throw QueryRuntimeException(*maybe_res.error_msg);
-    }
-
-    if (!maybe_res.value) [[unlikely]] {
-      throw QueryRuntimeException(
-          "Function '{}' didn't set the result nor the error message. Please either set the result by using "
-          "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
-          fully_qualified_name);
-    }
-
-    return {*std::move(maybe_res.value), ctx.memory};
-  };
-}
-
 TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<String, Optional<String>>("toEnum", args, nargs);
 
@@ -1610,112 +1584,147 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
              : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
+auto builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+    // Scalar functions
+    {"DEGREE", Degree},
+    {"INDEGREE", InDegree},
+    {"OUTDEGREE", OutDegree},
+    {"ENDNODE", EndNode},
+    {"HEAD", Head},
+    {kId, Id},
+    {"LAST", Last},
+    {"PROPERTIES", Properties},
+    {"RANDOMUUID", RandomUuid},
+    {"SIZE", Size},
+    {"PROPERTYSIZE", PropertySize},
+    {"STARTNODE", StartNode},
+    {"TIMESTAMP", Timestamp},
+    {"TOBOOLEAN", ToBoolean},
+    {"TOFLOAT", ToFloat},
+    {"TOINTEGER", ToInteger},
+    {"TYPE", Type},
+    {"VALUETYPE", ValueType},
+
+    // List, map functions
+    {"KEYS", Keys},
+    {"LABELS", Labels},
+    {"NODES", Nodes},
+    {"RANGE", Range},
+    {"RELATIONSHIPS", Relationships},
+    {"TAIL", Tail},
+    {"UNIFORMSAMPLE", UniformSample},
+    {"VALUES", Values},
+
+    // Mathematical functions - numeric
+    {"ABS", Abs},
+    {"CEIL", Ceil},
+    {"FLOOR", Floor},
+    {"RAND", Rand},
+    {"ROUND", Round},
+    {"SIGN", Sign},
+
+    // Mathematical functions - logarithmic
+    {"E", E},
+    {"EXP", Exp},
+    {"LOG", Log},
+    {"LOG10", Log10},
+    {"SQRT", Sqrt},
+
+    // Mathematical functions - trigonometric
+    {"ACOS", Acos},
+    {"ASIN", Asin},
+    {"ATAN", Atan},
+    {"ATAN2", Atan2},
+    {"COS", Cos},
+    {"PI", Pi},
+    {"SIN", Sin},
+    {"TAN", Tan},
+
+    // String functions
+    {kContains, Contains},
+    {kEndsWith, EndsWith},
+    {"LEFT", Left},
+    {"LTRIM", LTrim},
+    {"REPLACE", Replace},
+    {"REVERSE", Reverse},
+    {"RIGHT", Right},
+    {"RTRIM", RTrim},
+    {"SPLIT", Split},
+    {kStartsWith, StartsWith},
+    {"SUBSTRING", Substring},
+    {"TOLOWER", ToLower},
+    {"TOSTRING", ToString},
+    {"TOUPPER", ToUpper},
+    {"TRIM", Trim},
+
+    // Memgraph specific functions
+    {"ASSERT", Assert},
+    {"COUNTER", Counter},
+    {"TOBYTESTRING", ToByteString},
+    {"FROMBYTESTRING", FromByteString},
+    {"DATE", Date},
+    {"LOCALTIME", LocalTime},
+    {"LOCALDATETIME", LocalDateTime},
+    {"DATETIME", DateTime},
+    {"DURATION", Duration},
+
+    // Functions for enum types
+    {"TOENUM", ToEnum},
+
+    // Functions for point types
+    {"POINT", Point},
+    {"POINT.DISTANCE", Distance},
+    {"POINT.WITHINBBOX", WithinBBox},
+};
+
+auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
+  return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
+    // Lock on the module is already acquired in the AST construction
+    procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
+
+    auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
+    auto function_argument_list = mgp_list(ctx.memory);
+    procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
+
+    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
+    auto maybe_res = mgp_func_result{};
+    auto memory = mgp_memory{ctx.memory};
+    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    if (maybe_res.error_msg) [[unlikely]] {
+      throw QueryRuntimeException(*maybe_res.error_msg);
+    }
+
+    if (!maybe_res.value) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Function '{}' didn't set the result nor the error message. Please either set the result by using "
+          "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
+          fully_qualified_name);
+    }
+
+    return {*std::move(maybe_res.value), ctx.memory};
+  };
+}
+
 }  // namespace
 
-auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
-  // Scalar functions
-  if (function_name == "DEGREE") return Degree;
-  if (function_name == "INDEGREE") return InDegree;
-  if (function_name == "OUTDEGREE") return OutDegree;
-  if (function_name == "ENDNODE") return EndNode;
-  if (function_name == "HEAD") return Head;
-  if (function_name == kId) return Id;
-  if (function_name == "LAST") return Last;
-  if (function_name == "PROPERTIES") return Properties;
-  if (function_name == "RANDOMUUID") return RandomUuid;
-  if (function_name == "SIZE") return Size;
-  if (function_name == "PROPERTYSIZE") return PropertySize;
-  if (function_name == "STARTNODE") return StartNode;
-  if (function_name == "TIMESTAMP") return Timestamp;
-  if (function_name == "TOBOOLEAN") return ToBoolean;
-  if (function_name == "TOFLOAT") return ToFloat;
-  if (function_name == "TOINTEGER") return ToInteger;
-  if (function_name == "TYPE") return Type;
-  if (function_name == "VALUETYPE") return ValueType;
+auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func> {
+  // First lookup for built-in functions
+  auto upper_case = utils::ToUpperCase(function_name);
+  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
+  if (buildin_it != builtin_functions.cend()) {
+    return buildin_it->second;
+  }
 
-  // List, map functions
-  if (function_name == "KEYS") return Keys;
-  if (function_name == "LABELS") return Labels;
-  if (function_name == "NODES") return Nodes;
-  if (function_name == "RANGE") return Range;
-  if (function_name == "RELATIONSHIPS") return Relationships;
-  if (function_name == "TAIL") return Tail;
-  if (function_name == "UNIFORMSAMPLE") return UniformSample;
-  if (function_name == "VALUES") return Values;
-
-  // Mathematical functions - numeric
-  if (function_name == "ABS") return Abs;
-  if (function_name == "CEIL") return Ceil;
-  if (function_name == "FLOOR") return Floor;
-  if (function_name == "RAND") return Rand;
-  if (function_name == "ROUND") return Round;
-  if (function_name == "SIGN") return Sign;
-
-  // Mathematical functions - logarithmic
-  if (function_name == "E") return E;
-  if (function_name == "EXP") return Exp;
-  if (function_name == "LOG") return Log;
-  if (function_name == "LOG10") return Log10;
-  if (function_name == "SQRT") return Sqrt;
-
-  // Mathematical functions - trigonometric
-  if (function_name == "ACOS") return Acos;
-  if (function_name == "ASIN") return Asin;
-  if (function_name == "ATAN") return Atan;
-  if (function_name == "ATAN2") return Atan2;
-  if (function_name == "COS") return Cos;
-  if (function_name == "PI") return Pi;
-  if (function_name == "SIN") return Sin;
-  if (function_name == "TAN") return Tan;
-
-  // String functions
-  if (function_name == kContains) return Contains;
-  if (function_name == kEndsWith) return EndsWith;
-  if (function_name == "LEFT") return Left;
-  if (function_name == "LTRIM") return LTrim;
-  if (function_name == "REPLACE") return Replace;
-  if (function_name == "REVERSE") return Reverse;
-  if (function_name == "RIGHT") return Right;
-  if (function_name == "RTRIM") return RTrim;
-  if (function_name == "SPLIT") return Split;
-  if (function_name == kStartsWith) return StartsWith;
-  if (function_name == "SUBSTRING") return Substring;
-  if (function_name == "TOLOWER") return ToLower;
-  if (function_name == "TOSTRING") return ToString;
-  if (function_name == "TOUPPER") return ToUpper;
-  if (function_name == "TRIM") return Trim;
-
-  // Memgraph specific functions
-  if (function_name == "ASSERT") return Assert;
-  if (function_name == "COUNTER") return Counter;
-  if (function_name == "TOBYTESTRING") return ToByteString;
-  if (function_name == "FROMBYTESTRING") return FromByteString;
-
-  // Functions for temporal types
-  if (function_name == "DATE") return Date;
-  if (function_name == "LOCALTIME") return LocalTime;
-  if (function_name == "LOCALDATETIME") return LocalDateTime;
-  if (function_name == "DATETIME") return DateTime;
-  if (function_name == "DURATION") return Duration;
-
-  // Functions for enum types
-  if (function_name == "TOENUM") return ToEnum;
-
-  // Functions for point types
-  if (function_name == "POINT") return Point;
-  if (function_name == "point.distance")
-    return Distance;  // not case insenstive + problem with plan cache (should be cached but won't be becasue of '.')
-  if (function_name == "point.withinBBox") return WithinBBox;
-
+  // Next lookip for user-defined function from a module
   auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
-
   if (maybe_found) {
     auto module_ptr = std::move((*maybe_found).first);
     const auto *func = (*maybe_found).second;
     return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
   }
 
-  return nullptr;
+  // Does not exist
+  return std::monostate{};
 }
 
 }  // namespace memgraph::query
