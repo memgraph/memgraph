@@ -49,6 +49,8 @@ using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func>;
+///
+/// Error, will return std::monostate if function can not be found
+auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
 
 }  // namespace memgraph::query
