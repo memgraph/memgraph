@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <utility>
 
 extern "C" {
 #include <dlfcn.h>
@@ -115,13 +116,7 @@ void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
 
 namespace {
 
-auto WithUpgradedLock(auto *lock, const auto &function) {
-  lock->unlock_shared();
-  utils::OnScopeExit shared_lock{[&] { lock->lock_shared(); }};
-  function();
-};
-
-void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+void RegisterMgLoad(ModuleRegistry *module_registry, BuiltinModule *module) {
   // Loading relies on the fact that regular procedure invocation through
   // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
   // load modules we have to upgrade our READ access to WRITE access,
@@ -134,26 +129,24 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   // single thread may only take either a READ or a WRITE lock, it's not
   // possible for a thread to hold both. If a thread tries to do that, it will
   // deadlock immediately (no other thread needs to do anything).
-  auto load_all_cb = [module_registry, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
-                                             mgp_memory * /*memory*/) {
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+  auto load_all_cb = [module_registry](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
+                                       mgp_memory * /*memory*/) {
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                         mgp_memory * /*memory*/) {
+  auto load_cb = [module_registry](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
+    const char *arg_as_string{nullptr};
+    const auto err = mgp_value_get_string(arg, &arg_as_string);
     bool succ = false;
-    WithUpgradedLock(lock, [&]() {
-      const char *arg_as_string{nullptr};
-      if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != mgp_error::MGP_ERROR_NO_ERROR) {
-        succ = false;
-      } else {
-        succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
-      }
-    });
+    if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      succ = false;
+    } else {
+      succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
+    }
     if (!succ) {
       MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == mgp_error::MGP_ERROR_NO_ERROR);
     }
@@ -177,15 +170,13 @@ std::string GetPathString(const std::optional<std::filesystem::path> &path) {
 }
 }  // namespace
 
-void RegisterMgProcedures(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                     mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                          utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto procedures_cb = [all_modules, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                           mgp_memory *memory) {
     // For details on how the invocation is done, take a look at the
     // CallProcedureCursor::Pull implementation.
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
@@ -272,13 +263,14 @@ void RegisterMgProcedures(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("procedures", std::move(procedures));
+  builtin_module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                               BuiltinModule *module) {
-  auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
-                                          mgp_memory *memory) {
+void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                               utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto transformations_cb = [all_modules, lock](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
+                                                mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
       static_assert(
@@ -336,16 +328,14 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("transformations", std::move(procedures));
+  builtin_module->AddProcedure("transformations", std::move(procedures));
 }
 
-void RegisterMgFunctions(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                    mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of magic
-    // functions invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                         utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto functions_cb = [all_modules, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
+                                          mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by function_name.
       static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
@@ -417,7 +407,7 @@ void RegisterMgFunctions(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("functions", std::move(functions));
+  builtin_module->AddProcedure("functions", std::move(functions));
 }
 namespace {
 bool IsAllowedExtension(const auto &extension) {
@@ -589,9 +579,9 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
 }
 }  // namespace
 
-void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto create_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory *memory) {
+void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto create_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
@@ -647,7 +637,7 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc create_module_file("create_module_file", std::move(create_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -660,9 +650,9 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("create_module_file", std::move(create_module_file));
 }
 
-void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto update_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
+void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto update_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -705,7 +695,7 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc update_module_file("update_module_file", std::move(update_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -716,9 +706,9 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("update_module_file", std::move(update_module_file));
 }
 
-void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto delete_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
+void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto delete_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
+                                                 mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
@@ -764,7 +754,7 @@ void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       parent_path = parent_path.parent_path();
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc delete_module_file("delete_module_file", std::move(delete_module_file_cb), utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
@@ -1160,6 +1150,33 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
 
 }  // namespace
 
+bool ModuleRegistry::TryEraseModule(std::string_view name) {
+  auto it = modules_.find(name);
+  if (it == modules_.end()) {
+    return false;
+  }
+
+  auto &module = it->second;
+  if (module.use_count() != 1) {
+    return false;
+  }
+
+  modules_.erase(it);
+  return true;
+}
+
+bool ModuleRegistry::TryEraseAllModules() {
+  auto const any_used =
+      ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return module.use_count() != 1; });
+  if (any_used) {
+    spdlog::warn("At least one module was still in use");
+    return false;
+  }
+
+  modules_.clear();
+  return true;
+}
+
 bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
@@ -1168,30 +1185,36 @@ bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr
         utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));
     return false;
   }
-  modules_.emplace(name, std::move(module));
+
+  modules_.emplace(std::string(name), std::move(module));
   return true;
 }
 
 void ModuleRegistry::DoUnloadAllModules() {
-  MG_ASSERT(modules_.find("mg") != modules_.end(), "Expected the builtin \"mg\" module to be present.");
+  auto mg_it = modules_.find("mg");
+  MG_ASSERT(mg_it != modules_.end(), "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
-  auto module = std::move(modules_["mg"]);
-  modules_.clear();
-  modules_.emplace("mg", std::move(module));
+
+  auto mg_preserved = mg_it->second;
+
+  modules_.erase(mg_it);
+  auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
+
+  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used");
 }
 
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
-  RegisterMgProcedures(&modules_, module.get());
-  RegisterMgTransformations(&modules_, module.get());
-  RegisterMgFunctions(&modules_, module.get());
-  RegisterMgLoad(this, &lock_, module.get());
+  RegisterMgProcedures(&modules_, &lock_, module.get());
+  RegisterMgTransformations(&modules_, &lock_, module.get());
+  RegisterMgFunctions(&modules_, &lock_, module.get());
+  RegisterMgLoad(this, module.get());
   RegisterMgGetModuleFiles(this, module.get());
   RegisterMgGetModuleFile(this, module.get());
-  RegisterMgCreateModuleFile(this, &lock_, module.get());
-  RegisterMgUpdateModuleFile(this, &lock_, module.get());
-  RegisterMgDeleteModuleFile(this, &lock_, module.get());
+  RegisterMgCreateModuleFile(this, module.get());
+  RegisterMgUpdateModuleFile(this, module.get());
+  RegisterMgDeleteModuleFile(this, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
@@ -1226,13 +1249,9 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   if (modules_dirs_.empty()) return false;
   if (name.empty()) return false;
   auto guard = std::unique_lock{lock_};
-  auto found_it = modules_.find(name);
-  if (found_it != modules_.end()) {
-    if (!found_it->second->Close()) {
-      spdlog::warn("Failed to close module {}", found_it->first);
-    }
-    modules_.erase(found_it);
-  }
+
+  if (!TryEraseModule(name))
+    throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {
@@ -1243,6 +1262,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
 }
 
 void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
+  // all modules except mg are deleted before this
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
     spdlog::error(
@@ -1269,11 +1289,15 @@ void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
   }
 }
 
-ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
+/// Takes a read lock.
+auto ModuleRegistry::GetModuleNamed(const std::string_view name) const -> std::shared_ptr<Module> {
   auto guard = std::shared_lock{lock_};
-  auto found_it = modules_.find(name);
-  if (found_it == modules_.end()) return ModulePtr{nullptr};
-  return ModulePtr(found_it->second.get(), std::move(guard));
+  auto it = modules_.find(name);
+
+  if (it == modules_.end()) {
+    return {};
+  }
+  return it->second;
 }
 
 void ModuleRegistry::UnloadAllModules() {
@@ -1285,8 +1309,8 @@ utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { retu
 
 bool ModuleRegistry::RegisterMgProcedure(const std::string_view name, mgp_proc proc) {
   auto guard = std::unique_lock{lock_};
-  if (auto module = modules_.find("mg"); module != modules_.end()) {
-    auto *builtin_module = dynamic_cast<BuiltinModule *>(module->second.get());
+  if (auto module_it = modules_.find("mg"); module_it != modules_.end()) {
+    auto *builtin_module = dynamic_cast<BuiltinModule *>(module_it->second.get());
     builtin_module->AddProcedure(name, std::move(proc));
     return true;
   }
@@ -1301,26 +1325,21 @@ namespace {
 //      ModuleName | Prop
 /// 1. <ModuleName,  ProcedureName>
 /// 2. <ModuleName,  TransformationName>
-std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
-  utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_name, ".");
-  if (name_parts.size() == 1U) return std::nullopt;
+auto FindModuleNameAndProp(std::string_view fully_qualified_name)
+    -> std::optional<std::pair<std::string_view, std::string_view>> {
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
-  MG_ASSERT(last_dot_pos != std::string_view::npos);
-
-  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
-  const auto &name = name_parts.back();
-  return std::make_pair(module_name, name);
+  if (last_dot_pos == std::string_view::npos) return std::nullopt;
+  auto module_name = fully_qualified_name.substr(0, last_dot_pos);
+  auto name = fully_qualified_name.substr(last_dot_pos + 1);
+  return std::pair{module_name, name};
 }
 
 template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_name,
-                                                                   utils::MemoryResource *memory) {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name)
+    -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1330,18 +1349,20 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
       return module->Functions();
     }
   };
-  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  auto result = FindModuleNameAndProp(fully_qualified_name);
   if (!result) {
     return std::nullopt;
   }
   auto [module_name, module_prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  auto prop_name = std::string(module_prop_name);
-  if (!module) {
+  std::string prop_name;
+  if (module) {
+    prop_name = std::string(module_prop_name);
+  } else {
     // Check for possible callable aliases.
-    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(fully_qualified_name);
     if (maybe_valid_alias) {
-      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
+      result = FindModuleNameAndProp(*maybe_valid_alias);
       auto [module_name, module_prop_name] = *result;
       module = module_registry.GetModuleNamed(module_name);
       prop_name = std::string(module_prop_name);
@@ -1359,23 +1380,19 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
 }
 
 }  // namespace
-
-std::optional<std::pair<ModulePtr, const mgp_proc *>> FindProcedure(const ModuleRegistry &module_registry,
-                                                                    std::string_view fully_qualified_procedure_name,
-                                                                    utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
+auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
+    -> find_result<mgp_proc> {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
-    utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
+auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
+    -> find_result<mgp_trans> {
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_function_name,
-                                                                   utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
+auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
+    -> find_result<mgp_func> {
+  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
 }
 
 }  // namespace memgraph::query::procedure

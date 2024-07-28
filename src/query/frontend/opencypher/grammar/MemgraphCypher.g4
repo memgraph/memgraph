@@ -19,9 +19,10 @@ options { tokenVocab=MemgraphCypherLexer; }
 
 import Cypher ;
 
+/* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
-                      | ADD
                       | ACTIVE
+                      | ADD
                       | AFTER
                       | ALTER
                       | ANALYZE
@@ -32,8 +33,8 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
-                      | BUILD
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CALL
                       | CHECK
                       | CLEAR
@@ -49,13 +50,13 @@ memgraphCypherKeyword : cypherKeyword
                       | CSV
                       | CURRENT
                       | DATA
-                      | DO
-                      | DELIMITER
                       | DATABASE
                       | DATABASES
+                      | DELIMITER
                       | DEMOTE
                       | DENY
                       | DIRECTORY
+                      | DO
                       | DROP
                       | DUMP
                       | DURABILITY
@@ -73,17 +74,18 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GLOBAL
                       | GRANT
-                      | GRAPH
                       | GRANTS
+                      | GRAPH
                       | HEADER
                       | IDENTIFIED
+                      | IF
                       | IGNORE
                       | IMPORT
                       | INACTIVE
-                      | IN_MEMORY_ANALYTICAL
-                      | IN_MEMORY_TRANSACTIONAL
                       | INSTANCE
                       | INSTANCES
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | ISOLATION
                       | KAFKA
                       | LABELS
@@ -100,12 +102,13 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
-                      | ON_DISK_TRANSACTIONAL
                       | NULLIF
+                      | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PORT
                       | PRIVILEGES
                       | PULSAR
+                      | QUOTE
                       | READ
                       | READ_FILE
                       | REGISTER
@@ -117,7 +120,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
-                      | QUOTE
+                      | SCHEMA
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -140,8 +143,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TO
                       | TOPICS
                       | TRANSACTION
-                      | TRANSACTION_MANAGEMENT
                       | TRANSACTIONS
+                      | TRANSACTION_MANAGEMENT
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
@@ -199,6 +202,7 @@ query : cypherQuery
       | alterEnumUpdateValueQuery
       | alterEnumRemoveValueQuery
       | dropEnumQuery
+      | showSchemaInfoQuery
       ;
 
 cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -609,3 +613,5 @@ alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue 
 alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
 
 dropEnumQuery: DROP ENUM enumName ;
+
+showSchemaInfoQuery : SHOW SCHEMA INFO ;

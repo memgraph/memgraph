@@ -29,7 +29,7 @@ namespace memgraph::flags {
 
 CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
                                      std::string nuraft_log_file, bool ha_durability, std::string coordinator_hostname)
-    : management_port(management_port),
+    : management_port(management_port),  // data instance management port or coordinator instance management port
       coordinator_port(coordinator_port),
       coordinator_id(coordinator_id),
       nuraft_log_file(std::move(nuraft_log_file)),
@@ -43,7 +43,9 @@ std::string CoordinationSetup::ToString() {
       management_port, coordinator_port, coordinator_id, nuraft_log_file, ha_durability, coordinator_hostname);
 }
 
-[[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool { return management_port != 0; }
+[[nodiscard]] auto CoordinationSetup::IsDataInstanceManagedByCoordinator() const -> bool {
+  return management_port != 0 && coordinator_port == 0 && coordinator_id == 0;
+}
 
 auto CoordinationSetupInstance() -> CoordinationSetup & {
   static auto instance = CoordinationSetup{};
@@ -92,13 +94,12 @@ void SetFinalCoordinationSetup() {
 
     if (any_envs_set) {
       spdlog::trace("Coordinator will be initialized using environment variables.");
-      return CoordinationSetup(
-          coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0, 
-          coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
-          coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
-          coord_envs[3] ? coord_envs[3].value() : "", 
-          coord_envs[4] ? static_cast<bool>(std::stoi(coord_envs[4].value())) : false,
-          coord_envs[5] ? coord_envs[5].value() : "");
+      return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
+                               coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
+                               coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
+                               coord_envs[3] ? coord_envs[3].value() : "",
+                               coord_envs[4] ? static_cast<bool>(std::stoi(coord_envs[4].value())) : false,
+                               coord_envs[5] ? coord_envs[5].value() : "");
     }
 
     spdlog::trace("Coordinator will be initilized using flags.");
