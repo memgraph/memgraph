@@ -73,7 +73,7 @@ class Session {
       : input_stream_(*input_stream),
         output_stream_(*output_stream),
         session_uuid_(utils::GenerateUUID()),
-        timestamp_(utils::Timestamp::Now().ToString()) {}
+        timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
 
   virtual ~Session() = default;
 
@@ -241,6 +241,8 @@ class Session {
     // of the session to trigger session cleanup and socket close.
     throw SessionException("Something went wrong during session execution!");
   }
+
+  const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
 
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string timestamp_;

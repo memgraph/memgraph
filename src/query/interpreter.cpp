@@ -3626,17 +3626,17 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
 std::vector<Interpreter::ActiveUsersInfo> GetActiveUsers(InterpreterContext *interpreter_context) {
   std::vector<Interpreter::ActiveUsersInfo> active_users =
       interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-        std::vector<Interpreter::ActiveUsersInfo> usernames;
-        usernames.reserve(interpreters_.size());
+        std::vector<Interpreter::ActiveUsersInfo> users;
+        users.reserve(interpreters_.size());
         for (const auto &interpreter : interpreters_) {
           if (interpreter->user_or_role_->username()) {
-            usernames.push_back(interpreter->active_users_info_);
+            users.push_back(interpreter->active_users_info_);
           } else {
-            usernames.push_back({"", "", ""});
+            users.push_back({"", "", ""});
           }
         }
 
-        return usernames;
+        return users;
       });
 
   return active_users;
@@ -4136,13 +4136,11 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
-      header = {"username"};
+      header = {"username", "session id", "login time"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
         for (const auto &result : GetActiveUsers(interpreter_context)) {
-          results.push_back({TypedValue(result.username)});
-          results.push_back({TypedValue(result.uuid)});
-          results.push_back({TypedValue(result.timestamp)});
+          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.timestamp)});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
