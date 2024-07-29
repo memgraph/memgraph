@@ -170,12 +170,11 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
     itr = logs_.erase(itr);
   }
   bool const is_entry_with_biggest_id = index == GetNextSlot();
-  if (index != 0) [[likely]] {
-    logs_[index] = clone;
-  }
-
   if (durability_) {
     StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
+  }
+  if (index != 0) [[likely]] {
+    logs_[index] = clone;
   }
 }
 
