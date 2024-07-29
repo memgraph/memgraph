@@ -37,6 +37,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
+#include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
 
 const char *kPropertyId = "property_id";
@@ -477,9 +478,9 @@ TYPED_TEST(DumpTest, MultipleVertices) {
   }
 }
 
-TYPED_TEST(DumpTest, PropertyValue) {
+void test_PropertyValue(auto *test) {
   {
-    auto dba = this->db->Access();
+    auto dba = test->db->Access();
     auto null_value = memgraph::storage::PropertyValue();
     auto int_value = memgraph::storage::PropertyValue(13);
     auto bool_value = memgraph::storage::PropertyValue(true);
@@ -493,7 +494,7 @@ TYPED_TEST(DumpTest, PropertyValue) {
                                         memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
     auto ldt = memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
         memgraph::storage::TemporalType::LocalDateTime,
-        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()));
+        memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()));
     auto dur = memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
         memgraph::storage::TemporalType::Duration, memgraph::utils::Duration({3, 4, 5, 6, 10, 11}).microseconds));
     auto zdt = memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
@@ -507,12 +508,12 @@ TYPED_TEST(DumpTest, PropertyValue) {
   }
 
   {
-    ResultStreamFaker stream(this->db->storage());
+    ResultStreamFaker stream(test->db->storage());
     memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
     {
-      auto acc = this->db->Access();
+      auto acc = test->db->Access();
       memgraph::query::DbAccessor dba(acc.get());
-      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, test->db);
     }
     VerifyQueries(stream.GetResults(), kCreateInternalIndex,
                   "CREATE (:__mg_vertex__ {__mg_id__: 0, `p1`: [{`prop 1`: 13, "
@@ -522,6 +523,20 @@ TYPED_TEST(DumpTest, PropertyValue) {
                   "], `p2`: \"hello \\'world\\'\"});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
+}
+
+TYPED_TEST(DumpTest, PropertyValue) { test_PropertyValue(this); }
+
+TYPED_TEST(DumpTest, PropertyValueTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_PropertyValue(this);
+}
+
+TYPED_TEST(DumpTest, PropertyValueTZ2) {
+  HandleTimezone htz;
+  htz.Set("America/Los_Angeles");
+  test_PropertyValue(this);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
@@ -798,7 +813,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto zdt = memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime,
         memgraph::utils::AsSysTime(
-            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()),
+            memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()),
         memgraph::utils::Timezone("America/Los_Angeles"));
 
     CreateEdge(dba.get(), &u, &v, "Knows", {});
@@ -819,9 +834,10 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                              memgraph::utils::LocalTime({14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
     CreateEdge(
         dba.get(), &w, &z, "LocalDateTime",
-        {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
-                      memgraph::storage::TemporalType::LocalDateTime,
-                      memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).MicrosecondsSinceEpoch()))}});
+        {{"time",
+          memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+              memgraph::storage::TemporalType::LocalDateTime,
+              memgraph::utils::LocalDateTime({1994, 12, 7}, {14, 10, 44, 99, 99}).SysMicrosecondsSinceEpoch()))}});
     CreateEdge(dba.get(), &w, &z, "Duration",
                {{"time", memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
                              memgraph::storage::TemporalType::Duration,
