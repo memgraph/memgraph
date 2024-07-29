@@ -102,10 +102,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       spdlog::error("Log entry for id {} is nullptr", entry.first);
       continue;
     }
-    spdlog::trace("Applying log entry from log store with index {}");
+    spdlog::trace("Applying log entry from log store with index {}", entry.first);
     if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
       auto cluster_config = state_manager_->load_config();
-      state_machine_->commit_config(entry.second->get_timestamp(), cluster_config);
+      state_machine_->commit_config(entry.first, cluster_config);
       continue;
     }
     state_machine_->commit(entry.first, entry.second->get_buf());

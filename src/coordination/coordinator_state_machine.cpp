@@ -234,7 +234,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   auto const &[parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
   if (durability_) {
-    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_.load()));
+    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
@@ -247,7 +247,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
   if (durability_) {
-    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_.load()));
+    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }
   last_committed_idx_ = log_idx;
 }
