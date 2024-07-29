@@ -453,7 +453,12 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.kill(inner_instances_description, "coordinator_2")
 
     # 5
-    # no leader, we get default output
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
+
+    assert "Couldn't register instance as cluster didn't accept start of action!" in str(e.value)
+
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
@@ -465,11 +470,6 @@ def test_even_number_coords(use_durability):
     ]
 
     mg_sleep_and_assert(follower_data, show_instances_coord3)
-
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
-
-    assert "Couldn't set instance to main since coordinator is not a leader!" in str(e.value)
 
     # 6
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
