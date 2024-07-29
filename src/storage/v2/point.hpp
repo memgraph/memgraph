@@ -116,162 +116,67 @@ inline bool valid3d(CoordinateReferenceSystem val) {
 struct Point2d {
   Point2d() = default;  // needed for slk
 
-  Point2d(CoordinateReferenceSystem crs, double x, double y) : crs_{crs}, x_{x}, y_{y} {
+  Point2d(CoordinateReferenceSystem crs, double x, double y) : crs_{crs}, x_longitude_{x}, y_latitude_{y} {
     DMG_ASSERT(valid2d(crs), "Not a valid 2d Coordinate Reference System");
   }
 
   auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  auto x() const -> double { return x_; }
-  auto y() const -> double { return y_; }
+  auto x() const -> double { return x_longitude_; }
+  auto y() const -> double { return y_latitude_; }
+  auto longitude() const -> double { return x_longitude_; }
+  auto latitude() const -> double { return y_latitude_; }
 
   friend bool operator==(Point2d const &, Point2d const &) = default;
 
   friend auto operator<=>(Point2d const &lhs, Point2d const &rhs) -> std::partial_ordering {
     if (lhs.crs_ != rhs.crs_) return std::partial_ordering::unordered;
 
-    const auto cmp_x = lhs.x_ <=> rhs.x_;
-    const auto cmp_y = lhs.y_ <=> rhs.y_;
+    const auto cmp_x = lhs.x_longitude_ <=> rhs.x_longitude_;
+    const auto cmp_y = lhs.y_latitude_ <=> rhs.y_latitude_;
 
     return (cmp_x == cmp_y) ? cmp_x : std::partial_ordering::unordered;
   }
 
  private:
   CoordinateReferenceSystem crs_;
-  double x_;
-  double y_;
+  double x_longitude_;
+  double y_latitude_;
 };
 
 struct Point3d {
   Point3d() = default;  // needed for slk
 
-  Point3d(CoordinateReferenceSystem crs, double x, double y, double z) : crs_{crs}, x_{x}, y_{y}, z_{z} {
+  Point3d(CoordinateReferenceSystem crs, double x, double y, double z)
+      : crs_{crs}, x_longitude_{x}, y_latitude_{y}, z_height_{z} {
     DMG_ASSERT(valid3d(crs), "Not a valid 3d Coordinate Reference System");
   }
 
   auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  auto x() const -> double { return x_; }
-  auto y() const -> double { return y_; }
-  auto z() const -> double { return z_; }
+  auto x() const -> double { return x_longitude_; }
+  auto y() const -> double { return y_latitude_; }
+  auto z() const -> double { return z_height_; }
+  auto longitude() const -> double { return x_longitude_; }
+  auto latitude() const -> double { return y_latitude_; }
+  auto height() const -> double { return z_height_; }
 
   friend bool operator==(Point3d const &A, Point3d const &B) = default;
 
   friend auto operator<=>(Point3d const &lhs, Point3d const &rhs) -> std::partial_ordering {
     if (lhs.crs_ != rhs.crs_) return std::partial_ordering::unordered;
 
-    const auto cmp_x = lhs.x_ <=> rhs.x_;
-    const auto cmp_y = lhs.y_ <=> rhs.y_;
-    const auto cmp_z = lhs.z_ <=> rhs.z_;
+    const auto cmp_x = lhs.x_longitude_ <=> rhs.x_longitude_;
+    const auto cmp_y = lhs.y_latitude_ <=> rhs.y_latitude_;
+    const auto cmp_z = lhs.z_height_ <=> rhs.z_height_;
 
     return (cmp_x == cmp_y && cmp_x == cmp_z) ? cmp_x : std::partial_ordering::unordered;
   }
 
  private:
   CoordinateReferenceSystem crs_;
-  double x_;
-  double y_;
-  double z_;
+  double x_longitude_;
+  double y_latitude_;
+  double z_height_;
 };
-
-inline double Haversine(const Point2d &point1, const Point2d &point2) {
-  constexpr double R = 6371e3;
-  const double PI_RADIANS = std::atan(1) * 4 / 180.00;
-
-  auto phi_1 = point1.y() * PI_RADIANS;
-  auto phi_2 = point2.y() * PI_RADIANS;
-  auto delta_phi = (point2.y() - point1.y()) * PI_RADIANS;
-  auto delta_lambda = (point2.x() - point1.x()) * PI_RADIANS;
-
-  auto sin_delta_phi = std::sin(delta_phi / 2.0);
-  auto sin_delta_lambda = std::sin(delta_lambda / 2.0);
-
-  auto a = sin_delta_phi * sin_delta_phi + std::cos(phi_1) * std::cos(phi_2) * (sin_delta_lambda * sin_delta_lambda);
-  auto c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
-
-  return R * c;
-}
-
-inline double Haversine(const Point3d &point1, const Point3d &point2) {
-  constexpr double R = 6371e3;
-  const double PI_RADIANS = std::atan(1) * 4 / 180.0;
-  auto phi_1 = point1.y() * PI_RADIANS;
-  auto phi_2 = point2.y() * PI_RADIANS;
-  auto delta_phi = (point2.y() - point1.y()) * PI_RADIANS;
-  auto delta_lambda = (point2.x() - point1.x()) * PI_RADIANS;
-
-  auto sin_delta_phi = std::sin(delta_phi / 2.0);
-  auto sin_delta_lambda = std::sin(delta_lambda / 2.0);
-
-  auto a = sin_delta_phi * sin_delta_phi + std::cos(phi_1) * std::cos(phi_2) * (sin_delta_lambda * sin_delta_lambda);
-  auto c = 2 * std::atan2(std::sqrt(a), std::sqrt(1 - a));
-
-  auto horizontal_distance = R * c;
-  auto delta_height = point2.z() - point1.z();
-
-  return std::sqrt(horizontal_distance * horizontal_distance + delta_height * delta_height);
-}
-
-inline double Distance(const Point2d &point1, const Point2d &point2) {
-  MG_ASSERT(point1.crs() == point2.crs());
-  if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
-    auto dx = point1.x() - point2.x();
-    auto dy = point1.y() - point2.y();
-    return std::sqrt(dx * dx + dy * dy);
-  }
-  return Haversine(point1, point2);
-}
-
-inline double Distance(const Point3d &point1, const Point3d &point2) {
-  MG_ASSERT(point1.crs() == point2.crs());
-  if (point1.crs() == CoordinateReferenceSystem::Cartesian_3d) {
-    auto dx = point1.x() - point2.x();
-    auto dy = point1.y() - point2.y();
-    auto dz = point1.z() - point2.z();
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-  }
-  return Haversine(point1, point2);
-}
-
-inline bool WithinBBox(const Point2d &point, const Point2d &lower_bound, const Point2d &upper_bound) {
-  using enum CoordinateReferenceSystem;
-  auto lb_x = lower_bound.x();
-  auto ub_x = upper_bound.x();
-
-  auto lb_y = lower_bound.y();
-  auto ub_y = upper_bound.y();
-
-  auto p_x = point.x();
-  auto p_y = point.y();
-  auto crs = point.crs();
-
-  if (lb_x <= ub_x || crs == Cartesian_2d) [[likely]] {
-    return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y;
-  } else {
-    return ub_x <= p_x && p_x <= lb_x + 360.0 && lb_y <= p_y && p_y <= ub_y;
-  }
-}
-
-inline bool WithinBBox(const Point3d &point, const Point3d &lower_bound, const Point3d &upper_bound) {
-  using enum CoordinateReferenceSystem;
-  auto lb_x = lower_bound.x();
-  auto ub_x = upper_bound.x();
-
-  auto lb_y = lower_bound.y();
-  auto ub_y = upper_bound.y();
-
-  auto lb_z = lower_bound.z();
-  auto ub_z = upper_bound.z();
-
-  auto p_x = point.x();
-  auto p_y = point.y();
-  auto p_z = point.z();
-  auto crs = point.crs();
-
-  if (lb_x <= ub_x || crs == Cartesian_3d) [[likely]] {
-    return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
-  } else {
-    return ub_x <= p_x && p_x <= lb_x + 360.0 && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
-  }
-}
 
 static_assert(std::is_trivially_destructible_v<Point2d>);
 static_assert(std::is_trivially_destructible_v<Point3d>);
