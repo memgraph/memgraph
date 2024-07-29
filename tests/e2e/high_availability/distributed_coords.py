@@ -3061,6 +3061,7 @@ def test_all_coords_down_resume():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
+        coord_cursor_1 = connect(host="localhost", port=7690).cursor()
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
@@ -3095,31 +3096,33 @@ def test_all_coords_down_resume():
 
     # 5
 
-    # TODO(antoniofilipovic) - update when merged with master
-    leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
+    wait_for_status_change(show_instances_coord1, {"coordinator_1", "coordinator_2"}, "leader")
+
+    leader = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+
+    main = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
 
-    mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
     # 6
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
@@ -3127,37 +3130,27 @@ def test_all_coords_down_resume():
 
     # 7
 
-    leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
+    wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
+
+    leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
