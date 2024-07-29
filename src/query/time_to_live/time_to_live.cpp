@@ -272,7 +272,7 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
  * @return std::string
  */
 std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st) {
-  utils::LocalDateTime ldt(std::chrono::duration_cast<std::chrono::microseconds>(st.time_since_epoch()).count());
+  const utils::LocalDateTime ldt(std::chrono::duration_cast<std::chrono::microseconds>(st.time_since_epoch()).count());
   auto epoch = std::chrono::microseconds{ldt.MicrosecondsSinceEpoch()};
   /* just consume and through away */
   GetPart<std::chrono::days>(epoch);

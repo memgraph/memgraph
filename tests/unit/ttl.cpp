@@ -379,7 +379,10 @@ TEST(TtlInfo, String) {
     auto rome = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
     memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
     auto la = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
-    EXPECT_EQ(utc, rome + std::chrono::hours(2));
-    EXPECT_EQ(utc, la - std::chrono::hours(7));
+    // Time is converted to local date time; so might be influenced by day-light savings
+    EXPECT_TRUE(utc == rome + std::chrono::hours(2) || utc == rome + std::chrono::hours(1))
+        << "[ERROR] UTC " << utc << " Rome " << rome;
+    EXPECT_TRUE(utc == la - std::chrono::hours(7) || utc == la - std::chrono::hours(8))
+        << "[ERROR] UTC " << utc << " LA " << la;
   }
 }
