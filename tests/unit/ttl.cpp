@@ -21,6 +21,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/settings.hpp"
 
 namespace {
 std::filesystem::path GetCleanDataDirectory() {
@@ -309,7 +310,16 @@ TYPED_TEST(TTLFixture, Durability) {
   }
 }
 
-TEST(TtlInof, String) {
+// Needs user-defined timezone
+TEST(TtlInfo, String) {
+  memgraph::utils::global_settings.Initialize("/tmp/ttl");
+  memgraph::flags::run_time::Initialize();
+
+  memgraph::utils::OnScopeExit clean_up([] {
+    memgraph::utils::global_settings.Finalize();
+    std::filesystem::remove_all("/tmp/ttl");
+  });
+
   {
     auto period = std::chrono::hours(1) + std::chrono::minutes(23) + std::chrono::seconds(59);
     auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
@@ -330,6 +340,7 @@ TEST(TtlInof, String) {
   }
   {
     // Has to handle time zones (hours can differ)
+    memgraph::utils::global_settings.SetValue("timezone", "UTC");
     auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
@@ -337,5 +348,38 @@ TEST(TtlInof, String) {
     EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
     auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
     EXPECT_EQ(time_str, "03:45:10");
+  }
+  {
+    // Has to handle time zones (hours can differ)
+    memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
+    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto epoch = time.time_since_epoch();
+    GetPart<std::chrono::hours>(epoch);  // consume and ignore
+    EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
+    EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
+    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    EXPECT_EQ(time_str, "03:45:10");
+  }
+  {
+    // Has to handle time zones (hours can differ)
+    memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
+    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto epoch = time.time_since_epoch();
+    GetPart<std::chrono::hours>(epoch);  // consume and ignore
+    EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
+    EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
+    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    EXPECT_EQ(time_str, "03:45:10");
+  }
+  {
+    const auto time_str = "12:34:56";
+    memgraph::utils::global_settings.SetValue("timezone", "UTC");
+    auto utc = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
+    auto rome = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
+    auto la = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    EXPECT_EQ(utc, rome + std::chrono::hours(2));
+    EXPECT_EQ(utc, la - std::chrono::hours(7));
   }
 }

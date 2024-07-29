@@ -21,6 +21,7 @@
 #include "query/interpreter_context.hpp"
 #include "query/typed_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 #ifdef MG_ENTERPRISE
 
@@ -255,10 +256,9 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
     const utils::DateParameters date{static_cast<int>(now.year()), static_cast<unsigned>(now.month()),
                                      static_cast<unsigned>(now.day())};
     auto [time, _] = utils::ParseLocalTimeParameters(sv);
-    const utils::ZonedDateTimeParameters zdt{date, time, utils::Timezone(std::chrono::current_zone()->name())};
-    // Have to convert user's input (his local time) to system time
-    // Using microseconds in order to be aligned with timestamp()
-    return utils::ZonedDateTime(zdt).SysTimeSinceEpoch();
+    // LocalDateTime uses the user-defined timezone
+    return std::chrono::system_clock::time_point{
+        std::chrono::microseconds{utils::LocalDateTime(date, time).SysMicrosecondsSinceEpoch()}};
   } catch (const utils::temporal::InvalidArgumentException &e) {
     throw TtlException(e.what());
   }
@@ -272,8 +272,8 @@ std::chrono::system_clock::time_point TtlInfo::ParseStartTime(std::string_view s
  * @return std::string
  */
 std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st) {
-  const std::chrono::zoned_time zt(std::chrono::current_zone(), st);
-  auto epoch = zt.get_local_time().time_since_epoch();
+  utils::LocalDateTime ldt(std::chrono::duration_cast<std::chrono::microseconds>(st.time_since_epoch()).count());
+  auto epoch = std::chrono::microseconds{ldt.MicrosecondsSinceEpoch()};
   /* just consume and through away */
   GetPart<std::chrono::days>(epoch);
   /* what we are actually interested in */
