@@ -328,8 +328,9 @@ storage::PropertyValue ToPropertyValue(communication::bolt::Value const &value, 
       return storage::PropertyValue(
           storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
     case Value::Type::LocalDateTime:
+      // Bolt uses time since epoch without timezone (as if in UTC)
       return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
-                                                          value.ValueLocalDateTime().MicrosecondsSinceEpoch()));
+                                                          value.ValueLocalDateTime().SysMicrosecondsSinceEpoch()));
     case Value::Type::Duration:
       return storage::PropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));

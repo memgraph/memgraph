@@ -1515,41 +1515,42 @@ mgp_error mgp_local_date_time_equal(mgp_local_date_time *first, mgp_local_date_t
 }
 
 mgp_error mgp_local_date_time_get_year(mgp_local_date_time *local_date_time, int *year) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.year; }, year);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().year; }, year);
 }
 
 mgp_error mgp_local_date_time_get_month(mgp_local_date_time *local_date_time, int *month) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.month; }, month);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().month; }, month);
 }
 
 mgp_error mgp_local_date_time_get_day(mgp_local_date_time *local_date_time, int *day) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date.day; }, day);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.date().day; }, day);
 }
 
 mgp_error mgp_local_date_time_get_hour(mgp_local_date_time *local_date_time, int *hour) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.hour; }, hour);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().hour; }, hour);
 }
 
 mgp_error mgp_local_date_time_get_minute(mgp_local_date_time *local_date_time, int *minute) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.minute; }, minute);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().minute; }, minute);
 }
 
 mgp_error mgp_local_date_time_get_second(mgp_local_date_time *local_date_time, int *second) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.second; }, second);
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().second; }, second);
 }
 
 mgp_error mgp_local_date_time_get_millisecond(mgp_local_date_time *local_date_time, int *millisecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.millisecond; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().millisecond; },
                         millisecond);
 }
 
 mgp_error mgp_local_date_time_get_microsecond(mgp_local_date_time *local_date_time, int *microsecond) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time.microsecond; },
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.local_time().microsecond; },
                         microsecond);
 }
 
 mgp_error mgp_local_date_time_timestamp(mgp_local_date_time *local_date_time, int64_t *timestamp) {
-  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.MicrosecondsSinceEpoch(); },
+  // Timestamps need to be in system time (UTC)
+  return WrapExceptions([local_date_time] { return local_date_time->local_date_time.SysMicrosecondsSinceEpoch(); },
                         timestamp);
 }
 
@@ -1830,9 +1831,10 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value) {
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::LocalTime, value.local_time_v->local_time.MicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+      // Use generic system time (UTC)
       return memgraph::storage::PropertyValue{
           memgraph::storage::TemporalData{memgraph::storage::TemporalType::LocalDateTime,
-                                          value.local_date_time_v->local_date_time.MicrosecondsSinceEpoch()}};
+                                          value.local_date_time_v->local_date_time.SysMicrosecondsSinceEpoch()}};
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
