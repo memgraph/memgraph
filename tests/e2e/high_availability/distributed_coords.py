@@ -3141,6 +3141,10 @@ def test_all_coords_down_resume():
 
     wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
+    leader = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    main = find_instance_and_assert_instances(instance_role="main", num_coordinators=3)
+
     leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
     leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
