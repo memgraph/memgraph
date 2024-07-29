@@ -21,6 +21,7 @@
 
 #include "boost/functional/hash.hpp"
 #include "strong_type/strong_type.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -56,22 +57,23 @@ inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
 inline auto StringToCrs(std::string_view crs) -> std::optional<CoordinateReferenceSystem> {
   using enum CoordinateReferenceSystem;
 
-  if (crs == "WGS-84") {
+  auto lookup_string = memgraph::utils::ToUpperCase(crs);
+
+  if (lookup_string == "WGS-84") {
     return WGS84_2d;
   }
-  if (crs == "WGS-84-3D") {
+  if (lookup_string == "WGS-84-3D") {
     return WGS84_3d;
   }
-  if (crs == "CARTESIAN") {
+  if (lookup_string == "CARTESIAN") {
     return Cartesian_2d;
   }
-  if (crs == "CARTESIAN-3D") {
+  if (lookup_string == "CARTESIAN-3D") {
     return Cartesian_3d;
   }
   return std::nullopt;
 }
 
-// TODO Ivan: not consistent with neo4j, I think this is fine
 inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
   switch (crs) {
     using enum CoordinateReferenceSystem;

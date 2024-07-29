@@ -1424,7 +1424,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
   for (auto const &[k, v] : input) {
     if (v.IsNull()) {
-      return {};
+      return TypedValue{ctx.memory};
     }
   }
 
@@ -1501,7 +1501,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
   std::optional<storage::CoordinateReferenceSystem> mg_crs;
   if (crs.has_value()) {
-    mg_crs = storage::StringToCrs(utils::ToUpperCase(*crs));
+    mg_crs = storage::StringToCrs(*crs);
     if (!mg_crs.has_value()) {
       throw QueryRuntimeException("Invalid CRS.");
     }

@@ -291,7 +291,21 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point creation failure 4:
         When executing query:
             """
+            RETURN point({longitude:191, latitude:0}) AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 5:
+        When executing query:
+            """
             RETURN point({longitude:0, latitude:91}) AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 6:
+        When executing query:
+            """
+            RETURN point({longitude:0, latitude:-91}) AS result;
             """
         Then an error should be raised
 
@@ -299,20 +313,14 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE (n:Location {coordinates: point({longitude: 1, latitude: 2})});
-            """
-        Then the result should be empty
-
-        When executing query:
-            """
-            MATCH (n)
+            WITH point({longitude: 1, latitude: 2}) as thing
             RETURN
-                n.coordinates.x as x_result,
-                n.coordinates.longitude as longitude_result,
-                n.coordinates.y as y_result,
-                n.coordinates.latitude as latitude_result,
-                n.coordinates.crs as crs_result,
-                n.coordinates.srid as srid_result;
+                thing.x as x_result,
+                thing.longitude as longitude_result,
+                thing.y as y_result,
+                thing.latitude as latitude_result,
+                thing.crs as crs_result,
+                thing.srid as srid_result;
             """
         Then the result should be:
             | x_result | longitude_result | y_result | latitude_result | crs_result | srid_result |
@@ -321,14 +329,18 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point2d-WGS48 lookup z:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.z as result;
+            WITH point({longitude: 1, latitude: 2}) as thing
+            RETURN
+                thing.z as result;
             """
         Then an error should be raised
 
     Scenario: Point2d-WGS48 lookup height:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.height as result;
+            WITH point({longitude: 1, latitude: 2}) as thing
+            RETURN
+                thing.height as result;
             """
         Then an error should be raised
 
@@ -336,22 +348,16 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE (n:Location {coordinates: point({longitude: 1, latitude: 2, height: 3})});
-            """
-        Then the result should be empty
-
-        When executing query:
-            """
-            MATCH (n)
+            WITH point({longitude: 1, latitude: 2, height: 3}) as thing
             RETURN
-                n.coordinates.x as x_result,
-                n.coordinates.longitude as longitude_result,
-                n.coordinates.y as y_result,
-                n.coordinates.latitude as latitude_result,
-                n.coordinates.z as z_result,
-                n.coordinates.height as height_result,
-                n.coordinates.crs as crs_result,
-                n.coordinates.srid as srid_result;
+                thing.x as x_result,
+                thing.longitude as longitude_result,
+                thing.y as y_result,
+                thing.latitude as latitude_result,
+                thing.z as z_result,
+                thing.height as height_result,
+                thing.crs as crs_result,
+                thing.srid as srid_result;
             """
         Then the result should be:
             | x_result | longitude_result | y_result | latitude_result | z_result | height_result | crs_result | srid_result |
@@ -361,17 +367,12 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE (n:Location {coordinates: point({x: 1, y: 2})});
-            """
-        Then the result should be empty
-        When executing query:
-            """
-            MATCH (n)
+            WITH point({x: 1, y: 2}) as thing
             RETURN
-                n.coordinates.x as x_result,
-                n.coordinates.y as y_result,
-                n.coordinates.crs as crs_result,
-                n.coordinates.srid as srid_result;
+                thing.x as x_result,
+                thing.y as y_result,
+                thing.crs as crs_result,
+                thing.srid as srid_result;
             """
         Then the result should be:
             | x_result | y_result | crs_result  | srid_result |
@@ -380,28 +381,28 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point2d-cartesian lookup longitude:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.longitude as result;
+            WITH point({x: 1, y: 2}) as thing RETURN thing.longitude as result;
             """
         Then an error should be raised
 
     Scenario: Point2d-cartesian lookup latitude:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.latitude as result;
+            WITH point({x: 1, y: 2}) as thing RETURN thing.latitude as result;
             """
         Then an error should be raised
 
     Scenario: Point2d-cartesian lookup z:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.z as result;
+            WITH point({x: 1, y: 2}) as thing RETURN thing.z as result;
             """
         Then an error should be raised
 
     Scenario: Point2d-cartesian lookup height:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.height as result;
+            WITH point({x: 1, y: 2}) as thing RETURN thing.height as result;
             """
         Then an error should be raised
 
@@ -409,18 +410,13 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Given an empty graph
         When executing query:
             """
-            CREATE (n:Location {coordinates: point({x: 1, y: 2, z: 3})});
-            """
-        Then the result should be empty
-        When executing query:
-            """
-            MATCH (n)
+            WITH point({x: 1, y: 2, z:3}) as thing
             RETURN
-                n.coordinates.x as x_result,
-                n.coordinates.y as y_result,
-                n.coordinates.z as z_result,
-                n.coordinates.crs as crs_result,
-                n.coordinates.srid as srid_result;
+                thing.x as x_result,
+                thing.y as y_result,
+                thing.z as z_result,
+                thing.crs as crs_result,
+                thing.srid as srid_result;
             """
         Then the result should be:
             | x_result | y_result | z_result | crs_result  | srid_result |
@@ -429,21 +425,21 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
     Scenario: Point3d-cartesian lookup longitude:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.longitude as result;
+            WITH point({x: 1, y: 2, z:3}) as thing RETURN thing.longitude as result;
             """
         Then an error should be raised
 
     Scenario: Point3d-cartesian lookup latitude:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.latitude as result;
+            WITH point({x: 1, y: 2, z:3}) as thing RETURN thing.latitude as result;
             """
         Then an error should be raised
 
     Scenario: Point3d-cartesian lookup height:
         When executing query:
             """
-            MATCH (n) RETURN n.coordinates.height as result;
+            WITH point({x: 1, y: 2, z:3}) as thing RETURN thing.height as result;
             """
         Then an error should be raised
 
