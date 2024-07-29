@@ -155,19 +155,23 @@ workloads:
   - name: "Create delete filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/create_delete_filtering_tests.py"]
+    type: "enterprise"
     <<: *create_delete_filtering_in_memory_cluster
 
   - name: "EdgeType filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/edge_type_filtering_tests.py"]
+    type: "enterprise"
     <<: *edge_type_filtering_in_memory_cluster
 
   - name: "Path filtering"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/path_filtering_tests.py"]
+    type: "enterprise"
     <<: *path_filtering_in_memory_cluster
 
   - name: "Show databases with users"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["fine_grained_access/show_db.py"]
+    type: "enterprise"
     <<: *show_databases_w_user

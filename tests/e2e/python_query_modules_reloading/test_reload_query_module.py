@@ -15,6 +15,7 @@ import sys
 
 import pytest
 from common import connect, create_multi_db, execute_and_fetch_all, switch_db
+from mg_utils import mg_is_enterprise
 
 COMMON_PATH_PREFIX_TEST1 = "procedures/mage/test_module"
 COMMON_PATH_PREFIX_TEST2 = "procedures/new_test_module_utils"
@@ -76,7 +77,7 @@ def postprocess_functions(path1: str, path2: str):
         )
 
 
-@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize("switch", [False, True] if mg_is_enterprise() else [False])
 def test_mg_load_reload_submodule_root_utils(switch):
     """Tests whether mg.load reloads content of some submodule code."""
     cursor = connect().cursor()
@@ -105,7 +106,7 @@ def test_mg_load_reload_submodule_root_utils(switch):
     execute_and_fetch_all(cursor, "CALL mg.load('new_test_module');")
 
 
-@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize("switch", [False, True] if mg_is_enterprise() else [False])
 def test_mg_load_all_reload_submodule_root_utils(switch):
     """Tests whether mg.load_all reloads content of some submodule code"""
     cursor = connect().cursor()
@@ -134,7 +135,7 @@ def test_mg_load_all_reload_submodule_root_utils(switch):
     execute_and_fetch_all(cursor, "CALL mg.load_all();")
 
 
-@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize("switch", [False, True] if mg_is_enterprise() else [False])
 def test_mg_load_reload_submodule(switch):
     """Tests whether mg.load reloads content of some submodule code."""
     cursor = connect().cursor()
@@ -163,7 +164,7 @@ def test_mg_load_reload_submodule(switch):
     execute_and_fetch_all(cursor, "CALL mg.load('test_module');")
 
 
-@pytest.mark.parametrize("switch", [False, True])
+@pytest.mark.parametrize("switch", [False, True] if mg_is_enterprise() else [False])
 def test_mg_load_all_reload_submodule(switch):
     """Tests whether mg.load_all reloads content of some submodule code"""
     cursor = connect().cursor()

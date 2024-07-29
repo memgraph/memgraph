@@ -9,8 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from functools import partial
+
 import pytest
 from gqlalchemy import Memgraph
+from mg_utils import mg_is_enterprise
+
+
+@pytest.fixture
+def enterprise_only(**kwargs) -> Memgraph:
+    if not mg_is_enterprise():
+        pytest.skip("Skipping enterprise only test")
 
 
 @pytest.fixture
@@ -27,10 +36,11 @@ def memgraph(**kwargs) -> Memgraph:
         memgraph.execute("DROP USER mrma;")
     except Exception as e:
         pass
-    try:
-        memgraph.execute("DROP ROLE mrma;")
-    except Exception as e:
-        pass
+    if mg_is_enterprise():
+        try:
+            memgraph.execute("DROP ROLE mrma;")
+        except Exception as e:
+            pass
 
 
 @pytest.fixture

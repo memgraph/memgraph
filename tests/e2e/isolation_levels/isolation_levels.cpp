@@ -96,11 +96,11 @@ void SwitchToSameDB(std::unique_ptr<mg::Client> &main, std::unique_ptr<mg::Clien
   SwitchToDB(std::string(name), client);
 }
 
-void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
+void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client, bool multi_db) {
   spdlog::info("Verifying SNAPSHOT ISOLATION");
 
   auto creator = GetClient();
-  SwitchToSameDB(client, creator);
+  if (multi_db) SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -130,11 +130,11 @@ void TestSnapshotIsolation(std::unique_ptr<mg::Client> &client) {
   CleanDatabase(creator);
 }
 
-void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
+void TestReadCommitted(std::unique_ptr<mg::Client> &client, bool multi_db) {
   spdlog::info("Verifying READ COMMITTED");
 
   auto creator = GetClient();
-  SwitchToSameDB(client, creator);
+  if (multi_db) SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -163,11 +163,11 @@ void TestReadCommitted(std::unique_ptr<mg::Client> &client) {
   CleanDatabase(creator);
 }
 
-void TestReadUncommitted(std::unique_ptr<mg::Client> &client) {
+void TestReadUncommitted(std::unique_ptr<mg::Client> &client, bool multi_db) {
   spdlog::info("Verifying READ UNCOMMITTED");
 
   auto creator = GetClient();
-  SwitchToSameDB(client, creator);
+  if (multi_db) SwitchToSameDB(client, creator);
 
   MG_ASSERT(client->BeginTransaction());
   MG_ASSERT(creator->BeginTransaction());
@@ -222,8 +222,8 @@ void TestGlobalIsolationLevel(bool isDiskStorage, bool mdb = false) {
 
     first_client->DiscardAll();
 
-    verification_function(first_client);
-    verification_function(second_client);
+    verification_function(first_client, mdb);
+    verification_function(second_client, mdb);
     spdlog::info("--------------------------\n");
   }
 }
@@ -260,9 +260,9 @@ void TestSessionIsolationLevel(bool isDiskStorage, bool mdb = false) {
       session_client->DiscardAll();
 
       spdlog::info("Verifying client which is using global isolation level");
-      global_verification_function(global_client);
+      global_verification_function(global_client, mdb);
       spdlog::info("Verifying client which is using session isolation level");
-      session_verification_function(session_client);
+      session_verification_function(session_client, mdb);
       spdlog::info("--------------------------\n");
     }
   }
@@ -303,9 +303,9 @@ void TestNextIsolationLevel(bool isDiskStorage, bool mdb = false) {
       for (const auto &[next_isolation_level, next_verification_function] : isolation_levels) {
         spdlog::info("--------------------------");
         spdlog::info("Verifying client which is using global isolation level");
-        global_verification_function(global_client);
+        global_verification_function(global_client, mdb);
         spdlog::info("Verifying client which is using session isolation level");
-        session_verification_function(session_client);
+        session_verification_function(session_client, mdb);
 
         if (isDiskStorage && strcmp(next_isolation_level, "SNAPSHOT ISOLATION") != 0) {
           spdlog::info("Skipping for disk storage unsupported next transaction isolation level {}",
@@ -320,14 +320,14 @@ void TestNextIsolationLevel(bool isDiskStorage, bool mdb = false) {
         session_client->DiscardAll();
 
         spdlog::info("Verifying client which is using global isolation level while next isolation level is set");
-        next_verification_function(global_client);
+        next_verification_function(global_client, mdb);
         spdlog::info("Verifying client which is using session isolation level while next isolation level is set");
-        next_verification_function(session_client);
+        next_verification_function(session_client, mdb);
 
         spdlog::info("Verifying client which is using global isolation level after the next isolation level was used");
-        global_verification_function(global_client);
+        global_verification_function(global_client, mdb);
         spdlog::info("Verifying client which is using session isolation level after the next isolation level was used");
-        session_verification_function(session_client);
+        session_verification_function(session_client, mdb);
         spdlog::info("--------------------------\n");
       }
     }
@@ -346,21 +346,28 @@ int main(int argc, char **argv) {
   auto client = GetClient();
   bool isDiskStorage = IsDiskStorageMode(client);
   client->DiscardAll();
-  bool multiDB = false;
 
-  TestGlobalIsolationLevel(isDiskStorage);
-  TestSessionIsolationLevel(isDiskStorage);
-  TestNextIsolationLevel(isDiskStorage);
+  constexpr bool kRunMT = true;
 
+  TestGlobalIsolationLevel(isDiskStorage, !kRunMT);
+  TestSessionIsolationLevel(isDiskStorage, !kRunMT);
+  TestNextIsolationLevel(isDiskStorage, !kRunMT);
+
+#if MG_ENTERPRISE
   // MultiDB tests
-  multiDB = true;
+  // Check if license active (if not skip)
+  if (!client->Execute("SHOW DATABASES")) {
+    spdlog::info("\n\n\n\t\tNo license, skipping multi-tenant tests...\n\n");
+    return 0;
+  }
   spdlog::info("--------------------------");
   spdlog::info("---- RUNNING MULTI DB ----");
   spdlog::info("--------------------------");
   SetupCleanDB();
-  TestGlobalIsolationLevel(isDiskStorage, multiDB);
-  TestSessionIsolationLevel(isDiskStorage, multiDB);
-  TestNextIsolationLevel(isDiskStorage, multiDB);
+  TestGlobalIsolationLevel(isDiskStorage, !kRunMT);
+  TestSessionIsolationLevel(isDiskStorage, !kRunMT);
+  TestNextIsolationLevel(isDiskStorage, !kRunMT);
+#endif
 
   return 0;
 }

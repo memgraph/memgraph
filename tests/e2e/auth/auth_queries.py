@@ -12,7 +12,7 @@
 import sys
 
 import pytest
-from common import memgraph, provide_user
+from common import enterprise_only, memgraph, provide_user
 from gqlalchemy import Memgraph
 
 
@@ -23,7 +23,7 @@ def test_user_creation(memgraph):
     memgraph.execute("CREATE USER IF NOT EXISTS mrma;")
 
 
-def test_role_creation(memgraph):
+def test_role_creation(enterprise_only, memgraph):
     memgraph.execute("CREATE ROLE mrma;")
     with pytest.raises(Exception):
         memgraph.execute("CREATE ROLE mrma;")

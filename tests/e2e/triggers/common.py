@@ -13,6 +13,7 @@ import typing
 
 import mgclient
 import pytest
+from mg_utils import mg_is_enterprise
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -24,11 +25,12 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
-    execute_and_fetch_all(connection.cursor(), "USE DATABASE memgraph")
-    try:
-        execute_and_fetch_all(connection.cursor(), "DROP DATABASE clean")
-    except:
-        pass
+    if mg_is_enterprise():
+        execute_and_fetch_all(connection.cursor(), "USE DATABASE memgraph")
+        try:
+            execute_and_fetch_all(connection.cursor(), "DROP DATABASE clean")
+        except:
+            pass
     execute_and_fetch_all(connection.cursor(), "MATCH (n) DETACH DELETE n")
     triggers_list = execute_and_fetch_all(connection.cursor(), "SHOW TRIGGERS;")
     for trigger in triggers_list:

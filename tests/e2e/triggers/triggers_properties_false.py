@@ -14,6 +14,7 @@ import sys
 import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
+from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture(scope="function")
@@ -27,7 +28,7 @@ def multi_db(request, connect):
     yield connect
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
 def test_create_on_create(ba_commit, multi_db):
     """
@@ -63,15 +64,16 @@ def test_create_on_create(ba_commit, multi_db):
     # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
 
-    # check that there is no cross contamination between databases
-    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
-    if len(nodes) == 2:  # multi db mode
-        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
-        assert len(created_edges) == 0
+    if mg_is_enterprise():
+        # check that there is no cross contamination between databases
+        nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+        if len(nodes) == 2:  # multi db mode
+            execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+            created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+            assert len(created_edges) == 0
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["AFTER COMMIT", "BEFORE COMMIT"])
 def test_create_on_delete(ba_commit, multi_db):
     """
@@ -123,17 +125,18 @@ def test_create_on_delete(ba_commit, multi_db):
     # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
     # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
 
-    # check that there is no cross contamination between databases
-    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
-    if len(nodes) == 2:  # multi db mode
-        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
-        assert len(created_edges) == 0
+    if mg_is_enterprise():
+        # check that there is no cross contamination between databases
+        nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
+        if len(nodes) == 2:  # multi db mode
+            execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+            created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+            assert len(created_edges) == 0
 
 
-# @pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("ba_commit", ["BEFORE COMMIT", "AFTER COMMIT"])
-def test_create_on_delete_explicit_transaction(ba_commit):
+def test_create_on_delete_explicit_transaction(ba_commit, multi_db):
     """
     Args:
         ba_commit (str): BEFORE OR AFTER commit

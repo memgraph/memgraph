@@ -34,6 +34,7 @@ def load_args():
     parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
     parser.add_argument("--debug", default=False, required=False)
+    parser.add_argument("--workload-type", default="both", required=False)
     return parser.parse_args()
 
 
@@ -52,6 +53,9 @@ def run(args):
     workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
         workload_name = workload["name"]
+        workload_type = workload.get("type", "both")
+        if workload_type != "both" and workload_type != args.workload_type:
+            continue
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)

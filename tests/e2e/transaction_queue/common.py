@@ -12,6 +12,14 @@
 import typing
 
 import mgclient
+import pytest
+from mg_utils import mg_is_enterprise
+
+
+@pytest.fixture
+def enterprise_only(**kwargs):
+    if not mg_is_enterprise():
+        pytest.skip("Skipping enterprise only test")
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:

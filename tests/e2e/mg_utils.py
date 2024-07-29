@@ -1,3 +1,4 @@
+import os
 import time
 from typing import List, Set
 
@@ -126,3 +127,22 @@ def mg_sleep_and_assert_collection(
         result = function_to_retrieve_data()
 
     return result
+
+
+def mg_is_enterprise(execute_and_fetch=None):
+    # First check env
+    if (
+        os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE", "") != ""
+        and os.environ.get("MEMGRAPH_ORGANIZATION_NAME", "") != ""
+    ):
+        return True
+    # If key not in env, check database settings (needs a user-defined function)
+    if execute_and_fetch is not None:
+        query = 'SHOW DATABASE SETTING "enterprise.license"'
+        res = execute_and_fetch(query)[0]
+        if isinstance(res, tuple):
+            return res[0] != ""
+        if isinstance(res, dict):
+            return res["setting_value"] != ""
+        assert False, f"Unhandled result type {type(res)}"
+    return False

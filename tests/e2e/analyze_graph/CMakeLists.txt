@@ -6,3 +6,4 @@ copy_analyze_graph_e2e_python_files(common.py)
 copy_analyze_graph_e2e_python_files(optimize_indexes.py)
 
 copy_e2e_files(analyze_graph workloads.yaml)
+copy_e2e_python_files_from_parent_folder(analyze_graph ".." mg_utils.py)

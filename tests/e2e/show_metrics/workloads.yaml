@@ -11,4 +11,5 @@ workloads:
   - name: "Show metrics info"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics.py"]
+    type: "enterprise"
     <<: *show_metrics_cluster

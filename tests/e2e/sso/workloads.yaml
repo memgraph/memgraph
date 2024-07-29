@@ -2,9 +2,12 @@ workloads:
   - name: "SSO dummy module"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_sso.py"]
+    type: "enterprise"
   - name: "SSO OIDC"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_oidc.py"]
+    type: "enterprise"
   - name: "SAML SSO module"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_saml_sso_module.py"]
+    type: "enterprise"

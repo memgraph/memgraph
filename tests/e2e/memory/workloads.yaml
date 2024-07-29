@@ -124,6 +124,7 @@ workloads:
   - name: "Memory control multi database"
     binary: "tests/e2e/memory/memgraph__e2e__memory__control"
     args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    type: "enterprise"
     <<: *in_memory_100_MiB_limit_cluster
 
   - name: "Memory limit for modules upon loading"
@@ -135,6 +136,7 @@ workloads:
   - name: "Memory limit for modules upon loading multi database"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    type: "enterprise"
     proc: "tests/e2e/memory/procedures/"
     <<: *in_memory_1024_MiB_limit_cluster
 
@@ -147,6 +149,7 @@ workloads:
   - name: "Memory limit for modules inside a procedure multi database"
     binary: "tests/e2e/memory/memgraph__e2e__memory__limit_global_alloc_proc"
     args: ["--bolt-port", *bolt_port, "--timeout", "180", "--multi-db", "true"]
+    type: "enterprise"
     proc: "tests/e2e/memory/procedures/"
     <<: *in_memory_1024_MiB_limit_cluster
 
