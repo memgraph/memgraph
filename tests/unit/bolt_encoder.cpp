@@ -21,6 +21,7 @@
 #include "glue/communication.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage.hpp"
 #include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
@@ -597,4 +598,105 @@ TEST_F(BoltEncoder, ZonedDateTime) {
   for (const auto &[zdt, version, expected] : test_cases) {
     check_case(zdt, version, expected);
   }
+}
+
+TEST_F(BoltEncoder, Point2d) {
+  using CRS = memgraph::storage::CoordinateReferenceSystem;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
+
+  output.clear();
+
+  auto const value_wgs = Value(memgraph::storage::Point2d(CRS::WGS84_2d, 1.0, 2.0));
+  auto const value_cartesian = Value(memgraph::storage::Point2d(CRS::Cartesian_2d, 3.0, 4.0));
+
+  auto run_test = [](const auto &value) {
+    std::vector<Value> vals;
+    vals.push_back(value);
+
+    auto const point_2d = value.ValuePoint2d();
+    ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
+
+    auto const x = point_2d.x();
+    auto const y = point_2d.y();
+    auto const srid = memgraph::storage::CrsToSrid(point_2d.crs());
+
+    auto const *x_bytes = std::bit_cast<const uint8_t *>(&x);
+    auto const *y_bytes = std::bit_cast<const uint8_t *>(&y);
+    auto const *srid_bytes = std::bit_cast<const uint8_t *>(&srid);
+
+    // clang-format off
+    auto const expected = std::array<uint8_t, 26> {
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct3),
+                              Cast(Sig::Point2d),
+                              Cast(Marker::Int16),
+                              srid_bytes[1], srid_bytes[0],
+                              Cast(Marker::Float64),
+                              x_bytes[7], x_bytes[6], x_bytes[5], x_bytes[4],
+                              x_bytes[3], x_bytes[2], x_bytes[1], x_bytes[0],
+                              Cast(Marker::Float64),
+                              y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
+                              y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0]};
+    // clang-format on
+    CheckOutput(output, expected.data(), expected.size());
+  };
+
+  std::invoke(run_test, value_wgs);
+  std::invoke(run_test, value_cartesian);
+}
+
+TEST_F(BoltEncoder, Point3d) {
+  using CRS = memgraph::storage::CoordinateReferenceSystem;
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
+
+  output.clear();
+
+  auto const value_wgs = Value(memgraph::storage::Point3d(CRS::WGS84_3d, 1.0, 2.0, 3.0));
+  auto const value_cartesian = Value(memgraph::storage::Point3d(CRS::Cartesian_3d, 4.0, 5.0, 6.0));
+
+  auto run_test = [](const auto &value) {
+    std::vector<Value> vals;
+    vals.push_back(value);
+
+    auto point_3d = value.ValuePoint3d();
+    ASSERT_EQ(bolt_encoder.MessageRecord(vals), true);
+
+    auto const x = point_3d.x();
+    auto const y = point_3d.y();
+    auto const z = point_3d.z();
+    auto const srid = memgraph::storage::CrsToSrid(point_3d.crs());
+
+    auto const *x_bytes = std::bit_cast<const uint8_t *>(&x);
+    auto const *y_bytes = std::bit_cast<const uint8_t *>(&y);
+    auto const *z_bytes = std::bit_cast<const uint8_t *>(&z);
+    auto const *srid_bytes = std::bit_cast<const uint8_t *>(&srid);
+
+    // clang-format off
+    auto const expected = std::array<uint8_t, 35> {
+                              Cast(Marker::TinyStruct1),
+                              Cast(Sig::Record),
+                              0x91,
+                              Cast(Marker::TinyStruct4),
+                              Cast(Sig::Point3d),
+                              Cast(Marker::Int16),
+                              srid_bytes[1], srid_bytes[0],
+                              Cast(Marker::Float64),
+                              x_bytes[7], x_bytes[6], x_bytes[5], x_bytes[4],
+                              x_bytes[3], x_bytes[2], x_bytes[1], x_bytes[0],
+                              Cast(Marker::Float64),
+                              y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
+                              y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0],
+                              Cast(Marker::Float64),
+                              z_bytes[7], z_bytes[6], z_bytes[5], z_bytes[4],
+                              z_bytes[3], z_bytes[2], z_bytes[1], z_bytes[0]};
+    // clang-format on
+    CheckOutput(output, expected.data(), expected.size());
+  };
+
+  std::invoke(run_test, value_wgs);
+  std::invoke(run_test, value_cartesian);
 }
