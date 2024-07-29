@@ -189,7 +189,7 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
       auto const entry = logs_.find(i);
       if (entry == logs_.end()) {
         spdlog::trace("Could not find entry at index {}", i);
-        continue;
+        return nullptr;
       }
       src = entry->second;
     }
