@@ -11,18 +11,21 @@
 
 #pragma once
 
+#include <filesystem>
+
 #include "flags/run_time_configurable.hpp"
 #include "utils/settings.hpp"
+#include "utils/tmp_dir.hpp"
 
 struct HandleTimezone {
-  HandleTimezone() {
-    memgraph::utils::global_settings.Initialize("/tmp/utils_temporal");
+  HandleTimezone() : tmp_dir(memgraph::utils::TempDir()) {
+    memgraph::utils::global_settings.Initialize(tmp_dir);
     memgraph::flags::run_time::Initialize();
   }
   ~HandleTimezone() {
     memgraph::utils::global_settings.SetValue("timezone", "UTC");
     memgraph::utils::global_settings.Finalize();
-    std::filesystem::remove_all("/tmp/utils_temporal");
+    std::filesystem::remove_all(tmp_dir);
   }
 
   void Set(std::string_view tz) { memgraph::utils::global_settings.SetValue("timezone", std::string{tz}); }
@@ -33,4 +36,6 @@ struct HandleTimezone {
                           ->get_info(std::chrono::sys_time<std::chrono::seconds>{});
     return std::chrono::duration_cast<std::chrono::microseconds>(info.offset - info.save).count();
   };
+
+  std::filesystem::path tmp_dir;
 };
