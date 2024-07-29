@@ -450,3 +450,108 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW SCHEMA INFO;
             """
         Then an error should be raised
+
+    Scenario: Point2d-WGS48 distance:
+        When executing query:
+            """
+            WITH point.distance(
+              point({longitude: 12.78, latitude: 56.7}),
+              point({longitude: 12.79, latitude: 56.71})
+            ) AS dist
+            RETURN 1268 < dist AND dist < 1269 AS result;
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Point3d-WGS48 distance:
+        When executing query:
+            """
+            WITH point.distance(
+              point({longitude: 12.78, latitude: 56.7,   height: 100}),
+              point({longitude: 12.79, latitude: 56.71,  height: 100})
+            ) AS dist
+            RETURN 1268 < dist AND dist < 1269 AS result;
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Point2d-WGS48 withinbbox inside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 56.5}),
+              point({longitude: 12.0, latitude: 56.0}),
+              point({longitude: 13.0, latitude: 57.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+
+    Scenario: Point2d-WGS48 withinbbox outside longitude under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 11.0, latitude: 56.5}),
+              point({longitude: 12.0, latitude: 56.0}),
+              point({longitude: 13.0, latitude: 57.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-WGS48 withinbbox outside longitude over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 14.0, latitude: 56.5}),
+              point({longitude: 12.0, latitude: 56.0}),
+              point({longitude: 13.0, latitude: 57.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-WGS48 withinbbox outside latitude under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 55.0}),
+              point({longitude: 12.0, latitude: 56.0}),
+              point({longitude: 13.0, latitude: 57.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-WGS48 withinbbox outside latitude over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 58.0}),
+              point({longitude: 12.0, latitude: 56.0}),
+              point({longitude: 13.0, latitude: 57.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-WGS48 withinbbox wrap around longitude:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  180, latitude: 58.0}),
+              point({longitude:  179, latitude: 57.0}),
+              point({longitude: -179, latitude: 59.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
