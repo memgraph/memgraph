@@ -330,6 +330,94 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+  e2e_community:
+    if: ${{ inputs.run_e2e == 'true' }}
+    name: "End to end tests - Community"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 70
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph
+
+      # This step will be skipped because the e2e stream tests have been disabled
+      # We need to fix this as soon as possible
+      - name: Ensure Kafka and Pulsar are up
+        if: false
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose up -d
+          cd ../pulsar
+          docker-compose up -d
+
+      - name: Run e2e tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph e2e
+
+      # Same as two steps prior
+      - name: Ensure Kafka and Pulsar are down
+        if: false
+        run: |
+          cd tests/e2e/streams/kafka
+          docker-compose down
+          cd ../pulsar
+          docker-compose down
+
+      - name: Copy build logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --build-logs --dest-dir build/logs
+
+      - name: Save test data
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test data(Release build)-${{ inputs.run_id }}"
+          path: build/logs
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
