@@ -14,7 +14,7 @@ import time
 
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert_collection
+from mg_utils import mg_is_enterprise, mg_sleep_and_assert_collection
 
 
 @pytest.mark.parametrize(
@@ -47,21 +47,21 @@ def test_show_replicas(connection):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -95,21 +95,21 @@ def test_show_replicas_while_inserting_data(connection):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -124,21 +124,21 @@ def test_show_replicas_while_inserting_data(connection):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -159,21 +159,21 @@ def test_show_replicas_while_inserting_data(connection):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
         ),
     ]
