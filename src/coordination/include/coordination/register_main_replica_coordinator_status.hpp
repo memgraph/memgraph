@@ -91,5 +91,7 @@ enum class ForceResetClusterStateStatus : uint8_t {
   SHUTTING_DOWN
 };
 
+enum class EnsureHealthyClusterStateStatus : uint8_t { SUCCESS, FAIL, SHUTTING_DOWN };
+
 }  // namespace memgraph::coordination
 #endif

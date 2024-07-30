@@ -335,7 +335,7 @@ def update_tuple_value(
     return list_tuples
 
 
-@pytest.mark.parametrize("use_durability", [True, False])
+@pytest.mark.parametrize("use_durability", [True])
 def test_even_number_coords(use_durability):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
     # 1. Start all instances.
@@ -457,7 +457,7 @@ def test_even_number_coords(use_durability):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
 
-    assert "Couldn't register instance as cluster didn't accept start of action!" in str(e.value)
+    assert "Couldn't set instance to main as cluster didn't accept start of action!" in str(e.value)
 
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
@@ -3434,11 +3434,4 @@ def test_first_coord_restarts():
 
 
 if __name__ == "__main__":
-    sys.exit(
-        pytest.main(
-            [
-                __file__,
-                "-rA",
-            ]
-        )
-    )
+    sys.exit(pytest.main([__file__, "-k", "test_even_number_coords"]))

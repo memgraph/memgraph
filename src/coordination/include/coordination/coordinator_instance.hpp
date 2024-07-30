@@ -87,6 +87,8 @@ class CoordinatorInstance {
 
   auto ForceResetClusterState() -> ForceResetClusterStateStatus;
 
+  auto EnsureHealthyClusterState() -> EnsureHealthyClusterStateStatus;
+
   auto IsLeader() const -> bool;
 
   void ShuttingDown();
@@ -152,7 +154,10 @@ class CoordinatorInstance {
 
   void DemoteFailCallback(std::string_view repl_instance_name);
 
+  // TODO(fico): remove
   auto ForceResetCluster_() -> ForceResetClusterStateStatus;
+
+  auto EnsureHealthyClusterState_() -> EnsureHealthyClusterStateStatus;
 
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
