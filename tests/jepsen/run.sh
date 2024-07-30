@@ -4,6 +4,7 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
+MEMGRAPH_MODULE_SUPPORT_LIB_PATH="$MEMGRAPH_BUILD_PATH/src/query/libmemgraph_module_support.so"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
@@ -15,6 +16,7 @@ ENTERPRISE_LICENSE=""
 ORGANIZATION_NAME=""
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
+    echo -e "MEMGRAPH_MODULE_SUPPORT_LIB_PATH:\t\t $MEMGRAPH_MODULE_SUPPORT_LIB_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
     echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
@@ -119,10 +121,15 @@ COPY_BINARIES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
    binary_path="$MEMGRAPH_BINARY_PATH"
+   support_lib="${MEMGRAPH_MODULE_SUPPORT_LIB_PATH}"
    if [ -L "$binary_path" ]; then
        binary_path=$(readlink "$binary_path")
    fi
+   if [ -L "support_lib" ]; then
+       support_lib=$(readlink "$support_lib")
+   fi
    binary_name=$(basename -- "$binary_path")
+   support_lib_name=$(basename -- "$support_lib")
    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
        jepsen_node_name="jepsen-n$iter"
        docker_exec="docker exec $jepsen_node_name bash -c"
@@ -131,8 +138,9 @@ COPY_BINARIES() {
        else
          _binary_name="$binary_name"
        fi
-       $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
+       $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+       docker cp "$support_lib" "$jepsen_node_name":"/opt/memgraph/src/query/${support_lib_name}"
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."

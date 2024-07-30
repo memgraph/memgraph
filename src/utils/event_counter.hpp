@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,8 @@ class EventCounters {
 
   void Decrement(Event event, Count amount = 1);
 
+  Count GetCount(const Event event) const { return counters_[event].load(std::memory_order_acquire); }
+
   static const Event num_counters;
 
  private:
@@ -43,6 +45,7 @@ extern EventCounters global_counters;
 
 void IncrementCounter(Event event, Count amount = 1);
 void DecrementCounter(Event event, Count amount = 1);
+Count GetCounterValue(const Event event);
 
 const char *GetCounterName(Event event);
 const char *GetCounterDocumentation(Event event);

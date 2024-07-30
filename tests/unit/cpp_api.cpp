@@ -23,17 +23,18 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "timezone_handler.hpp"
 
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  void SetUp() override { mgp::mrd.Register(&memory); }
+  void SetUp() override { mgp::MemoryDispatcher::Register(&memory); }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
-    mgp::mrd.UnRegister();
+    mgp::MemoryDispatcher::UnRegister();
   }
 
   mgp_graph CreateGraph(const memgraph::storage::View view = memgraph::storage::View::NEW) {
@@ -407,7 +408,7 @@ TYPED_TEST(CppApiTestFixture, TestLocalTime) {
   auto value_y = mgp::Value(mgp::LocalTime("09:15:00"));
 }
 
-TYPED_TEST(CppApiTestFixture, TestLocalDateTime) {
+void test_TestLocalDateTime() {
   auto ldt_1 = mgp::LocalDateTime("2021-10-05T14:15:00");
   auto ldt_2 = mgp::LocalDateTime(2021, 10, 5, 14, 15, 0, 0, 0);
 
@@ -438,6 +439,16 @@ TYPED_TEST(CppApiTestFixture, TestLocalDateTime) {
   auto value_x = mgp::Value(ldt_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+}
+
+TYPED_TEST(CppApiTestFixture, TestLocalDateTime) { test_TestLocalDateTime(); }
+
+TYPED_TEST(CppApiTestFixture, TestLocalDateTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_TestLocalDateTime();
+  htz.Set("America/Los_Angeles");
+  test_TestLocalDateTime();
 }
 
 TYPED_TEST(CppApiTestFixture, TestDuration) {

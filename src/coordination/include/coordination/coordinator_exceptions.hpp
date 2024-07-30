@@ -149,5 +149,16 @@ class StoreClusterConfigException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(StoreClusterConfigException)
 };
 
+class VersionMigrationException final : public utils::BasicException {
+ public:
+  explicit VersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit VersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : VersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(VersionMigrationException)
+};
+
 }  // namespace memgraph::coordination
 #endif

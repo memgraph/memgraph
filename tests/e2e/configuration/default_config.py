@@ -76,8 +76,8 @@ startup_config_dict = {
     "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
-        "false",
-        "false",
+        "true",
+        "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
     "isolation_level": (
@@ -217,6 +217,11 @@ startup_config_dict = {
         "false",
         "false",
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
+    ),
+    "timezone": (
+        "UTC",
+        "UTC",
+        "Define instance's timezone (IANA format).",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),

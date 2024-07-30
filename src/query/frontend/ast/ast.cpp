@@ -337,4 +337,7 @@ constexpr utils::TypeInfo query::AlterEnumRemoveValueQuery::kType{utils::TypeId:
 constexpr utils::TypeInfo query::DropEnumQuery::kType{utils::TypeId::AST_DROP_ENUM_QUERY, "DropEnumQuery",
                                                       &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{utils::TypeId::AST_SHOW_SCHEMA_INFO_QUERY,
+                                                            "ShowSchemaInfoQuery", &query::Query::kType};
+
 }  // namespace memgraph

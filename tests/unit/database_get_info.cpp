@@ -196,8 +196,8 @@ TYPED_TEST(InfoTest, InfoCheck) {
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);
   ASSERT_EQ(info.storage_info.average_degree, 0.8);
-  ASSERT_GT(info.storage_info.memory_res, 0);
-  ASSERT_GT(info.storage_info.disk_usage, 0);
+  ASSERT_GT(info.storage_info.memory_res, 0);  // exact value not salient
+  ASSERT_GT(info.storage_info.disk_usage, 0);  // exact value not salient
   ASSERT_EQ(info.storage_info.label_indices, 1);
   ASSERT_EQ(info.storage_info.label_property_indices, 1);
   ASSERT_EQ(info.storage_info.existence_constraints, 0);

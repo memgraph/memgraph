@@ -315,7 +315,7 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         auto *storage = db_acc->storage();
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-        if (!full_info && storage->name() == dbms::kDefaultDB) return;
+        if (!full_info && storage->name() != dbms::kDefaultDB) return;
         [[maybe_unused]] auto ok =
             storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);

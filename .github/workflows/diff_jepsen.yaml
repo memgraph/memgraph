@@ -7,6 +7,10 @@ on:
         type: string
         description: "Should the core jepsen build tests be run? Default is true."
         default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
 
 env:
   ARCH: 'amd'
@@ -64,6 +68,14 @@ jobs:
           --arch $ARCH \
           copy --binary --dest-dir build
 
+      - name: Copy libmemgraph_module_support.so
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --libs --dest-dir build/src/query
+
       - name: Run unit tests for Jepsen code
         run: |
           cd tests/jepsen
@@ -82,10 +94,11 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Save Jepsen report
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "Jepsen Report"
+          name: "Jepsen Report-${{ inputs.run_id }}"
           path: tests/jepsen/Jepsen.tar.gz
 
       - name: Stop mgbuild container

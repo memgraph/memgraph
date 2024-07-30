@@ -132,6 +132,10 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
+  if (ctx->metricsInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -1399,8 +1403,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     }
   }
 
-  const auto &maybe_found =
-      procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+  const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
   if (!maybe_found) {
     // TODO remove this once void procedures are supported,
     // this will not be needed anymore.
@@ -1479,8 +1482,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
         call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
       }
     } else {
-      const auto &maybe_found =
-          procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
       if (!maybe_found) {
         throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
       }
@@ -2870,9 +2872,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     return function_name.find('.') != std::string::npos;
   };
 
-  // Don't cache queries which call user-defined functions. User-defined function's return
-  // types can vary depending on whether the module is reloaded, therefore the cache would
-  // be invalid.
+  // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
+  // repeativly finding the function at call time, this means user-defined functions have there lifetime
+  // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
+  // query module that is not currently being used.
   if (is_user_defined_function(function_name)) {
     query_info_.is_cacheable = false;
   }
@@ -3201,6 +3204,12 @@ antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQuer
   drop_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
   query_ = drop_enum_query;
   return drop_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext * /*ctx*/) {
+  auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
+  query_ = show_schema_info_query;
+  return show_schema_info_query;
 }
 
 }  // namespace memgraph::query::frontend

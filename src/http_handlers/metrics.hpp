@@ -34,6 +34,7 @@ struct MetricsResponse {
   double average_degree;
   uint64_t memory_usage;
   uint64_t peak_memory_usage;
+  uint64_t unreleased_delta_objects;
   uint64_t disk_usage;
 
   // Storage of all the counter values throughout the system
@@ -68,6 +69,7 @@ class MetricsService {
                            .average_degree = info.average_degree,
                            .memory_usage = info.memory_res,
                            .peak_memory_usage = info.peak_memory_res,
+                           .unreleased_delta_objects = info.unreleased_delta_objects,
                            .disk_usage = info.disk_usage,
                            .event_counters = GetEventCounters(),
                            .event_gauges = GetEventGauges(),
@@ -83,6 +85,7 @@ class MetricsService {
     metrics_response[general_type]["average_degree"] = response.average_degree;
     metrics_response[general_type]["memory_usage"] = response.memory_usage;
     metrics_response[general_type]["peak_memory_usage"] = response.peak_memory_usage;
+    metrics_response[general_type]["unreleased_delta_objects"] = response.unreleased_delta_objects;
     metrics_response[general_type]["disk_usage"] = response.disk_usage;
 
     for (const auto &[name, type, value] : response.event_counters) {

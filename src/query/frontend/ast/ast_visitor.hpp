@@ -120,6 +120,7 @@ class AlterEnumAddValueQuery;
 class AlterEnumUpdateValueQuery;
 class AlterEnumRemoveValueQuery;
 class DropEnumQuery;
+class ShowSchemaInfoQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -154,12 +155,13 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<
-          TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, TextIndexQuery, AuthQuery,
-          DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-          FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, StreamQuery, SettingQuery,
-          VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
-          ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
-          AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery> {};
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery,
+                            TextIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery,
+                            ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery,
+                            CreateSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
+                            TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
+                            ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
+                            ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery,
+                            AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery> {};
 
 }  // namespace memgraph::query

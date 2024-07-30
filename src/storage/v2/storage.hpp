@@ -43,6 +43,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
@@ -81,6 +82,7 @@ struct StorageInfo {
   double average_degree;
   uint64_t memory_res;
   uint64_t peak_memory_res;
+  uint64_t unreleased_delta_objects;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
@@ -91,6 +93,13 @@ struct StorageInfo {
   IsolationLevel isolation_level;
   bool durability_snapshot_enabled;
   bool durability_wal_enabled;
+};
+
+struct EventInfo {
+  std::string name;
+  std::string type;
+  std::string event_type;
+  uint64_t value;
 };
 
 static inline nlohmann::json ToJson(const StorageInfo &info) {
@@ -466,6 +475,8 @@ class Storage {
   IsolationLevel GetIsolationLevel() const noexcept;
 
   virtual StorageInfo GetBaseInfo() = 0;
+
+  static std::vector<EventInfo> GetMetrics() noexcept;
 
   virtual StorageInfo GetInfo() = 0;
 
