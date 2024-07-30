@@ -11,6 +11,7 @@
 
 import pytest
 from common import connect, execute_and_fetch_all
+from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +20,12 @@ def connection():
     yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+
+@pytest.fixture
+def enterprise_only(**kwargs):
+    if not mg_is_enterprise():
+        pytest.skip("Skipping enterprise only test")
 
 
 def get_connection():

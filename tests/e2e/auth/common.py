@@ -17,7 +17,7 @@ from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture
-def enterprise_only(**kwargs) -> Memgraph:
+def enterprise_only(**kwargs):
     if not mg_is_enterprise():
         pytest.skip("Skipping enterprise only test")
 

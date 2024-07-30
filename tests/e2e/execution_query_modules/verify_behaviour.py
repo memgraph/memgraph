@@ -143,7 +143,7 @@ def test_fetch_results_empty_count(connection):
     assert len(result) == 0
 
 
-def test_fetch_results_with_result_count_on_multitenancy(connection):
+def test_fetch_results_with_result_count_on_multitenancy(enterprise_only, connection):
     cursor = connection.cursor()
 
     execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n;")
