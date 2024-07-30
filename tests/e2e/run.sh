@@ -22,7 +22,7 @@ source "$SCRIPT_DIR/../util.sh"
 setup_node
 
 source "$SCRIPT_DIR/../../build/tests/enterprise_check.sh"
-local mode=-1
+mode=-1
 check_mode
 mode_str=$(if [ $mode -eq 0 ]; then echo "enterprise"; else echo "community"; fi)
 
