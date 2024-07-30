@@ -1453,8 +1453,8 @@ void FreeMemory(DecodedBuffer const &buffer_info) {
 }
 
 void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
-  memcpy(buffer, &size, sizeof(uint32_t));
-  memcpy(buffer + sizeof(uint32_t), &data, sizeof(uint8_t *));
+  memcpy(buffer, &size, sizeof(size));
+  memcpy(buffer + sizeof(size), &data, sizeof(uint8_t *));
 }
 DecodedBuffer SetupLocalBuffer(uint8_t (&buffer)[12]) {
   buffer[0] = kUseLocalBuffer;
@@ -1521,7 +1521,7 @@ void CompressBuffer(uint8_t (&buffer)[12], DecodedBuffer const &buffer_info) {
   }
 
   auto compressed_view = compressed_buffer->view();
-  auto metadata_size = sizeof(uint32_t) + 1;
+  auto const metadata_size = sizeof(uint32_t) + 1;
   auto size_needed = compressed_view.size_bytes() + metadata_size;
   auto compressed_size_to_multiple_of_8 = ToMultipleOf8(size_needed);
   if (compressed_size_to_multiple_of_8 >= uncompressed_size) {
