@@ -68,12 +68,12 @@ class Database {
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(repl_state_->GetRole(), override_isolation_level);
+    return storage_->Access(override_isolation_level);
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(repl_state_->GetRole(), override_isolation_level);
+    return storage_->UniqueAccess(override_isolation_level);
   }
 
   /**
@@ -110,9 +110,9 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo(replication_coordination_glue::ReplicationRole replication_role) const {
+  DatabaseInfo GetInfo() const {
     DatabaseInfo info;
-    info.storage_info = storage_->GetInfo(replication_role);
+    info.storage_info = storage_->GetInfo();
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;

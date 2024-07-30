@@ -51,7 +51,7 @@ class MatchReturnFixture : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -240,7 +240,7 @@ class QueryPlan : public testing::Test {
 TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, MatchReturnCartesian) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   ASSERT_TRUE(dba.InsertVertex().AddLabel(dba.NameToLabel("l1")).HasValue());
@@ -264,7 +264,7 @@ TYPED_TEST(QueryPlan, MatchReturnCartesian) {
 }
 
 TYPED_TEST(QueryPlan, StandaloneReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -286,7 +286,7 @@ TYPED_TEST(QueryPlan, StandaloneReturn) {
 }
 
 TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -339,7 +339,7 @@ TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 }
 
 TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a few nodes to the database
@@ -385,7 +385,7 @@ TYPED_TEST(QueryPlan, NodeFilterMultipleLabels) {
 }
 
 TYPED_TEST(QueryPlan, Cartesian) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto add_vertex = [&dba](std::string label) {
@@ -422,7 +422,7 @@ TYPED_TEST(QueryPlan, Cartesian) {
 }
 
 TYPED_TEST(QueryPlan, CartesianEmptySet) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -442,7 +442,7 @@ TYPED_TEST(QueryPlan, CartesianEmptySet) {
 }
 
 TYPED_TEST(QueryPlan, CartesianThreeWay) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto add_vertex = [&dba](std::string label) {
     auto vertex = dba.InsertVertex();
@@ -492,7 +492,7 @@ class ExpandFixture : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   SymbolTable symbol_table;
   AstStorage storage;
@@ -652,7 +652,7 @@ class QueryPlanExpandVariable : public testing::Test {
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   // labels for layers in the double chain
   std::vector<memgraph::storage::LabelId> labels;
@@ -1807,7 +1807,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
@@ -2251,7 +2251,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   std::pair<std::string, memgraph::storage::PropertyId> prop = PROPERTY_PAIR(dba, "property");
   memgraph::storage::EdgeTypeId edge_type = dba.NameToEdgeType("edge_type");
@@ -2702,7 +2702,7 @@ TYPED_TEST(QueryPlanExpandAllShortestPaths, BasicWithFineGrainedFiltering) {
 #endif
 
 TYPED_TEST(QueryPlan, ExpandOptional) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   SymbolTable symbol_table;
@@ -2753,7 +2753,7 @@ TYPED_TEST(QueryPlan, ExpandOptional) {
 }
 
 TYPED_TEST(QueryPlan, OptionalMatchEmptyDB) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -2770,7 +2770,7 @@ TYPED_TEST(QueryPlan, OptionalMatchEmptyDB) {
 }
 
 TYPED_TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
@@ -2793,7 +2793,7 @@ TYPED_TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
 }
 
 TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph with 2 connected, unlabeled nodes.
   auto v1 = dba.InsertVertex();
@@ -2838,7 +2838,7 @@ TYPED_TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
 }
 
 TYPED_TEST(QueryPlan, ExpandExistingNode) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a graph (v1)->(v2) that
@@ -2876,7 +2876,7 @@ TYPED_TEST(QueryPlan, ExpandExistingNode) {
 TYPED_TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v = dba.InsertVertex();
@@ -2893,7 +2893,7 @@ TYPED_TEST(QueryPlan, ExpandBothCycleEdgeCase) {
 }
 
 TYPED_TEST(QueryPlan, EdgeFilter) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make an N-star expanding from (v1)
@@ -2953,7 +2953,7 @@ TYPED_TEST(QueryPlan, EdgeFilter) {
 }
 
 TYPED_TEST(QueryPlan, EdgeFilterMultipleTypes) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -2983,7 +2983,7 @@ TYPED_TEST(QueryPlan, EdgeFilterMultipleTypes) {
 }
 
 TYPED_TEST(QueryPlan, Filter) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // add a 6 nodes with property 'prop', 2 have true as value
@@ -3007,7 +3007,7 @@ TYPED_TEST(QueryPlan, Filter) {
 }
 
 TYPED_TEST(QueryPlan, EdgeUniquenessFilter) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
@@ -3042,7 +3042,7 @@ TYPED_TEST(QueryPlan, Distinct) {
   // test queries like
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   SymbolTable symbol_table;
 
@@ -3086,11 +3086,11 @@ TYPED_TEST(QueryPlan, Distinct) {
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Add a vertex with a label and one without.
   auto labeled_vertex = dba.InsertVertex();
@@ -3137,7 +3137,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
       memgraph::storage::PropertyValue(
           std::vector<memgraph::storage::PropertyValue>{memgraph::storage::PropertyValue(2)})};
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (const auto &value : values) {
       auto vertex = dba.InsertVertex();
@@ -3148,12 +3148,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   ASSERT_EQ(14, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -3247,7 +3247,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto number_vertex = dba.InsertVertex();
     ASSERT_TRUE(number_vertex.AddLabel(label).HasValue());
@@ -3258,12 +3258,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
@@ -3287,7 +3287,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
@@ -3297,12 +3297,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
@@ -3320,7 +3320,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     for (int i = 0; i < 2; ++i) {
       auto vertex = dba.InsertVertex();
@@ -3330,12 +3330,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (m), (n :label {prop: m})
@@ -3376,7 +3376,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
@@ -3386,12 +3386,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
@@ -3413,7 +3413,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).HasValue());
@@ -3423,12 +3423,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label) WHERE null <= n.prop < null
@@ -3448,7 +3448,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto label = this->db->NameToLabel("label");
   auto prop = this->db->NameToProperty("prop");
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
@@ -3456,12 +3456,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     ASSERT_FALSE(dba.Commit().HasError());
   }
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
   EXPECT_EQ(1, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
 
@@ -3491,7 +3491,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   const int prop_value1 = 42, prop_value2 = 69;
 
   for (int i = 0; i < vertex_count; ++i) {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
@@ -3501,14 +3501,14 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   }
 
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
+    auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, prop);
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   // Make sure there are `vertex_count` vertices
   {
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     EXPECT_EQ(vertex_count, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   }
@@ -3516,7 +3516,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   // Make sure there are `vertex_prop_count` results when using index
   auto count_with_index = [this, &label, &prop](int prop_value, int prop_count) {
     SymbolTable symbol_table;
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all_by_label_property_value =
         MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
@@ -3530,7 +3530,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   // Make sure there are `vertex_count` results when using scan all
   auto count_with_scan_all = [this, &prop](int prop_value, int prop_count) {
     SymbolTable symbol_table;
-    auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+    auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all = MakeScanAll(this->storage, symbol_table, "n");
     auto e = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(scan_all.sym_), std::make_pair("prop", prop));
@@ -3555,7 +3555,7 @@ class ExistsFixture : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -3784,7 +3784,7 @@ class SubqueriesFeature : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
   SymbolTable symbol_table;
