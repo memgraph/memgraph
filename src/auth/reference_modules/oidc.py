@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import sys
 import time
 
 import jwt
@@ -39,7 +40,7 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
             else:
                 decoded_token = jwt.decode(token, key=public_key, algorithms=["RS256"], audience=config["client_id"])
         except Exception as e:
-            return {"valid": False, "errors": e.args}
+            return {"valid": False, "errors": " ".join(e.args)}
 
     if decoded_token is None:
         return {"valid": False, "errors": "Matching kid not found"}
@@ -57,7 +58,7 @@ def _parse_response(response):
 def _load_role_mappings(raw_role_mappings: str) -> dict:
     if raw_role_mappings:
         role_mapping = {}
-        raw_role_mappings = raw_role_mappings.split(";")
+        raw_role_mappings = raw_role_mappings.strip(" ;").split(";")
         for mapping in raw_role_mappings:
             idp_role, mg_role = mapping.split(":")
             role_mapping[idp_role.strip()] = mg_role.strip()
@@ -93,10 +94,11 @@ def decode_tokens(scheme: str, config: dict, tokens: dict):
 
 def process_tokens(tokens: tuple, config: dict, scheme: str):
     access_token, id_token = tokens
+
     if "errors" in access_token:
-        return {"authenticated": False, "errors": access_token["errors"]}
+        return {"authenticated": False, "errors": f"Error while decoding access token: {access_token['errors']}"}
     if "errors" in id_token:
-        return {"authenticated": False, "errors": id_token["errors"]}
+        return {"authenticated": False, "errors": f"Error while decoding id token: {id_token['errors']}"}
 
     access_token = access_token["token"]
     id_token = id_token["token"]
@@ -128,10 +130,12 @@ def authenticate(response: str, scheme: str):
     if scheme not in ["oidc-entra-id", "oidc-okta"]:
         return {"authenticated": False, "errors": "Invalid SSO scheme"}
 
-    config = _load_config_from_env(scheme)
-    tokens = _parse_response(response)
-
-    return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
+    try:
+        config = _load_config_from_env(scheme)
+        tokens = _parse_response(response)
+        return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
+    except Exception as e:
+        return {"valid": False, "errors": f"Unexpected error: {' '.join(e.args)}"}
 
 
 if __name__ == "__main__":
