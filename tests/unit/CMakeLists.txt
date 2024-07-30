@@ -289,7 +289,7 @@ add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
-target_link_libraries(${test_prefix}utils_temporal mg-utils)
+target_link_libraries(${test_prefix}utils_temporal mg-utils mg-flags)
 
 add_unit_test(utils_java_string_formatter.cpp)
 target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
