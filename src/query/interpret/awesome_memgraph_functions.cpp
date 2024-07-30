@@ -12,7 +12,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -27,16 +26,15 @@
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/point_functions.hpp"
+#include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
-#include "utils/variant_helpers.hpp"
 
 #include "absl/container/flat_hash_map.h"
 
@@ -1584,7 +1582,7 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
              : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
-auto builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     // Scalar functions
     {"DEGREE", Degree},
     {"INDEGREE", InDegree},
@@ -1706,6 +1704,13 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
 }
 
 }  // namespace
+
+// There are some builtin functions that look like modules but are not. To ensure user defined functions don't conflict
+// we maintain a list of reserved modules names.
+auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const & {
+  static auto const instance = memgraph::utils::CaseInsensitiveSet{"POINT"};
+  return instance;
+}
 
 auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func> {
   // First lookup for built-in functions
