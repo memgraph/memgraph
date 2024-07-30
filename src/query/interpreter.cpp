@@ -4810,6 +4810,9 @@ void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // do we lock here?
   current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
 }
+#else
+// Default database only
+void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(), false); }
 #endif
 
 Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string, UserParameters_fn params_getter,

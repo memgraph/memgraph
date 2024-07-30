@@ -284,6 +284,8 @@ class Interpreter final {
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
   void ResetDB() { current_db_.ResetDB(); }
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
+#else
+  void SetCurrentDB();
 #endif
 
   /**
