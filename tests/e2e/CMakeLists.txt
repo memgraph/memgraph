@@ -87,6 +87,7 @@ add_subdirectory(user_changing_its_own_password)
 add_subdirectory(sso)
 add_subdirectory(auth)
 add_subdirectory(hops_count)
+add_subdirectory(show_active_users_info)
 
 add_subdirectory(replication_experimental)
 
