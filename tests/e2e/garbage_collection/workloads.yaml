@@ -2,7 +2,6 @@ args: &args
   - "--bolt-port"
   - "7687"
   - "--log-level=TRACE"
-  - "--storage-gc-cycle-sec=2"
 
 in_memory_cluster: &in_memory_cluster
   cluster:
@@ -15,5 +14,10 @@ in_memory_cluster: &in_memory_cluster
 workloads:
   - name: "Garbage collection"
     binary: "tests/e2e/garbage_collection/memgraph__e2e__garbage_collection"
-    args: []
+    args: ["--storage-gc-cycle-sec=2"]
+    <<: *in_memory_cluster
+
+  - name: "Garbage collection on obsolete indexes"
+    binary: "tests/e2e/garbage_collection/memgraph__e2e__gc_on_obsolete_indexes"
+    args: ["--storage-gc-cycle-sec=60"]
     <<: *in_memory_cluster
