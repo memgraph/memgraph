@@ -19,5 +19,5 @@ workloads:
 
   - name: "Garbage collection on obsolete indexes"
     binary: "tests/e2e/garbage_collection/memgraph__e2e__gc_on_obsolete_indexes"
-    args: ["--storage-gc-cycle-sec=60"]
+    args: ["--storage-gc-cycle-sec=0"]
     <<: *in_memory_cluster
