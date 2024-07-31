@@ -788,7 +788,6 @@ TEST_F(BoltDecoder, Point2d) {
                               y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
                               y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0]};
     // clang-format on
-    buffer.Clear();
     buffer.Write(data.data(), data.size());
     ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Point2d), true);
     ASSERT_EQ(dv.type(), Value::Type::Point2d);
@@ -846,7 +845,6 @@ TEST_F(BoltDecoder, Point3d) {
                               z_bytes[7], z_bytes[6], z_bytes[5], z_bytes[4],
                               z_bytes[3], z_bytes[2], z_bytes[1], z_bytes[0]};
     // clang-format on
-    buffer.Clear();
     buffer.Write(data.data(), data.size());
     ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Point3d), true);
     ASSERT_EQ(dv.type(), Value::Type::Point3d);
