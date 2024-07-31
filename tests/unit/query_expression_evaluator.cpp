@@ -1818,6 +1818,9 @@ TYPED_TEST(FunctionTest, ValueType) {
   using memgraph::storage::Enum;
   using memgraph::storage::EnumTypeId;
   using memgraph::storage::EnumValueId;
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+  using enum memgraph::storage::CoordinateReferenceSystem;
   ASSERT_THROW(this->EvaluateFunction("VALUETYPE"), QueryRuntimeException);
   ASSERT_THROW(this->EvaluateFunction("VALUETYPE", TypedValue(), TypedValue()), QueryRuntimeException);
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue()).ValueString(), "NULL");
@@ -1840,6 +1843,8 @@ TYPED_TEST(FunctionTest, ValueType) {
   Path p(v1, *e, v2);
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", p).ValueString(), "PATH");
   ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Enum{EnumTypeId{0}, EnumValueId{0}})).ValueString(), "ENUM");
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point2d(Cartesian_2d, 1, 2))).ValueString(), "POINT");
+  ASSERT_EQ(this->EvaluateFunction("VALUETYPE", TypedValue(Point3d(Cartesian_3d, 1, 2, 3))).ValueString(), "POINT");
 }
 
 TYPED_TEST(FunctionTest, Labels) {
