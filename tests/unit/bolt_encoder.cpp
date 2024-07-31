@@ -21,7 +21,6 @@
 #include "glue/communication.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/point.hpp"
 #include "storage/v2/storage.hpp"
 #include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
@@ -605,11 +604,6 @@ TEST_F(BoltEncoder, Point2d) {
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
 
-  output.clear();
-
-  auto const value_wgs = Value(memgraph::storage::Point2d(CRS::WGS84_2d, 1.0, 2.0));
-  auto const value_cartesian = Value(memgraph::storage::Point2d(CRS::Cartesian_2d, 3.0, 4.0));
-
   auto run_test = [](const auto &value) {
     std::vector<Value> vals;
     vals.push_back(value);
@@ -643,6 +637,11 @@ TEST_F(BoltEncoder, Point2d) {
     // clang-format on
     CheckOutput(output, expected.data(), expected.size());
   };
+
+  output.clear();
+
+  auto const value_wgs = Value(memgraph::storage::Point2d(CRS::WGS84_2d, 1.0, 2.0));
+  auto const value_cartesian = Value(memgraph::storage::Point2d(CRS::Cartesian_2d, 3.0, 4.0));
 
   std::invoke(run_test, value_wgs);
   std::invoke(run_test, value_cartesian);
