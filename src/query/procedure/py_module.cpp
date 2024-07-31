@@ -2695,8 +2695,8 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      const auto &local_time = value.local_date_time_v->local_date_time.local_time;
-      const auto &date = value.local_date_time_v->local_date_time.date;
+      const auto &local_time = value.local_date_time_v->local_date_time.local_time();
+      const auto &date = value.local_date_time_v->local_date_time.date();
       py::Object py_local_date_time(PyDateTime_FromDateAndTime(
           date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
           local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
