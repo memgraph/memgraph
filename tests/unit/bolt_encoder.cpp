@@ -22,13 +22,16 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "timezone_handler.hpp"
 #include "utils/temporal.hpp"
+
 using memgraph::communication::bolt::Value;
 using bolt_map_t = memgraph::communication::bolt::map_t;
 
 /**
  * TODO (mferencevic): document
  */
+namespace {
 
 inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
@@ -84,6 +87,8 @@ struct BoltEncoder : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
   static void SetUpTestCase() { InitializeData(data, SIZE); }
 };
+
+}  // namespace
 
 TEST_F(BoltEncoder, NullAndBool) {
   output.clear();
@@ -506,7 +511,7 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
   CheckOutput(output, expected.data(), expected.size());
 }
 
-TEST_F(BoltEncoder, LocalDateTime) {
+void test_LocalDateTime() {
   output.clear();
   std::vector<Value> vals;
   const auto value =
@@ -540,6 +545,16 @@ TEST_F(BoltEncoder, LocalDateTime) {
                               nano_bytes[1], nano_bytes[0] };
   // clang-format on
   CheckOutput(output, expected.data(), expected.size());
+}
+
+TEST_F(BoltEncoder, LocalDateTime) { test_LocalDateTime(); }
+
+TEST_F(BoltEncoder, LocalDateTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTime();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTime();
 }
 
 TEST_F(BoltEncoder, ZonedDateTime) {

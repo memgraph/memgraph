@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
+#include <chrono>
+#include <string>
 
 namespace memgraph::flags::run_time {
 
@@ -48,5 +48,12 @@ bool GetHopsLimitPartialResults();
  * @return bool
  */
 bool GetCartesianProductEnabled();
+
+/**
+ * @brief Get the current timezone object
+ *
+ * @return const std::chrono::time_zone*
+ */
+const std::chrono::time_zone *GetTimezone();
 
 }  // namespace memgraph::flags::run_time
