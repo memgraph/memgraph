@@ -86,12 +86,12 @@ std::vector<uint8_t> &output = output_stream.output;
 struct BoltEncoder : ::testing::Test {
   // In newer gtest library (1.8.1+) this is changed to SetUpTestSuite
   static void SetUpTestCase() { InitializeData(data, SIZE); }
+  void SetUp() override { output.clear(); }
 };
 
 }  // namespace
 
 TEST_F(BoltEncoder, NullAndBool) {
-  output.clear();
   std::vector<Value> vals;
   vals.push_back(Value());
   vals.push_back(Value(true));
@@ -103,7 +103,6 @@ TEST_F(BoltEncoder, NullAndBool) {
 
 TEST_F(BoltEncoder, Int) {
   int N = 28;
-  output.clear();
   std::vector<Value> vals;
   for (int i = 0; i < N; ++i) vals.push_back(Value(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
@@ -114,7 +113,6 @@ TEST_F(BoltEncoder, Int) {
 
 TEST_F(BoltEncoder, Double) {
   int N = 4;
-  output.clear();
   std::vector<Value> vals;
   for (int i = 0; i < N; ++i) vals.push_back(Value(double_decoded[i]));
   bolt_encoder.MessageRecord(vals);
@@ -124,7 +122,6 @@ TEST_F(BoltEncoder, Double) {
 }
 
 TEST_F(BoltEncoder, String) {
-  output.clear();
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) vals.push_back(Value(std::string((const char *)data, sizes[i])));
   bolt_encoder.MessageRecord(vals);
@@ -137,7 +134,6 @@ TEST_F(BoltEncoder, String) {
 }
 
 TEST_F(BoltEncoder, List) {
-  output.clear();
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
     std::vector<Value> val;
@@ -157,7 +153,6 @@ TEST_F(BoltEncoder, List) {
 }
 
 TEST_F(BoltEncoder, Map) {
-  output.clear();
   std::vector<Value> vals;
   uint8_t buff[10];
   for (int i = 0; i < sizes_num; ++i) {
@@ -185,8 +180,6 @@ TEST_F(BoltEncoder, Map) {
 }
 
 void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::Storage> &&db) {
-  output.clear();
-
   // create vertex
   auto dba = db->Access();
   auto va1 = dba->CreateVertex();
@@ -252,8 +245,6 @@ TEST_F(BoltEncoder, VertexAndEdgeOnDiskStorage) {
 TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   // this test checks example messages from: http://boltprotocol.org/v1/
 
-  output.clear();
-
   // record message
   std::vector<Value> rvals;
   for (int i = 1; i < 4; ++i) rvals.push_back(Value(i));
@@ -297,7 +288,6 @@ constexpr uint8_t Cast(T marker) {
 }
 
 TEST_F(BoltEncoder, DateOld) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::Date({1970, 1, 1}));
   vals.push_back(value);
@@ -325,7 +315,6 @@ TEST_F(BoltEncoder, DateOld) {
 }
 
 TEST_F(BoltEncoder, DateRecent) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::Date({2021, 7, 20}));
   vals.push_back(value);
@@ -355,7 +344,6 @@ TEST_F(BoltEncoder, DateRecent) {
 }
 
 TEST_F(BoltEncoder, DurationOneSec) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::Duration(1));
   vals.push_back(value);
@@ -388,7 +376,6 @@ TEST_F(BoltEncoder, DurationOneSec) {
 }
 
 TEST_F(BoltEncoder, DurationMinusOneSec) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::Duration(-1));
   vals.push_back(value);
@@ -421,7 +408,6 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
 }
 
 TEST_F(BoltEncoder, ArbitraryDuration) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::Duration({15, 1, 2, 3, 5, 0}));
   vals.push_back(value);
@@ -461,7 +447,6 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
 }
 
 TEST_F(BoltEncoder, LocalTimeOneMicro) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::LocalTime(1));
   vals.push_back(value);
@@ -486,7 +471,6 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
 }
 
 TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
-  output.clear();
   std::vector<Value> vals;
   const auto value = Value(memgraph::utils::LocalTime(1000));
   vals.push_back(value);
@@ -512,7 +496,6 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
 }
 
 void test_LocalDateTime() {
-  output.clear();
   std::vector<Value> vals;
   const auto value =
       Value(memgraph::utils::LocalDateTime(memgraph::utils::Date(1), memgraph::utils::LocalTime({0, 0, 30, 1, 0})));
@@ -564,7 +547,6 @@ TEST_F(BoltEncoder, ZonedDateTime) {
   auto check_case = [](const auto &zdt, const uint8_t version, const auto &expected) {
     bolt_encoder.UpdateVersion(version);
 
-    output.clear();
     std::vector<Value> vals;
 
     const auto value = Value(zdt);
@@ -638,8 +620,6 @@ TEST_F(BoltEncoder, Point2d) {
     CheckOutput(output, expected.data(), expected.size());
   };
 
-  output.clear();
-
   auto const value_wgs = Value(memgraph::storage::Point2d(CRS::WGS84_2d, 1.0, 2.0));
   auto const value_cartesian = Value(memgraph::storage::Point2d(CRS::Cartesian_2d, 3.0, 4.0));
 
@@ -651,8 +631,6 @@ TEST_F(BoltEncoder, Point3d) {
   using CRS = memgraph::storage::CoordinateReferenceSystem;
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
-
-  output.clear();
 
   auto const value_wgs = Value(memgraph::storage::Point3d(CRS::WGS84_3d, 1.0, 2.0, 3.0));
   auto const value_cartesian = Value(memgraph::storage::Point3d(CRS::Cartesian_3d, 4.0, 5.0, 6.0));
