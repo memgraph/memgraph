@@ -484,44 +484,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
   void ForceResetClusterState() override {
     auto status = coordinator_handler_.ForceResetClusterState();
+    using enum memgraph::coordination::VerifyOrCorrectClusterStateStatus;
     switch (status) {
-      using enum memgraph::coordination::ForceResetClusterStateStatus;
-      case NOT_COORDINATOR:
-        throw QueryRuntimeException("Force reset cluster state query can only be run on a coordinator!");
       case SHUTTING_DOWN:
-        throw QueryRuntimeException("Force reset cluster aborted as coordinator is shutting down!");
-      case ACTION_FAILED:
-        throw QueryRuntimeException("Check logs for more details, one action didn't complete successfully!");
-      case NO_NEW_MAIN:
-        throw QueryRuntimeException(
-            "Coordinator couldn't find new instance to be promoted to main, force reset failed!");
-      case NOT_LEADER: {
-        auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't do force reset since coordinator is not a leader!";
-        if (maybe_leader_coordinator) {
-          throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
-        }
-        throw QueryRuntimeException(
-            "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
-            "are down.",
-            common_message);
-      }
-      case RAFT_LOG_ERROR:
-        throw QueryRuntimeException(
-            "Couldn't force reset cluster state since raft server couldn't append the log. "
-            "Coordinator may not be leader anymore!");
-      case RPC_FAILED:
-        throw QueryRuntimeException(
-            "Couldn't force reset cluster state since RPC to one of the instances failed. Check logs for more "
-            "details!");
-      case FAILED_TO_OPEN_LOCK:
-        throw QueryRuntimeException("Couldn't force reset cluster state as cluster didn't accept start of action!");
-      case FAILED_TO_CLOSE_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't finish force reset as cluster didn't accept successful finish of action. Some coordinators may "
-            "be down!");
+        throw QueryRuntimeException("Couldn't finish force reset as cluster is shutting down!");
+      case FAIL:
+        throw QueryRuntimeException("Force reset failed, check logs for more details!");
       case SUCCESS:
         break;
     }

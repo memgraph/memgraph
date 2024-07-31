@@ -83,11 +83,9 @@ class CoordinatorInstance {
 
   auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  auto TryForceResetClusterState() -> ForceResetClusterStateStatus;
+  auto TryVerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus;
 
-  auto ForceResetClusterState() -> ForceResetClusterStateStatus;
-
-  auto EnsureHealthyClusterState() -> EnsureHealthyClusterStateStatus;
+  auto VerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus;
 
   auto IsLeader() const -> bool;
 
@@ -97,6 +95,10 @@ class CoordinatorInstance {
 
   auto GetRaftState() -> RaftState &;
   auto GetRaftState() const -> RaftState const &;
+
+  static auto GetSuccessCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
+
+  static auto GetFailCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
 
  private:
   template <ranges::forward_range R>
@@ -154,10 +156,7 @@ class CoordinatorInstance {
 
   void DemoteFailCallback(std::string_view repl_instance_name);
 
-  // TODO(fico): remove
-  auto ForceResetCluster_() -> ForceResetClusterStateStatus;
-
-  auto EnsureHealthyClusterState_() -> EnsureHealthyClusterStateStatus;
+  auto VerifyOrCorrectClusterState_() -> VerifyOrCorrectClusterStateStatus;
 
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
