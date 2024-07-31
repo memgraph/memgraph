@@ -490,7 +490,6 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | true   |
 
-
     Scenario: Point2d-WGS48 withinbbox outside longitude under:
         When executing query:
             """
@@ -555,3 +554,328 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | result |
             | true  |
+
+    Scenario: Point2d-WGS48 withinbbox wrap around longitude outside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  178, latitude: 58.0}),
+              point({longitude:  179, latitude: 57.0}),
+              point({longitude: -179, latitude: 59.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-WGS48 withinbbox wrap around latitude:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  1, latitude: 90}),
+              point({longitude:  0, latitude: 89}),
+              point({longitude:  2, latitude: -89})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-Cartesian inside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 1}),
+              point({x:  0, y: 0}),
+              point({x:  2, y: 2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
+
+    Scenario: Point2d-Cartesian x under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x: -1, y: 1}),
+              point({x:  0, y: 0}),
+              point({x:  2, y: 2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-Cartesian x over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  3, y: 1}),
+              point({x:  0, y: 0}),
+              point({x:  2, y: 2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-Cartesian y under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: -1}),
+              point({x:  0, y: 0}),
+              point({x:  2, y: 2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point2d-Cartesian y over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 3}),
+              point({x:  0, y: 0}),
+              point({x:  2, y: 2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox inside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 56.5, height:1}),
+              point({longitude: 12.0, latitude: 56.0, height:0}),
+              point({longitude: 13.0, latitude: 57.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Point3d-WGS48 withinbbox outside longitude under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 11.0, latitude: 56.5, height:1}),
+              point({longitude: 12.0, latitude: 56.0, height:0}),
+              point({longitude: 13.0, latitude: 57.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox outside longitude over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 14.0, latitude: 56.5, height:1}),
+              point({longitude: 12.0, latitude: 56.0, height:0}),
+              point({longitude: 13.0, latitude: 57.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox outside latitude under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 55.0, height:1}),
+              point({longitude: 12.0, latitude: 56.0, height:0}),
+              point({longitude: 13.0, latitude: 57.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox outside latitude over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: 12.5, latitude: 58.0, height:1}),
+              point({longitude: 12.0, latitude: 56.0, height:0}),
+              point({longitude: 13.0, latitude: 57.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox wrap around longitude:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  180, latitude: 58.0, height:1}),
+              point({longitude:  179, latitude: 57.0, height:0}),
+              point({longitude: -179, latitude: 59.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
+
+    Scenario: Point3d-WGS48 withinbbox wrap around longitude outside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  178, latitude: 58.0, height:1}),
+              point({longitude:  179, latitude: 57.0, height:0}),
+              point({longitude: -179, latitude: 59.0, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox wrap around latitude:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  1, latitude: 90, height:1}),
+              point({longitude:  0, latitude: 89, height:0}),
+              point({longitude:  2, latitude: -89, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox height under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  1, latitude: 1, height:-1}),
+              point({longitude:  0, latitude: 0, height:0}),
+              point({longitude:  2, latitude: 2, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox height over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  1, latitude: 1, height:3}),
+              point({longitude:  0, latitude: 0, height:0}),
+              point({longitude:  2, latitude: 2, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-WGS48 withinbbox height boundary:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude:  1, latitude: 1, height:2}),
+              point({longitude:  0, latitude: 0, height:0}),
+              point({longitude:  2, latitude: 2, height:2})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
+
+    Scenario: Point3d-Cartesian inside:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 1, z:10}),
+              point({x:  0, y: 0, z:9}),
+              point({x:  2, y: 2, z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
+
+    Scenario: Point3d-Cartesian x under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x: -1, y: 1, z:10}),
+              point({x:  0, y: 0, z:9}),
+              point({x:  2, y: 2, z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-Cartesian x over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  3, y: 1, z:10}),
+              point({x:  0, y: 0, z:9}),
+              point({x:  2, y: 2, z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-Cartesian y under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: -1, z:10}),
+              point({x:  0, y: 0,  z:9}),
+              point({x:  2, y: 2,  z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-Cartesian y over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 3, z:10}),
+              point({x:  0, y: 0, z:9}),
+              point({x:  2, y: 2, z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-Cartesian z under:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 1,  z:8}),
+              point({x:  0, y: 0,  z:9}),
+              point({x:  2, y: 2,  z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
+
+    Scenario: Point3d-Cartesian z over:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({x:  1, y: 1,  z:12}),
+              point({x:  0, y: 0,  z:9}),
+              point({x:  2, y: 2,  z:11})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | false  |
