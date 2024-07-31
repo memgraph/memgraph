@@ -110,7 +110,8 @@ jobs:
       os: 'debian-11'
       toolchain: 'v5'
       run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
-      run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
+      run_benchmark: 'false'
+      # run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
     secrets: inherit

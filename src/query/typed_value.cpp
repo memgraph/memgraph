@@ -357,8 +357,9 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(
           storage::TemporalData{storage::TemporalType::LocalTime, local_time_v.MicrosecondsSinceEpoch()});
     case Type::LocalDateTime:
+      // Use generic system time (UTC)
       return storage::PropertyValue(
-          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.MicrosecondsSinceEpoch()});
+          storage::TemporalData{storage::TemporalType::LocalDateTime, local_date_time_v.SysMicrosecondsSinceEpoch()});
     case Type::ZonedDateTime:
       return storage::PropertyValue(storage::ZonedTemporalData{storage::ZonedTemporalType::ZonedDateTime,
                                                                zoned_date_time_v.SysTimeSinceEpoch(),
