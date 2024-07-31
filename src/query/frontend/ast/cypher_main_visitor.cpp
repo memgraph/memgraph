@@ -136,6 +136,10 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
     return info_query;
   }
+  if (ctx->skipListInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::SKIPLIST;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }

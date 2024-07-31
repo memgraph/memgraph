@@ -57,6 +57,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case DatabaseInfoQuery::InfoType::METRICS:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
+      case DatabaseInfoQuery::InfoType::SKIPLIST:
+        AddPrivilege(AuthQuery::Privilege::INDEX);
+        AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+        break;
     }
   }
 

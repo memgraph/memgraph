@@ -54,9 +54,11 @@ nodelabelInfo : NODE_LABELS INFO ;
 
 metricsInfo : METRICS INFO ;
 
+skipListInfo : SKIP LIST INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo | skipListInfo ) ;
 
 systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
 
