@@ -617,7 +617,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
         return TypedValue(point_3d.y(), ctx_->memory);
       }
-      if (prop_name == "z" || (is_wgs && prop_name == "height")) {
+      if (prop_name == "z") {
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "height") {
+        if (!is_wgs) throw QueryRuntimeException("Use z instead of height for cartesian point types");
         return TypedValue(point_3d.z(), ctx_->memory);
       }
       if (prop_name == "crs") {
@@ -830,7 +834,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::ZonedDateTime: {
         throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
       }
-      // TODO Ivan: Where is enum
       case TypedValue::Type::Point2d: {
         auto const &point_2d = expression_result.ValuePoint2d();
         result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
@@ -867,7 +870,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       default:
         throw QueryRuntimeException(
-            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+            "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
     }
   }
 

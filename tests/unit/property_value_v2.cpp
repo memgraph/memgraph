@@ -614,7 +614,7 @@ TEST(PropertyValue, Point2d) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "FIXME: point({ x:1, y:2, srid:4326 })");
+    ASSERT_EQ(ss.str(), "point({ x:1, y:2, srid:4326 })");
   }
 }
 
@@ -658,7 +658,7 @@ TEST(PropertyValue, Point3d) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "FIXME: point({ x:1, y:2, z:3, srid:4979 })");
+    ASSERT_EQ(ss.str(), "point({ x:1, y:2, z:3, srid:4979 })");
   }
 }
 

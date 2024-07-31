@@ -12,16 +12,14 @@
 #pragma once
 
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
-#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <string_view>
-#include <utility>
 
 #include "boost/functional/hash.hpp"
 #include "strong_type/strong_type.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
@@ -35,8 +33,9 @@ enum class CoordinateReferenceSystem : uint8_t {
   Cartesian_3d = 3,
 };
 
-constexpr auto kSrid_WGS85_2D = 4326;
-constexpr auto kSrid_WGS85_3D = 4979;
+// srid's are spatial reference system identifiers
+constexpr auto kSrid_WGS85_2D = 4326;  // GEOGRAPHIC_2D_CRS
+constexpr auto kSrid_WGS85_3D = 4979;  // GEOGRAPHIC_3D_CRS
 constexpr auto kSrid_Cartesian_2D = 7203;
 constexpr auto kSrid_Cartesian_3D = 9757;
 

@@ -222,9 +222,7 @@ constexpr const char *ArgTypeName() {
     return "graph";
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return "Enum";
-  } else if constexpr (std::is_same_v<ArgType, Point2d>) {
-    return "Point";
-  } else if constexpr (std::is_same_v<ArgType, Point3d>) {
+  } else if constexpr (std::is_same_v<ArgType, Point2d> || std::is_same_v<ArgType, Point3d>) {
     return "Point";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
@@ -652,7 +650,6 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
     case TypedValue::Type::Enum:
       return TypedValue("ENUM", ctx.memory);
     case TypedValue::Type::Point2d:
-      return TypedValue("POINT", ctx.memory);
     case TypedValue::Type::Point3d:
       return TypedValue("POINT", ctx.memory);
     case TypedValue::Type::ZonedDateTime:

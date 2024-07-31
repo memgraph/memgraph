@@ -742,6 +742,8 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::List:
           case storage::PropertyValue::Type::Map:
           case storage::PropertyValue::Type::Enum:
+          case storage::PropertyValueType::Point2d:
+          case storage::PropertyValueType::Point3d:
             // Prevent indexed lookup with something that would fail if we did
             // the original filter with `operator<`. Note, for some reason,
             // Cypher does not support comparing boolean values.
@@ -753,14 +755,6 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::TemporalData:
           case storage::PropertyValue::Type::ZonedTemporalData:
             return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
-
-          case storage::PropertyValueType::Point2d:
-          case storage::PropertyValueType::Point3d:
-            // TODO: how to express point type index will no be mixed with regular property index
-            //       WHERE a.prop > lb AND a.prop < ub
-            //       WHERE point.withinBBox(a.prop, lowerLeft, upperRight)
-            //       When is the types known, do/can we forbid at planing, or tollerate duringing later stages
-            throw QueryRuntimeException("TODO not implemented", value.type());
         }
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());

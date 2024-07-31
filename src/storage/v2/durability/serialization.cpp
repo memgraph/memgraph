@@ -316,8 +316,10 @@ std::optional<Point2d> Decoder::ReadPoint2dValue() {
 
   const auto srid = ReadUint();
   if (!srid) return std::nullopt;
+
   auto crs = SridToCrs(Srid{*srid});
   if (!crs) return std::nullopt;
+  if (!valid2d(*crs)) return std::nullopt;
 
   const auto x = ReadDouble();
   if (!x) return std::nullopt;
@@ -334,8 +336,10 @@ std::optional<Point3d> Decoder::ReadPoint3dValue() {
 
   const auto srid = ReadUint();
   if (!srid) return std::nullopt;
+
   auto crs = SridToCrs(Srid{*srid});
   if (!crs) return std::nullopt;
+  if (!valid3d(*crs)) return std::nullopt;
 
   const auto x = ReadDouble();
   if (!x) return std::nullopt;

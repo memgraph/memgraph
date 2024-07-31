@@ -99,7 +99,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       nlohmann::json data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::POINT_3D));
       auto const &point_3d = property_value.ValuePoint3d();
-      data.emplace("crs", storage::CrsToSrid(point_3d.crs()).value_of());
+      data.emplace("srid", storage::CrsToSrid(point_3d.crs()).value_of());
       data.emplace("x", point_3d.x());
       data.emplace("y", point_3d.y());
       data.emplace("z", point_3d.z());
@@ -179,14 +179,15 @@ storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAc
       return storage::PropertyValue(*enum_val);
     }
     case ObjectType::POINT_2D: {
-      return storage::PropertyValue(storage::Point2d{data["value"]["type"].get<storage::CoordinateReferenceSystem>(),
-                                                     data["value"]["x"].get<double>(),
-                                                     data["value"]["y"].get<double>()});
+      auto crs_opt = storage::SridToCrs(storage::Srid{data["srid"].get<uint16_t>()});
+      MG_ASSERT(crs_opt.has_value(), "Unknown srid");
+      return storage::PropertyValue(storage::Point2d{*crs_opt, data["x"].get<double>(), data["y"].get<double>()});
     }
     case ObjectType::POINT_3D: {
-      return storage::PropertyValue(storage::Point3d{data["value"]["type"].get<storage::CoordinateReferenceSystem>(),
-                                                     data["value"]["x"].get<double>(), data["value"]["y"].get<double>(),
-                                                     data["value"]["z"].get<double>()});
+      auto crs_opt = storage::SridToCrs(storage::Srid{data["srid"].get<uint16_t>()});
+      MG_ASSERT(crs_opt.has_value(), "Unknown srid");
+      return storage::PropertyValue(
+          storage::Point3d{*crs_opt, data["x"].get<double>(), data["y"].get<double>(), data["z"].get<double>()});
     }
   }
 }
