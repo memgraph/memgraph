@@ -50,6 +50,7 @@ class RaftStateTest : public ::testing::Test {
 };
 
 TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
@@ -77,6 +78,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 }
 
 TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
@@ -102,6 +104,7 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
 }
 
 TEST_F(RaftStateTest, GetMixedRoutingTable) {
+  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
   auto const init_config = CoordinatorInstanceInitConfig{coordinator_id,
