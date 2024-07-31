@@ -47,15 +47,15 @@ void Save(const storage::Point2d &point2d_val, slk::Builder *builder) {
 
 void Load(storage::Point2d *point2d_val, slk::Reader *reader) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  storage::CoordinateReferenceSystem cls;
-  slk::Load(&cls, reader);
+  storage::CoordinateReferenceSystem crs;
+  slk::Load(&crs, reader);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   double x;
   slk::Load(&x, reader);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   double y;
   slk::Load(&y, reader);
-  *point2d_val = storage::Point2d{cls, x, y};
+  *point2d_val = storage::Point2d{crs, x, y};
 }
 
 void Save(const storage::Point3d &point3d_val, slk::Builder *builder) {
@@ -67,8 +67,8 @@ void Save(const storage::Point3d &point3d_val, slk::Builder *builder) {
 
 void Load(storage::Point3d *point3d_val, slk::Reader *reader) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  storage::CoordinateReferenceSystem cls;
-  slk::Load(&cls, reader);
+  storage::CoordinateReferenceSystem crs;
+  slk::Load(&crs, reader);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   double x;
   slk::Load(&x, reader);
@@ -78,7 +78,7 @@ void Load(storage::Point3d *point3d_val, slk::Reader *reader) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   double z;
   slk::Load(&z, reader);
-  *point3d_val = storage::Point3d{cls, x, y, z};
+  *point3d_val = storage::Point3d{crs, x, y, z};
 }
 
 void Save(const storage::Gid &gid, slk::Builder *builder) { slk::Save(gid.AsUint(), builder); }

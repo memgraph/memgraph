@@ -294,7 +294,7 @@ class PropertyValueImpl {
 
   auto ValuePoint2d() const -> Point2d {
     if (type_ != Type::Point2d) [[unlikely]] {
-      throw PropertyValueException("The value isn't an 2d point!");
+      throw PropertyValueException("The value isn't a 2d point!");
     }
 
     return point2d_data_v.val_;
@@ -302,7 +302,7 @@ class PropertyValueImpl {
 
   auto ValuePoint3d() const -> Point3d {
     if (type_ != Type::Point3d) [[unlikely]] {
-      throw PropertyValueException("The value isn't an 3d point!");
+      throw PropertyValueException("The value isn't a 3d point!");
     }
 
     return point3d_data_v.val_;
@@ -396,7 +396,7 @@ class PropertyValueImpl {
     struct {
       Type type_ = Type::ZonedTemporalData;
       ZonedTemporalData val_;
-    } zoned_temporal_data_v;  // largest current member at 40B TODO: make smaller
+    } zoned_temporal_data_v;  // FYI: current largest member at 40B
     struct {
       Type type_ = Type::Enum;
       Enum val_;
@@ -454,6 +454,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
 /// @throw anything std::ostream::operator<< may throw.
 template <typename Alloc>
 inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc> &value) {
+  // These can appear in log messages
   switch (value.type()) {
     case PropertyValueType::Null:
       return os << "null";
@@ -488,17 +489,13 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
       return os << fmt::format("{{ type: {}, value: {} }}", e_type.value_of(), e_value.value_of());
     }
     case PropertyValueType::Point2d: {
-      // TODO: not sure where this will hit, test+check
-      //       CODE REVIEWER DO NOT LET THIS MERGE
       const auto point = value.ValuePoint2d();
-      return os << fmt::format("FIXME: point({{ x:{}, y:{}, srid:{} }})", point.x(), point.y(),
+      return os << fmt::format("point({{ x:{}, y:{}, srid:{} }})", point.x(), point.y(),
                                CrsToSrid(point.crs()).value_of());
     }
     case PropertyValueType::Point3d: {
-      // TODO: not sure where this will hit, test+check
-      //       CODE REVIEWER DO NOT LET THIS MERGE
       const auto point = value.ValuePoint3d();
-      return os << fmt::format("FIXME: point({{ x:{}, y:{}, z:{}, srid:{} }})", point.x(), point.y(), point.z(),
+      return os << fmt::format("point({{ x:{}, y:{}, z:{}, srid:{} }})", point.x(), point.y(), point.z(),
                                CrsToSrid(point.crs()).value_of());
     }
   }

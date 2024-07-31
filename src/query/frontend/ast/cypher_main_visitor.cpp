@@ -2887,7 +2887,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     }
   }
 
-  auto function_expr = storage_->Create<Function>(function_name, expressions);
+  auto *function_expr = storage_->Create<Function>(function_name, expressions);
 
   // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
   // repeativly finding the function at call time, this means user-defined functions have there lifetime

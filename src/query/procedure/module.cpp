@@ -39,7 +39,7 @@ extern "C" {
 
 namespace memgraph::query {
 auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const &;
-}
+}  // namespace memgraph::query
 
 namespace memgraph::query::procedure {
 

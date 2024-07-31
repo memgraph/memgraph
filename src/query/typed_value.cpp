@@ -564,9 +564,8 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
     case TypedValue::Type::Enum:
       return os << "enum";
     case TypedValue::Type::Point2d:
-      return os << "point_2d";
     case TypedValue::Type::Point3d:
-      return os << "point_3d";
+      return os << "point";
     case TypedValue::Type::Graph:
       return os << "graph";
     case TypedValue::Type::Function:
@@ -936,7 +935,7 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
       case TypedValue::Type::Enum:
-      case TypedValue::Type::Point2d:  // TODO Ivan: check what < means here, is partial ordering enough
+      case TypedValue::Type::Point2d:
       case TypedValue::Type::Point3d:
         return false;
     }

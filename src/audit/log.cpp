@@ -16,7 +16,6 @@
 
 #include "communication/bolt/v1/mg_types.hpp"
 #include "query/string_helpers.hpp"
-#include "storage/v2/point.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"

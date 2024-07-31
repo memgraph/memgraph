@@ -246,7 +246,6 @@ const PropertyValue kSmallestZonedTemporalData = PropertyValue(
     ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
                       utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
 const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
-// TODO Ivan: This is maybe a problem, recheck later
 const PropertyValue kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
 const PropertyValue kSmallestPoint3d =
     PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
