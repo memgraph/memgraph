@@ -386,17 +386,28 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
 
   auto const instances = raft_state_->GetReplicationInstances();
 
+  // User can execute action on coordinator while it is connected to the cluster
+  // or it is not connected yet.
+  // If cluster is connected we need to append open lock
+  // If cluster is non connected, we need to assert there is not lock opened and we didn't start doing actions
+  // (instances are empty) Can coordinators start diverging if we close lock every time action fails and they are not
+  // connected yet
+
+  if (raft_state_->GetCoordinatorInstances().size() == 1) {
+    MG_ASSERT(!raft_state_->IsLockOpened() && raft_state_->GetReplicationInstances().empty(),
+              "Don't execute actions while coordinator is not connected to other coordinators, it will lead to "
+              "diverging of cluster log.");
+    return VerifyOrCorrectClusterStateStatus::SUCCESS;
+  }
+  if (!raft_state_->AppendCloseLock()) {
+    spdlog::trace("Exiting VerifyOrCorrectClusterState. Failed to append close lock.");
+    return VerifyOrCorrectClusterStateStatus::FAIL;
+  }
+
   // There is nothing to do if we don't have any instances
   if (instances.empty()) {
     spdlog::trace("Exiting VerifyOrCorrectClusterState. Didn't get any instances.");
     return VerifyOrCorrectClusterStateStatus::SUCCESS;
-  }
-  // TODO : Think when we need to add action to close lock, this can be a problem if all coordinators at start
-  // add log, will they have same log structure then?
-  // in case there are no other coordinators, maybe we don't need this action
-  if (!raft_state_->AppendCloseLock()) {
-    spdlog::trace("Exiting VerifyOrCorrectClusterState. Failed to append close lock.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
   }
 
   //  We don't need to open lock here as we have mechanism to know whether action was success (state which we return).
