@@ -146,3 +146,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/edge_delete.py"]
     <<: *template_simple_cluster
+
+  - name: "Replication with property compression used"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/replication_with_property_compression_used.py"]
