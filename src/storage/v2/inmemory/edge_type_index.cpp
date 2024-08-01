@@ -209,7 +209,7 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *to_vertex = index_iterator_->to_vertex;
 
     if (self_->transaction_->original_start_timestamp.has_value()) {
-      if (index_iterator_->timestamp > self_->transaction_->original_start_timestamp.value()) {
+      if (index_iterator_->timestamp >= self_->transaction_->original_start_timestamp.value()) {
         continue;
       }
     }

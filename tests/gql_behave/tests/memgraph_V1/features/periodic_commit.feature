@@ -99,22 +99,3 @@ Feature: Periodic commit
         Then the result should be:
             | cnt |
             | 3   |
-
-    Scenario: Unwind uses initial iterator
-        Given an empty graph
-        And having executed
-            """
-            CREATE (:Node {id: 1}) CREATE (:Node {id: 2});
-            """
-        And having executed
-            """
-            USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x MATCH (n:Node {id: x}) SET n.id = x + 2;
-            """
-        When executing query:
-            """
-            MATCH (n) RETURN n;
-            """
-        Then the result should be:
-            | n               |
-            | (:Node {id: 3}) |
-            | (:Node {id: 4}) |

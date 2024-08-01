@@ -36,5 +36,17 @@ def test_create_trigger_on_create_periodic_commit(memgraph):
     assert actual == 10
 
 
+def test_periodic_commit_uses_same_iterator_like_initial_transaction(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node(id)")
+    memgraph.execute("CREATE (:Node {id: 1})")
+    memgraph.execute("CREATE (:Node {id: 2})")
+
+    memgraph.execute("USING PERIODIC COMMIT 1 UNWIND range(1, 3) as i MATCH (n:Node {id: i}) SET n.id = i + 2")
+    results = list(memgraph.execute_and_fetch("MATCH (n) RETURN n.id AS id ORDER BY id"))
+
+    assert results[0]["id"] == 3
+    assert results[1]["id"] == 4
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

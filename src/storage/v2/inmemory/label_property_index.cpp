@@ -203,7 +203,7 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     }
 
     if (self_->transaction_->original_start_timestamp.has_value()) {
-      if (index_iterator_->timestamp > self_->transaction_->original_start_timestamp.value()) {
+      if (index_iterator_->timestamp >= self_->transaction_->original_start_timestamp.value()) {
         continue;
       }
     }
