@@ -1048,12 +1048,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   FinalizeTransaction();
 
+  auto original_start_timestamp = !transaction_.original_start_timestamp.has_value()
+                                      ? transaction_.start_timestamp
+                                      : transaction_.original_start_timestamp.value();
+
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
   transaction_.commit_timestamp.reset();
+  transaction_.original_start_timestamp = original_start_timestamp;
 
   is_transaction_active_ = true;
 

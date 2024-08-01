@@ -208,6 +208,12 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
     auto *from_vertex = index_iterator_->from_vertex;
     auto *to_vertex = index_iterator_->to_vertex;
 
+    if (self_->transaction_->original_start_timestamp.has_value()) {
+      if (index_iterator_->timestamp > self_->transaction_->original_start_timestamp.value()) {
+        continue;
+      }
+    }
+
     if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
         to_vertex->deleted) {
       continue;
