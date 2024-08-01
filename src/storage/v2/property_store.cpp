@@ -12,6 +12,7 @@
 #include "storage/v2/property_store.hpp"
 
 #include <chrono>
+#include <concepts>
 #include <cstdint>
 #include <cstring>
 #include <iterator>
@@ -19,6 +20,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -27,8 +29,13 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
+#include "utils/compressor.hpp"
 #include "utils/logging.hpp"
 #include "utils/temporal.hpp"
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_property_store_compression_enabled, false,
+            "Controls whether the properties should be compressed in the storage.");
 
 namespace memgraph::storage {
 
@@ -354,6 +361,9 @@ class Writer {
 class Reader {
  public:
   Reader(const uint8_t *data, uint32_t size) : data_(data), size_(size) {}
+  Reader(Reader const &other, uint32_t offset, uint32_t size) : data_(other.data_ + offset), size_(size) {
+    DMG_ASSERT(other.size_ - offset >= size);
+  }
 
   std::optional<Metadata> ReadMetadata() {
     if (pos_ + 1 > size_) return std::nullopt;
@@ -1364,8 +1374,8 @@ SpecificPropertyAndBufferInfoMinimal FindSpecificPropertyAndBufferInfoMinimal(Re
   }
 }
 
-// All data buffers will be allocated to a power of 8 size.
-uint32_t ToPowerOf8(uint32_t size) {
+// All data buffers will be allocated to a multiple of 8 size.
+uint32_t ToMultipleOf8(uint32_t size) {
   const uint32_t mod = size % 8;
   if (mod == 0) return size;
   return size - mod + 8;
@@ -1398,48 +1408,208 @@ uint32_t ToPowerOf8(uint32_t size) {
 // of the two sets of data is currently active. Because the first byte of the
 // buffer is used to distinguish which of the two sets of data is used, we can
 // only use the leftover 15 bytes for raw data storage.
+static_assert(std::endian::native == std::endian::little, "Our code assumes little endian");
 
 const uint8_t kUseLocalBuffer = 0x01;
+const uint8_t kUseCompressedBuffer = 0x02;
+static_assert(kUseLocalBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
+static_assert(kUseCompressedBuffer % 8 != 0, "Special storage modes need to be not a multiple of 8");
+
+enum class StorageMode : uint8_t {
+  EMPTY,
+  BUFFER,
+  LOCAL,
+  COMPRESSED,
+};
+
+struct DecodedBufferConst {
+  std::span<uint8_t const> view;
+  StorageMode storage_mode;
+};
+struct DecodedBuffer {
+  std::span<uint8_t> view;
+  StorageMode storage_mode;
+
+  // implicit conversion operator
+  // NOLINTNEXTLINE( hicpp-explicit-conversions )
+  explicit(false) operator DecodedBufferConst() {
+    return {
+        .view = view,
+        .storage_mode = storage_mode,
+    };
+  }
+};
+
+void FreeMemory(DecodedBuffer const &buffer_info) {
+  switch (buffer_info.storage_mode) {
+    case StorageMode::BUFFER:
+    case StorageMode::COMPRESSED:
+      delete[] buffer_info.view.data();
+      break;
+    case StorageMode::LOCAL:
+    case StorageMode::EMPTY:
+      break;
+  }
+}
+
+void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
+  memcpy(buffer, &size, sizeof(size));
+  memcpy(buffer + sizeof(size), &data, sizeof(uint8_t *));
+}
+DecodedBuffer SetupLocalBuffer(uint8_t (&buffer)[12]) {
+  buffer[0] = kUseLocalBuffer;
+  return DecodedBuffer{
+      .view = std::span{&buffer[1], sizeof(buffer) - 1},
+      .storage_mode = StorageMode::LOCAL,
+  };
+}
+DecodedBuffer SetupExternalBuffer(uint32_t size) {
+  auto alloc_size = ToMultipleOf8(size);
+  auto *alloc_data = new uint8_t[alloc_size];
+
+  return DecodedBuffer{
+      .view = std::span{alloc_data, alloc_size},
+      .storage_mode = StorageMode::BUFFER,
+  };
+}
+DecodedBuffer SetupBuffer(uint8_t (&buffer)[12], uint32_t size) {
+  auto can_fit_in_local = size <= sizeof(buffer) - 1;
+  return can_fit_in_local ? SetupLocalBuffer(buffer) : SetupExternalBuffer(size);
+}
+
+std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst const &buffer_info) {
+  if (buffer_info.storage_mode != StorageMode::COMPRESSED) return std::nullopt;
+
+  // Memory (hex):
+  // 00 00 00 00 00 00 00
+  // |------------|         -> original size
+  //                ||      -> size modifier to get back to non multiple of 8
+  //                   |--- -> compressed data
+  // 0  1  2  3  4  5  6  (positions)
+
+  uint32_t original_size = 0;
+  auto const *data = buffer_info.view.data();
+  memcpy(&original_size, data, sizeof(uint32_t));
+
+  // we have to restore the original size of the compressed buffer + the size of the original buffer
+  auto modifier = data[sizeof(uint32_t)];
+  auto buffer_size = buffer_info.view.size_bytes();
+  auto compressed_size = (modifier != 0) ? (buffer_size - 8 + modifier) : buffer_size;
+
+  auto data_offset = sizeof(uint32_t) + 1;
+  auto compressed_buffer = std::span(data + data_offset, compressed_size - data_offset);
+  auto const *compressor = utils::Compressor::GetInstance();
+  auto decompressed_buffer = compressor->Decompress(compressed_buffer, original_size);
+
+  if (!decompressed_buffer) [[unlikely]] {
+    throw PropertyValueException("Failed to decompress buffer");
+  }
+
+  return decompressed_buffer;
+}
+
+void CompressBuffer(uint8_t (&buffer)[12], DecodedBuffer const &buffer_info) {
+  if (buffer_info.storage_mode != StorageMode::BUFFER) {
+    return;
+  }
+  auto uncompressed_size = buffer_info.view.size_bytes();
+
+  auto const *compressor = utils::Compressor::GetInstance();
+  auto compressed_buffer = compressor->Compress(buffer_info.view);
+  if (!compressed_buffer) {
+    throw PropertyValueException("Failed to compress buffer");
+  }
+
+  auto compressed_view = compressed_buffer->view();
+  auto const metadata_size = sizeof(uint32_t) + 1;
+  auto size_needed = compressed_view.size_bytes() + metadata_size;
+  auto compressed_size_to_multiple_of_8 = ToMultipleOf8(size_needed);
+  if (compressed_size_to_multiple_of_8 >= uncompressed_size) {
+    // Compressed buffer + metadata are larger than the original buffer, so we don't perform the compression.
+    return;
+  }
+
+  auto compressed_data = std::make_unique_for_overwrite<uint8_t[]>(compressed_size_to_multiple_of_8);
+
+  // We have compressed data + new buffer to put it into, no need for old uncompressed buffer
+  FreeMemory(buffer_info);
+
+  // first 4 bytes are the size of the original buffer
+  auto orig_size = compressed_buffer->original_size();
+  memcpy(compressed_data.get(), &orig_size, sizeof(uint32_t));
+
+  // next byte is the mod before multiple of 8
+  const uint8_t mod = size_needed % 8;
+  compressed_data[sizeof(uint32_t)] = mod;
+
+  // the rest of the buffer is the compressed data
+  memcpy(compressed_data.get() + metadata_size, compressed_view.data(), compressed_view.size_bytes());
+
+  SetSizeData(buffer, compressed_size_to_multiple_of_8 + kUseCompressedBuffer, compressed_data.release());
+}
 
 // Helper functions used to retrieve/store `size` and `data` from/into the
 // `buffer_`.
-
-std::pair<uint32_t, uint8_t *> GetSizeData(const uint8_t *buffer) {
+auto GetDecodedBuffer(uint8_t (&buffer)[12]) -> DecodedBuffer {
   uint32_t size = 0;
   uint8_t *data = nullptr;
   memcpy(&size, buffer, sizeof(uint32_t));
   memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
-  return {size, data};
-}
 
-struct BufferInfo {
-  uint32_t size = 0;
-  uint8_t *data{nullptr};
-  bool in_local_buffer = false;
-};
-
-template <size_t N>
-BufferInfo GetBufferInfo(const uint8_t (&buffer)[N]) {
-  uint32_t size = 0;
-  const uint8_t *data = nullptr;
-  bool in_local_buffer = false;
-  std::tie(size, data) = GetSizeData(buffer);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer) - 1;
-    data = &buffer[1];
-    in_local_buffer = true;
+  if (size == 0) {
+    return {std::span<uint8_t>{}, StorageMode::EMPTY};
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  auto *non_const_data = const_cast<uint8_t *>(data);
+  if (size % 8 == 0) {
+    return {std::span{data, size}, StorageMode::BUFFER};
+  }
 
-  return {size, non_const_data, in_local_buffer};
+  auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
+  switch (special_mode_value) {
+    case kUseLocalBuffer: {
+      auto *local_start = &buffer[1];
+      auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
+      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+    }
+    case kUseCompressedBuffer: {
+      auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
+      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+    }
+    default: {
+      MG_ASSERT(false, "Corrupt property storage");
+    }
+  }
 }
 
-void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
-  memcpy(buffer, &size, sizeof(uint32_t));
-  memcpy(buffer + sizeof(uint32_t), &data, sizeof(uint8_t *));
+auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
+  memcpy(&size, buffer, sizeof(uint32_t));
+  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
+
+  if (size == 0) {
+    return {std::span<uint8_t>{}, StorageMode::EMPTY};
+  }
+
+  if (size % 8 == 0) {
+    return {std::span{data, size}, StorageMode::BUFFER};
+  }
+
+  auto special_mode_value = static_cast<uint8_t>(size & (sizeof(uint8_t) * CHAR_BIT - 1));
+  switch (special_mode_value) {
+    case kUseLocalBuffer: {
+      auto const *local_start = &buffer[1];
+      auto local_size = static_cast<uint32_t>(sizeof(buffer) - 1);
+      return {std::span{local_start, local_size}, StorageMode::LOCAL};
+    }
+    case kUseCompressedBuffer: {
+      auto real_size = static_cast<uint32_t>(size & ~(sizeof(uint8_t) * CHAR_BIT - 1));
+      return {std::span{data, real_size}, StorageMode::COMPRESSED};
+    }
+    default: {
+      MG_ASSERT(false, "Corrupt property storage");
+    }
+  }
 }
 
 }  // namespace
@@ -1452,53 +1622,60 @@ PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
-  uint32_t size = 0;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 == 0) {
-    // We are storing the data in an external buffer.
-    delete[] data;
-  }
+  if (this == std::addressof(other)) return *this;
 
+  auto buffer_info = GetDecodedBuffer(buffer_);
+  FreeMemory(buffer_info);
+
+  // copy over the buffer
   memcpy(buffer_, other.buffer_, sizeof(buffer_));
+  // make other empty
   memset(other.buffer_, 0, sizeof(other.buffer_));
 
   return *this;
 }
 
 PropertyStore::~PropertyStore() {
-  uint32_t size = 0;
-  uint8_t *data;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 == 0) {
-    // We are storing the data in an external buffer.
-    delete[] data;
+  auto buffer_info = GetDecodedBuffer(buffer_);
+  FreeMemory(buffer_info);
+}
+
+template <typename Func>
+auto PropertyStore::WithReader(Func &&func) const {
+  auto buffer_info = GetDecodedBuffer(buffer_);
+  if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+    auto decompressed_buffer = DecompressBuffer(buffer_info);
+    auto view = decompressed_buffer->view();
+    Reader reader(view.data(), view.size_bytes());
+    return std::forward<Func>(func)(reader);
   }
+  Reader reader(buffer_info.view.data(), buffer_info.view.size_bytes());
+  return std::forward<Func>(func)(reader);
 }
 
 PropertyValue PropertyStore::GetProperty(PropertyId property) const {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
-  Reader reader(buffer_info.data, buffer_info.size);
-
-  PropertyValue value;
-  if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
-  return value;
+  auto get_property = [&](Reader &reader) -> PropertyValue {
+    PropertyValue value;
+    if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return {};
+    return value;
+  };
+  return WithReader(get_property);
 }
 
 uint32_t PropertyStore::PropertySize(PropertyId property) const {
-  auto data_size_localbuffer = GetBufferInfo(buffer_);
-  Reader reader(data_size_localbuffer.data, data_size_localbuffer.size);
-
-  uint32_t property_size = 0;
-  if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
-  return property_size;
+  auto get_property_size = [&](Reader &reader) -> uint32_t {
+    uint32_t property_size = 0;
+    if (FindSpecificPropertySize(&reader, property, property_size) != ExpectedPropertyStatus::EQUAL) return 0;
+    return property_size;
+  };
+  return WithReader(get_property_size);
 }
 
 bool PropertyStore::HasProperty(PropertyId property) const {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
-  Reader reader(buffer_info.data, buffer_info.size);
-
-  return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
+  auto property_exists = [&](Reader &reader) -> uint32_t {
+    return ExistsSpecificProperty(&reader, property) == ExpectedPropertyStatus::EQUAL;
+  };
+  return WithReader(property_exists);
 }
 
 bool PropertyStore::HasAllProperties(const std::set<PropertyId> &properties) const {
@@ -1532,29 +1709,30 @@ std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
-  Reader reader(buffer_info.data, buffer_info.size);
-
-  auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
-  auto property_size = info.property_size();
-  if (property_size == 0) return value.IsNull();
-  Reader prop_reader(buffer_info.data + info.property_begin, property_size);
-  if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
-  return prop_reader.GetPosition() == property_size;
+  auto property_equal = [&](Reader &reader) -> uint32_t {
+    auto const orig_reader = reader;
+    auto info = FindSpecificPropertyAndBufferInfoMinimal(&reader, property);
+    auto property_size = info.property_size();
+    if (property_size == 0) return value.IsNull();
+    auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+    if (!CompareExpectedProperty(&prop_reader, property, value)) return false;
+    return prop_reader.GetPosition() == property_size;
+  };
+  return WithReader(property_equal);
 }
 
 std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
-  Reader reader(buffer_info.data, buffer_info.size);
-
-  std::map<PropertyId, PropertyValue> props;
-  while (true) {
+  auto get_properties = [&](Reader &reader) {
+    std::map<PropertyId, PropertyValue> props;
     PropertyValue value;
-    auto prop = DecodeAnyProperty(&reader, value);
-    if (!prop) break;
-    props.emplace(*prop, std::move(value));
-  }
-  return props;
+    while (true) {
+      auto prop = DecodeAnyProperty(&reader, value);
+      if (!prop) break;
+      props.emplace(*prop, std::move(value));
+    }
+    return props;
+  };
+  return WithReader(get_properties);
 }
 
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
@@ -1565,42 +1743,17 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
     property_size = writer.Written();
   }
 
-  bool in_local_buffer = false;
-  uint32_t size = 0;
-  uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size % 8 != 0) {
-    // We are storing the data in the local buffer.
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-    in_local_buffer = true;
-  }
+  auto buffer_info = GetDecodedBuffer(buffer_);
 
   bool existed = false;
-  if (!size) {
+  if (buffer_info.storage_mode == StorageMode::EMPTY) {
     if (!value.IsNull()) {
-      // We don't have a data buffer. Allocate a new one.
-      auto property_size_to_power_of_8 = ToPowerOf8(property_size);
-      if (property_size <= sizeof(buffer_) - 1) {
-        // Use the local buffer.
-        buffer_[0] = kUseLocalBuffer;
-        size = sizeof(buffer_) - 1;
-        data = &buffer_[1];
-        in_local_buffer = true;
-      } else {
-        // Allocate a new external buffer.
-        auto *alloc_data = new uint8_t[property_size_to_power_of_8];
-        auto alloc_size = property_size_to_power_of_8;
-
-        SetSizeData(buffer_, alloc_size, alloc_data);
-
-        size = alloc_size;
-        data = alloc_data;
-        in_local_buffer = false;
-      }
+      // We don't have a data buffer. Setup on for writting
+      auto new_buffer_info = SetupBuffer(buffer_, property_size);
+      auto new_view = new_buffer_info.view;
 
       // Encode the property into the data buffer.
-      Writer writer(data, size);
+      Writer writer(new_view.data(), new_view.size());
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
       auto metadata = writer.WriteMetadata();
       if (metadata) {
@@ -1608,73 +1761,104 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
         // indicate that there are no more properties to be decoded.
         metadata->Set({Type::EMPTY});
       }
+
+      // Make buffer perminant
+      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+        SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
+      }
+
+      buffer_info = new_buffer_info;
     } else {
       // We don't have to do anything. We don't have a buffer and we are trying
       // to set a property to `Null` (we are trying to remove the property).
+      return !existed;
     }
   } else {
-    Reader reader(data, size);
+    std::optional<utils::DecompressedBuffer> decompressed_buffer;
+
+    auto current_view = std::invoke([&] {
+      if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+        decompressed_buffer = DecompressBuffer(buffer_info);
+        return decompressed_buffer->view();
+      }
+      return buffer_info.view;
+    });
+
+    auto reader = Reader(current_view.data(), current_view.size_bytes());
     auto info = FindSpecificPropertyAndBufferInfo(&reader, property);
     existed = info.property_size != 0;
     auto new_size = info.all_size - info.property_size + property_size;
-    auto new_size_to_power_of_8 = ToPowerOf8(new_size);
-    if (new_size_to_power_of_8 == 0) {
+    auto new_size_to_multiple_of_8 = ToMultipleOf8(new_size);
+
+    if (new_size == 0) {
       // We don't have any data to encode anymore.
-      if (!in_local_buffer) delete[] data;
+      FreeMemory(buffer_info);
       SetSizeData(buffer_, 0, nullptr);
-      data = nullptr;
-      size = 0;
-    } else if (new_size_to_power_of_8 > size || new_size_to_power_of_8 <= size * 2 / 3) {
+      return !existed;
+    }
+
+    if (new_size_to_multiple_of_8 > current_view.size_bytes() ||
+        new_size_to_multiple_of_8 <= current_view.size_bytes() * 2 / 3) {
       // We need to enlarge/shrink the buffer.
-      bool current_in_local_buffer = false;
-      uint8_t *current_data = nullptr;
-      uint32_t current_size = 0;
-      if (new_size <= sizeof(buffer_) - 1) {
-        // Use the local buffer.
-        buffer_[0] = kUseLocalBuffer;
-        current_size = sizeof(buffer_) - 1;
-        current_data = &buffer_[1];
-        current_in_local_buffer = true;
-      } else {
-        // Allocate a new external buffer.
-        current_data = new uint8_t[new_size_to_power_of_8];
-        current_size = new_size_to_power_of_8;
-        current_in_local_buffer = false;
-      }
+      auto new_buffer_info = SetupBuffer(buffer_, new_size);
+      auto new_view = new_buffer_info.view;
+
       // Copy everything before the property to the new buffer.
-      memmove(current_data, data, info.property_begin);
+      memmove(new_view.data(), current_view.data(), info.property_begin);
       // Copy everything after the property to the new buffer.
-      memmove(current_data + info.property_begin + property_size, data + info.property_end,
+      memmove(new_view.data() + info.property_begin + property_size, current_view.data() + info.property_end,
               info.all_end - info.property_end);
-      // Free the old buffer.
-      if (!in_local_buffer) delete[] data;
-      // Permanently remember the new buffer.
-      if (!current_in_local_buffer) {
-        SetSizeData(buffer_, current_size, current_data);
+
+      // Make buffer perminant
+      if (new_buffer_info.storage_mode == StorageMode::BUFFER) {
+        SetSizeData(buffer_, new_view.size_bytes(), new_view.data());
       }
-      // Set the proxy variables.
-      data = current_data;
-      size = current_size;
-      in_local_buffer = current_in_local_buffer;
+
+      // Free the old buffers
+      decompressed_buffer.reset();  // no longer needed, if it existed we have now copied from it
+      FreeMemory(buffer_info);      // original buffer no longer needed
+      buffer_info = new_buffer_info;
+      current_view = new_buffer_info.view;
+
     } else if (property_size != info.property_size) {
       // We can keep the data in the same buffer, but the new property is
       // larger/smaller than the old property. We need to move the following
       // properties to the right/left.
-      memmove(data + info.property_begin + property_size, data + info.property_end, info.all_end - info.property_end);
+      memmove(current_view.data() + info.property_begin + property_size, current_view.data() + info.property_end,
+              info.all_end - info.property_end);
+    }
+
+    // If we still started with compressed buffer
+    // take ownership of the decompressed buffer before writing
+    if (buffer_info.storage_mode == StorageMode::COMPRESSED) {
+      // remove compressed buffer
+      FreeMemory(buffer_info);
+      // take ownership of decompressed buffer
+      decompressed_buffer->release();
+      SetSizeData(buffer_, current_view.size_bytes(), current_view.data());
+      decompressed_buffer.reset();
+      buffer_info = DecodedBuffer{
+          .view = current_view,
+          .storage_mode = StorageMode::BUFFER,  // decompressed buffer is now a regular buffer
+      };
     }
 
     if (!value.IsNull()) {
       // We need to encode the new value.
-      Writer writer(data + info.property_begin, property_size);
+      Writer writer(current_view.data() + info.property_begin, property_size);
       MG_ASSERT(EncodeProperty(&writer, property, value), "Invalid database state!");
     }
 
     // We need to recreate the tombstone (if possible).
-    Writer writer(data + new_size, size - new_size);
+    Writer writer(current_view.data() + new_size, current_view.size_bytes() - new_size);
     auto metadata = writer.WriteMetadata();
     if (metadata) {
       metadata->Set({Type::EMPTY});
     }
+  }
+
+  if (FLAGS_storage_property_store_compression_enabled) {
+    CompressBuffer(buffer_, buffer_info);
   }
 
   return !existed;
@@ -1682,10 +1866,8 @@ bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value)
 
 template <typename TContainer>
 bool PropertyStore::DoInitProperties(const TContainer &properties) {
-  uint32_t size = 0;
-  uint8_t *data = nullptr;
-  std::tie(size, data) = GetSizeData(buffer_);
-  if (size != 0) {
+  auto orig_buffer_info = GetDecodedBuffer(buffer_);
+  if (orig_buffer_info.storage_mode != StorageMode::EMPTY) {
     return false;
   }
 
@@ -1701,25 +1883,11 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
     }
   }
 
-  auto property_size_to_power_of_8 = ToPowerOf8(property_size);
-  if (property_size <= sizeof(buffer_) - 1) {
-    // Use the local buffer.
-    buffer_[0] = kUseLocalBuffer;
-    size = sizeof(buffer_) - 1;
-    data = &buffer_[1];
-  } else {
-    // Allocate a new external buffer.
-    auto *alloc_data = new uint8_t[property_size_to_power_of_8];
-    auto alloc_size = property_size_to_power_of_8;
-
-    SetSizeData(buffer_, alloc_size, alloc_data);
-
-    size = alloc_size;
-    data = alloc_data;
-  }
+  auto buffer_info = SetupBuffer(buffer_, property_size);
+  auto view = buffer_info.view;
 
   // Encode the property into the data buffer.
-  Writer writer(data, size);
+  Writer writer(view.data(), view.size_bytes());
 
   for (const auto &[property, value] : properties) {
     if (value.IsNull()) {
@@ -1734,6 +1902,15 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
     // If there is any space left in the buffer we add a tombstone to
     // indicate that there are no more properties to be decoded.
     metadata->Set({Type::EMPTY});
+  }
+
+  // Make buffer perminant
+  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+    SetSizeData(buffer_, view.size_bytes(), view.data());
+  }
+
+  if (FLAGS_storage_property_store_compression_enabled) {
+    CompressBuffer(buffer_, buffer_info);
   }
 
   return true;
@@ -1780,22 +1957,18 @@ bool PropertyStore::InitProperties(std::vector<std::pair<storage::PropertyId, st
 }
 
 bool PropertyStore::ClearProperties() {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
+  auto buffer_info = GetDecodedBuffer(buffer_);
 
-  if (!buffer_info.size) return false;
-  if (!buffer_info.in_local_buffer) delete[] buffer_info.data;
+  if (buffer_info.storage_mode == StorageMode::EMPTY) return false;
+  FreeMemory(buffer_info);
   SetSizeData(buffer_, 0, nullptr);
+
   return true;
 }
 
 std::string PropertyStore::StringBuffer() const {
-  BufferInfo buffer_info = GetBufferInfo(buffer_);
-
-  std::string arr(buffer_info.size, ' ');
-  for (uint i = 0; i < buffer_info.size; ++i) {
-    arr[i] = static_cast<char>(buffer_info.data[i]);
-  }
-  return arr;
+  auto buffer_info = GetDecodedBuffer(buffer_);
+  return {buffer_info.view.begin(), buffer_info.view.end()};
 }
 
 void PropertyStore::SetBuffer(const std::string_view buffer) {

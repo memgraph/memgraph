@@ -40,7 +40,8 @@ namespace memgraph::logging {
 
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
-inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
+[[noreturn]] inline void AssertFailed(const char *file_name, int line_num, const char *expr,
+                                      const std::string &message) {
   spdlog::critical(
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
