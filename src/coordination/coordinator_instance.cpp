@@ -53,6 +53,10 @@
 
 namespace memgraph::coordination {
 
+namespace {
+constexpr int kDisconnectedCluster = 1;
+}  // namespace
+
 using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
@@ -384,20 +388,23 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
     }
   }};
 
-  auto const instances = raft_state_->GetReplicationInstances();
+  auto const raft_state_replication_instances = raft_state_->GetReplicationInstances();
 
   // User can execute action on coordinator while it is connected to the cluster
   // or it is not connected yet.
-  // If cluster is connected we need to append open lock
-  // If cluster is non connected, we need to assert there is not lock opened and we didn't start doing actions
-  // (instances are empty) Can coordinators start diverging if we close lock every time action fails and they are not
-  // connected yet
+  // If cluster is connected we need to append close lock and fix the issues
+  // If cluster is non connected (only one coordinator)
+  // 1. error can happen only if user tried something -> close lock and live with possibility that cluster may diverge
+  // 2. if there is no lock opened, return
 
-  if (raft_state_->GetCoordinatorInstances().size() == 1) {
-    MG_ASSERT(!raft_state_->IsLockOpened() && raft_state_->GetReplicationInstances().empty(),
-              "Don't execute actions while coordinator is not connected to other coordinators, it will lead to "
-              "diverging of cluster log.");
-    return VerifyOrCorrectClusterStateStatus::SUCCESS;
+  if (raft_state_->GetCoordinatorInstances().size() == kDisconnectedCluster) {
+    if (raft_state_->IsLockOpened()) {
+      spdlog::error(
+          "Don't execute actions while coordinator is not connected to other coordinators, it could lead to "
+          "diverging of cluster log.");
+    } else {
+      return VerifyOrCorrectClusterStateStatus::SUCCESS;
+    }
   }
   if (!raft_state_->AppendCloseLock()) {
     spdlog::trace("Exiting VerifyOrCorrectClusterState. Failed to append close lock.");
@@ -405,7 +412,7 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   }
 
   // There is nothing to do if we don't have any instances
-  if (instances.empty()) {
+  if (raft_state_replication_instances.empty()) {
     spdlog::trace("Exiting VerifyOrCorrectClusterState. Didn't get any instances.");
     return VerifyOrCorrectClusterStateStatus::SUCCESS;
   }
@@ -418,7 +425,7 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   // Otherwise we consider instance alive
   // If at any point later RPC fails for alive instance, we consider this failure
 
-  std::ranges::for_each(instances, [this](auto &replica) {
+  std::ranges::for_each(raft_state_replication_instances, [this](auto &replica) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
 
     repl_instances_.emplace_back(std::move(client));
