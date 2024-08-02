@@ -91,7 +91,7 @@ bool WithinBBox(Point2d const &point, Point2d const &lower_bound, Point2d const 
   if (lb_x <= ub_x || crs == Cartesian_2d) [[likely]] {
     return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y;
   } else {
-    return lb_x <= p_x && p_x <= ub_x + 360.0 && lb_y <= p_y && p_y <= ub_y;
+    return (lb_x <= p_x || p_x <= ub_x) && lb_y <= p_y && p_y <= ub_y;
   }
 }
 
@@ -114,7 +114,7 @@ bool WithinBBox(Point3d const &point, Point3d const &lower_bound, Point3d const 
   if (lb_x <= ub_x || crs == Cartesian_3d) [[likely]] {
     return lb_x <= p_x && p_x <= ub_x && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
   } else {
-    return lb_x <= p_x && p_x <= ub_x + 360.0 && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
+    return (lb_x <= p_x || p_x <= ub_x) && lb_y <= p_y && p_y <= ub_y && lb_z <= p_z && p_z <= ub_z;
   }
 }
 }  // namespace memgraph::storage

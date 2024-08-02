@@ -1457,10 +1457,6 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     throw QueryRuntimeException("Argument latitude/y is missing.");
   });
 
-  if (from_longitude != from_latitude) {
-    throw QueryRuntimeException("Use either x, y, z or longitude, latitude, height.");
-  }
-
   using z_type = std::optional<std::pair<double, bool>>;
   auto z_opt = std::invoke([&]() -> z_type {
     auto it_z = input.find("z");
@@ -1473,6 +1469,10 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     }
     return std::nullopt;
   });
+
+  if (from_longitude != from_latitude) {
+    throw QueryRuntimeException("Use either x, y, z or longitude, latitude, height.");
+  }
 
   auto crs = std::invoke([&]() -> std::optional<std::string_view> {
     auto value = input.find("crs");
@@ -1507,13 +1507,17 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     }
   }
 
-  using CRS = storage::CoordinateReferenceSystem;
+  auto inferred_as_wgs = (from_longitude || from_latitude);
+  if (mg_crs && storage::IsCartesian(*mg_crs) && inferred_as_wgs) {
+    throw QueryRuntimeException("Cartesian points must be constructed with x, y, z not longitude, latitude, height");
+  }
+
+  using enum storage::CoordinateReferenceSystem;
   if (!mg_crs.has_value()) {
-    auto is_wgs = (from_longitude || from_latitude);
     if (!z_opt.has_value()) {
-      mg_crs = is_wgs ? CRS::WGS84_2d : CRS::Cartesian_2d;
+      mg_crs = inferred_as_wgs ? WGS84_2d : Cartesian_2d;
     } else {
-      mg_crs = is_wgs ? CRS::WGS84_3d : CRS::Cartesian_3d;
+      mg_crs = inferred_as_wgs ? WGS84_3d : Cartesian_3d;
     }
   }
 
@@ -1521,8 +1525,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
     return (x >= -180.0 && x <= 180.0 && y >= -90.0 && y <= 90.0);
   };
 
-  auto mg_crs_value = *mg_crs;
-  if ((mg_crs_value == CRS::WGS84_2d || mg_crs_value == CRS::WGS84_3d) && !check_point_ranges(x, y)) {
+  if (storage::IsWGS(*mg_crs) && !check_point_ranges(x, y)) {
     throw QueryRuntimeException(
         "Longitude/x [-180, 180] and latitude/y [-90, 90] must be in the given range for WGS point types.");
   }
@@ -1530,7 +1533,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (!z_opt.has_value()) {
     return TypedValue(storage::Point2d{*mg_crs, x, y}, ctx.memory);
   }
-  return TypedValue(storage::Point3d{*mg_crs, x, y, (*z_opt).first}, ctx.memory);
+  return TypedValue(storage::Point3d{*mg_crs, x, y, z_opt->first}, ctx.memory);
 }
 
 TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
