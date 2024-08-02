@@ -28,7 +28,6 @@ const uint64_t kUniqueConstraintVersion{13};
 // But they are written in the same section.
 const uint64_t kEdgeIndicesVersion{17};
 const uint64_t kEnumsVersion{18};
-const uint64_t kPointsVersion{19};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

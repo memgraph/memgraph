@@ -130,13 +130,15 @@ def test_point_replication(connection):
             "n.prop4.x, n.prop4.y, n.prop4.z, n.prop4.srid;",
         )
 
+    expected_result = [(1, 2, 4326, 3, 4, 5, 4979, 6, 7, 7203, 8, 9, 10, 9757)]
+
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     replica_1_enums = get_props(cursor_replica)
-    assert replica_1_enums == [(1, 2, 4326, 3, 4, 5, 4979, 6, 7, 7203, 8, 9, 10, 9757)]
+    assert replica_1_enums == expected_result
 
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     replica_2_enums = get_props(cursor_replica2)
-    assert replica_2_enums == [(1, 2, 4326, 3, 4, 5, 4979, 6, 7, 7203, 8, 9, 10, 9757)]
+    assert replica_2_enums == expected_result
 
 
 if __name__ == "__main__":

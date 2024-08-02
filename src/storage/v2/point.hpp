@@ -112,6 +112,16 @@ inline bool valid3d(CoordinateReferenceSystem val) {
   return val == WGS84_3d || val == Cartesian_3d;
 }
 
+inline bool IsWGS(CoordinateReferenceSystem val) {
+  using enum CoordinateReferenceSystem;
+  return val == WGS84_2d || val == WGS84_3d;
+}
+
+inline bool IsCartesian(CoordinateReferenceSystem val) {
+  using enum CoordinateReferenceSystem;
+  return val == Cartesian_2d || val == Cartesian_3d;
+}
+
 struct Point2d {
   Point2d() = default;  // needed for slk
 
@@ -119,11 +129,11 @@ struct Point2d {
     DMG_ASSERT(valid2d(crs), "Not a valid 2d Coordinate Reference System");
   }
 
-  auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  auto x() const -> double { return x_longitude_; }
-  auto y() const -> double { return y_latitude_; }
-  auto longitude() const -> double { return x_longitude_; }
-  auto latitude() const -> double { return y_latitude_; }
+  [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
+  [[nodiscard]] auto x() const -> double { return x_longitude_; }
+  [[nodiscard]] auto y() const -> double { return y_latitude_; }
+  [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
+  [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
 
   friend bool operator==(Point2d const &, Point2d const &) = default;
 
@@ -150,13 +160,13 @@ struct Point3d {
     DMG_ASSERT(valid3d(crs), "Not a valid 3d Coordinate Reference System");
   }
 
-  auto crs() const -> CoordinateReferenceSystem { return crs_; }
-  auto x() const -> double { return x_longitude_; }
-  auto y() const -> double { return y_latitude_; }
-  auto z() const -> double { return z_height_; }
-  auto longitude() const -> double { return x_longitude_; }
-  auto latitude() const -> double { return y_latitude_; }
-  auto height() const -> double { return z_height_; }
+  [[nodiscard]] auto crs() const -> CoordinateReferenceSystem { return crs_; }
+  [[nodiscard]] auto x() const -> double { return x_longitude_; }
+  [[nodiscard]] auto y() const -> double { return y_latitude_; }
+  [[nodiscard]] auto z() const -> double { return z_height_; }
+  [[nodiscard]] auto longitude() const -> double { return x_longitude_; }
+  [[nodiscard]] auto latitude() const -> double { return y_latitude_; }
+  [[nodiscard]] auto height() const -> double { return z_height_; }
 
   friend bool operator==(Point3d const &A, Point3d const &B) = default;
 

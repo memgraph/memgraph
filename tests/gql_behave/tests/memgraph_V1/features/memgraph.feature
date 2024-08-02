@@ -245,8 +245,8 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         When executing query:
             """
             RETURN
-                point({longitude:1, latitude:2, srid:7203}).srid AS result1,
-                point({longitude:1, latitude:2, height:3, srid:9757}).srid AS result2,
+                point({x:1, y:2, srid:7203}).srid AS result1,
+                point({x:1, y:2, height:3, srid:9757}).srid AS result2,
                 point({x:1, y:2, srid:4326}).srid AS result3,
                 point({x:1, y:2, z:3, srid:4979}).srid AS result4;
             """
@@ -258,8 +258,8 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         When executing query:
             """
             RETURN
-                point({longitude:1, latitude:2, crs:'cartesian'}).srid AS result1,
-                point({longitude:1, latitude:2, height:3, crs:'cartesian-3d'}).srid AS result2,
+                point({x:1, y:2, crs:'cartesian'}).srid AS result1,
+                point({x:1, y:2, height:3, crs:'cartesian-3d'}).srid AS result2,
                 point({x:1, y:2, crs:'wgs-84'}).srid AS result3,
                 point({x:1, y:2, z:3, crs:'wgs-84-3d'}).srid AS result4;
             """
@@ -306,6 +306,13 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         When executing query:
             """
             RETURN point({longitude:0, latitude:-91}) AS result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 7:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, crs:'cartesian'}) as result;
             """
         Then an error should be raised
 
@@ -406,7 +413,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then an error should be raised
 
-   Scenario: Point3d-cartesian lookup:
+    Scenario: Point3d-cartesian lookup:
         Given an empty graph
         When executing query:
             """
@@ -547,6 +554,19 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
             RETURN point.withinbbox(
               point({longitude:  180, latitude: 58.0}),
+              point({longitude:  179, latitude: 57.0}),
+              point({longitude: -179, latitude: 59.0})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | true  |
+
+    Scenario: Point2d-WGS48 withinbbox wrap around longitude negative:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+              point({longitude: -180, latitude: 58.0}),
               point({longitude:  179, latitude: 57.0}),
               point({longitude: -179, latitude: 59.0})
             ) AS result;
