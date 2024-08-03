@@ -2281,6 +2281,12 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
 
+  std::optional<size_t> const commit_frequency =
+      EvaluateCommitFrequency(evaluator, cypher_query->pre_query_directives_.commit_frequency_);
+  if (commit_frequency) {
+    throw utils::NotYetImplemented("periodic commit");
+  }
+
   auto clauses = cypher_query->single_query_->clauses_;
   if (std::any_of(clauses.begin(), clauses.end(),
                   [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
