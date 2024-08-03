@@ -102,7 +102,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
-                      | OF
+                      | OF_TOKEN
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | ON_DISK_TRANSACTIONAL
@@ -294,7 +294,7 @@ indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
-periodicSubquery : IN TRANSACTIONS OF periodicCommitNumber=literal ROWS ;
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
 callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
