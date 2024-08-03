@@ -2,12 +2,12 @@ show_active_users_info: &show_active_users_info
   cluster:
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr"]
-      log_file: "test-show-active-users-info.log"
+      log_file: "show-active-users-info.log"
       setup_queries: []
       validation_queries: []
 
 workloads:
-  - name: "test-show-active-users-info"
+  - name: "Show active users info"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_active_users_info/test_show_active_users_info.py"]
     <<: *show_active_users_info

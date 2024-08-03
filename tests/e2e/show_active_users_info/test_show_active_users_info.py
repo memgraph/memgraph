@@ -12,15 +12,28 @@
 import sys
 
 import pytest
-from common import memgraph
+from common import memgraph, provide_user
+from gqlalchemy import Memgraph
 
 
-def test_empty_show_storage_info(memgraph):
+def test_empty_show_active_users_info(memgraph):
     results = list(memgraph.execute_and_fetch("SHOW ACTIVE USERS INFO"))
     assert len(results) == 1
-    assert len(results["username"]) == 0
-    assert len(results["session uuid"]) > 0
-    assert len(results["login timestamp"]) > 0
+    assert len(results[0]["username"]) == 0
+    assert len(results[0]["session uuid"]) > 0
+    assert len(results[0]["login timestamp"]) > 0
+
+
+def test_active_show_users_info_with_2_users(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW ACTIVE USERS INFO;"))
+    found = False
+    for r in results:
+        if r["username"] == USERNAME:
+            found = True
+
+    assert found
 
 
 if __name__ == "__main__":

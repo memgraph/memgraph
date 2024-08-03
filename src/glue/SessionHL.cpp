@@ -175,7 +175,10 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
-        interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value(), GetLoginTimestamp());
+        interpreter_.SetSessionInfo(
+            UUID(),
+            interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
+            GetLoginTimestamp());
       } else {
         res = false;
       }
@@ -183,6 +186,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       // No access control -> give empty user
       user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
+      interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
 
