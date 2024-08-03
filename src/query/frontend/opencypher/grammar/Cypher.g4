@@ -54,9 +54,11 @@ edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
+metricsInfo : METRICS INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
 
 systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo ) ;
 

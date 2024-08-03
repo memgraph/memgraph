@@ -11,7 +11,7 @@ def mg_sleep_and_assert(expected_value, function_to_retrieve_data, max_duration=
         if duration > max_duration:
             assert (
                 False
-            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Expected result {expected_value}, Last result was: {result}"
 
         time.sleep(time_between_attempt)
         result = function_to_retrieve_data()
@@ -74,7 +74,7 @@ def mg_sleep_and_assert_multiple(
         if duration > max_duration:
             assert (
                 False
-            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Expected result was {expected_values}. Last result was: {result}"
 
         time.sleep(time_between_attempt)
         result = [f() for f in functions_to_retrieve_data]
@@ -97,7 +97,7 @@ def mg_sleep_and_assert_any_function(
         if duration > max_duration:
             assert (
                 False
-            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Expected result was {expected_value}. Last result was: {result}"
 
         time.sleep(time_between_attempt)
         result = [f() for f in functions_to_retrieve_data]
@@ -120,7 +120,7 @@ def mg_sleep_and_assert_collection(
         if duration > max_duration:
             assert (
                 False
-            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Expected result was {expected_value}. Last result was: {result}"
 
         time.sleep(time_between_attempt)
         result = function_to_retrieve_data()

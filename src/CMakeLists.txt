@@ -53,20 +53,15 @@ target_link_libraries(memgraph stdc++fs Threads::Threads
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
 set_target_properties(memgraph PROPERTIES
 
-        # Set the executable output name to include version information.
-        OUTPUT_NAME "memgraph-${MEMGRAPH_VERSION}_${CMAKE_BUILD_TYPE}"
+        OUTPUT_NAME "memgraph"
+
+        INSTALL_RPATH "\$ORIGIN"
 
         # Output the executable in main binary dir.
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 
         POSITION_INDEPENDENT_CODE ON
         )
-
-# Create symlink to the built executable.
-add_custom_command(TARGET memgraph POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph> ${CMAKE_BINARY_DIR}/memgraph
-        BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph
-        COMMENT "Creating symlink to memgraph executable")
 
 # Emulate the installed python_support, by creating a symlink
 add_custom_command(TARGET memgraph POST_BUILD
@@ -104,10 +99,12 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
 # OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ WORLD_READ)
 
-# Install and rename executable to just 'memgraph' Since we have to rename,
-# we cannot use the recommended `install(TARGETS ...)`.
-install(PROGRAMS $<TARGET_FILE:memgraph>
-        DESTINATION lib/memgraph RENAME memgraph)
+# Install memgraph
+install(TARGETS memgraph
+    RUNTIME DESTINATION lib/memgraph)
+
+install(TARGETS mg-module-support
+    LIBRARY DESTINATION lib/memgraph)
 
 # Install Python source for supporting our embedded Python.
 install(FILES ${CMAKE_SOURCE_DIR}/include/mgp.py

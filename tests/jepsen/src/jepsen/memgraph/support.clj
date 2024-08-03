@@ -28,7 +28,6 @@
    :--storage-snapshot-interval-sec 300
    :--data-recovery-on-startup
    :--replication-restore-state-on-startup
-   :--data-recovery-on-startup
    :--storage-wal-file-flush-every-n-tx @sync-after-n-txn
    :--telemetry-enabled false
    :--storage-properties-on-edges))
@@ -47,13 +46,12 @@
    :--storage-wal-enabled
    :--storage-snapshot-interval-sec 300
    :--replication-restore-state-on-startup
-   :--data-recovery-on-startup
    :--storage-properties-on-edges
    :--telemetry-enabled false
    :--coordinator-id (get node-config :coordinator-id)
    :--coordinator-port (get node-config :coordinator-port)
    :--coordinator-hostname node
-   ))
+   :--management-port (get node-config :management-port)))
 
 (defn start-data-node!
   [test node-config]
@@ -99,7 +97,9 @@
             nodes-config (:nodes-config opts)
             flush-after-n-txn (:sync-after-n-txn opts)]
         (reset! sync-after-n-txn flush-after-n-txn)
-        (c/su (debian/install ['python3 'python3-dev]))
+        (c/su
+         (c/exec :apt-get :update)
+         (debian/install ['python3 'python3-dev]))
         (c/su (meh (c/exec :killall :memgraph)))
         (try (c/exec :command :-v local-binary)
              (catch Exception _

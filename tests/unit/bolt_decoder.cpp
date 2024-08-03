@@ -14,11 +14,16 @@
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
+#include "timezone_handler.hpp"
 
 using memgraph::communication::bolt::Value;
 
+namespace {
+
 inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
+
+}  // namespace
 
 /**
  * TestDecoderBuffer
@@ -662,7 +667,7 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
 }
 
-TEST_F(BoltDecoder, LocalDateTime) {
+void test_LocalDateTime() {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
@@ -695,8 +700,18 @@ TEST_F(BoltDecoder, LocalDateTime) {
   buffer.Clear();
   buffer.Write(data.data(), data.size());
   ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
-  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
-  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
+  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date(), local_date_time.date());
+  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time(), local_date_time.local_time());
+}
+
+TEST_F(BoltDecoder, LocalDateTime) { test_LocalDateTime(); }
+
+TEST_F(BoltDecoder, LocalDateTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTime();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTime();
 }
 
 TEST_F(BoltDecoder, ZonedDateTime) {

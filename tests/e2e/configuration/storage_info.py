@@ -22,6 +22,7 @@ default_storage_info_dict = {
     "vm_max_map_count": 0,  # machine dependent
     "memory_res": "",  # machine dependent
     "peak_memory_res": "",  # machine dependent
+    "unreleased_delta_objects": 0,
     "disk_usage": "",  # machine dependent
     "memory_tracked": "",  # machine dependent
     "allocation_limit": "",  # machine dependent

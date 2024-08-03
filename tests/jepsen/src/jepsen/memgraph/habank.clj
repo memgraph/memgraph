@@ -39,20 +39,20 @@
 
 (defn accounts-exist?
   "Check if accounts are created."
-  [conn]
-  (utils/with-session conn session
-    (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
-      (not-empty accounts))))
+  [session]
+  (let [accounts (mgclient/get-all-accounts session)
+        safe-accounts (or accounts [])
+        extracted-accounts (->> safe-accounts (map :n) (reduce conj []))]
+    (not-empty extracted-accounts)))
 
 (defn transfer-money
   "Transfer money from 1st account to the 2nd by some amount
   if the account you're transfering money from has enough
   money."
-  [conn op from to amount]
-  (dbclient/with-transaction conn tx
-    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
-      (mgclient/update-balance tx {:id from :amount (- amount)})
-      (mgclient/update-balance tx {:id to :amount amount})))
+  [tx op from to amount]
+  (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
+    (mgclient/update-balance tx {:id from :amount (- amount)})
+    (mgclient/update-balance tx {:id to :amount amount}))
   (info "Transfered money from account" from "to account" to "with amount" amount)
   (assoc op :type :ok))
 
@@ -94,12 +94,12 @@
 
 (defn insert-data
   "Delete existing accounts and create new ones."
-  [session op]
+  [txn op]
   (info "Deleting all accounts...")
-  (mgclient/detach-delete-all session)
+  (mgclient/detach-delete-all txn)
   (info "Creating accounts...")
   (dotimes [i utils/account-num]
-    (mgclient/create-account session {:id i :balance utils/starting-balance})
+    (mgclient/create-account txn {:id i :balance utils/starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
@@ -165,14 +165,15 @@
         (if (data-instance? node)
           (let [transfer-info (:value op)]
             (try
-              (if (accounts-exist? bolt-conn)
-                (transfer-money
-                 bolt-conn
-                 op
-                 (:from transfer-info)
-                 (:to transfer-info)
-                 (:amount transfer-info)) ; Returns op
-                (assoc op :type :info :value "Transfer allowed only when accounts exist."))
+              (dbclient/with-transaction bolt-conn txn
+                (if (accounts-exist? txn)
+                  (transfer-money
+                   txn
+                   op
+                   (:from transfer-info)
+                   (:to transfer-info)
+                   (:amount transfer-info)) ; Returns op
+                  (assoc op :type :info :value "Transfer allowed only when accounts exist.")))
               (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                 (assoc op :type :info :value (str "One of the nodes [" (:from transfer-info) ", " (:to transfer-info) "] participating in transfer is down")))
               (catch Exception e
@@ -190,8 +191,8 @@
         ; If leader changes, registration should already be done or not a leader will be printed.
         (if (= first-leader node)
 
-          (utils/with-session bolt-conn session
-            (try
+          (try
+            (utils/with-session bolt-conn session
               (when (not @registered-replication-instances?)
                 (register-replication-instances session nodes-config)
                 (reset! registered-replication-instances? true))
@@ -204,39 +205,38 @@
                 (set-instance-to-main session first-main)
                 (reset! main-set? true))
 
-              (assoc op :type :ok) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
+              (assoc op :type :ok)) ; NOTE: This doesn't necessarily mean all instances were successfully registered.
 
-              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                (info "Registering instances failed because node" node "is down.")
-                (utils/process-service-unavilable-exc op node))
-              (catch Exception e
-                (if (string/includes? (str e) "not a leader")
-                  (assoc op :type :info :value "Not a leader")
-                  (assoc op :type :fail :value (str e))))))
+            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+              (info "Registering instances failed because node" node "is down.")
+              (utils/process-service-unavilable-exc op node))
+            (catch Exception e
+              (if (string/includes? (str e) "not a leader")
+                (assoc op :type :info :value "Not a leader")
+                (assoc op :type :fail :value (str e)))))
 
           (assoc op :type :info :value "Not coordinator"))
 
         :initialize-data
         (if (data-instance? node)
 
-          (utils/with-session bolt-conn session
-            (try
-              (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))]
-                (if (empty? accounts)
-                  (insert-data session op) ; Return assoc op :type :ok
-                  (assoc op :type :info :value "Accounts already exist.")))
-              (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                (utils/process-service-unavilable-exc op node))
-              (catch Exception e
-                (if (utils/sync-replica-down? e)
+          (try
+            (dbclient/with-transaction bolt-conn txn
+              (if-not (accounts-exist? txn)
+                (insert-data txn op) ; Return assoc op :type :ok
+                (assoc op :type :info :value "Accounts already exist.")))
+            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+              (utils/process-service-unavilable-exc op node))
+            (catch Exception e
+              (if (utils/sync-replica-down? e)
                   ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
                   ; replica and transaction will commit on main.
-                  (assoc op :type :ok)
+                (assoc op :type :ok)
 
-                  (if (or (utils/query-forbidden-on-replica? e)
-                          (utils/query-forbidden-on-main? e))
-                    (assoc op :type :info :value (str e))
-                    (assoc op :type :fail :value (str e)))))))
+                (if (or (utils/query-forbidden-on-replica? e)
+                        (utils/query-forbidden-on-main? e))
+                  (assoc op :type :info :value (str e))
+                  (assoc op :type :fail :value (str e))))))
 
           (assoc op :type :info :value "Not data instance")))))
 
@@ -276,20 +276,6 @@
   "Check if there is more than one main in single read where single-read is a read list of instances. Single-read here is already processed list of roles."
   [roles]
   (> (count (get-mains roles)) 1))
-
-(defn alive-instances-no-main
-  "When all 3 data instances are alive, there should be exactly one main and 2 replicas."
-  [roles-health]
-  (let [mains (filter #(= "main" (:role %)) roles-health)
-        replicas (filter #(= "replica" (:role %)) roles-health)
-        all-data-instances-up (and
-                               (every? #(= "up" (:health %)) mains)
-                               (every? #(= "up" (:health %)) replicas))]
-
-    (if all-data-instances-up
-      (and (= 1 (count mains))
-           (= 2 (count replicas)))
-      true)))
 
 (defn habank-checker
   "High availability bank checker"
@@ -342,15 +328,6 @@
             more-than-one-main (->> coord->roles
                                     (filter (fn [[_ reads]] (some more-than-one-main reads)))
                                     (keys))
-            ; Mapping from coordinator to reads containing only health and role.
-            coord->roles-health (->> coord->full-reads
-                                     (map (fn [[node reads]]
-                                            [node (map single-read-to-role-and-health reads)]))
-                                     (into {}))
-            ; Check not-used, maybe will be added in the future.
-            _ (->> coord->roles-health
-                   (filter (fn [[_ reads]] (some alive-instances-no-main reads)))
-                   (vals))
             ; Node is considered empty if all reads are empty -> probably a mistake in registration.
             empty-si-nodes (->> coord->reads
                                 (filter (fn [[_ reads]]

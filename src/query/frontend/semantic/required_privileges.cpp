@@ -54,6 +54,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         // for *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
         break;
+      case DatabaseInfoQuery::InfoType::METRICS:
+        AddPrivilege(AuthQuery::Privilege::STATS);
+        break;
     }
   }
 
@@ -137,13 +140,14 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(DropEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
 
+  void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
   bool PreVisit(CallProcedure &procedure) override {
-    const auto maybe_proc =
-        procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_, utils::NewDeleteResource());
+    const auto maybe_proc = procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_);
     if (maybe_proc && maybe_proc->second->info.required_privilege) {
       AddPrivilege(*maybe_proc->second->info.required_privilege);
     }

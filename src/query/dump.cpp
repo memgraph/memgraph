@@ -385,7 +385,9 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
 PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
   auto enums = dba_->ShowEnums();
   auto to_create = [](auto &&p) {
-    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first, p.second | rv::join(", ") | r::to<std::string>);
+    // rv::c_str is required! https://github.com/ericniebler/range-v3/issues/1699
+    return fmt::format("CREATE ENUM {} VALUES {{ {} }};", p.first,
+                       p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
   };
   auto results = enums | rv::transform(to_create) | r::to_vector;
 

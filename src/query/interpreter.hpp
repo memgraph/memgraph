@@ -163,7 +163,8 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                                      std::string_view coordinator_server) -> void = 0;
+                                      std::string_view coordinator_server, std::string_view management_server)
+      -> void = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
