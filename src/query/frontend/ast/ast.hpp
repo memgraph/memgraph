@@ -2162,7 +2162,7 @@ struct IndexHint {
   }
 };
 
-struct UsingStatement {
+struct PreQueryDirectives {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
@@ -2170,14 +2170,17 @@ struct UsingStatement {
   std::vector<memgraph::query::IndexHint> index_hints_;
   /// Hops limit
   memgraph::query::Expression *hops_limit_{nullptr};
+  /// Commit frequency
+  memgraph::query::Expression *commit_frequency_{nullptr};
 
-  UsingStatement Clone(AstStorage *storage) const {
-    UsingStatement object;
+  PreQueryDirectives Clone(AstStorage *storage) const {
+    PreQueryDirectives object;
     object.index_hints_.resize(index_hints_.size());
     for (auto i = 0; i < index_hints_.size(); ++i) {
       object.index_hints_[i] = index_hints_[i].Clone(storage);
     }
     object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
+    object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -2210,7 +2213,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   /// Using statement
-  memgraph::query::UsingStatement using_statement_;
+  memgraph::query::PreQueryDirectives pre_query_directives_;
 
   CypherQuery *Clone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
@@ -2221,7 +2224,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
-    object->using_statement_ = using_statement_.Clone(storage);
+    object->pre_query_directives_ = pre_query_directives_.Clone(storage);
     return object;
   }
 

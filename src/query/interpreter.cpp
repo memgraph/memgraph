@@ -2276,9 +2276,15 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
 
-  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
   if (hops_limit) {
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
+  }
+
+  std::optional<size_t> const commit_frequency =
+      EvaluateCommitFrequency(evaluator, cypher_query->pre_query_directives_.commit_frequency_);
+  if (commit_frequency) {
+    throw utils::NotYetImplemented("periodic commit");
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
@@ -2450,7 +2456,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
-  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
