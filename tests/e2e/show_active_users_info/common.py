@@ -9,19 +9,25 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import typing
-
-import mgclient
 import pytest
-
-
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
-    return cursor.fetchall()
+from gqlalchemy import Memgraph
 
 
 @pytest.fixture
-def connect(**kwargs) -> mgclient.Connection:
-    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = True
-    return connection
+def memgraph(**kwargs) -> Memgraph:
+    memgraph = Memgraph()
+
+    yield memgraph
+
+    memgraph.drop_indexes()
+    memgraph.ensure_constraints([])
+    memgraph.drop_database()
+
+    try:
+        memgraph.execute("DROP USER test;")
+    except Exception as e:
+        pass
+    try:
+        memgraph.execute("DROP ROLE test;")
+    except Exception as e:
+        pass

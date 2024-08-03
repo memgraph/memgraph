@@ -12,13 +12,15 @@
 import sys
 
 import pytest
-from common import connect, execute_and_fetch_all
+from common import memgraph
 
 
-def test_empty_show_storage_info(connect):
-    cursor = connect.cursor()
-    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL")
-    execute_and_fetch_all(cursor, "SHOW ACTIVE USERS INFO")
+def test_empty_show_storage_info(memgraph):
+    results = list(memgraph.execute_and_fetch("SHOW ACTIVE USERS INFO"))
+    assert len(results) == 1
+    assert len(results["username"]) == 0
+    assert len(results["session uuid"]) > 0
+    assert len(results["login timestamp"]) > 0
 
 
 if __name__ == "__main__":

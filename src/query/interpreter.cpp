@@ -4179,7 +4179,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::ACTIVE_USERS: {
-      header = {"username", "session id", "login time"};
+      header = {"username", "session uuid", "login timestamp"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
         for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
