@@ -92,6 +92,7 @@ add_subdirectory(show_metrics)
 add_subdirectory(periodic_commit)
 
 add_subdirectory(replication_experimental)
+add_subdirectory(durability)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
