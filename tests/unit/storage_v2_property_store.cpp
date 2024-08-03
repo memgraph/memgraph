@@ -739,3 +739,21 @@ TEST(PropertyStore, HasAnyProperties) {
   EXPECT_TRUE(store.InitProperties(data));
   EXPECT_FALSE(store.HasAllPropertyValues({PropertyValue(0.0), PropertyValue(123), PropertyValue("three")}));
 }
+
+TEST(PropertyStore, ReplaceWithSameSize) {
+  // This test is important to catch a case where compression need to be using the correct buffer
+  PropertyStore store;
+  EXPECT_TRUE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'a'))));
+  EXPECT_FALSE(store.SetProperty(PropertyId::FromInt(1), PropertyValue(std::string(100, 'b'))));
+  EXPECT_EQ(store.GetProperty(PropertyId::FromInt(1)), PropertyValue(std::string(100, 'b')));
+}
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  int result = RUN_ALL_TESTS();
+
+  // now run with compression on
+  FLAGS_storage_property_store_compression_enabled = true;
+  result &= RUN_ALL_TESTS();
+  return result;
+}
