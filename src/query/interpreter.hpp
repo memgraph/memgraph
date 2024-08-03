@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string_view>
 #include <unordered_set>
 
@@ -273,14 +272,14 @@ class Interpreter final {
   };
 #endif
 
-  struct ActiveUsersInfo {
-    std::string username;
+  struct SessionInfo {
     std::string uuid;
-    std::string timestamp;
+    std::string username;
+    std::string login_timestamp;
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
-  ActiveUsersInfo active_users_info_;
+  SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -376,9 +375,7 @@ class Interpreter final {
 
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 
-  void SetUUID(std::string UUID);
-
-  void SetTimestamp(std::string timestamp);
+  void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 

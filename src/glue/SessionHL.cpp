@@ -175,9 +175,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
-        interpreter_.active_users_info_.username = user_or_role_->username().value();
-        interpreter_.SetUUID(UUID());
-        interpreter_.SetTimestamp(GetTimestamp());
+        interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value(), GetLoginTimestamp());
       } else {
         res = false;
       }

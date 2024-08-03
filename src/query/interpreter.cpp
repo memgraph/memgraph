@@ -25,7 +25,6 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
-#include <string>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -36,7 +35,6 @@
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
-#include "communication/v2/server.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "csv/parsing.hpp"
@@ -48,7 +46,6 @@
 #include "flags/experimental.hpp"
 #include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "glue/ServerT.hpp"
 #include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
@@ -119,8 +116,6 @@
 #include "utils/tsc.hpp"
 #include "utils/typeinfo.hpp"
 #include "utils/variant_helpers.hpp"
-
-#include "communication/websocket/server.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "flags/experimental.hpp"
@@ -3637,20 +3632,16 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
-std::vector<Interpreter::ActiveUsersInfo> GetActiveUsers(InterpreterContext *interpreter_context) {
-  std::vector<Interpreter::ActiveUsersInfo> active_users =
+std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
+  std::vector<Interpreter::SessionInfo> active_users =
       interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
-        std::vector<Interpreter::ActiveUsersInfo> users;
-        users.reserve(interpreters_.size());
+        std::vector<Interpreter::SessionInfo> info;
+        info.reserve(interpreters_.size());
         for (const auto &interpreter : interpreters_) {
-          if (interpreter->user_or_role_->username()) {
-            users.push_back(interpreter->active_users_info_);
-          } else {
-            users.push_back({"", "", ""});
-          }
+          info.push_back(interpreter->session_info_);
         }
 
-        return users;
+        return info;
       });
 
   return active_users;
@@ -4191,8 +4182,8 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       header = {"username", "session id", "login time"};
       handler = [interpreter_context] {
         std::vector<std::vector<TypedValue>> results;
-        for (const auto &result : GetActiveUsers(interpreter_context)) {
-          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.timestamp)});
+        for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
+          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
         }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
@@ -5521,7 +5512,8 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 }
 void Interpreter::ResetUser() { user_or_role_.reset(); }
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
-void Interpreter::SetUUID(std::string UUID) { active_users_info_.uuid = UUID; }
-void Interpreter::SetTimestamp(std::string timestamp) { active_users_info_.timestamp = timestamp; }
+void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
+  session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
+}
 
 }  // namespace memgraph::query

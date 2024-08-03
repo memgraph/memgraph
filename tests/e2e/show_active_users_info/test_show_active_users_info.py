@@ -17,10 +17,8 @@ from common import connect, execute_and_fetch_all
 
 def test_empty_show_storage_info(connect):
     cursor = connect.cursor()
-    execute_and_fetch_all(cursor, "STORAGE MODE ON_DISK_TRANSACTIONAL")
-    results = execute_and_fetch_all(cursor, "SHOW ACTIVE USERS INFO")
-    print(results)
-    # results = dict(map(lambda pair: (pair[0], pair[1]), results))
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL")
+    execute_and_fetch_all(cursor, "SHOW ACTIVE USERS INFO")
 
 
 if __name__ == "__main__":

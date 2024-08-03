@@ -13,7 +13,6 @@
 
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <thread>
 
@@ -73,7 +72,7 @@ class Session {
       : input_stream_(*input_stream),
         output_stream_(*output_stream),
         session_uuid_(utils::GenerateUUID()),
-        timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
+        login_timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
 
   virtual ~Session() = default;
 
@@ -224,7 +223,7 @@ class Session {
 
   virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
-  std::string GetTimestamp() const { return timestamp_; }
+  std::string GetLoginTimestamp() const { return login_timestamp_; }
 
  private:
   void ClientFailureInvalidData() {
@@ -245,7 +244,7 @@ class Session {
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
 
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
-  const std::string timestamp_;
+  const std::string login_timestamp_;
 };
 
 }  // namespace memgraph::communication::bolt
