@@ -15,7 +15,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <exception>
 #include <functional>
 #include <memory>

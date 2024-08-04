@@ -1010,7 +1010,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
           auto gc_guard = std::unique_lock{mem_storage->gc_lock_, std::defer_lock};
           if (gc_guard.try_lock()) {
-            FastDiscardOfDeltas(*commit_timestamp_, std::move(gc_guard));
+            FastDiscardOfDeltas(std::move(gc_guard));
           }
         }
       }
@@ -1037,12 +1037,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
   return {};
 }
 
-void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_vertices,
-                                                            std::list<Gid> &current_deleted_edges) {
+void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
+                                                            std::list<Gid> &current_deleted_vertices,
+                                                            IndexPerformanceTracker &impact_tracker) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove_clear = [&](std::deque<Delta> &deltas) {
+  auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
+      impact_tracker.update(delta.action);
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::NULLPTR:
@@ -1070,8 +1072,12 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         }
       }
     }
+
     // delete deltas
+    auto delta_size = deltas.size();
     deltas.clear();
+
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
   };
 
   // STEP 1) ensure everything in GC is gone
@@ -1097,42 +1103,31 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   unlink_remove_clear(transaction_.deltas);
 }
 
-void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(uint64_t oldest_active_timestamp,
-                                                            std::unique_lock<std::mutex> /*gc_guard*/) {
+void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // STEP 1 + STEP 2
+  // STEP 1 + STEP 2 - delta cleanup
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
-  GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges);
+  auto impact_tracker = IndexPerformanceTracker{};
+  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
 
-  // STEP 3) skip_list removals
+  // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
-    // 3.a) clear from vertex indexes first
-    const std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteVertexEntries(oldest_active_timestamp, dummy.get_token());
-    auto *mem_unique_constraints =
-        static_cast<InMemoryUniqueConstraints *>(mem_storage->constraints_.unique_constraints_.get());
-    mem_unique_constraints->RemoveObsoleteEntries(oldest_active_timestamp, dummy.get_token());
-
-    // 3.b) remove from vertex skip_list
-    auto vertex_acc = mem_storage->vertices_.access();
-    for (auto gid : current_deleted_vertices) {
-      vertex_acc.remove(gid);
-    }
+    mem_storage->deleted_vertices_.WithLock(
+        [&](auto &deleted_vertices) { deleted_vertices.splice(deleted_vertices.end(), current_deleted_vertices); });
+  }
+  if (!current_deleted_edges.empty()) {
+    mem_storage->deleted_edges_.WithLock(
+        [&](auto &deleted_edges) { deleted_edges.splice(deleted_edges.end(), current_deleted_edges); });
   }
 
-  if (!current_deleted_edges.empty()) {
-    // 3.c) clear from edge indexes first
-    const std::stop_source dummy;
-    mem_storage->indices_.RemoveObsoleteEdgeEntries(oldest_active_timestamp, dummy.get_token());
-    // 3.d) remove from edge skip_list
-    auto edge_acc = mem_storage->edges_.access();
-    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
-    for (auto gid : current_deleted_edges) {
-      edge_acc.remove(gid);
-      edge_metadata_acc.remove(gid);
-    }
+  // STEP 4) hint to GC that indices need cleanup for performance reasons
+  if (impact_tracker.impacts_vertex_indexes()) {
+    mem_storage->gc_index_cleanup_vertex_performance_.store(true, std::memory_order_release);
+  }
+  if (impact_tracker.impacts_edge_indexes()) {
+    mem_storage->gc_index_cleanup_edge_performance_.store(true, std::memory_order_release);
   }
 }
 
@@ -1166,6 +1161,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
 
+    auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1333,6 +1329,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           break;
       }
     }
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
@@ -1808,8 +1805,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // We will only free vertices deleted up until now in this GC cycle, and we
   // will do it after cleaning-up the indices. That way we are sure that all
   // vertices that appear in an index also exist in main storage.
-  std::list<Gid> current_deleted_edges;
-  std::list<Gid> current_deleted_vertices;
+  std::list<Gid> current_deleted_edges{};
+  std::list<Gid> current_deleted_vertices{};
+
+  deleted_vertices_.WithLock([&](auto &deleted_vertices) { current_deleted_vertices.swap(deleted_vertices); });
+  deleted_edges_.WithLock([&](auto &deleted_edges) { current_deleted_edges.swap(deleted_edges); });
 
   auto const need_full_scan_vertices = gc_full_scan_vertices_delete_.exchange(false);
   auto const need_full_scan_edges = gc_full_scan_edges_delete_.exchange(false);
@@ -1819,12 +1819,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   committed_transactions_.WithLock(
       [&](auto &committed_transactions) { committed_transactions.swap(linked_undo_buffers); });
 
-  // Flag that will be used to determine whether the Index GC should be run. It
-  // should be run when there were any items that were cleaned up (there were
-  // updates between this run of the GC and the previous run of the GC). This
-  // eliminates high CPU usage when the GC doesn't have to clean up anything.
-  bool run_index_cleanup = !linked_undo_buffers.empty() || !garbage_undo_buffers_->empty() || need_full_scan_vertices ||
-                           need_full_scan_edges;
+  // This is to track if any of the unlinked deltas would have an impact on index performance, ie. do they hint that
+  // there are possible stale/duplicate entries that can be removed
+  auto index_impact = IndexPerformanceTracker{};
 
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
@@ -1869,6 +1866,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     // The chain can be only read without taking any locks.
 
     for (Delta &delta : linked_entry->deltas_) {
+      index_impact.update(delta.action);
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -1977,19 +1975,39 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     });
   }
 
+  // Index cleanup runs can be expensive, we want to avoid high CPU usage when the GC doesn't have to clean up any
+  // indexes.
+  // - Correctness: we need to remove entries from indexes to avoid dangling raw pointers
+  // - Performance: we want to remove duplicate/stale entries to make the skip list as optimial as possible
+
+  // On object deletion, theses indexes MUST be cleaned for functional correctness, their entries with raw pointers to
+  // the actual objects need removing before the object is removed itself. Also moving from IN_MEMORY_ANALYTICAL to
+  // IN_MEMORY_TRANSACTIONAL any object could have been deleted so also index cleanup is required for correctness.
+  bool const index_cleanup_vertex_needed = need_full_scan_vertices || !current_deleted_vertices.empty();
+  bool const index_cleanup_edge_needed = need_full_scan_edges || !current_deleted_edges.empty();
+
+  // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
+  // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
+  auto index_cleanup_vertex_performance =
+      gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
+      index_impact.impacts_vertex_indexes();
+  auto index_cleanup_edge_performance = gc_index_cleanup_edge_performance_.exchange(false, std::memory_order_acq_rel) ||
+                                        index_impact.impacts_edge_indexes();
+
   // After unlinking deltas from vertices, we refresh the indices. That way
   // we're sure that none of the vertices from `current_deleted_vertices`
   // appears in an index, and we can safely remove the from the main storage
   // after the last currently active transaction is finished.
-  if (run_index_cleanup) {
-    // This operation is very expensive as it traverses through all of the items
-    // in every index every time.
-    auto token = stop_source.get_token();
-    if (!token.stop_requested()) {
+  // This operation is very expensive as it traverses through all of the items
+  // in every index every time.
+  if (auto token = stop_source.get_token(); !token.stop_requested()) {
+    if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
       indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
-      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, std::move(token));
+      mem_unique_constraints->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+    }
+    if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
+      indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
 
@@ -2001,7 +2019,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
+
+      auto const sum_func = [](uint32_t curr, auto const &gc_deltas) { return curr + gc_deltas.deltas_.size(); };
+      uint32_t const total_delta_size =
+          std::accumulate(unlinked_undo_buffers.begin(), unlinked_undo_buffers.end(), 0U, sum_func);
+
+      // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
+      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, total_delta_size);
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
@@ -2080,6 +2105,7 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
   info.memory_res = utils::GetMemoryRES();
   memgraph::metrics::SetGaugeValue(memgraph::metrics::PeakMemoryRes, info.memory_res);
   info.peak_memory_res = memgraph::metrics::GetGaugeValue(memgraph::metrics::PeakMemoryRes);
+  info.unreleased_delta_objects = memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects);
 
   // Special case for the default database
   auto update_path = [&](const std::filesystem::path &dir) {

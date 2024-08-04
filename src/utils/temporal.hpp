@@ -16,9 +16,7 @@
 #include <iosfwd>
 #include <limits>
 
-#include "fmt/format.h"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::utils {
 
@@ -139,6 +137,7 @@ constexpr std::chrono::days DaysSinceEpoch(uint16_t year, uint8_t month, uint8_t
   return ToChronoSysDaysYMD(year, month, day).time_since_epoch();
 }
 
+// No timezone conversion supported
 struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normalized using the epoch time point
@@ -194,6 +193,7 @@ struct LocalTimeParameters {
 
 std::pair<LocalTimeParameters, bool> ParseLocalTimeParameters(std::string_view string);
 
+// No timezone conversion supported
 struct LocalTime {
   explicit LocalTime() : LocalTime{LocalTimeParameters{}} {}
   explicit LocalTime(int64_t microseconds);
@@ -253,20 +253,97 @@ struct LocalTimeHash {
 std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std::string_view string);
 
 struct LocalDateTime {
-  explicit LocalDateTime(int64_t microseconds);
+  /**
+   * @brief Construct a new LocalDateTime object using system time (UTC).
+   *
+   * @param offset_epoch_us Offset from POSIX epoch in microseconds
+   */
+  explicit LocalDateTime(int64_t offset_epoch_us);
+
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date_parameters
+   * @param local_time_parameters
+   */
   explicit LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters);
+
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date
+   * @param local_time
+   */
   explicit LocalDateTime(const Date &date, const LocalTime &local_time);
 
+  /**
+   * @brief Returns offset in system time (UTC).
+   *
+   * @return int64_t
+   */
+  int64_t SysMicrosecondsSinceEpoch() const;
+
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see Date LocalTime
+   *
+   * @return int64_t
+   */
   int64_t MicrosecondsSinceEpoch() const;
-  int64_t SecondsSinceEpoch() const;  // seconds since epoch
+
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see bolt base_encoder
+   *
+   * @return int64_t
+   */
+  int64_t SecondsSinceEpoch() const;
+
+  /**
+   * @brief Returns offset in calendar time.
+   *
+   * @note Useful for object that do not support timezones, but still might want to display the correct time.
+   * @see bolt base_encoder
+   *
+   * @return int64_t
+   */
   int64_t SubSecondsAsNanoseconds() const;
+
+  /**
+   * @brief Return string representing calendar time (local/user timezone)
+   *
+   * @return std::string
+   */
   std::string ToString() const;
+
+  /**
+   * @brief Return calendar date (local/user timezone)
+   *
+   * @return Date
+   */
+  Date date() const;
+
+  /**
+   * @brief Return calendar time (local/user timezone)
+   *
+   * @return Date
+   */
+  LocalTime local_time() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 
   friend std::ostream &operator<<(std::ostream &os, const LocalDateTime &ldt) { return os << ldt.ToString(); }
 
   friend LocalDateTime operator+(const LocalDateTime &dt, const Duration &dur) {
+    // Use calendar time since we want to restrict allowed dates
     const auto local_date_time_as_duration = Duration(dt.MicrosecondsSinceEpoch());
     const auto result = local_date_time_as_duration + dur;
     namespace chrono = std::chrono;
@@ -285,9 +362,10 @@ struct LocalDateTime {
     return Duration(lhs.MicrosecondsSinceEpoch()) - Duration(rhs.MicrosecondsSinceEpoch());
   }
 
-  Date date;
-  LocalTime local_time;
+  std::chrono::sys_time<std::chrono::microseconds>
+      us_since_epoch_;  //!< system time representing the local date time (no timezone applied)
 };
+static_assert(sizeof(LocalDateTime) == 8);
 
 struct LocalDateTimeHash {
   size_t operator()(const LocalDateTime &local_date_time) const;

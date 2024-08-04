@@ -14,7 +14,6 @@
 #include "rpc/client.hpp"
 #include "utils/uuid.hpp"
 
-#include <deque>
 #include "messages.hpp"
 #include "rpc/messages.hpp"
 #include "utils/uuid.hpp"

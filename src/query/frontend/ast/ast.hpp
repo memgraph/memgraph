@@ -19,6 +19,7 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
@@ -142,7 +143,7 @@ class Tree {
   virtual const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
   Tree() = default;
-  virtual ~Tree() {}
+  virtual ~Tree() = default;
 
   virtual Tree *Clone(AstStorage *storage) const = 0;
 
@@ -1355,6 +1356,8 @@ class Function : public memgraph::query::Expression {
   std::vector<memgraph::query::Expression *> arguments_;
   std::string function_name_;
   std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &)> function_;
+  // This is needed to acquire the shared lock on the module so it doesn't get reloaded while the query is running
+  std::shared_ptr<procedure::Module> module_;
 
   Function *Clone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
@@ -1364,12 +1367,24 @@ class Function : public memgraph::query::Expression {
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
+    object->module_ = module_;
     return object;
   }
 
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
-      : arguments_(arguments), function_name_(function_name), function_(NameToFunction(function_name_)) {
+      : arguments_(arguments), function_name_(function_name) {
+    auto func_result = NameToFunction(function_name_);
+
+    std::visit(utils::Overloaded{[this](func_impl function) {
+                                   function_ = function;
+                                   module_.reset();
+                                 },
+                                 [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
+                                   function_ = function.first;
+                                   module_ = std::move(function.second);
+                                 }},
+               func_result);
     if (!function_) {
       throw SemanticException("Function '{}' doesn't exist.", function_name);
     }
@@ -2147,7 +2162,7 @@ struct IndexHint {
   }
 };
 
-struct UsingStatement {
+struct PreQueryDirectives {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
@@ -2155,14 +2170,17 @@ struct UsingStatement {
   std::vector<memgraph::query::IndexHint> index_hints_;
   /// Hops limit
   memgraph::query::Expression *hops_limit_{nullptr};
+  /// Commit frequency
+  memgraph::query::Expression *commit_frequency_{nullptr};
 
-  UsingStatement Clone(AstStorage *storage) const {
-    UsingStatement object;
+  PreQueryDirectives Clone(AstStorage *storage) const {
+    PreQueryDirectives object;
     object.index_hints_.resize(index_hints_.size());
     for (auto i = 0; i < index_hints_.size(); ++i) {
       object.index_hints_[i] = index_hints_[i].Clone(storage);
     }
     object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
+    object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
     return object;
   }
 };
@@ -2195,7 +2213,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   memgraph::query::Expression *memory_limit_{nullptr};
   size_t memory_scale_{1024U};
   /// Using statement
-  memgraph::query::UsingStatement using_statement_;
+  memgraph::query::PreQueryDirectives pre_query_directives_;
 
   CypherQuery *Clone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
@@ -2206,7 +2224,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
     }
     object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
-    object->using_statement_ = using_statement_.Clone(storage);
+    object->pre_query_directives_ = pre_query_directives_.Clone(storage);
     return object;
   }
 
@@ -3091,7 +3109,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS };
+  enum class InfoType { INDEX, CONSTRAINT, EDGE_TYPES, NODE_LABELS, METRICS };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -4018,6 +4036,24 @@ class DropEnumQuery : public memgraph::query::Query {
   DropEnumQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<DropEnumQuery>();
     object->enum_name_ = enum_name_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class ShowSchemaInfoQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ShowSchemaInfoQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowSchemaInfoQuery>();
     return object;
   }
 

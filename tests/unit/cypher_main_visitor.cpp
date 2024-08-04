@@ -69,6 +69,9 @@ class Base {
 
   virtual EdgeTypeIx EdgeType(const std::string &edge_type_name) = 0;
 
+  // At end of test clear any persisted state
+  virtual void Reset() = 0;
+
   TypedValue LiteralValue(Expression *expression) {
     if (context_.is_query_cached) {
       auto *param_lookup = dynamic_cast<ParameterLookup *>(expression);
@@ -131,6 +134,8 @@ class AstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -173,6 +178,8 @@ class ClonedAstGenerator : public Base {
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
 
+  void Reset() override { ast_storage_ = AstStorage{}; }
+
   AstStorage ast_storage_;
 };
 
@@ -197,6 +204,8 @@ class CachedAstGenerator : public Base {
   LabelIx Label(const std::string &name) override { return ast_storage_.GetLabelIx(name); }
 
   EdgeTypeIx EdgeType(const std::string &name) override { return ast_storage_.GetEdgeTypeIx(name); }
+
+  void Reset() override { ast_storage_ = AstStorage{}; }
 
   AstStorage ast_storage_;
 };
@@ -250,6 +259,7 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
   }
 
   void TearDown() override {
+    GetParam()->Reset();
     // To release any_type
     procedure::gModuleRegistry.UnloadAllModules();
   }
@@ -291,6 +301,9 @@ class CypherMainVisitorTest : public ::testing::TestWithParam<std::shared_ptr<Ba
 
 const procedure::AnyType CypherMainVisitorTest::any_type{};
 
+/// DEVNOTE: I DO NOT LIKE THIS
+///          We are using global values that maybe have persistent state
+///          hence the need for calling Reset() in TearDown()
 std::shared_ptr<Base> gAstGeneratorTypes[] = {
     std::make_shared<AstGenerator>(),
     std::make_shared<OriginalAfterCloningAstGenerator>(),
@@ -5017,4 +5030,69 @@ TEST_P(CypherMainVisitorTest, DropEnumQuery) {
     ASSERT_NE(query, nullptr);
     ASSERT_EQ(query->enum_name_, "Status");
   }
+}
+
+TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 10 ROWS;"));
+
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->single_query_);
+
+    auto *single_query = query->single_query_;
+
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+
+    auto *call_subquery = dynamic_cast<CallSubquery *>(single_query->clauses_[1]);
+    const auto *nested_query = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+
+    ASSERT_TRUE(nested_query);
+    ASSERT_TRUE(nested_query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(nested_query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 'a' ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF -1 ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 3.0 ROWS;"),
+                 SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
+  auto &ast_generator = *GetParam();
+  const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
+  ASSERT_NE(query, nullptr);
 }

@@ -11,21 +11,21 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <stdexcept>
 #include <string>
-#include <tuple>
 
 #include "gflags/gflags.h"
 
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
 #include "flags/log_level.hpp"
-#include "flags/query.hpp"
-#include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+
+namespace {
+bool ValidTimezone(std::string_view tz);
+}  // namespace
 
 /*
  * Setup GFlags
@@ -59,6 +59,9 @@ DEFINE_bool(hops_limit_partial_results, true,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA format).", { return ValidTimezone(value); });
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -83,11 +86,15 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kTimezoneSettingKey = "timezone";
+constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
+std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -111,6 +118,17 @@ auto GenHandler(std::string flag, std::string key) {
     return *val;
   };
 }
+
+auto GetTimezone(std::string_view tz) -> const std::chrono::time_zone * {
+  try {
+    return std::chrono::locate_zone(tz);
+  } catch (const std::runtime_error &e) {
+    spdlog::warn("Unsupported timezone: {}", e.what());
+    return nullptr;
+  }
+}
+
+bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
 
 }  // namespace
 
@@ -201,9 +219,22 @@ void Initialize() {
       },
       ValidBoolStr);
 
+  /*
+   * Register cartesian enable flag
+   */
   register_flag(
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+
+  /*
+   * Register timezone setting
+   */
+  register_flag(
+      kTimezoneGFlagsKey, kTimezoneSettingKey, kRestore,
+      [](const std::string &val) {
+        timezone_ = ::GetTimezone(val);  // Cache for faster access
+      },
+      ValidTimezone);
 }
 
 std::string GetServerName() {
@@ -218,5 +249,7 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+const std::chrono::time_zone *GetTimezone() { return timezone_; }
 
 }  // namespace memgraph::flags::run_time

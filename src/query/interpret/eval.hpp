@@ -661,10 +661,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &ldt = expression_result_ptr->ValueLocalDateTime();
-        if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
+        if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
           return std::move(*date_field);
         }
-        if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
+        if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
           return TypedValue(*lt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
@@ -747,8 +747,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &ldt = expression_result.ValueLocalDateTime();
-        const auto &date = ldt.date;
-        const auto &lt = ldt.local_time;
+        const auto &date = ldt.date();
+        const auto &lt = ldt.local_time();
         result.emplace("year", TypedValue(date.year, ctx_->memory));
         result.emplace("month", TypedValue(date.month, ctx_->memory));
         result.emplace("day", TypedValue(date.day, ctx_->memory));
@@ -1279,5 +1279,7 @@ std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Ex
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
+
+std::optional<size_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *commit_frequency);
 
 }  // namespace memgraph::query
