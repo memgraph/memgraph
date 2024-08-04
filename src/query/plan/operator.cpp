@@ -5998,9 +5998,11 @@ class PeriodicCommitCursor : public Cursor {
     MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
   }
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+    // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
-    const SCOPED_PROFILE_OP_BY_REF(self_);
+    // NOLINTNEXTLINE(misc-const-correctness)
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     throw utils::NotYetImplemented("periodic commit");
 
@@ -6012,6 +6014,7 @@ class PeriodicCommitCursor : public Cursor {
   void Reset() override { input_cursor_->Reset(); }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
 };
@@ -6054,8 +6057,10 @@ class PeriodicSubqueryCursor : public Cursor {
         subquery_(self.subquery_->MakeCursor(mem)),
         subquery_has_return_(self.subquery_has_return_) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
+  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+    // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
+    // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
     throw utils::NotYetImplemented("periodic commit");
@@ -6071,6 +6076,7 @@ class PeriodicSubqueryCursor : public Cursor {
   }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
   [[maybe_unused]] const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
