@@ -103,7 +103,7 @@ auto MakeLogicalPlanForSingleQuery(QueryParts query_parts, PlanningContext<TDbAc
 /// the estimated cost of that plan as a `double`.
 template <class TPlanningContext, class TPlanPostProcess>
 auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, bool use_variable_planner) {
-  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query);
+  auto query_parts = CollectQueryParts(*context->symbol_table, *context->ast_storage, context->query, false);
   auto &vertex_counts = *context->db;
   double total_cost = std::numeric_limits<double>::max();
   bool curr_uses_index_hint = false;
@@ -150,7 +150,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
 
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters, bool use_variable_planner) {
-  PostProcessor post_processor(parameters, context->query->using_statement_.index_hints_, context->db);
+  PostProcessor post_processor(parameters, context->query->pre_query_directives_.index_hints_, context->db);
   return MakeLogicalPlan(context, &post_processor, use_variable_planner);
 }
 
