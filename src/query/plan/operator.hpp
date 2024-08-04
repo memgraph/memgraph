@@ -2784,10 +2784,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-<<<<<<< HEAD
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-=======
->>>>>>> master
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<PeriodicCommit>();
