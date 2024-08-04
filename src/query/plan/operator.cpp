@@ -1321,7 +1321,7 @@ class ExpandVariableCursor : public Cursor {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     storage::View::OLD);
       auto calc_bound = [&evaluator](auto &bound) {
-        auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
+        auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0) throw QueryRuntimeException("Variable expansion bound must be a non-negative integer.");
         return value;
       };
@@ -1504,9 +1504,9 @@ class STShortestPathCursor : public query::plan::Cursor {
       const auto &sink = sink_tv.ValueVertex();
 
       int64_t lower_bound =
-          self_.lower_bound_ ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
+          self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
       int64_t upper_bound = self_.upper_bound_
-                                ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                                ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
                                 : std::numeric_limits<int64_t>::max();
 
       if (upper_bound < 1 || lower_bound > upper_bound) continue;
@@ -1851,11 +1851,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         const auto &vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
-        lower_bound_ = self_.lower_bound_
-                           ? EvaluateInt(&evaluator, self_.lower_bound_, "Min depth in breadth-first expansion")
-                           : 1;
+        lower_bound_ =
+            self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in breadth-first expansion") : 1;
         upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
+                           ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in breadth-first expansion")
                            : std::numeric_limits<int64_t>::max();
 
         if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
@@ -2120,7 +2119,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
         }
         if (self_.upper_bound_) {
-          upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
+          upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
           upper_bound_set_ = true;
         } else {
           upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -2490,7 +2489,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
     // if they are shorter in depth
     if (self_.upper_bound_) {
-      upper_bound_ = EvaluateInt(&evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
+      upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
       upper_bound_set_ = true;
     } else {
       upper_bound_ = std::numeric_limits<int64_t>::max();
@@ -3007,58 +3006,64 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
-  if (delete_executed_) {
-    return false;
+  if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD);
+    buffer_size_ = *EvaluateDeleteBufferSize(evaluator, self_.buffer_size_);
   }
 
-  if (input_cursor_->Pull(frame, context)) {
+  bool const has_more = input_cursor_->Pull(frame, context);
+
+  if (has_more) {
     UpdateDeleteBuffer(frame, context);
-    return true;
+    pulled_++;
   }
 
-  auto &dba = *context.db_accessor;
-  auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
-  if (res.HasError()) {
-    switch (res.GetError()) {
-      case storage::Error::SERIALIZATION_ERROR:
-        throw TransactionSerializationException();
-      case storage::Error::VERTEX_HAS_EDGES:
-        throw RemoveAttachedVertexException();
-      case storage::Error::DELETED_OBJECT:
-      case storage::Error::PROPERTIES_DISABLED:
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw QueryRuntimeException("Unexpected error when deleting a node.");
-    }
-  }
-
-  if (*res) {
-    context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
-    context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
-  }
-
-  // Update deleted objects for triggers
-  if (context.trigger_context_collector && *res) {
-    for (const auto &node : (*res)->first) {
-      context.trigger_context_collector->RegisterDeletedObject(node);
-    }
-
-    if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
-      for (const auto &edge : (*res)->second) {
-        context.trigger_context_collector->RegisterDeletedObject(edge);
+  if (!has_more || (buffer_size_.has_value() && pulled_ >= *buffer_size_)) {
+    auto &dba = *context.db_accessor;
+    auto res = dba.DetachDelete(std::move(buffer_.nodes), std::move(buffer_.edges), self_.detach_);
+    if (res.HasError()) {
+      switch (res.GetError()) {
+        case storage::Error::SERIALIZATION_ERROR:
+          throw TransactionSerializationException();
+        case storage::Error::VERTEX_HAS_EDGES:
+          throw RemoveAttachedVertexException();
+        case storage::Error::DELETED_OBJECT:
+        case storage::Error::PROPERTIES_DISABLED:
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw QueryRuntimeException("Unexpected error when deleting a node.");
       }
     }
+
+    if (*res) {
+      context.execution_stats[ExecutionStats::Key::DELETED_NODES] += static_cast<int64_t>((*res)->first.size());
+      context.execution_stats[ExecutionStats::Key::DELETED_EDGES] += static_cast<int64_t>((*res)->second.size());
+    }
+
+    // Update deleted objects for triggers
+    if (context.trigger_context_collector && *res) {
+      for (const auto &node : (*res)->first) {
+        context.trigger_context_collector->RegisterDeletedObject(node);
+      }
+
+      if (context.trigger_context_collector->ShouldRegisterDeletedObject<query::EdgeAccessor>()) {
+        for (const auto &edge : (*res)->second) {
+          context.trigger_context_collector->RegisterDeletedObject(edge);
+        }
+      }
+    }
+
+    pulled_ = 0;
   }
 
-  delete_executed_ = true;
-
-  return false;
+  return has_more;
 }
 
 void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Delete::DeleteCursor::Reset() {
   input_cursor_->Reset();
-  delete_executed_ = false;
+  pulled_ = 0;
 }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property,
@@ -6019,7 +6024,8 @@ class PeriodicCommitCursor : public Cursor {
 
     bool const pull_value = input_cursor_->Pull(frame, context);
 
-    if (++pulled_ >= commit_frequency_) {
+    pulled_++;
+    if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
       [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
       pulled_ = 0;
@@ -6040,7 +6046,7 @@ class PeriodicCommitCursor : public Cursor {
   }
 
  private:
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
   std::optional<uint64_t> commit_frequency_;
@@ -6148,7 +6154,7 @@ class PeriodicSubqueryCursor : public Cursor {
   }
 
  private:
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
