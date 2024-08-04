@@ -635,6 +635,9 @@ struct QueryParts {
   std::vector<QueryPart> query_parts = {};
   /// Distinct flag, determined by the query combinator
   bool distinct = false;
+  /// Commit frequency for periodic commit
+  Expression *commit_frequency = nullptr;
+  bool is_subquery = false;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.
@@ -643,7 +646,7 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *, bool is_subquery);
 
 /**
  * @brief Split expression on AND operators; useful for splitting single filters
