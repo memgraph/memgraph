@@ -256,8 +256,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
-    audit_log_->Record(endpoint_.address().to_string(), username, query, params,
-                       db ? db->get()->name() : "no known database");
+    audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
+                       username, query, params, db ? db->get()->name() : "");
   }
 #endif
   try {
