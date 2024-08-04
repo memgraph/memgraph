@@ -43,7 +43,8 @@ std::unordered_map<std::string, Identifier *> GeneratePredefinedIdentifierMap(
 SymbolGenerator::SymbolGenerator(SymbolTable *symbol_table, const std::vector<Identifier *> &predefined_identifiers)
     : symbol_table_(symbol_table),
       predefined_identifiers_{GeneratePredefinedIdentifierMap(predefined_identifiers)},
-      scopes_(1, Scope()) {}
+      scopes_(1, Scope()),
+      global_scope_(Scope()) {}
 
 std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name, const Scope &scope,
                                                          Symbol::Type type) {
@@ -160,8 +161,18 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
 // CypherQuery
 
 bool SymbolGenerator::PreVisit(CypherQuery &cypher_query) {
-  if (cypher_query.pre_query_directives_.commit_frequency_) {
-    throw utils::NotYetImplemented("periodic commit");
+  bool const has_commit_frequency = !!cypher_query.pre_query_directives_.commit_frequency_;
+
+  if (global_scope_.has_periodic_commit && has_commit_frequency) {
+    throw SemanticException("You can specify periodic commit only once during a query!");
+  }
+
+  if (has_commit_frequency) {
+    global_scope_.has_periodic_commit = true;
+  }
+
+  if (global_scope_.has_delete) {
+    throw SemanticException("Delete and periodic commit not yet supported in same query!");
   }
 
   return true;
@@ -618,6 +629,16 @@ bool SymbolGenerator::PreVisit(RemoveLabels &remove_labels) {
 bool SymbolGenerator::PostVisit(RemoveLabels & /*remove_labels*/) {
   auto &scope = scopes_.back();
   scope.in_remove_labels = false;
+
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(Delete & /*delete*/) {
+  global_scope_.has_delete = true;
+
+  if (global_scope_.has_periodic_commit) {
+    throw SemanticException("Delete and periodic commit not yet supported in same query!");
+  }
 
   return true;
 }
