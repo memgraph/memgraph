@@ -6008,7 +6008,8 @@ class PeriodicCommitCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
-    const SCOPED_PROFILE_OP_BY_REF(self_);
+    // NOLINTNEXTLINE(misc-const-correctness)
+    SCOPED_PROFILE_OP_BY_REF(self_);
 
     if (!commit_frequency_.has_value()) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -6039,6 +6040,7 @@ class PeriodicCommitCursor : public Cursor {
   }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
   std::optional<uint64_t> commit_frequency_;
@@ -6086,7 +6088,9 @@ class PeriodicSubqueryCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
+    // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
+    // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
     if (!commit_frequency_.has_value()) [[unlikely]] {
@@ -6144,6 +6148,7 @@ class PeriodicSubqueryCursor : public Cursor {
   }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
   const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
