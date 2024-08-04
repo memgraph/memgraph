@@ -5988,14 +5988,11 @@ std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) co
   return input_->ModifiedSymbols(table);
 }
 
-<<<<<<< HEAD
 std::vector<Symbol> PeriodicCommit::OutputSymbols(const SymbolTable &symbol_table) const {
   // Propagate this to potential Produce.
   return input_->OutputSymbols(symbol_table);
 }
 
-=======
->>>>>>> master
 ACCEPT_WITH_INPUT(PeriodicCommit)
 
 namespace {
