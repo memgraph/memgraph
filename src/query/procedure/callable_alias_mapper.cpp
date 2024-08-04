@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,7 +40,7 @@ void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
       std::ifstream mapping_file(path);
       try {
         json mapping_data = json::parse(mapping_file);
-        mapping_ = mapping_data.get<std::unordered_map<std::string, std::string>>();
+        mapping_ = mapping_data.get<std::map<std::string, std::string, std::less<>>>();
       } catch (...) {
         MG_ASSERT(false, "Parsing callable mapping was unsuccesful. Make sure it is in correct json format.");
       }
@@ -52,11 +52,12 @@ void CallableAliasMapper::LoadMapping(const std::filesystem::path &path) {
   }
 }
 
-std::optional<std::string_view> CallableAliasMapper::FindAlias(const std::string &name) const noexcept {
-  if (!mapping_.contains(name)) {
-    return std::nullopt;
+std::optional<std::string_view> CallableAliasMapper::FindAlias(std::string_view name) const noexcept {
+  auto it = mapping_.find(name);
+  if (it != mapping_.cend()) {
+    return it->second;
   }
-  return mapping_.at(name);
+  return std::nullopt;
 }
 
 }  // namespace memgraph::query::procedure

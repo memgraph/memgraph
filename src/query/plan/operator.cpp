@@ -29,6 +29,7 @@
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
+#include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
@@ -5073,7 +5074,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     graph.impl = &*db_acc;
   }
 
-  procedure::ConstructArguments(args_list, proc, fully_qualified_procedure_name, proc_args, graph);
+  procedure::ValidateArguments(args_list, proc, fully_qualified_procedure_name);
+  procedure::ConstructArguments(args_list, proc, proc_args, graph);
   if (call_initializer) {
     MG_ASSERT(proc.initializer);
     mgp_memory initializer_memory{memory};
@@ -5176,25 +5178,25 @@ class CallProcedureCursor : public Cursor {
     // empty result set vs procedures which return `void`. We currently don't
     // have procedures registering what they return.
     // This `while` loop will skip over empty results.
+    auto module = std::shared_ptr<procedure::Module>{};
+    mgp_proc const *proc = nullptr;
+
     while (result_row_it_ == result_->rows.end()) {
-      // It might be a good idea to resolve the procedure name once, at the
-      // start. Unfortunately, this could deadlock if we tried to invoke a
-      // procedure from a module (read lock) and reload a module (write lock)
-      // inside the same execution thread. Also, our RWLock is set up so that
-      // it's not possible for a single thread to request multiple read locks.
-      // Builtin module registration in query/procedure/module.cpp depends on
-      // this locking scheme.
-      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_,
-                                                         context.evaluation_context.memory);
-      if (!maybe_found) {
-        throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
-      }
-      const auto &[module, proc] = *maybe_found;
-      if (proc->info.is_write != self_->is_write_) {
-        auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
-        throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
-                                    self_->procedure_name_, get_proc_type_str(self_->is_write_),
-                                    get_proc_type_str(proc->info.is_write));
+      if (!module) {
+        auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
+        if (!maybe_found) {
+          throw QueryRuntimeException("There is no procedure named '{}'.", self_->procedure_name_);
+        }
+
+        module = std::move(maybe_found->first);
+        proc = maybe_found->second;
+
+        if (proc->info.is_write != self_->is_write_) {
+          auto get_proc_type_str = [](bool is_write) { return is_write ? "write" : "read"; };
+          throw QueryRuntimeException("The procedure named '{}' was a {} procedure, but changed to be a {} procedure.",
+                                      self_->procedure_name_, get_proc_type_str(self_->is_write_),
+                                      get_proc_type_str(proc->info.is_write));
+        }
       }
       if (!proc->info.is_batched) {
         stream_exhausted = true;

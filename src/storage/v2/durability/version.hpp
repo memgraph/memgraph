@@ -24,6 +24,9 @@ const uint64_t kVersion{18};
 
 const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};
+// Edge-type index version is 17. Edge-type property index version is 18.
+// But they are written in the same section.
+const uint64_t kEdgeIndicesVersion{17};
 const uint64_t kEnumsVersion{18};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.

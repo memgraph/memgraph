@@ -25,8 +25,13 @@
 #include <utility>
 #include <variant>
 
+#include "flags/run_time_configurable.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
+
+#include <fmt/chrono.h>
+#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace memgraph::utils {
 namespace {
@@ -87,9 +92,9 @@ Date::Date(const DateParameters &date_parameters) {
   day = date_parameters.day;
 }
 
-Date CurrentDate() { return CurrentLocalDateTime().date; }
+Date CurrentDate() { return CurrentLocalDateTime().date(); }
 
-LocalTime CurrentLocalTime() { return CurrentLocalDateTime().local_time; }
+LocalTime CurrentLocalTime() { return CurrentLocalDateTime().local_time(); }
 
 LocalDateTime CurrentLocalDateTime() {
   namespace chrono = std::chrono;
@@ -486,21 +491,50 @@ std::pair<DateParameters, LocalTimeParameters> ParseLocalDateTimeParameters(std:
   }
 }
 
-LocalDateTime::LocalDateTime(const int64_t microseconds) {
-  auto chrono_microseconds = std::chrono::microseconds(microseconds);
-  static constexpr int64_t one_day_in_microseconds = std::chrono::microseconds{std::chrono::days{1}}.count();
-  if (microseconds < 0 && (microseconds % one_day_in_microseconds != 0)) {
-    date = Date(microseconds - one_day_in_microseconds);
-  } else {
-    date = Date(microseconds);
-  }
-  chrono_microseconds -= std::chrono::microseconds{date.MicrosecondsSinceEpoch()};
-  local_time = LocalTime(chrono_microseconds.count());
+LocalDateTime::LocalDateTime(const int64_t offset_epoch_us)
+    : us_since_epoch_(std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(offset_epoch_us))) {
+  // Already UTC
 }
 
-// return microseconds normilized with regard to epoch time point
+LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
+                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (local to UTC)
+    us_since_epoch_ =
+        tz->to_sys(std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
+  } else {
+    // Fallback to UTC
+    us_since_epoch_ = std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
+  }
+}
+
+LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
+  auto us_since_epoch_local =
+      std::chrono::microseconds{date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch()};
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (local to UTC)
+    us_since_epoch_ =
+        tz->to_sys(std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
+  } else {
+    // Fallback to UTC
+    us_since_epoch_ = std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
+  }
+}
+
+// return microseconds normalized with regard to epoch time point
+int64_t LocalDateTime::SysMicrosecondsSinceEpoch() const { return us_since_epoch_.time_since_epoch().count(); }
+
 int64_t LocalDateTime::MicrosecondsSinceEpoch() const {
-  return date.MicrosecondsSinceEpoch() + local_time.MicrosecondsSinceEpoch();
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (UTC to local)
+    return tz->to_local(us_since_epoch_).time_since_epoch().count();
+  }
+  // Fallback to UTC
+  return us_since_epoch_.time_since_epoch().count();
 }
 
 int64_t LocalDateTime::SecondsSinceEpoch() const {
@@ -510,24 +544,38 @@ int64_t LocalDateTime::SecondsSinceEpoch() const {
 
 int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
   namespace chrono = std::chrono;
-  const auto milli_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::milliseconds(local_time.millisecond));
-  const auto micros_as_nanos = chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(local_time.microsecond));
-
-  return (milli_as_nanos + micros_as_nanos).count();
+  return chrono::duration_cast<chrono::nanoseconds>(chrono::microseconds(MicrosecondsSinceEpoch()) -
+                                                    chrono::seconds(SecondsSinceEpoch()))
+      .count();
 }
 
-std::string LocalDateTime::ToString() const { return date.ToString() + 'T' + local_time.ToString(); }
+std::string LocalDateTime::ToString() const {
+  auto zt = std::chrono::zoned_time(us_since_epoch_);  // Default to UTC
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (UTC to local)
+    zt = std::chrono::zoned_time(tz, us_since_epoch_);
+  }
+  return std::format("{:%Y-%m-%dT%H:%M:%S}", zt);
+}
 
-LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
-    : date(date_parameters), local_time(local_time_parameters) {}
+Date LocalDateTime::date() const {
+  // Date does not support timezones; use calendar time offset
+  return Date{MicrosecondsSinceEpoch()};
+}
 
-LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) : date(date), local_time(local_time) {}
+LocalTime LocalDateTime::local_time() const {
+  // LocalTime does not support timezones; use calendar time offset
+  auto local_datetime = std::chrono::microseconds(MicrosecondsSinceEpoch());
+  /* remove everything above hours */ GetAndSubtractDuration<std::chrono::days>(local_datetime);
+  if (local_datetime.count() < 0) local_datetime += std::chrono::hours(24);
+  return LocalTime{local_datetime.count()};
+}
 
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
+  // Use system time since it is in a fixed timezone
   utils::HashCombine<uint64_t, uint64_t> hasher;
-  size_t result = hasher(0, LocalTimeHash{}(local_date_time.local_time));
-  result = hasher(result, DateHash{}(local_date_time.date));
-  return result;
+  return hasher(0, local_date_time.SysMicrosecondsSinceEpoch());
 }
 
 Timezone::Timezone(const std::chrono::minutes offset) {

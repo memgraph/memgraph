@@ -132,6 +132,10 @@ antlrcpp::Any CypherMainVisitor::visitDatabaseInfoQuery(MemgraphCypher::Database
     info_query->info_type_ = DatabaseInfoQuery::InfoType::NODE_LABELS;
     return info_query;
   }
+  if (ctx->metricsInfo()) {
+    info_query->info_type_ = DatabaseInfoQuery::InfoType::METRICS;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("Database info query: '{}'", ctx->getText());
 }
@@ -210,8 +214,8 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  if (auto *using_statement_ctx = ctx->usingStatement()) {
-    cypher_query->using_statement_ = std::any_cast<UsingStatement>(using_statement_ctx->accept(this));
+  if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
+    cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
   }
 
   if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
@@ -226,31 +230,46 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
   return cypher_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitUsingStatement(MemgraphCypher::UsingStatementContext *ctx) {
-  UsingStatement using_statement;
-  for (auto *using_statement_item : ctx->usingStatementItem()) {
-    if (auto *index_hints_ctx = using_statement_item->indexHints()) {
+antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) {
+  PreQueryDirectives pre_query_directives;
+  for (auto *pre_query_directive : ctx->preQueryDirective()) {
+    if (auto *index_hints_ctx = pre_query_directive->indexHints()) {
       for (auto *index_hint_ctx : index_hints_ctx->indexHint()) {
         auto label = AddLabel(std::any_cast<std::string>(index_hint_ctx->labelName()->accept(this)));
         if (!index_hint_ctx->propertyKeyName()) {
-          using_statement.index_hints_.emplace_back(
+          pre_query_directives.index_hints_.emplace_back(
               IndexHint{.index_type_ = IndexHint::IndexType::LABEL, .label_ = label});
           continue;
         }
-        using_statement.index_hints_.emplace_back(
+        pre_query_directives.index_hints_.emplace_back(
             IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY,
                       .label_ = label,
                       .property_ = std::any_cast<PropertyIx>(index_hint_ctx->propertyKeyName()->accept(this))});
       }
-    } else {
-      if (using_statement.hops_limit_) {
-        throw SemanticException("Hops limit can be set only once in the USING statement.");
+    } else if (auto *periodic_commit = pre_query_directive->periodicCommit()) {
+      if (pre_query_directives.commit_frequency_) {
+        throw SyntaxException("Commit frequency can be set only once in the USING statement.");
       }
-      using_statement.hops_limit_ = std::any_cast<Expression *>(using_statement_item->hopsLimit()->accept(this));
+      auto *periodic_commit_number = periodic_commit->periodicCommitNumber;
+      if (!periodic_commit_number->numberLiteral()) {
+        throw SyntaxException("Periodic commit should be a number variable.");
+      }
+      if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+        throw SyntaxException("Periodic commit should be an integer.");
+      }
+
+      pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+    } else if (pre_query_directive->hopsLimit()) {
+      if (pre_query_directives.hops_limit_) {
+        throw SyntaxException("Hops limit can be set only once in the USING statement.");
+      }
+      pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
+    } else {
+      throw SyntaxException("Unknown pre query directive!");
     }
   }
 
-  return using_statement;
+  return pre_query_directives;
 }
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryContext *ctx) {
@@ -1399,8 +1418,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
     }
   }
 
-  const auto &maybe_found =
-      procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+  const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
   if (!maybe_found) {
     // TODO remove this once void procedures are supported,
     // this will not be needed anymore.
@@ -1479,8 +1497,7 @@ antlrcpp::Any CypherMainVisitor::visitCallProcedure(MemgraphCypher::CallProcedur
         call_proc->result_identifiers_.push_back(storage_->Create<Identifier>(result_alias));
       }
     } else {
-      const auto &maybe_found =
-          procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_, utils::NewDeleteResource());
+      const auto &maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, call_proc->procedure_name_);
       if (!maybe_found) {
         throw SemanticException("There is no procedure named '{}'.", call_proc->procedure_name_);
       }
@@ -2870,9 +2887,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     return function_name.find('.') != std::string::npos;
   };
 
-  // Don't cache queries which call user-defined functions. User-defined function's return
-  // types can vary depending on whether the module is reloaded, therefore the cache would
-  // be invalid.
+  // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
+  // repeativly finding the function at call time, this means user-defined functions have there lifetime
+  // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
+  // query module that is not currently being used.
   if (is_user_defined_function(function_name)) {
     query_info_.is_cacheable = false;
   }
@@ -3109,6 +3127,20 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
+  PreQueryDirectives pre_query_directives;
+  if (auto const *periodic_commit = ctx->periodicSubquery()) {
+    auto *const periodic_commit_number = periodic_commit->periodicCommitNumber;
+    if (!periodic_commit_number->numberLiteral()) {
+      throw SyntaxException("Periodic commit should be a number variable.");
+    }
+    if (!periodic_commit_number->numberLiteral()->integerLiteral()) {
+      throw SyntaxException("Periodic commit should be an integer.");
+    }
+    pre_query_directives.commit_frequency_ = std::any_cast<Expression *>(periodic_commit_number->accept(this));
+
+    call_subquery->cypher_query_->pre_query_directives_ = pre_query_directives;
+  }
+
   return call_subquery;
 }
 
@@ -3201,6 +3233,12 @@ antlrcpp::Any CypherMainVisitor::visitDropEnumQuery(MemgraphCypher::DropEnumQuer
   drop_enum_query->enum_name_ = std::any_cast<std::string>(ctx->enumName()->symbolicName()->accept(this));
   query_ = drop_enum_query;
   return drop_enum_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSchemaInfoQueryContext * /*ctx*/) {
+  auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
+  query_ = show_schema_info_query;
+  return show_schema_info_query;
 }
 
 }  // namespace memgraph::query::frontend

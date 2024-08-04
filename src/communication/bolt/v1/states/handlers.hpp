@@ -25,8 +25,10 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "license/license_sender.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
 namespace memgraph::communication::bolt {
@@ -61,6 +63,20 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
+    {
+      // It is possible that something used C based memory allocation and hence we didn't pick up the MemoryErrorStatus
+      // that corresponds to memory tracker errors. It is possible that 3rd party code or something following C++
+      // conventions will throw std::bad_alloc. We will check here and handle as an OutOfMemoryException if that is the
+      // case.
+      [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+      if (auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg(); maybe_msg) {
+        DMG_ASSERT(false,
+                   "Something is using C based allocation and triggering MemoryTracker. This should not happen, go via "
+                   "C++ new/delete where possible");
+        return {"Memgraph.TransientError.MemgraphError.MemgraphError", std::move(*maybe_msg)};
+      }
+    }
+
     // std::bad_alloc was thrown, God knows in which state is database ->
     // terminate.
     LOG_FATAL("Memgraph is out of memory");
@@ -282,7 +298,11 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   }
 
 #if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), logging::MaskSensitiveInformation(query.ValueString()));
+  } else {
+    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+  }
 #else
   spdlog::debug("[Run] '{}'", query.ValueString());
 #endif

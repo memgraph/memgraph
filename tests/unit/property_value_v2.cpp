@@ -861,6 +861,23 @@ TEST(PropertyValue, Equal) {
   }
 }
 
+TEST(PropertyValue, EqualMap) {
+  auto a = PropertyValue(PropertyValue::map_t());
+  auto b = PropertyValue(PropertyValue::map_t{{"id", PropertyValue(5)}});
+  auto c = PropertyValue(PropertyValue::map_t{{"id", PropertyValue(10)}});
+
+  ASSERT_EQ(a, a);
+  ASSERT_EQ(b, b);
+  ASSERT_EQ(c, c);
+
+  ASSERT_NE(a, b);
+  ASSERT_NE(a, c);
+  ASSERT_NE(b, a);
+  ASSERT_NE(b, c);
+  ASSERT_NE(c, a);
+  ASSERT_NE(c, b);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(PropertyValue, Less) {
   std::vector<PropertyValue> vec{PropertyValue(true), PropertyValue(123)};

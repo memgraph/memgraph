@@ -18,14 +18,16 @@
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/small_vector.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
+#include "utils/event_gauge.hpp"
+#include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -85,6 +87,37 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
+
+std::vector<EventInfo> Storage::GetMetrics() noexcept {
+  std::vector<EventInfo> result;
+  result.reserve(metrics::CounterEnd() + metrics::GaugeEnd() + metrics::HistogramEnd());
+
+  const auto *kCounterName = "Counter";
+  const auto *kGaugeName = "Gauge";
+  const auto *kHistogramName = "Histogram";
+
+  for (auto i = 0; i < metrics::CounterEnd(); i++) {
+    result.emplace_back(metrics::GetCounterName(i), metrics::GetCounterType(i), kCounterName,
+                        metrics::global_counters[i]);
+  }
+
+  for (auto i = 0; i < metrics::GaugeEnd(); i++) {
+    result.emplace_back(metrics::GetGaugeName(i), metrics::GetGaugeTypeString(i), kGaugeName,
+                        metrics::global_gauges[i]);
+  }
+
+  for (auto i = 0; i < metrics::HistogramEnd(); i++) {
+    const auto *name = metrics::GetHistogramName(i);
+    auto const &histogram = metrics::global_histograms[i];
+
+    for (auto &[percentile, value] : histogram.YieldPercentiles()) {
+      auto metric_name = fmt::format("{0}_{1}p", name, std::to_string(percentile));
+      result.emplace_back(std::move(metric_name), metrics::GetHistogramType(i), kHistogramName, value);
+    }
+  }
+
+  return result;
+}
 
 IsolationLevel Storage::GetIsolationLevel() const noexcept { return isolation_level_; }
 
@@ -331,8 +364,8 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
   // add nodes which need to be detached on the other end of the edge
   if (detach) {
     for (auto *vertex_ptr : vertices) {
-      small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-      small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+      utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
 
       {
         auto vertex_lock = std::shared_lock{vertex_ptr->lock};

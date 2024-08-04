@@ -1050,7 +1050,8 @@ TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContex
     return TypedValue(arg.ValueLocalTime().MicrosecondsSinceEpoch(), ctx.memory);
   }
   if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().MicrosecondsSinceEpoch(), ctx.memory);
+    // Timestamps need to be in system time (UTC)
+    return TypedValue(arg.ValueLocalDateTime().SysMicrosecondsSinceEpoch(), ctx.memory);
   }
   if (arg.IsDuration()) {
     return TypedValue(arg.ValueDuration().microseconds, ctx.memory);
@@ -1227,12 +1228,11 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<String, Map, LocalDateTime>>>("date", args, nargs);
   if (nargs == 0) {
-    return TypedValue(utils::LocalDateTime(ctx.timestamp).date, ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::Date date{args[0].ValueLocalDateTime().date};
-    return TypedValue(date, ctx.memory);
+    return TypedValue(utils::Date{args[0].ValueLocalDateTime().date()}, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1255,12 +1255,11 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
   FType<Optional<Or<String, Map, LocalDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
-    return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time, ctx.memory);
+    return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
   }
 
   if (args[0].IsLocalDateTime()) {
-    utils::LocalTime local_time{args[0].ValueLocalDateTime().local_time};
-    return TypedValue(local_time, ctx.memory);
+    return TypedValue(utils::LocalTime{args[0].ValueLocalDateTime().local_time()}, ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1384,49 +1383,31 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
 
-std::function<TypedValue(const TypedValue *, const int64_t, const FunctionContext &)> UserFunction(
-    const mgp_func &func, const std::string &fully_qualified_name) {
+auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
-    /// Find function is called to acquire the lock on Module pointer while user-defined function is executed
-    const auto &maybe_found =
-        procedure::FindFunction(procedure::gModuleRegistry, fully_qualified_name, utils::NewDeleteResource());
-    if (!maybe_found) {
-      throw QueryRuntimeException(
-          "Function '{}' has been unloaded. Please check query modules to confirm that function is loaded in Memgraph.",
-          fully_qualified_name);
-    }
-    /// Explicit extraction of module pointer, to clearly state that the lock is acquired.
-    // NOLINTNEXTLINE(clang-diagnostic-unused-variable)
-    const auto &module_ptr = (*maybe_found).first;
+    // Lock on the module is already acquired in the AST construction
+    procedure::ValidateArguments(std::span(args, args + nargs), func, fully_qualified_name);
 
-    const auto &func_cb = func.cb;
-    mgp_memory memory{ctx.memory};
-    mgp_func_context functx{ctx.db_accessor, ctx.view};
     auto graph = mgp_graph::NonWritableGraph(*ctx.db_accessor, ctx.view);
-
-    std::vector<TypedValue> args_list;
-    args_list.reserve(nargs);
-    for (std::size_t i = 0; i < nargs; ++i) {
-      args_list.emplace_back(args[i]);
-    }
-
     auto function_argument_list = mgp_list(ctx.memory);
-    procedure::ConstructArguments(args_list, func, fully_qualified_name, function_argument_list, graph);
+    procedure::ConstructArguments(std::span(args, args + nargs), func, function_argument_list, graph);
 
-    mgp_func_result maybe_res;
-    func_cb(&function_argument_list, &functx, &maybe_res, &memory);
-    if (maybe_res.error_msg) {
+    auto functx = mgp_func_context{ctx.db_accessor, ctx.view};
+    auto maybe_res = mgp_func_result{};
+    auto memory = mgp_memory{ctx.memory};
+    func.cb(&function_argument_list, &functx, &maybe_res, &memory);
+    if (maybe_res.error_msg) [[unlikely]] {
       throw QueryRuntimeException(*maybe_res.error_msg);
     }
 
-    if (!maybe_res.value) {
+    if (!maybe_res.value) [[unlikely]] {
       throw QueryRuntimeException(
           "Function '{}' didn't set the result nor the error message. Please either set the result by using "
           "mgp_func_result_set_value or the error by using mgp_func_result_set_error_msg.",
           fully_qualified_name);
     }
 
-    return {*(maybe_res.value), ctx.memory};
+    return {*std::move(maybe_res.value), ctx.memory};
   };
 }
 
@@ -1447,8 +1428,7 @@ TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &
 
 }  // namespace
 
-std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx)> NameToFunction(
-    const std::string &function_name) {
+auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
   // Scalar functions
   if (function_name == "DEGREE") return Degree;
   if (function_name == "INDEGREE") return InDegree;
@@ -1537,12 +1517,12 @@ std::function<TypedValue(const TypedValue *, int64_t, const FunctionContext &ctx
   // Functions for enum types
   if (function_name == "TOENUM") return ToEnum;
 
-  const auto &maybe_found =
-      procedure::FindFunction(procedure::gModuleRegistry, function_name, utils::NewDeleteResource());
+  auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
 
   if (maybe_found) {
+    auto module_ptr = std::move((*maybe_found).first);
     const auto *func = (*maybe_found).second;
-    return UserFunction(*func, function_name);
+    return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
   }
 
   return nullptr;
