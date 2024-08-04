@@ -5672,7 +5672,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     subquery_->Reset();
@@ -5737,7 +5737,8 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
       pull_input_ = false;
       return true;
     }
-    // failed to pull from subquery cursor
+
+    // subquery cursor has been exhausted
     // skip that row
     pull_input_ = true;
     sub_branch_->Reset();
@@ -5987,6 +5988,11 @@ std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) co
   return input_->ModifiedSymbols(table);
 }
 
+std::vector<Symbol> PeriodicCommit::OutputSymbols(const SymbolTable &symbol_table) const {
+  // Propagate this to potential Produce.
+  return input_->OutputSymbols(symbol_table);
+}
+
 ACCEPT_WITH_INPUT(PeriodicCommit)
 
 namespace {
@@ -5996,27 +6002,49 @@ class PeriodicCommitCursor : public Cursor {
   PeriodicCommitCursor(const PeriodicCommit &self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {
     MG_ASSERT(input_cursor_ != nullptr, "PeriodicCommitCursor: Missing input cursor.");
+    MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
   }
 
-  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP_BY_REF(self_);
 
-    throw utils::NotYetImplemented("periodic commit");
+    if (!commit_frequency_.has_value()) [[unlikely]] {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+    }
 
-    return true;
+    bool const pull_value = input_cursor_->Pull(frame, context);
+
+    if (++pulled_ >= commit_frequency_) {
+      // do periodic commit since we pulled that many times
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+      pulled_ = 0;
+    } else if (!pull_value && pulled_ > 0) {
+      // do periodic commit for the rest of pulled items
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+    }
+
+    return pull_value;
   }
 
   void Shutdown() override { input_cursor_->Shutdown(); }
 
-  void Reset() override { input_cursor_->Reset(); }
+  void Reset() override {
+    input_cursor_->Reset();
+    commit_frequency_.reset();
+    pulled_ = 0;
+  }
 
  private:
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
   const PeriodicCommit &self_;
   const UniqueCursorPtr input_cursor_;
+  std::optional<uint64_t> commit_frequency_;
+  uint64_t pulled_ = 0;
 };
 }  // namespace
 
@@ -6055,32 +6083,79 @@ class PeriodicSubqueryCursor : public Cursor {
       : self_(self),
         input_(self.input_->MakeCursor(mem)),
         subquery_(self.subquery_->MakeCursor(mem)),
-        subquery_has_return_(self.subquery_has_return_) {}
+        subquery_has_return_(self.subquery_has_return_) {
+    MG_ASSERT(self_.commit_frequency_ != nullptr, "Commit frequency should be defined at this point!");
+  }
 
-  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     // NOLINTNEXTLINE(misc-const-correctness)
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP("PeriodicSubquery");
 
-    throw utils::NotYetImplemented("periodic commit");
+    if (!commit_frequency_.has_value()) [[unlikely]] {
+      ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                    storage::View::OLD);
+      commit_frequency_ = *EvaluateCommitFrequency(evaluator, self_.commit_frequency_);
+    }
+
+    while (true) {
+      if (pull_input_) {
+        if (input_->Pull(frame, context)) {
+          pulled_++;
+        } else {
+          if (pulled_ > 0) {
+            // do periodic commit for the rest of pulled items
+            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+          }
+          return false;
+        }
+      }
+
+      if (subquery_->Pull(frame, context)) {
+        // if successful, next Pull from this should not pull_input_
+        pull_input_ = false;
+        return true;
+      }
+
+      if (pulled_ >= commit_frequency_) {
+        // do periodic commit since we pulled that many times
+        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        pulled_ = 0;
+      }
+
+      // subquery cursor has been exhausted
+      // skip that row
+      pull_input_ = true;
+      subquery_->Reset();
+
+      // don't skip row if no rows are returned from subquery, return input_ rows
+      if (!subquery_has_return_) return true;
+    }
   }
 
   void Shutdown() override {
     input_->Shutdown();
     subquery_->Shutdown();
   }
+
   void Reset() override {
     input_->Reset();
     subquery_->Reset();
+    pull_input_ = true;
+    commit_frequency_.reset();
+    pulled_ = 0;
   }
 
  private:
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members
-  [[maybe_unused]] const PeriodicSubquery &self_;
+  const PeriodicSubquery &self_;
   UniqueCursorPtr input_;
   UniqueCursorPtr subquery_;
-  [[maybe_unused]] bool subquery_has_return_{true};
+  bool subquery_has_return_{true};
+  bool pull_input_{true};
+  uint64_t pulled_{0};
+  std::optional<uint64_t> commit_frequency_;
 };
 }  // namespace
 
