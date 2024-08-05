@@ -2598,7 +2598,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   // There might be some leftover empty elements after deltas have been processed
   schema_info_.CleanUp();
-  // schema_info_.Print(*name_id_mapper_);
+  schema_info_.Print(*name_id_mapper_);
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
