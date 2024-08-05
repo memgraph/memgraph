@@ -27,6 +27,7 @@
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
+#include "query/plan/rewrite/periodic_delete.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -62,7 +63,9 @@ class PostProcessor final {
         RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
     auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
                                                             context->ast_storage, context->db);
-    return edge_index_plan;
+    auto periodic_delete_plan =
+        RewritePeriodicDelete(std::move(edge_index_plan), context->symbol_table, context->ast_storage, context->db);
+    return periodic_delete_plan;
   }
 
   template <class TVertexCounts>

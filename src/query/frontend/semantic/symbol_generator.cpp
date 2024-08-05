@@ -171,10 +171,6 @@ bool SymbolGenerator::PreVisit(CypherQuery &cypher_query) {
     global_scope_.has_periodic_commit = true;
   }
 
-  if (global_scope_.has_delete) {
-    throw SemanticException("Delete and periodic commit not yet supported in same query!");
-  }
-
   return true;
 }
 
@@ -635,11 +631,6 @@ bool SymbolGenerator::PostVisit(RemoveLabels & /*remove_labels*/) {
 
 bool SymbolGenerator::PreVisit(Delete & /*delete*/) {
   global_scope_.has_delete = true;
-
-  if (global_scope_.has_periodic_commit) {
-    throw SemanticException("Delete and periodic commit not yet supported in same query!");
-  }
-
   return true;
 }
 
