@@ -133,7 +133,7 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
+      spdlog::trace("[RpcClient] received {}", res_type.name);
 
       return res_load_(&res_reader);
     }
@@ -190,7 +190,7 @@ class Client {
                                                  Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
-    SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
+    spdlog::trace("[RpcClient] sent {}", req_type.name);
 
     auto guard = std::unique_lock{mutex_};
 
@@ -204,7 +204,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
+        spdlog::error("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
         throw GenericRpcFailedException();
       }
