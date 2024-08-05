@@ -78,7 +78,7 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
                        memgraph::query::DbAccessor *dba,
                        std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba, 42);
+  auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
   auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);

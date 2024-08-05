@@ -63,7 +63,7 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, DatabaseAccessProtector db_acc) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;

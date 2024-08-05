@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "query/common.hpp"
-#include "query/database_access.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/plan/preprocess.hpp"
@@ -2781,8 +2780,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   PeriodicCommit() = default;
-  PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency,
-                 DatabaseAccessProtector db_acc);
+  PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency);
 
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2797,13 +2795,11 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
     auto object = std::make_unique<PeriodicCommit>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->commit_frequency_ = commit_frequency_;
-    object->db_acc_ = db_acc_;
     return object;
   }
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *commit_frequency_;
-  DatabaseAccessProtector db_acc_{};
 };
 
 /// Applies symbols from both output branches.
@@ -2815,7 +2811,7 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   PeriodicSubquery() = default;
 
   PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
-                   Expression *commit_frequency, DatabaseAccessProtector db_acc, bool subquery_has_return);
+                   Expression *commit_frequency, bool subquery_has_return);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -2827,7 +2823,6 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   Expression *commit_frequency_{nullptr};
-  DatabaseAccessProtector db_acc_{};
   bool subquery_has_return_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
@@ -2836,7 +2831,6 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
     object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
     object->subquery_has_return_ = subquery_has_return_;
     object->commit_frequency_ = commit_frequency_;
-    object->db_acc_ = db_acc_;
     return object;
   }
 };

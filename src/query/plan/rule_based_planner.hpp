@@ -67,15 +67,13 @@ struct PlanningContext {
   /// read a symbol or write it. E.g. `MATCH (n) -[r]- (n)` would bind (and
   /// write) the first `n`, but the latter `n` would only read the already
   /// written information.
-  DatabaseAccessProtector db_acc{};
   std::unordered_set<Symbol> bound_symbols{};
   bool is_write_query{false};
 };
 
 template <class TDbAccessor>
-auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table, CypherQuery *query, TDbAccessor *db,
-                         DatabaseAccessProtector db_acc) {
-  return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db, std::move(db_acc)};
+auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table, CypherQuery *query, TDbAccessor *db) {
+  return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db};
 }
 
 // Contextual information used for generating match operators.
@@ -110,7 +108,7 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
 // used in the subquery.
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage,
-                                                   PatternComprehensionDataMap &pc_ops, DatabaseAccessProtector db_acc);
+                                                   PatternComprehensionDataMap &pc_ops);
 
 Symbol GetSymbol(NodeAtom *atom, const SymbolTable &symbol_table);
 Symbol GetSymbol(EdgeAtom *atom, const SymbolTable &symbol_table);
@@ -165,14 +163,12 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
-                                           DatabaseAccessProtector db_acc);
+                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
-                                         DatabaseAccessProtector db_acc);
+                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -234,7 +230,7 @@ class RuleBasedPlanner {
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
                                        context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
-                                       query_parts.commit_frequency, context.db_acc);
+                                       query_parts.commit_frequency);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
@@ -242,8 +238,7 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr,
-                                     context.db_acc);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -283,7 +278,7 @@ class RuleBasedPlanner {
           } else if (auto *call_sub = utils::Downcast<query::CallSubquery>(clause)) {
             input_op = HandleSubquery(std::move(input_op), single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table, *context_->ast_storage, pattern_comprehension_ops,
-                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_, context.db_acc);
+                                      call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(std::move(input_op),
                                                       input_op->ModifiedSymbols(*context.symbol_table), true);
@@ -298,8 +293,7 @@ class RuleBasedPlanner {
       if (input_op->OutputSymbols(*context.symbol_table).empty()) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
-          input_op =
-              std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency, context.db_acc);
+          input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
         }
         input_op = std::make_unique<EmptyResult>(std::move(input_op));
       }
@@ -912,13 +906,13 @@ class RuleBasedPlanner {
   std::unique_ptr<LogicalOperator> HandleSubquery(std::unique_ptr<LogicalOperator> last_op,
                                                   std::shared_ptr<QueryParts> subquery, SymbolTable &symbol_table,
                                                   AstStorage &storage, PatternComprehensionDataMap &pc_ops,
-                                                  Expression *commit_frequency, DatabaseAccessProtector db_acc) {
+                                                  Expression *commit_frequency) {
     std::unordered_set<Symbol> outer_scope_bound_symbols;
     outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
                                      std::make_move_iterator(context_->bound_symbols.end()));
 
-    context_->bound_symbols = impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table,
-                                                            storage, pc_ops, db_acc);
+    context_->bound_symbols =
+        impl::GetSubqueryBoundSymbols(subquery->query_parts[0].single_query_parts, symbol_table, storage, pc_ops);
 
     auto subquery_op = Plan(*subquery);
 
@@ -937,7 +931,7 @@ class RuleBasedPlanner {
     } else {
       // this periodic commit is from CALL IN TRANSACTIONS OF x ROWS
       last_op = std::make_unique<PeriodicSubquery>(std::move(last_op), std::move(subquery_op), commit_frequency,
-                                                   std::move(db_acc), subquery_has_return);
+                                                   subquery_has_return);
     }
 
     return last_op;

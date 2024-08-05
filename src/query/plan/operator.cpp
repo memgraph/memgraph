@@ -5986,9 +5986,8 @@ UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem);
 }
 
-PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency,
-                               DatabaseAccessProtector db_acc)
-    : input_(std::move(input)), commit_frequency_(commit_frequency), db_acc_(std::move(db_acc)) {}
+PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
+    : input_(std::move(input)), commit_frequency_(commit_frequency) {}
 
 std::vector<Symbol> PeriodicCommit::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
@@ -6028,11 +6027,11 @@ class PeriodicCommitCursor : public Cursor {
     pulled_++;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, self_.db_acc_);
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, self_.db_acc_);
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
     }
 
     return pull_value;
@@ -6062,11 +6061,10 @@ UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem) const {
 
 PeriodicSubquery::PeriodicSubquery(const std::shared_ptr<LogicalOperator> input,
                                    const std::shared_ptr<LogicalOperator> subquery, Expression *commit_frequency,
-                                   DatabaseAccessProtector db_acc, bool subquery_has_return)
+                                   bool subquery_has_return)
     : input_(input ? input : std::make_shared<Once>()),
       subquery_(subquery),
       commit_frequency_(commit_frequency),
-      db_acc_(std::move(db_acc)),
       subquery_has_return_(subquery_has_return) {}
 
 bool PeriodicSubquery::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
@@ -6114,7 +6112,7 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
           }
           return false;
         }
@@ -6128,7 +6126,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
         pulled_ = 0;
       }
 
