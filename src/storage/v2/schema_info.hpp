@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <functional>
 #include <ranges>
+#include <type_traits>
 #include <unordered_map>
 
 #include "mgp.hpp"
@@ -21,6 +22,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/small_vector.hpp"
@@ -50,7 +52,7 @@ struct SchemaInfo {
 
   struct UniqueIdentifier {
     utils::small_vector<LabelId> labels;
-    utils::small_vector<PropertyId> properties;
+    std::map<PropertyId, PropertyValue> properties;
   };
 
   /// This function iterates through the undo buffers from an object (starting
@@ -68,20 +70,66 @@ struct SchemaInfo {
     }
   }
 
-  UniqueIdentifier ApplyDeltas(const Delta *delta, const Delta *delta_fin, const Vertex &vertex) {
+  UniqueIdentifier ApplyDeltasForVertexIdentifier(const Delta *delta, const Delta *delta_fin, const Vertex &vertex) {
     UniqueIdentifier res;
     res.labels = vertex.labels;
-    std::map<PropertyId, PropertyValue> properties = vertex.properties.Properties();
-    ApplyDeltasForRead(delta, delta_fin, [&res, &properties](const Delta &delta) {
+    res.properties = vertex.properties.Properties();
+    ApplyDeltasForRead(delta, delta_fin, [&res](const Delta &delta) {
       // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
-            Properties_ActionMethod(properties),
+            Properties_ActionMethod(res.properties),
             Labels_ActionMethod(res.labels)
           });
       // clang-format on
     });
-    auto keys = std::views::keys(properties);
-    res.properties = utils::small_vector<PropertyId>(keys.begin(), keys.end());
+    return res;
+  }
+
+  struct Edges {
+    utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+    utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  };
+
+  Edges ApplyDeltasForVertexEdges(const Delta *delta, const Delta *delta_fin, const Vertex &vertex) {
+    Edges res{vertex.out_edges, vertex.in_edges};
+    ApplyDeltasForRead(delta, delta_fin, [&res](const Delta &delta) {
+      // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Edges_ActionMethod<EdgeDirection::OUT>(res.out_edges, {/* all edge types */}, delta.vertex_edge.vertex),
+            Edges_ActionMethod<EdgeDirection::IN>(res.in_edges, {/* all edge types */}, delta.vertex_edge.vertex),
+          });
+      // clang-format on
+    });
+    return res;
+  }
+
+  // Have to get a global ordering;
+  // For now this works as long as the deltas are on the same page;
+  // TODO: Expand to handle multiple pages
+  template <typename TCallback>
+  inline void ApplyGlobalDeltasForRead(const Delta *delta, const Delta *delta_fin, const TCallback &callback) {
+    while (delta && delta > delta_fin) {
+      // This delta must be applied, call the callback.
+      callback(*delta);
+      // Move to the next delta.
+      delta = delta->next.load(std::memory_order_acquire);
+    }
+  }
+
+  UniqueIdentifier ApplyGlobalDeltasForVertexIdentifier(const Delta *delta, const Delta *delta_fin,
+                                                        const Vertex &vertex) {
+    UniqueIdentifier res;
+    res.labels = vertex.labels;
+    res.properties = vertex.properties.Properties();
+    if (delta)
+      ApplyGlobalDeltasForRead(delta, delta_fin, [&res](const Delta &delta) {
+        // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Properties_ActionMethod(res.properties),
+            Labels_ActionMethod(res.labels)
+          });
+        // clang-format on
+      });
     return res;
   }
 
@@ -92,7 +140,7 @@ struct SchemaInfo {
       case Delta::Action::DELETE_OBJECT:
         // We created a empty vertex
 
-        ++tracking_[{/* empty vertex; no labels or properties */}].n;
+        ++tracking_[Tracking::v_key_type{/* empty vertex; no labels or properties */}].n;
         break;
       case Delta::Action::RECREATE_OBJECT: {
         // We deleted the object; so we need to clean up its labels/properties as well
@@ -101,7 +149,11 @@ struct SchemaInfo {
         // Do we need to apply deltas?
         auto &v = tracking_[vertex.labels];
         --v.n;
-        for (const auto &[pid, _] : vertex.properties.Properties()) --v.properties[pid];
+        for (const auto &[pid, pval] : vertex.properties.Properties()) {
+          auto &prop_info = v.properties[pid];
+          --prop_info.n;
+          --prop_info.types[pval.type()];
+        }
         break;
       }
       case Delta::Action::SET_PROPERTY: {
@@ -113,14 +165,22 @@ struct SchemaInfo {
         // How to figure out if we deleted the value or just set another one? <- look at the vertex? could lead to
         // multiple --
 
-        const auto prev_info = ApplyDeltas(vertex.delta, delta.next, vertex);
-        const auto next_info = ApplyDeltas(vertex.delta, &delta, vertex);
+        const auto prev_info = ApplyDeltasForVertexIdentifier(vertex.delta, delta.next, vertex);
+        const auto next_info = ApplyDeltasForVertexIdentifier(vertex.delta, &delta, vertex);
         auto &v = tracking_[prev_info.labels];  // Labels at this point
 
         // Decrement from current property
-        for (const auto pid : prev_info.properties) --v.properties[pid];
+        for (const auto &[pid, pval] : prev_info.properties) {
+          auto &prop_info = v.properties[pid];
+          --prop_info.n;
+          --prop_info.types[pval.type()];
+        }
         // Increment to next property
-        for (const auto pid : next_info.properties) ++v.properties[pid];
+        for (const auto &[pid, pval] : next_info.properties) {
+          auto &prop_info = v.properties[pid];
+          ++prop_info.n;
+          ++prop_info.types[pval.type()];
+        }
         break;
       }
       case Delta::Action::ADD_LABEL:
@@ -129,23 +189,92 @@ struct SchemaInfo {
       case Delta::Action::REMOVE_LABEL: {
         // Add label identified via ID delta.label.value.AsUint()
 
-        const auto prev_info = ApplyDeltas(vertex.delta, delta.next, vertex);
-        const auto next_info = ApplyDeltas(vertex.delta, &delta, vertex);
+        const auto prev_info = ApplyDeltasForVertexIdentifier(vertex.delta, delta.next, vertex);
+        const auto next_info = ApplyDeltasForVertexIdentifier(vertex.delta, &delta, vertex);
 
         auto &tracking_now = tracking_[prev_info.labels];
         auto &tracking_next = tracking_[next_info.labels];
 
         // Decrement from current labels
         --tracking_now.n;
-        for (const auto pid : prev_info.properties) --tracking_now.properties[pid];
+        for (const auto &[pid, pval] : prev_info.properties) {
+          auto &prop_info = tracking_now.properties[pid];
+          --prop_info.n;
+          --prop_info.types[pval.type()];
+        }
         // Increment to next labels
         ++tracking_next.n;
-        for (const auto pid : next_info.properties) ++tracking_next.properties[pid];
+        for (const auto &[pid, pval] : next_info.properties) {
+          auto &prop_info = tracking_next.properties[pid];
+          ++prop_info.n;
+          ++prop_info.types[pval.type()];
+        }
+
+        // TODO: Edge tracking; edges are uniquely identified via vertex labels, so this changes the edge info as well
+        // No way to know here what we are actually doing
+        // We signal here that something needs to be done and then we post-process in some way.
+
+        // Get edges at this point
+        // For each edge find the corresponding
+        // This delta doesn't have anything to do with edges, no need to have next/prev
+        const auto edges = ApplyDeltasForVertexEdges(vertex.delta, &delta, vertex);
+        for (const auto &edge : edges.out_edges) {
+          // Edge identifier: edge type, out labels, in labels
+          const auto edge_type_id = std::get<0>(edge);
+          const auto *in_vertex = std::get<1>(edge);
+          // Apply deltas to get in_vertex labels at this point
+          // TODO Cache this
+          const auto other_vertex_info = ApplyGlobalDeltasForVertexIdentifier(in_vertex->delta, &delta, *in_vertex);
+          const auto prev_edge_identifier =
+              Tracking::EdgeType{edge_type_id, prev_info.labels, other_vertex_info.labels};
+          // TODO: Think about storing everything under the out labels
+          const auto next_edge_identifier =
+              Tracking::EdgeType{edge_type_id, next_info.labels, other_vertex_info.labels};
+          --tracking_[prev_edge_identifier].n;
+          ++tracking_[next_edge_identifier].n;
+        }
+        for (const auto &edge : edges.in_edges) {
+          // Edge identifier: edge type, out labels, in labels
+          const auto edge_type_id = std::get<0>(edge);
+          const auto *out_vertex = std::get<1>(edge);
+          // Apply deltas to get in_vertex labels at this point
+          // TODO Cache this
+          const auto other_vertex_info = ApplyGlobalDeltasForVertexIdentifier(out_vertex->delta, &delta, *out_vertex);
+          const auto prev_edge_identifier =
+              Tracking::EdgeType{edge_type_id, other_vertex_info.labels, prev_info.labels};
+          // TODO: Think about storing everything under the out labels
+          const auto next_edge_identifier =
+              Tracking::EdgeType{edge_type_id, other_vertex_info.labels, next_info.labels};
+          --tracking_[prev_edge_identifier].n;
+          ++tracking_[next_edge_identifier].n;
+        }
+
         break;
       }
       case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        // Do we need to handle edges here?
+      case Delta::Action::REMOVE_OUT_EDGE: {
+        // Do we need to handle edges here? <- YES; edges only handle properties
+
+        // Figure out the from and to vertex descriptions (labels)
+        // vertex is always from
+        // delta.vertex_edge.vertex is always to
+        // Update edge_stats_
+
+        // Removing edge (ADD_OUT_EDGE): vertex will already be missing it
+        //  if the edges are moved around for vertex manipulation
+        //  we need to remove from the vertex labels as it was at time of deletion
+        //  doesn't work for IN edges, since we don't have the delta <- could have it though
+
+        // Adding edge (REMOVE_OUT_EDGE): similar problem
+
+        // Maybe the solution is 2 step
+        // Handle both OUT and IN edges
+        // Have dangling edges; ex: out with id + in -1
+        // Problem getting the second vertex as it was at time of this delta
+
+        // We are adding/removing an edge
+        // Lets focus on final state
+        // Add only if the vertex has not changed labels?
 
         // if (properties_on_edges) {
         //   delta.vertex_edge.edge.ptr->gid.AsUint();
@@ -155,7 +284,28 @@ struct SchemaInfo {
         // name_id_mapper.IdToName(delta.vertex_edge.edge_type.AsUint());
         // vertex.gid.AsUint();
         // delta.vertex_edge.vertex->gid.AsUint();
+
+        // Edge ADD
+        // All other deltas have beed applied; get the final label/key and
+        // remove from list
+        // Any label modification will +-1
+        // Just do the same
+        const auto edge_type_id = delta.vertex_edge.edge_type;
+        const auto *in_vertex = delta.vertex_edge.vertex;
+
+        const auto out_vertex_info = ApplyDeltasForVertexIdentifier(vertex.delta, &delta, vertex);
+        const auto in_vertex_info = ApplyGlobalDeltasForVertexIdentifier(in_vertex->delta, &delta, *in_vertex);
+
+        const auto edge_identifier = Tracking::EdgeType{edge_type_id, out_vertex_info.labels, in_vertex_info.labels};
+
+        tracking_[edge_identifier].n += 1 - (2 * (delta.action == Delta::Action::ADD_OUT_EDGE));
+
+        // Edge SET PROPERTY
+        // We do this at the end, so everything should already be in place
+        // Check if we are deleted
+        // For the final vertex in/out labels update property
         break;
+      }
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
         // These actions are already encoded in the *_OUT_EDGE actions. This
@@ -166,57 +316,141 @@ struct SchemaInfo {
 
   void CleanUp() { tracking_.CleanUp(); }
 
-  void Print(NameIdMapper &name_id_mapper) {
-    std::cout << "\n\nSCHEMA INFO\n";
-    for (const auto &[labels, info] : tracking_) {
-      std::cout << "[";
-      for (const auto l : labels) {
-        std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
-      }
-      std::cout << "]:\n";
-      std::cout << "\t" << info.n << "\n";
-      for (const auto [p, n] : info.properties) {
-        std::cout << "\t" << name_id_mapper.IdToName(p.AsUint()) << ": " << n << "\n";
-      }
-      std::cout << "\n";
-    }
-    std::cout << "\n\n";
-  }
+  void Print(NameIdMapper &name_id_mapper) { tracking_.Print(name_id_mapper); }
 
   struct Info {
     int n;
-    std::unordered_map<PropertyId, int> properties;
+    struct PropertyInfo {
+      int n;
+      std::unordered_map<PropertyValue::Type, int> types;
+    };
+    std::unordered_map<PropertyId, PropertyInfo> properties;
   };
 
   struct Tracking {
+    using v_key_type = utils::small_vector<LabelId>;
+
+    struct EdgeType {
+      EdgeTypeId type;
+      v_key_type from_v_type;
+      v_key_type to_v_type;
+
+      struct hasher {
+        size_t operator()(const EdgeType &et) const {
+          size_t combined_hash = 0;
+          auto element_hash = [&combined_hash](const auto &elem) {
+            size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
+            combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
+          };
+
+          element_hash(et.type);
+          element_hash(et.from_v_type);
+          element_hash(et.to_v_type);
+          return combined_hash;
+        }
+      };
+
+      bool operator==(const EdgeType &other) const {
+        return type == other.type && from_v_type == other.from_v_type && to_v_type == other.to_v_type;
+      }
+    };
+
     // We want the key to be independent of the vector order.
     // Could create a hash and equals function that is independent
     // Difficult to make them performant and low collision
     // Stick to sorting keys for now
-    Info &operator[](const utils::small_vector<LabelId> &key) {
+    Info &operator[](const v_key_type &key) {
       if (!std::is_sorted(key.begin(), key.end())) {
         auto sorted_key = key;
         std::sort(sorted_key.begin(), sorted_key.end());
-        return state_[sorted_key];
+        return vertex_state_[sorted_key];
       }
-      return state_[key];
+      return vertex_state_[key];
     }
+
+    Info &operator[](const EdgeType &key) { return edge_state_[key]; }
 
     void CleanUp() {
       // Erase all elements that don't have any vertices associated
-      std::erase_if(state_, [](auto &elem) { return elem.second.n <= 0; });
-      for (auto &[_, val] : state_) {
-        std::erase_if(val.properties, [](auto &elem) { return elem.second <= 0; });
+      std::erase_if(vertex_state_, [](auto &elem) { return elem.second.n <= 0; });
+      for (auto &[_, val] : vertex_state_) {
+        std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
+        for (auto &[_, val] : val.properties) {
+          std::erase_if(val.types, [](auto &elem) { return elem.second <= 0; });
+        }
+      }
+      // Edge state cleanup
+      std::erase_if(edge_state_, [](auto &elem) { return elem.second.n <= 0; });
+      for (auto &[_, val] : edge_state_) {
+        std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
+        for (auto &[_, val] : val.properties) {
+          std::erase_if(val.types, [](auto &elem) { return elem.second <= 0; });
+        }
       }
     }
 
-    std::unordered_map<utils::small_vector<LabelId>, Info> state_;
+    void Print(NameIdMapper &name_id_mapper) {
+      std::cout << "\n\nSCHEMA INFO\n\n";
+      std::cout << "******* VERTEX INFO *******\n";
+      for (const auto &[labels, info] : vertex_state_) {
+        std::cout << "[";
+        for (const auto l : labels) {
+          std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+        }
+        std::cout << "]:\n";
+        std::cout << "\t" << info.n << "\n";
+        for (const auto &[p, info] : info.properties) {
+          std::cout << "\t" << name_id_mapper.IdToName(p.AsUint()) << ": " << info.n << "\n";
+          std::cout << "\ttypes:\n";
+          for (const auto &type : info.types) {
+            std::cout << "\t\t" << type.first << ": " << type.second << std::endl;
+          }
+        }
+        std::cout << "\n";
+      }
+      std::cout << "\n******** EDGE INFO ********\n";
+      for (const auto &[edge_type, info] : edge_state_) {
+        std::cout << "[";
 
-    decltype(state_)::const_iterator begin() const { return state_.begin(); }
-    decltype(state_)::const_iterator end() const { return state_.end(); }
+        std::cout << edge_type.type.AsUint() << ", ";
+
+        std::cout << "[";
+        for (const auto l : edge_type.from_v_type) {
+          std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+        }
+        std::cout << "], ";
+
+        std::cout << "[";
+        for (const auto l : edge_type.to_v_type) {
+          std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+        }
+        std::cout << "]";
+
+        std::cout << "]:\n";
+
+        std::cout << "\t" << info.n << "\n";
+        for (const auto &[p, info] : info.properties) {
+          std::cout << "\t" << name_id_mapper.IdToName(p.AsUint()) << ": " << info.n << "\n";
+          std::cout << "\ttypes:\n";
+          for (const auto &type : info.types) {
+            std::cout << "\t\t" << type.first << ": " << type.second << std::endl;
+          }
+        }
+        std::cout << "\n";
+      }
+
+      std::cout << "\n\n";
+    }
+
+    std::unordered_map<v_key_type, Info> vertex_state_;
+    std::unordered_map<EdgeType, Info, EdgeType::hasher> edge_state_;
+
+    // TODO Split for v and e (or just don't expose it)
+    decltype(vertex_state_)::const_iterator begin() const { return vertex_state_.begin(); }
+    decltype(vertex_state_)::const_iterator end() const { return vertex_state_.end(); }
   };
 
   Tracking tracking_;
-};
+};  // namespace memgraph::storage
 
 }  // namespace memgraph::storage
