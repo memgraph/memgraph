@@ -2262,7 +2262,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                                  utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
                                  std::shared_ptr<QueryUserOrRole> user_or_role,
                                  std::atomic<TransactionStatus> *transaction_status,
-                                 std::shared_ptr<utils::AsyncTimer> tx_timer,
+                                 std::shared_ptr<utils::AsyncTimer> tx_timer, bool in_explicit_transaction,
                                  FrameChangeCollector *frame_change_collector = nullptr) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
 
@@ -2311,6 +2311,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   summary->insert_or_assign("cost_estimate", plan->cost());
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(plan->plan()));
+  auto plan_validator = plan::PlanValidator();
+  plan_validator.Validate(const_cast<plan::LogicalOperator &>(plan->plan()),
+                          plan::PlanValidatorParameters{.is_explicit_transaction = in_explicit_transaction});
 
   auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
@@ -2467,8 +2470,11 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   }
 
   auto rw_type_checker = plan::ReadWriteTypeChecker();
-
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
+  auto plan_validator = plan::PlanValidator();
+  plan_validator.Validate(
+      const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()),
+      plan::PlanValidatorParameters{.is_explicit_transaction = in_explicit_transaction, .is_profile_query = true});
 
   return PreparedQuery{
       {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
@@ -4965,9 +4971,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
     if (utils::Downcast<CypherQuery>(parsed_query.query)) {
-      prepared_query = PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_,
-                                          current_db_, memory_resource, &query_execution->notifications, user_or_role_,
-                                          &transaction_status_, current_timeout_timer_, &*frame_change_collector_);
+      prepared_query =
+          PrepareCypherQuery(std::move(parsed_query), &query_execution->summary, interpreter_context_, current_db_,
+                             memory_resource, &query_execution->notifications, user_or_role_, &transaction_status_,
+                             current_timeout_timer_, in_explicit_transaction_, &*frame_change_collector_);
     } else if (utils::Downcast<ExplainQuery>(parsed_query.query)) {
       prepared_query = PrepareExplainQuery(std::move(parsed_query), &query_execution->summary,
                                            &query_execution->notifications, interpreter_context_, current_db_);

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,7 +19,7 @@
 #include "utils/logging.hpp"
 
 /**
- * Encapsulates user provided parameters (and stripped literals)
+ * Encapsulates user provided parameters (and stripped CypherQueryToPlanliterals)
  * and provides ways of obtaining them by position.
  */
 namespace memgraph::query {

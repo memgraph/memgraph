@@ -32,6 +32,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
+#include "query/plan/plan_validator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
 #include "query/stream.hpp"
 #include "query/stream/streams.hpp"
