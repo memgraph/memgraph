@@ -2476,6 +2476,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
     for (const auto &delta : transaction.deltas) {
+      // TODO: This is a hack to get global ordering
+      schema_info_.delta_tracking_.ProcessDelta(&delta);
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;

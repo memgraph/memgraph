@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <functional>
 #include <ranges>
+#include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
 
@@ -95,8 +96,8 @@ struct SchemaInfo {
     ApplyDeltasForRead(delta, delta_fin, [&res](const Delta &delta) {
       // clang-format off
           DeltaDispatch(delta, utils::ChainedOverloaded{
-            Edges_ActionMethod<EdgeDirection::OUT>(res.out_edges, {/* all edge types */}, delta.vertex_edge.vertex),
-            Edges_ActionMethod<EdgeDirection::IN>(res.in_edges, {/* all edge types */}, delta.vertex_edge.vertex),
+            Edges_ActionMethod<EdgeDirection::OUT>(res.out_edges, {/* all edge types */}, {/* all destinations */}),
+            Edges_ActionMethod<EdgeDirection::IN>(res.in_edges, {/* all edge types */}, {/* all destinations */}),
           });
       // clang-format on
     });
@@ -108,7 +109,7 @@ struct SchemaInfo {
   // TODO: Expand to handle multiple pages
   template <typename TCallback>
   inline void ApplyGlobalDeltasForRead(const Delta *delta, const Delta *delta_fin, const TCallback &callback) {
-    while (delta && delta > delta_fin) {
+    while (delta && delta_tracking_.Newer(delta, delta_fin)) {
       // This delta must be applied, call the callback.
       callback(*delta);
       // Move to the next delta.
@@ -245,8 +246,14 @@ struct SchemaInfo {
           // TODO: Think about storing everything under the out labels
           const auto next_edge_identifier =
               Tracking::EdgeType{edge_type_id, other_vertex_info.labels, next_info.labels};
+          std::cout << "\n\n\n00000\n\n\n";
+          Print(name_id_mapper);
           --tracking_[prev_edge_identifier].n;
+          std::cout << "\n\n\n111111\n\n\n";
+          Print(name_id_mapper);
           ++tracking_[next_edge_identifier].n;
+          std::cout << "\n\n\n22222\n\n\n";
+          Print(name_id_mapper);
         }
 
         break;
@@ -314,7 +321,9 @@ struct SchemaInfo {
     }
   }
 
-  void CleanUp() { tracking_.CleanUp(); }
+  void CleanUp() {
+    // tracking_.CleanUp();
+  }
 
   void Print(NameIdMapper &name_id_mapper) { tracking_.Print(name_id_mapper); }
 
@@ -325,6 +334,51 @@ struct SchemaInfo {
       std::unordered_map<PropertyValue::Type, int> types;
     };
     std::unordered_map<PropertyId, PropertyInfo> properties;
+  };
+
+  class DeltaTracking {
+   public:
+    // TODO Memory resource?
+    void ProcessDelta(const Delta *delta) {
+      auto *page = DeltaToPage(delta);
+      if (last_page != page) {
+        const auto [_, emplaced] = page_order.try_emplace(page, page_order.size());
+        if (emplaced) last_page = page;
+      }
+    }
+
+    void *DeltaToPage(const Delta *delta) const {
+      // TODO A lot of static asserts to make sure this logic is always sound
+      return (void *)(uint64_t(delta) & -4096UL);
+    }
+
+    bool Newer(const Delta *lhs, const Delta *rhs) const {
+      auto *lhs_page = DeltaToPage(lhs);
+      auto *rhs_page = DeltaToPage(rhs);
+      if (lhs_page == rhs_page) {
+        // Same page
+        return lhs > rhs;
+      }
+      uint32_t lhs_page_index;
+      try {
+        lhs_page_index = page_order.at(lhs_page);
+      } catch (std::out_of_range & /* unused */) {
+        // LHS not tracked (means that delta is newer)
+        return true;
+      }
+      uint32_t rhs_page_index;
+      try {
+        rhs_page_index = page_order.at(rhs_page);
+      } catch (std::out_of_range & /* unused */) {
+        // RHS not tracked (means that delta is newer)
+        return false;
+      }
+      // Get page ordering
+      return lhs_page_index > rhs_page_index;
+    }
+
+    std::unordered_map<void *, uint32_t> page_order;
+    void *last_page;
   };
 
   struct Tracking {
@@ -451,6 +505,7 @@ struct SchemaInfo {
   };
 
   Tracking tracking_;
+  DeltaTracking delta_tracking_;
 };  // namespace memgraph::storage
 
 }  // namespace memgraph::storage
