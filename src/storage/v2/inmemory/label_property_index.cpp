@@ -202,10 +202,8 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->transaction_->original_start_timestamp.has_value()) {
-      if (index_iterator_->timestamp >= self_->transaction_->original_start_timestamp.value()) {
-        continue;
-      }
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
     }
 
     if (self_->lower_bound_) {

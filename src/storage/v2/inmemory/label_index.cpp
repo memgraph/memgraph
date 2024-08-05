@@ -152,10 +152,8 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->transaction_->original_start_timestamp.has_value()) {
-      if (index_iterator_->timestamp >= self_->transaction_->original_start_timestamp.value()) {
-        continue;
-      }
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
     }
 
     auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};

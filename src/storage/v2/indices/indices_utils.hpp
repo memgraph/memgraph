@@ -372,4 +372,18 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
   }
 }
 
+// Helper function that determines, if a transaction has an original start timestamp
+// (for example in a periodic commit when it is necessary to preserve initial index iterators)
+// whether we are allowed to see the entity in the index data structures
+// Returns true if we are allowed to see the entity in the index data structures
+// If the method returns true, the reverts of the deltas will finally decide what's the version
+// of the graph entity
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction) {
+  if (!transaction->original_start_timestamp.has_value()) {
+    return true;
+  }
+
+  return insertion_timestamp < transaction->original_start_timestamp.value();
+}
+
 }  // namespace memgraph::storage
