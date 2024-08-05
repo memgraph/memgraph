@@ -3127,7 +3127,7 @@ class SystemInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, BUILD };
+  enum class InfoType { STORAGE, BUILD, ACTIVE_USERS };
 
   DEFVISITABLE(QueryVisitor<void>);
 
