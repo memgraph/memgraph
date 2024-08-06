@@ -67,6 +67,7 @@ inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
   data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
   data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
   data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
+  data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);
 }
 
 inline void to_json(nlohmann::json &data, SalientConfig const &config) {

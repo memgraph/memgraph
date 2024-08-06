@@ -86,6 +86,7 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                              {storage::IsolationLevelToString((storage::IsolationLevel)1), stats.isolation_levels[1]},
                              {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
   res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
+  res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
 
   return res;
 }
