@@ -51,6 +51,8 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
 
+#include "yaml-cpp/yaml.h"
+
 namespace memgraph::coordination {
 
 using nuraft::ptr;
@@ -89,6 +91,9 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                             CoordinationClusterChangeObserver{this});
   AddOrUpdateClientConnectors(raft_state_->GetCoordinatorToCoordinatorConfigs());
   raft_state_->InitRaftServer();
+
+  YAML::Emitter out;
+  out << "Hello, World!";
 }
 
 CoordinatorInstance::~CoordinatorInstance() {

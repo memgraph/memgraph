@@ -339,3 +339,5 @@ import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INC
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+
+add_subdirectory(yaml_cpp EXCLUDE_FROM_ALL)

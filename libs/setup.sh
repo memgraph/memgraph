@@ -158,6 +158,7 @@ declare -A primary_urls=(
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["strong_type"]="http://$local_cache_host/git/strong_type.git"
+  ["yaml_cpp"]="https://github.com/jbeder/yaml-cpp.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -191,6 +192,7 @@ declare -A secondary_urls=(
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["strong_type"]="https://github.com/rollbear/strong_type.git"
+  ["yaml_cpp"]="https://github.com/jbeder/yaml-cpp.git"
 )
 
 # antlr
@@ -337,3 +339,8 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 # strong_type v14
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
+
+
+# yaml_cpp
+yaml_cpp_ref="0.8.0"
+repo_clone_try_double "${primary_urls[yaml_cpp]}" "${secondary_urls[yaml_cpp]}" "yaml_cpp" "$yaml_cpp_ref"
