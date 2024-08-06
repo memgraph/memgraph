@@ -1048,9 +1048,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   FinalizeTransaction();
 
-  auto original_start_timestamp = !transaction_.original_start_timestamp.has_value()
-                                      ? transaction_.start_timestamp
-                                      : transaction_.original_start_timestamp.value();
+  auto original_start_timestamp = transaction_.original_start_timestamp.value_or(transaction_.start_timestamp);
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
