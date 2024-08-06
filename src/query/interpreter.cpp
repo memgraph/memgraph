@@ -2276,7 +2276,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     spdlog::info("Running query with memory limit of {}", utils::GetReadableSize(*memory_limit));
   }
 
-  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
   if (hops_limit) {
     spdlog::debug("Running query with hops limit of {}", *hops_limit);
   }
@@ -2450,7 +2450,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
   const auto memory_limit = EvaluateMemoryLimit(evaluator, cypher_query->memory_limit_, cypher_query->memory_scale_);
 
-  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->using_statement_.hops_limit_);
+  const auto hops_limit = EvaluateHopsLimit(evaluator, cypher_query->pre_query_directives_.hops_limit_);
 
   MG_ASSERT(current_db.execution_db_accessor_, "Profile query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
@@ -3632,6 +3632,21 @@ bool ActiveTransactionsExist(InterpreterContext *interpreter_context) {
   return exists_active_transaction;
 }
 
+std::vector<Interpreter::SessionInfo> GetActiveUsersInfo(InterpreterContext *interpreter_context) {
+  std::vector<Interpreter::SessionInfo> active_users =
+      interpreter_context->interpreters.WithLock([](const auto &interpreters_) {
+        std::vector<Interpreter::SessionInfo> info;
+        info.reserve(interpreters_.size());
+        for (const auto &interpreter : interpreters_) {
+          info.push_back(interpreter->session_info_);
+        }
+
+        return info;
+      });
+
+  return active_users;
+}
+
 PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
                                       CurrentDB &current_db, InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
@@ -4112,7 +4127,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
 
 PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                      std::optional<storage::IsolationLevel> interpreter_isolation_level,
-                                     std::optional<storage::IsolationLevel> next_transaction_isolation_level) {
+                                     std::optional<storage::IsolationLevel> next_transaction_isolation_level,
+                                     InterpreterContext *interpreter_context) {
   if (in_explicit_transaction) {
     throw InfoInMulticommandTxException();
   }
@@ -4159,6 +4175,16 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       handler = [] {
         std::vector<std::vector<TypedValue>> results{
             {TypedValue("build_type"), TypedValue(utils::GetBuildInfo().build_name)}};
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+    } break;
+    case SystemInfoQuery::InfoType::ACTIVE_USERS: {
+      header = {"username", "session uuid", "login timestamp"};
+      handler = [interpreter_context] {
+        std::vector<std::vector<TypedValue>> results;
+        for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
+          results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
+        }
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
@@ -4969,8 +4995,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
-      prepared_query = PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
-                                              interpreter_isolation_level, next_transaction_isolation_level);
+      prepared_query =
+          PrepareSystemInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_,
+                                 interpreter_isolation_level, next_transaction_isolation_level, interpreter_context_);
     } else if (utils::Downcast<ConstraintQuery>(parsed_query.query)) {
       prepared_query = PrepareConstraintQuery(std::move(parsed_query), in_explicit_transaction_,
                                               &query_execution->notifications, current_db_);
@@ -5485,5 +5512,8 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 }
 void Interpreter::ResetUser() { user_or_role_.reset(); }
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
+void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
+  session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
+}
 
 }  // namespace memgraph::query

@@ -270,6 +270,9 @@ target_link_libraries(${test_prefix}skip_list mg-utils)
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
+add_unit_test(utils_mask_sensitive_information.cpp)
+target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt)
+
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 
@@ -305,6 +308,9 @@ target_link_libraries(${test_prefix}utils_static_vector mg::utils)
 
 add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
+
+add_unit_test(utils_compressor.cpp)
+target_link_libraries(${test_prefix}utils_compressor mg-utils)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -355,7 +361,7 @@ target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
 
-add_unit_test(storage_v2_property_store.cpp)
+add_unit_test_with_custom_main(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
