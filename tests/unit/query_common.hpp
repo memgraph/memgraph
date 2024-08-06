@@ -109,6 +109,10 @@ struct OnCreate {
   std::vector<Clause *> set;
 };
 
+struct CommitFrequency {
+  Expression *expression = nullptr;
+};
+
 // Helper functions for filling the OrderBy with expressions.
 auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering = Ordering::ASC) {
   order_by.expressions.push_back({ordering, expression});
@@ -314,6 +318,29 @@ auto GetQuery(AstStorage &storage, SingleQuery *single_query, T *...cypher_union
   return query;
 }
 
+auto GetPeriodicQuery(AstStorage &storage, SingleQuery *single_query, CommitFrequency commit_frequency) {
+  auto *query = storage.Create<CypherQuery>();
+  PreQueryDirectives pre_query_directives;
+
+  query->single_query_ = single_query;
+  query->pre_query_directives_ = pre_query_directives;
+  query->pre_query_directives_.commit_frequency_ = commit_frequency.expression;
+
+  return query;
+}
+
+auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &row_var) {
+  auto *ident = storage.Create<memgraph::query::Identifier>(row_var);
+  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, ident);
+
+  return load_csv;
+}
+
+auto GetLoadCSV(AstStorage &storage, Expression *file_name, Identifier *row_var) {
+  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
+  return load_csv;
+}
+
 // Helper functions for constructing RETURN and WITH clauses.
 void FillReturnBody(AstStorage &, ReturnBody &body, NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
@@ -505,6 +532,26 @@ auto GetCallSubquery(AstStorage &storage, CypherQuery *subquery) {
   return call_subquery;
 }
 
+auto GetCallPeriodicSubquery(AstStorage &storage, SingleQuery *subquery, CommitFrequency commit_frequency) {
+  auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
+
+  auto *query = storage.Create<CypherQuery>();
+  query->single_query_ = std::move(subquery);
+
+  periodic_subquery->cypher_query_ = std::move(query);
+  periodic_subquery->cypher_query_->pre_query_directives_.commit_frequency_ = commit_frequency.expression;
+
+  return periodic_subquery;
+}
+
+auto GetCallPeriodicSubquery(AstStorage &storage, CypherQuery *subquery, CommitFrequency commit_frequency) {
+  auto *periodic_subquery = storage.Create<memgraph::query::CallSubquery>();
+  periodic_subquery->cypher_query_ = std::move(subquery);
+  periodic_subquery->cypher_query_->pre_query_directives_.commit_frequency_ = commit_frequency.expression;
+
+  return periodic_subquery;
+}
+
 /// Create the FOREACH clause with given named expression.
 auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vector<query::Clause *> &clauses) {
   return storage.Create<query::Foreach>(named_expr, clauses);
@@ -584,6 +631,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
                                               std::vector<memgraph::query::PropertyIx>{(property)})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
+#define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   memgraph::query::test_common::GetSingleQuery(this->storage.template Create<SingleQuery>(), __VA_ARGS__)
 #define UNION(...) \
@@ -653,6 +701,10 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define DROP_USER(usernames) storage.Create<memgraph::query::DropUser>((usernames))
 #define CALL_PROCEDURE(...) memgraph::query::test_common::GetCallProcedure(storage, __VA_ARGS__)
 #define CALL_SUBQUERY(...) memgraph::query::test_common::GetCallSubquery(this->storage, __VA_ARGS__)
+#define CALL_PERIODIC_SUBQUERY(...) memgraph::query::test_common::GetCallPeriodicSubquery(this->storage, __VA_ARGS__)
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)
+#define COMMIT_FREQUENCY(expr) \
+  memgraph::query::test_common::CommitFrequency { (expr) }
+#define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)

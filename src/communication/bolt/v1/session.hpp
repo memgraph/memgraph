@@ -32,6 +32,7 @@
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
@@ -68,7 +69,10 @@ class Session {
    * @param impl a default high-level implementation to use (has to be defined)
    */
   Session(TInputStream *input_stream, TOutputStream *output_stream)
-      : input_stream_(*input_stream), output_stream_(*output_stream), session_uuid_(utils::GenerateUUID()) {}
+      : input_stream_(*input_stream),
+        output_stream_(*output_stream),
+        session_uuid_(utils::GenerateUUID()),
+        login_timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
 
   virtual ~Session() = default;
 
@@ -219,6 +223,7 @@ class Session {
 
   virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
+  std::string GetLoginTimestamp() const { return login_timestamp_; }
 
  private:
   void ClientFailureInvalidData() {
@@ -236,7 +241,10 @@ class Session {
     throw SessionException("Something went wrong during session execution!");
   }
 
+  const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
+
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
+  const std::string login_timestamp_;
 };
 
 }  // namespace memgraph::communication::bolt

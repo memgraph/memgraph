@@ -284,6 +284,9 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
                                                               DatabaseAccessProtector db_acc = {}) override;
 
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+                                                                      DatabaseAccessProtector db_acc = {}) override;
+
     /// @throw std::bad_alloc
     void Abort() override;
 

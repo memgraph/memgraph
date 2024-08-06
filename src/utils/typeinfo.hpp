@@ -71,6 +71,8 @@ enum class TypeId : uint64_t {
   INDEXED_JOIN,
   HASH_JOIN,
   ROLLUP_APPLY,
+  PERIODIC_COMMIT,
+  PERIODIC_SUBQUERY,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -189,7 +191,7 @@ enum class TypeId : uint64_t {
   AST_CYPHER_UNION,
   AST_QUERY,
   AST_INDEX_HINT,
-  AST_USING_STATEMENT,
+  AST_PRE_QUERY_DIRECTIVES,
   AST_CYPHER_QUERY,
   AST_EXPLAIN_QUERY,
   AST_PROFILE_QUERY,
