@@ -91,9 +91,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
                                             CoordinationClusterChangeObserver{this});
   AddOrUpdateClientConnectors(raft_state_->GetCoordinatorToCoordinatorConfigs());
   raft_state_->InitRaftServer();
-
-  YAML::Emitter out;
-  out << "Hello, World!";
 }
 
 CoordinatorInstance::~CoordinatorInstance() {
