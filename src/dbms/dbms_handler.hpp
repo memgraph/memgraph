@@ -65,6 +65,7 @@ struct Statistics {
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
   uint64_t wal_enabled;          //!< Number of databases with WAL enabled
+  uint64_t property_store_compression_enabled;  //!< Number of databases with property store compression enabled
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -317,6 +318,7 @@ class DbmsHandler {
         ++stats.isolation_levels[(int)storage_info.isolation_level];
         stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
         stats.wal_enabled += storage_info.durability_wal_enabled;
+        stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
       }
     }
     return stats;

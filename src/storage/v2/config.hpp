@@ -43,6 +43,7 @@ struct SalientConfig {
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
     bool delta_on_identical_property_update{true};
+    bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
@@ -56,6 +57,7 @@ inline void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
       {"enable_edges_metadata", items.enable_edges_metadata},
       {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
       {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
+      {"property_store_compression_enabled", items.property_store_compression_enabled},
   };
 }
 
