@@ -96,16 +96,17 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
 }
 
 CoordinatorInstance::~CoordinatorInstance() {
-  // Coordinator instance can be stuck in infinite loop of doing force reset. We need to notify thread
-  // that we are shutting down, and we need to stop frequent checks and thread pool before anything is destructed
+  // Coordinator instance can be stuck in infinite loop of doing reconciliation of cluster state. We need to notify
+  // thread that we are shutting down, and we need to stop frequent checks and thread pool before anything is destructed
   // otherwise thread pool can get task become leader, when raft_state_ ptr is already destructed
   // Order is important:
-  // 1. Thread pool might be running with force reset, or become follower, so we should shut that down
-  // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do force reset
+  // 1. Thread pool might be running with reconcile cluster state, or become follower, so we should shut that down
+  // 2. Await shutdown of coordinator thread pool so that coordinator can't become follower or do reconcile cluster
+  // state
   // 3. Frequent checks running, we need to stop them before raft_state_ is destroyed
   ShuttingDown();
   thread_pool_.ShutDown();
-  // We don't need to take lock as force reset can't be running, coordinator can't become follower,
+  // We don't need to take lock as reconcile cluster state can't be running, coordinator can't become follower,
   // user queries can't be running as memgraph awaits server shutdown
   std::ranges::for_each(repl_instances_, [](auto &repl_instance) { repl_instance.StopFrequentCheck(); });
 }
@@ -119,7 +120,7 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
     is_leader_ready_.store(false, std::memory_order_seq_cst);
     // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to check state of
     // cluster we will try again and again in same thread, thus blocking progress of nuRAFT leader election
-    thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   };
 }
@@ -315,31 +316,31 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   return std::move(maybe_res.value());
 }
 
-auto CoordinatorInstance::VerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus {
+auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus {
   utils::ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(60)};
 
   while (raft_state_->IsLeader()) {
     spdlog::trace("Ensuring healthy state in cluster still as coordinator is leader and lock is opened.");
-    auto const result = VerifyOrCorrectClusterState_();
+    auto const result = ReconcileClusterState_();
     switch (result) {
-      case (VerifyOrCorrectClusterStateStatus::SUCCESS):
-        is_leader_ready_.store(true, std::memory_order_release);
-        spdlog::trace("Force reset was success.");
+      case (ReconcileClusterStateStatus::SUCCESS):
+        is_leader_ready_.store(true, std::memory_order_seq_cst);
+        spdlog::trace("Reconcile cluster state was success.");
         return result;
-      case VerifyOrCorrectClusterStateStatus::FAIL:
+      case ReconcileClusterStateStatus::FAIL:
         break;
-      case VerifyOrCorrectClusterStateStatus::SHUTTING_DOWN:
-        spdlog::trace("Stopping force as coordinator is shutting down.");
+      case ReconcileClusterStateStatus::SHUTTING_DOWN:
+        spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
         return result;
     }
     // TODO add stop token
     backoff.wait();
   }
 
-  return VerifyOrCorrectClusterStateStatus::SUCCESS;  // Shouldn't execute
+  return ReconcileClusterStateStatus::SUCCESS;  // Shouldn't execute
 }
 
-auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClusterStateStatus {
+auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatus {
   // Only function which can run without opening lock as long as we have is_leader_ready_ set on false
   // and all other functions checking whether leader is ready to start executing functions
 
@@ -354,10 +355,10 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   // 4. Do failover
   // 5. For instances which are down set demote instance to main callback
 
-  spdlog::trace("Doing VerifyOrCorrectClusterState.");
+  spdlog::trace("Doing ReconcileClusterState.");
 
   if (is_shutting_down_.load()) {
-    return VerifyOrCorrectClusterStateStatus::SHUTTING_DOWN;
+    return ReconcileClusterStateStatus::SHUTTING_DOWN;
   }
 
   // Do we need to open lock?
@@ -376,15 +377,15 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   });
   spdlog::trace("Stopped all frequent checks and acquiring lock in the thread {}", std::this_thread::get_id());
   auto lock = std::unique_lock{coord_instance_lock_};
-  spdlog::trace("Acquired lock in the force reset thread {}", std::this_thread::get_id());
+  spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}", std::this_thread::get_id());
   repl_instances_.clear();
 
-  utils::OnScopeExit const do_force_reset_state_update{[this]() {
-    spdlog::trace("Force reset function exit, lock opened {}, coordinator leader {}", raft_state_->IsLockOpened(),
-                  raft_state_->IsLeader());
+  utils::OnScopeExit const do_reconcile_cluster_state{[this]() {
+    spdlog::trace("Reconcile cluster state function exit, lock opened {}, coordinator leader {}",
+                  raft_state_->IsLockOpened(), raft_state_->IsLeader());
     if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
       is_leader_ready_ = true;
-      spdlog::trace("Lock is not opened anymore and coordinator is leader, not doing force reset again.");
+      spdlog::trace("Lock is not opened anymore and coordinator is leader, not reconciling cluster state again.");
     }
   }};
 
@@ -403,18 +404,18 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
           "Don't execute actions while coordinator is not connected to other coordinators, it could lead to "
           "diverging of cluster log.");
     } else {
-      return VerifyOrCorrectClusterStateStatus::SUCCESS;
+      return ReconcileClusterStateStatus::SUCCESS;
     }
   }
   if (!raft_state_->AppendCloseLock()) {
-    spdlog::trace("Exiting VerifyOrCorrectClusterState. Failed to append close lock.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::trace("Exiting ReconcileClusterState. Failed to append close lock.");
+    return ReconcileClusterStateStatus::FAIL;
   }
 
   // There is nothing to do if we don't have any instances
   if (raft_state_replication_instances.empty()) {
-    spdlog::trace("Exiting VerifyOrCorrectClusterState. Didn't get any instances.");
-    return VerifyOrCorrectClusterStateStatus::SUCCESS;
+    spdlog::trace("Exiting ReconcileClusterState. Didn't get any instances.");
+    return ReconcileClusterStateStatus::SUCCESS;
   }
 
   //  We don't need to open lock here as we have mechanism to know whether action was success (state which we return).
@@ -425,19 +426,19 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   // Otherwise we consider instance alive
   // If at any point later RPC fails for alive instance, we consider this failure
 
-  std::ranges::for_each(raft_state_replication_instances, [this](auto &replica) {
+  std::ranges::for_each(raft_state_replication_instances, [this](auto &&replica) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
 
     repl_instances_.emplace_back(std::move(client));
   });
 
-  auto instances_mapped_to_resp = repl_instances_ | ranges::views::transform([](auto &instance) {
+  auto instances_mapped_to_resp = repl_instances_ | ranges::views::transform([](auto &&instance) {
                                     return std::pair{instance.InstanceName(), instance.SendFrequentHeartbeat()};
                                   }) |
                                   ranges::to<std::unordered_map<std::string, bool>>();
 
   auto const maybe_main_instance =
-      std::ranges::find_if(repl_instances_, [this, &instances_mapped_to_resp](auto const &instance) {
+      std::ranges::find_if(repl_instances_, [this, &instances_mapped_to_resp](auto &&instance) {
         return instances_mapped_to_resp[instance.InstanceName()] && raft_state_->IsCurrentMain(instance.InstanceName());
       });
 
@@ -447,11 +448,11 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
     // if we have alive MAIN instance alive we expect cluster was in correct state already, we can start frequent checks
     // and set callbacks
 
-    auto alive_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto const &instance) {
+    auto alive_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto &&instance) {
                              return instances_mapped_to_resp[instance.InstanceName()];
                            });
 
-    auto alive_replica_instances = alive_instances | ranges::views::filter([this](auto const &instance) {
+    auto alive_replica_instances = alive_instances | ranges::views::filter([this](auto &&instance) {
                                      return raft_state_->HasReplicaState(instance.InstanceName());
                                    });
 
@@ -468,32 +469,32 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
 
     // For instances 3, 4 and 5 we need to set demote callbacks
 
-    std::ranges::for_each(alive_replica_instances, [](auto &instance) {
+    std::ranges::for_each(alive_replica_instances, [](auto &&instance) {
       instance.SetCallbacks(&CoordinatorInstance::ReplicaSuccessCallback, &CoordinatorInstance::ReplicaFailCallback);
     });
 
-    std::ranges::for_each(alive_non_replica_instances, [](auto &instance) {
+    std::ranges::for_each(alive_non_replica_instances, [](auto &&instance) {
       instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
     });
 
-    auto dead_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto const &instance) {
+    auto dead_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto &&instance) {
                             return !instances_mapped_to_resp[instance.InstanceName()];
                           });
 
-    std::ranges::for_each(dead_instances, [this](auto &instance) {
+    std::ranges::for_each(dead_instances, [](auto &&instance) {
       instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
     });
 
     maybe_main_instance->SetCallbacks(&CoordinatorInstance::MainSuccessCallback,
                                       &CoordinatorInstance::MainFailCallback);
 
-    std::ranges::for_each(repl_instances_, [](auto &instance) {
+    std::ranges::for_each(repl_instances_, [](auto &&instance) {
       MG_ASSERT(instance.GetSuccessCallback() != nullptr && instance.GetFailCallback() != nullptr,
                 "Callbacks are not properly set");
       instance.StartFrequentCheck();
     });
-    spdlog::trace("Exiting VerifyOrCorrectClusterState. Cluster is in healthy state.");
-    return VerifyOrCorrectClusterStateStatus::SUCCESS;
+    spdlog::trace("Exiting ReconcileClusterState. Cluster is in healthy state.");
+    return ReconcileClusterStateStatus::SUCCESS;
   }
 
   // Currently MAIN is considered dead
@@ -515,10 +516,10 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   // Note: If we first send SET UUID of NEW MAIN and coordinator fails at that point, even if main gets back up when new
   // coordinator becomes LEADER, we will lose current MAIN
 
-  auto alive_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto const &instance) {
+  auto alive_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto &&instance) {
                            return instances_mapped_to_resp[instance.InstanceName()];
                          });
-  auto demote_to_replica_failed = [this](auto &instance) {
+  auto demote_to_replica_failed = [this](auto &&instance) {
     if (!instance.DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
                                   &CoordinatorInstance::ReplicaFailCallback)) {
       return true;
@@ -526,20 +527,9 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
     return !raft_state_->AppendSetInstanceAsReplicaLog(instance.InstanceName());
   };
   if (std::ranges::any_of(alive_instances, demote_to_replica_failed)) {
-    spdlog::error(
-        "Exiting VerifyOrCorrectClusterState. Failed to send raft log or rpc that instance is demoted to replica.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::error("Exiting ReconcileClusterState. Failed to send raft log or rpc that instance is demoted to replica.");
+    return ReconcileClusterStateStatus::FAIL;
   }
-
-  auto const all_alive_replicas = std::ranges::all_of(alive_instances, [this](auto const &instance) {
-    if (raft_state_->HasReplicaState(instance.InstanceName())) {
-      return true;
-    }
-    spdlog::trace("Instance {} is not replica", instance.InstanceName());
-    return false;
-  });
-
-  MG_ASSERT(all_alive_replicas, "All instances should be replicas");
 
   auto const new_uuid = utils::UUID{};
 
@@ -547,10 +537,10 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
 
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_uuid)) {
     spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    return ReconcileClusterStateStatus::FAIL;
   }
 
-  auto update_uuid_failed = [&new_uuid, this](auto &repl_instance) {
+  auto update_uuid_failed = [&new_uuid, this](auto &&repl_instance) {
     spdlog::trace("Executing swap and update uuid {}", repl_instance.InstanceName());
     if (!repl_instance.SendSwapAndUpdateUUID(new_uuid)) {
       return true;
@@ -561,22 +551,21 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
 
   // For replicas we need to update uuid
   if (std::ranges::any_of(alive_instances, update_uuid_failed)) {
-    spdlog::error("Exiting VerifyOrCorrectClusterState. Failed to append log swap uuid for alive replicas.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::error("Exiting ReconcileClusterState. Failed to append log swap uuid for alive replicas.");
+    return ReconcileClusterStateStatus::FAIL;
   }
 
   spdlog::trace("Updated uuid for new main {}", std::string{new_uuid});
 
   auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(alive_instances);
   if (!maybe_most_up_to_date_instance.has_value()) {
-    spdlog::error(
-        "Exiting VerifyOrCorrectClusterState. Couldn't choose instance for failover, check logs for more details.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::error("Exiting ReconcileClusterState. Couldn't choose instance for failover, check logs for more details.");
+    return ReconcileClusterStateStatus::FAIL;
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
   spdlog::trace("Found the new main with instance name {}", new_main.InstanceName());
-  auto const is_not_new_main = [&new_main](ReplicationInstanceConnector const &repl_instance) {
+  auto const is_not_new_main = [&new_main](auto &&repl_instance) {
     return repl_instance.InstanceName() != new_main.InstanceName();
   };
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
@@ -585,18 +574,19 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
 
   if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
                               &CoordinatorInstance::MainFailCallback)) {
-    spdlog::warn("Exiting VerifyOrCorrectClusterState. Force reset failed since promoting replica to main failed.");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::warn(
+        "Exiting ReconcileClusterState. Reconcile cluster state failed since promoting replica to main failed.");
+    return ReconcileClusterStateStatus::FAIL;
   }
   spdlog::trace("Promoted instance {} to main", new_main.InstanceName());
 
   // This will set cluster in healthy state again
   if (!raft_state_->AppendSetInstanceAsMainLog(*maybe_most_up_to_date_instance, new_uuid)) {
-    spdlog::error("Exiting VerifyOrCorrectClusterState. Update log for new MAIN failed");
-    return VerifyOrCorrectClusterStateStatus::FAIL;
+    spdlog::error("Exiting ReconcileClusterState. Update log for new MAIN failed");
+    return ReconcileClusterStateStatus::FAIL;
   }
 
-  auto check_correct_callbacks_set = [this](auto &repl_instance) {
+  auto check_correct_callbacks_set = [this](auto &&repl_instance) {
     if (raft_state_->HasReplicaState(repl_instance.InstanceName())) {
       MG_ASSERT(repl_instance.GetSuccessCallback() == &CoordinatorInstance::ReplicaSuccessCallback &&
                     repl_instance.GetFailCallback() == &CoordinatorInstance::ReplicaFailCallback,
@@ -617,11 +607,11 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
   // alive instances can either be ready to be demoted, promoted or replicas
   std::ranges::for_each(alive_instances, check_correct_callbacks_set);
 
-  auto dead_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto const &instance) {
+  auto dead_instances = repl_instances_ | ranges::views::filter([&instances_mapped_to_resp](auto &&instance) {
                           return !instances_mapped_to_resp[instance.InstanceName()];
                         });
 
-  std::ranges::for_each(dead_instances, [this](auto &instance) {
+  std::ranges::for_each(dead_instances, [](auto &instance) {
     instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
   });
 
@@ -630,38 +620,40 @@ auto CoordinatorInstance::VerifyOrCorrectClusterState_() -> VerifyOrCorrectClust
               "Callbacks are not properly set");
     instance.StartFrequentCheck();
   });
-  spdlog::trace("Exiting VerifyOrCorrectClusterState. Cluster is in healthy state after correct action.");
-  return VerifyOrCorrectClusterStateStatus::SUCCESS;
+  spdlog::trace("Exiting ReconcileClusterState. Cluster is in healthy state after correct action.");
+  return ReconcileClusterStateStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::GetSuccessCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view {
   if (instance.GetSuccessCallback() == &CoordinatorInstance::ReplicaSuccessCallback) {
     return "ReplicaSuccessCallback";
-  } else if (instance.GetSuccessCallback() == &CoordinatorInstance::MainSuccessCallback) {
-    return "MainSuccessCallback";
-  } else if (instance.GetSuccessCallback() == &CoordinatorInstance::DemoteSuccessCallback) {
-    return "DemoteSuccessCallback";
-  } else {
-    return "Unknown";
   }
+  if (instance.GetSuccessCallback() == &CoordinatorInstance::MainSuccessCallback) {
+    return "MainSuccessCallback";
+  }
+  if (instance.GetSuccessCallback() == &CoordinatorInstance::DemoteSuccessCallback) {
+    return "DemoteSuccessCallback";
+  }
+  return "Unknown";
 }
 
 auto CoordinatorInstance::GetFailCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view {
   if (instance.GetFailCallback() == &CoordinatorInstance::ReplicaFailCallback) {
     return "ReplicaFailCallback";
-  } else if (instance.GetFailCallback() == &CoordinatorInstance::MainFailCallback) {
-    return "MainFailCallback";
-  } else if (instance.GetFailCallback() == &CoordinatorInstance::DemoteFailCallback) {
-    return "DemoteFailCallback";
-  } else {
-    return "Unknown";
   }
+  if (instance.GetFailCallback() == &CoordinatorInstance::MainFailCallback) {
+    return "MainFailCallback";
+  }
+  if (instance.GetFailCallback() == &CoordinatorInstance::DemoteFailCallback) {
+    return "DemoteFailCallback";
+  }
+  return "Unknown";
 }
 
-auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus {
+auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
   // Follows nomenclature from replication handler where Try<> means doing action from
   // user query
-  return VerifyOrCorrectClusterState_();
+  return ReconcileClusterState_();
 }
 
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
@@ -695,8 +687,8 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace("Adding task to try force reset cluster as lock is still opened after failover.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+      spdlog::trace("Adding task to try reconcile cluster state as lock is still opened after failover.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Failover done, lock is not opened anymore or coordinator is not leader.");
@@ -793,11 +785,12 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::FAILED_TO_OPEN_LOCK;
   }
 
-  utils::OnScopeExit const do_reset{[this]() {
+  utils::OnScopeExit const do_reconcile_cluster_state{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
-          "Adding task to try force reset cluster as lock didn't close successfully after setting instance to MAIN.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+          "Adding task to try reconcile cluster state as lock didn't close successfully after setting instance to "
+          "MAIN.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader, after setting instance to MAIN.");
@@ -892,8 +885,9 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
-          "Adding task to try force reset cluster as lock didn't close successfully after registration of instance.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+          "Adding task to try reconcile cluster state as lock didn't close successfully after registration of "
+          "instance.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
@@ -960,8 +954,8 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
-          "Adding task to try force reset cluster as lock didn't close successfully after demote of instance.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+          "Adding task to try reconcile cluster state as lock didn't close successfully after demote of instance.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after demoting instance.");
@@ -1032,8 +1026,9 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   utils::OnScopeExit const do_reset{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
-          "Adding task to try force reset cluster as lock didn't close successfully after unregistration of instance.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+          "Adding task to try reconcile cluster state as lock didn't close successfully after unregistration of "
+          "instance.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Unregistration done. Lock is not opened anymore or coordinator is not leader.");
@@ -1145,11 +1140,11 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
     spdlog::error("Raft log didn't accept instance open lock for demoting instance {} to replica.", repl_instance_name);
     return;
   }
-  utils::OnScopeExit const do_force_reset{[this]() {
+  utils::OnScopeExit const reconcile_cluster_state{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
       spdlog::trace(
-          "Adding task to try force reset cluster again as lock is opened still after setting instance needs demote.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+          "Adding task to try reconcile cluster state lock is opened still after setting instance needs demote.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader.");
@@ -1217,10 +1212,11 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
     return;
   }
 
-  utils::OnScopeExit const do_force_reset{[this]() {
+  utils::OnScopeExit const reconcile_cluster_state{[this]() {
     if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace("Adding task to try force reset cluster again as lock is opened still after demoting instance.");
-      thread_pool_.AddTask([this]() { this->VerifyOrCorrectClusterState(); });
+      spdlog::trace(
+          "Adding task to try reconcile cluster state again as lock is opened still after demoting instance.");
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
       return;
     }
     spdlog::trace("Lock is not opened anymore or coordinator is not leader.");

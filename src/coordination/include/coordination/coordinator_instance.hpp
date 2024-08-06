@@ -83,9 +83,9 @@ class CoordinatorInstance {
 
   auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  auto TryVerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus;
+  auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
-  auto VerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus;
+  auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   auto IsLeader() const -> bool;
 
@@ -156,7 +156,7 @@ class CoordinatorInstance {
 
   void DemoteFailCallback(std::string_view repl_instance_name);
 
-  auto VerifyOrCorrectClusterState_() -> VerifyOrCorrectClusterStateStatus;
+  auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
 
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
@@ -165,7 +165,7 @@ class CoordinatorInstance {
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
-  // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
+  // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
   // accept queries.
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
@@ -175,7 +175,7 @@ class CoordinatorInstance {
 
   std::unique_ptr<RaftState> raft_state_;
 
-  // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
+  // Thread pool must be destructed first, because there is a possibility we are doing reconcile cluster state in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
 

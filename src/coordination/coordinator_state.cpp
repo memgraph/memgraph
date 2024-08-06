@@ -84,13 +84,16 @@ auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -
       data_);
 }
 
-auto CoordinatorState::VerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus {
+auto CoordinatorState::ReconcileClusterState() -> ReconcileClusterStateStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot force reset cluster state since variant holds wrong alternative.");
 
   return std::visit(
       memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-                                    return VerifyOrCorrectClusterStateStatus::FAIL;
+                                    spdlog::error(
+                                        "Coordinator cannot force reset cluster state since it is not a "
+                                        "coordinator instance.");
+                                    return ReconcileClusterStateStatus::FAIL;
                                   },
                                   [](CoordinatorInstance &coordinator_instance) {
                                     return coordinator_instance.TryVerifyOrCorrectClusterState();

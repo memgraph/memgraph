@@ -484,7 +484,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
   void ForceResetClusterState() override {
     auto status = coordinator_handler_.ForceResetClusterState();
-    using enum memgraph::coordination::VerifyOrCorrectClusterStateStatus;
+    using enum memgraph::coordination::ReconcileClusterStateStatus;
     switch (status) {
       case SHUTTING_DOWN:
         throw QueryRuntimeException("Couldn't finish force reset as cluster is shutting down!");

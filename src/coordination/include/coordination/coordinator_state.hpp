@@ -45,7 +45,7 @@ class CoordinatorState {
 
   [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  [[nodiscard]] auto VerifyOrCorrectClusterState() -> VerifyOrCorrectClusterStateStatus;
+  [[nodiscard]] auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
