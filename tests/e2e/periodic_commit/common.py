@@ -37,12 +37,9 @@ def connect_with_autocommit(**kwargs) -> mgclient.Connection:
 def memgraph(**kwargs) -> Memgraph:
     memgraph = Memgraph()
 
-    memgraph.drop_indexes()
-    memgraph.ensure_constraints([])
-    memgraph.drop_database()
-
     yield memgraph
 
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
     memgraph.drop_database()
+    memgraph.drop_triggers()

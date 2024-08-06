@@ -49,6 +49,18 @@ def test_periodic_commit_uses_same_iterator_like_initial_transaction(memgraph):
     assert results[1]["id"] == 4
 
 
+def test_periodic_commit_uses_same_iterator_like_initial_transaction_on_create(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node")
+
+    memgraph.execute("CREATE (:Node {id: 1})")
+    memgraph.execute("CREATE (:Node {id: 2})")
+    memgraph.execute("MATCH (n:Node) CALL { CREATE (m:Node {id: 3}) } IN TRANSACTIONS OF 1 ROWS")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n) RETURN count(n) as cnt"))
+
+    assert results[0]["cnt"] == 4
+
+
 def test_periodic_commit_acid_guarantee_in_batches(memgraph):
     memgraph.execute("CREATE ({id: 1})")
     memgraph.execute("CREATE ({id: 2})")
