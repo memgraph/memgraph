@@ -246,14 +246,8 @@ struct SchemaInfo {
           // TODO: Think about storing everything under the out labels
           const auto next_edge_identifier =
               Tracking::EdgeType{edge_type_id, other_vertex_info.labels, next_info.labels};
-          std::cout << "\n\n\n00000\n\n\n";
-          Print(name_id_mapper);
           --tracking_[prev_edge_identifier].n;
-          std::cout << "\n\n\n111111\n\n\n";
-          Print(name_id_mapper);
           ++tracking_[next_edge_identifier].n;
-          std::cout << "\n\n\n22222\n\n\n";
-          Print(name_id_mapper);
         }
 
         break;
@@ -292,6 +286,7 @@ struct SchemaInfo {
         // vertex.gid.AsUint();
         // delta.vertex_edge.vertex->gid.AsUint();
 
+        // Below is not true
         // Edge ADD
         // All other deltas have beed applied; get the final label/key and
         // remove from list
@@ -321,9 +316,7 @@ struct SchemaInfo {
     }
   }
 
-  void CleanUp() {
-    // tracking_.CleanUp();
-  }
+  void CleanUp() { tracking_.CleanUp(); }
 
   void Print(NameIdMapper &name_id_mapper) { tracking_.Print(name_id_mapper); }
 
@@ -343,7 +336,9 @@ struct SchemaInfo {
       auto *page = DeltaToPage(delta);
       if (last_page != page) {
         const auto [_, emplaced] = page_order.try_emplace(page, page_order.size());
-        if (emplaced) last_page = page;
+        if (emplaced) {
+          last_page = page;
+        }
       }
     }
 
