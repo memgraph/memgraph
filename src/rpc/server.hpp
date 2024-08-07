@@ -54,7 +54,7 @@ class Server {
 
     auto got = callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
+    spdlog::trace("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
   }
 
   template <class TRequestResponse>
@@ -68,7 +68,7 @@ class Server {
 
     auto got = extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
+    spdlog::trace("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
   }
 
  private:

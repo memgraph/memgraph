@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "utils/signals.hpp"
+#include "spdlog/spdlog.h"
 
 namespace memgraph::utils {
 
@@ -26,7 +27,13 @@ bool SignalIgnore(const Signal signal) {
   return true;
 }
 
-void SignalHandler::Handle(int signal) { handlers_[signal](); }
+void SignalHandler::Handle(int signal) {
+  spdlog::info("Received signal {}", signal);
+  if (handlers_.find(signal) == handlers_.end()) {
+    spdlog::error("No handler for signal {}", signal);
+  }
+  handlers_[signal]();
+}
 
 bool SignalHandler::RegisterHandler(Signal signal, std::function<void()> func) {
   sigset_t signal_mask;

@@ -30,6 +30,7 @@ Session::Session(Server *server, io::network::Endpoint endpoint, communication::
     : server_(server), endpoint_(std::move(endpoint)), input_stream_(input_stream), output_stream_(output_stream) {}
 
 void Session::Execute() {
+  spdlog::trace("[RpcServer] session started");
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
@@ -82,7 +83,7 @@ void Session::Execute() {
       // Throw exception to close the socket and cleanup the session.
       throw SessionException("Session trying to execute an unregistered RPC call!");
     }
-    SPDLOG_TRACE("[RpcServer] received {}", extended_it->second.req_type.name);
+    spdlog::trace("[RpcServer] received {}", extended_it->second.req_type.name);
     slk::Save(extended_it->second.res_type.id, &res_builder);
     slk::Save(rpc::current_version, &res_builder);
     try {
@@ -91,7 +92,7 @@ void Session::Execute() {
       throw rpc::SlkRpcFailedException();
     }
   } else {
-    SPDLOG_TRACE("[RpcServer] received {}", it->second.req_type.name);
+    spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
     slk::Save(it->second.res_type.id, &res_builder);
     slk::Save(rpc::current_version, &res_builder);
     try {
@@ -105,8 +106,8 @@ void Session::Execute() {
   req_reader.Finalize();
   res_builder.Finalize();
 
-  SPDLOG_TRACE("[RpcServer] sent {}",
-               (it != server_->callbacks_.end() ? it->second.res_type.name : extended_it->second.res_type.name));
+  spdlog::trace("[RpcServer] sent {}",
+                (it != server_->callbacks_.end() ? it->second.res_type.name : extended_it->second.res_type.name));
 }
 
 }  // namespace memgraph::rpc

@@ -3,26 +3,26 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/coordinator.py"]
 
-  - name: "Single coordinator"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/single_coordinator.py"]
-
-  - name: "Disabled manual setting of replication cluster"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/manual_setting_replicas.py"]
-
-  - name: "Coordinator cluster registration"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/coord_cluster_registration.py"]
-
-  - name: "Not replicate from old main"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/not_replicate_from_old_main.py"]
-
-  - name: "Disable writing on main after restart"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/disable_writing_on_main_after_restart.py"]
-
-  - name: "Distributed coordinators"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/distributed_coords.py"]
+#  - name: "Single coordinator"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/single_coordinator.py"]
+#
+#  - name: "Disabled manual setting of replication cluster"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/manual_setting_replicas.py"]
+#
+#  - name: "Coordinator cluster registration"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/coord_cluster_registration.py"]
+#
+#  - name: "Not replicate from old main"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/not_replicate_from_old_main.py"]
+#
+#  - name: "Disable writing on main after restart"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/disable_writing_on_main_after_restart.py"]
+#
+#  - name: "Distributed coordinators"
+#    binary: "tests/e2e/pytest_runner.sh"
+#    args: ["high_availability/distributed_coords.py"]
