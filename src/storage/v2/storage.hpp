@@ -122,6 +122,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
                        {"WAL_enabled", info.durability_wal_enabled}};
   res["property_store_compression_enabled"] = info.property_store_compression_enabled;
+  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
 
   return res;
 }

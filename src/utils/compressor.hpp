@@ -21,7 +21,7 @@
 #include "utils/enum.hpp"
 
 namespace memgraph::utils {
-enum class CompressionLevel { LOW = 1, MID = 2, HIGH = 3 };
+enum class CompressionLevel { LOW = 0, MID = 1, HIGH = 2 };
 
 int CompressionLevelToZlibCompressionLevel(CompressionLevel level);
 std::string CompressionLevelToString(CompressionLevel level);
