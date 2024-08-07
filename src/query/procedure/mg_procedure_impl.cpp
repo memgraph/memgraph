@@ -329,6 +329,10 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Enum:
       throw std::logic_error{"mgp_value for TypedValue::Type::Enum doesn't exist."};
+    case memgraph::query::TypedValue::Type::Point2d:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Point2d doesn't exist."};
+    case memgraph::query::TypedValue::Type::Point3d:
+      throw std::logic_error{"mgp_value for TypedValue::Type::Point3d doesn't exist."};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"mgp_value for TypedValue::Type::Function doesn't exist."};
     case memgraph::query::TypedValue::Type::Graph:
@@ -712,6 +716,18 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::utils
     case memgraph::storage::PropertyValue::Type::Enum: {
       throw std::logic_error{
           "mgp_value for PropertyValue::Type::Enum doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Point2d: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Point2d doesn't exist. Contact Memgraph team under team@memgraph.com or "
+          "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::Point3d: {
+      throw std::logic_error{
+          "mgp_value for PropertyValue::Type::Point3d doesn't exist. Contact Memgraph team under team@memgraph.com or "
           "open a new issue / comment under existing one under github.com/memgraph/memgraph."};
       break;
     }
@@ -3937,6 +3953,10 @@ std::ostream &PrintValue(const TypedValue &value, std::ostream *stream) {
     case TypedValue::Type::Enum:
       // TODO: need to convert to EnumType::EnumValue form
       LOG_FATAL("enum not printable - not yet implemented");
+    case TypedValue::Type::Point2d:
+      return (*stream) << value.ValuePoint2d();
+    case TypedValue::Type::Point3d:
+      return (*stream) << value.ValuePoint3d();
     case TypedValue::Type::Vertex:
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
