@@ -362,7 +362,7 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    if (user->CheckPassword(*oldPassword)) {
+    if (user->CheckPasswordExplicit(*oldPassword)) {
       locked_auth->UpdatePassword(*user, newPassword);
       locked_auth->SaveUser(*user, system_tx);
     } else {
