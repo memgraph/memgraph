@@ -16,7 +16,6 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"https://login.microsoftonline.com/{config['tenant_id']}/discovery/v2.0/keys"
     elif scheme == "oidc-okta":
         jwks_uri = f"{config['id_issuer']}/v1/keys"
-
     jwks = requests.get(jwks_uri).json()
 
     # need the header to match KID with provider
@@ -57,12 +56,18 @@ def _parse_response(response):
 def _load_role_mappings(raw_role_mappings: str) -> dict:
     if raw_role_mappings:
         role_mapping = {}
-        raw_role_mappings = raw_role_mappings.strip(" ;").split(";")
+        raw_role_mappings = raw_role_mappings.strip().split(";")
         for mapping in raw_role_mappings:
-            idp_role, mg_role = mapping.split(":")
+            mapping_list = mapping.split(":")
+            if len(mapping_list) == 0:
+                continue
+            if len(mapping_list) != 2:
+                raise ValueError(f"Invalid role mapping: {mapping}")
+            idp_role, mg_role = mapping_list
             role_mapping[idp_role.strip()] = mg_role.strip()
         return role_mapping
-    return {}
+
+    raise ValueError("Missing role mappings")
 
 
 def _load_config_from_env(scheme: str):
@@ -72,14 +77,14 @@ def _load_config_from_env(scheme: str):
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_CLIENT_ID", "")
         config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_TENANT_ID", "")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", {}))
 
     elif scheme == "oidc-okta":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
         config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
         config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_AUTHORIZATION_SERVER", "")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", {}))
 
     return config
 
@@ -134,7 +139,7 @@ def authenticate(response: str, scheme: str):
         tokens = _parse_response(response)
         return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
     except Exception as e:
-        return {"valid": False, "errors": f"Unexpected error: {' '.join(e.args)}"}
+        return {"valid": False, "errors": f"Error: {' '.join(e.args)}"}
 
 
 if __name__ == "__main__":
