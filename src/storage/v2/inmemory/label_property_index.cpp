@@ -246,6 +246,9 @@ const PropertyValue kSmallestZonedTemporalData = PropertyValue(
     ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
                       utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
 const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
+const PropertyValue kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
+const PropertyValue kSmallestPoint3d =
+    PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
 
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
@@ -324,6 +327,12 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
         break;
       case PropertyValue::Type::Enum:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point2d:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
+        break;
+      case PropertyValue::Type::Point3d:
         // This is the last type in the order so we leave the upper bound empty.
         break;
     }
@@ -362,6 +371,12 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         break;
       case PropertyValue::Type::Enum:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Point2d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point3d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
         break;
     }
   }

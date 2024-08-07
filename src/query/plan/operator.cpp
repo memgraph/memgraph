@@ -742,6 +742,8 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::List:
           case storage::PropertyValue::Type::Map:
           case storage::PropertyValue::Type::Enum:
+          case storage::PropertyValueType::Point2d:
+          case storage::PropertyValueType::Point3d:
             // Prevent indexed lookup with something that would fail if we did
             // the original filter with `operator<`. Note, for some reason,
             // Cypher does not support comparing boolean values.
@@ -752,9 +754,6 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
           case storage::PropertyValue::Type::String:
           case storage::PropertyValue::Type::TemporalData:
           case storage::PropertyValue::Type::ZonedTemporalData:
-            // These are all fine, there's also Point, Date and Time data types
-            // which were added to Cypher, but we don't have support for those
-            // yet.
             return std::make_optional(utils::Bound<storage::PropertyValue>(property_value, bound->type()));
         }
       } catch (const TypedValueException &) {
@@ -2993,6 +2992,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
         buffer_.edges.insert(buffer_.edges.begin(), path.edges().begin(), path.edges().end());
+        break;
       }
       case TypedValue::Type::Null:
         break;

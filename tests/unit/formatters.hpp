@@ -83,8 +83,10 @@ inline std::string ToString(const memgraph::utils::LocalDateTime) { return ""; }
 
 inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
-// TODO: formatting of enum
+// TODO: formatting of enum and points
 inline std::string ToString(const memgraph::storage::Enum) { return ""; }
+inline std::string ToString(const memgraph::storage::Point2d) { return ""; }
+inline std::string ToString(const memgraph::storage::Point3d) { return ""; }
 
 inline std::string ToString(const memgraph::utils::ZonedDateTime &zdt) { return zdt.ToString(); }
 
@@ -143,6 +145,7 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       break;
     case memgraph::query::TypedValue::Type::Enum:
       os << ToString(value.ValueEnum());
+      break;
     case memgraph::query::TypedValue::Type::ZonedDateTime:
       os << ToString(value.ValueZonedDateTime());
       break;
@@ -150,6 +153,12 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       throw std::logic_error{"Not implemented"};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::Point2d:
+      os << ToString(value.ValuePoint2d());
+      break;
+    case memgraph::query::TypedValue::Type::Point3d:
+      os << ToString(value.ValuePoint3d());
+      break;
   }
   return os.str();
 }

@@ -40,6 +40,16 @@ void Encoder::WriteEnum(storage::Enum value) {
   slk::Save(value, builder_);
 }
 
+void Encoder::WritePoint2d(storage::Point2d value) {
+  WriteMarker(durability::Marker::TYPE_POINT_2D);
+  slk::Save(value, builder_);
+}
+
+void Encoder::WritePoint3d(storage::Point3d value) {
+  WriteMarker(durability::Marker::TYPE_POINT_3D);
+  slk::Save(value, builder_);
+}
+
 void Encoder::WritePropertyValue(const PropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
   slk::Save(value, builder_);
@@ -108,6 +118,20 @@ std::optional<std::string> Decoder::ReadString() {
 std::optional<Enum> Decoder::ReadEnumValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_ENUM) return std::nullopt;
   storage::Enum value;
+  slk::Load(&value, reader_);
+  return value;
+}
+
+std::optional<Point2d> Decoder::ReadPoint2dValue() {
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_POINT_2D) return std::nullopt;
+  storage::Point2d value;
+  slk::Load(&value, reader_);
+  return value;
+}
+
+std::optional<Point3d> Decoder::ReadPoint3dValue() {
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_POINT_3D) return std::nullopt;
+  storage::Point3d value;
   slk::Load(&value, reader_);
   return value;
 }

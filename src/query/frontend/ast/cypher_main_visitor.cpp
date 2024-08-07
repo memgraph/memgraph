@@ -2846,68 +2846,59 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   for (auto *expression : ctx->expression()) {
     expressions.push_back(std::any_cast<Expression *>(expression->accept(this)));
   }
+
   if (expressions.size() == 1U) {
-    if (function_name == Aggregation::kCount) {
+    auto upper_function_name = utils::ToUpperCase(function_name);
+    if (upper_function_name == Aggregation::kCount) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COUNT, is_distinct));
     }
-    if (function_name == Aggregation::kMin) {
+    if (upper_function_name == Aggregation::kMin) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MIN, is_distinct));
     }
-    if (function_name == Aggregation::kMax) {
+    if (upper_function_name == Aggregation::kMax) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::MAX, is_distinct));
     }
-    if (function_name == Aggregation::kSum) {
+    if (upper_function_name == Aggregation::kSum) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::SUM, is_distinct));
     }
-    if (function_name == Aggregation::kAvg) {
+    if (upper_function_name == Aggregation::kAvg) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::AVG, is_distinct));
     }
-    if (function_name == Aggregation::kCollect) {
+    if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COLLECT_LIST, is_distinct));
     }
-    if (function_name == Aggregation::kProject) {
+    if (upper_function_name == Aggregation::kProject) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT, is_distinct));
     }
   }
 
-  if (expressions.size() == 2U && function_name == Aggregation::kCollect) {
-    return static_cast<Expression *>(
-        storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
+  if (expressions.size() == 2U) {
+    auto upper_function_name = utils::ToUpperCase(function_name);
+    if (upper_function_name == Aggregation::kCollect) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
+    }
   }
 
-  auto is_user_defined_function = [](const std::string &function_name) {
-    // Dots are present only in user-defined functions, since modules are case-sensitive, so must be
-    // user-defined functions. Builtin functions should be case insensitive.
-    return function_name.find('.') != std::string::npos;
-  };
+  auto *function_expr = storage_->Create<Function>(function_name, expressions);
 
   // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
   // repeativly finding the function at call time, this means user-defined functions have there lifetime
   // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
   // query module that is not currently being used.
-  if (is_user_defined_function(function_name)) {
-    query_info_.is_cacheable = false;
-  }
+  query_info_.is_cacheable = !function_expr->IsUserDefined();
 
-  return static_cast<Expression *>(storage_->Create<Function>(function_name, expressions));
+  return static_cast<Expression *>(function_expr);
 }
 
-antlrcpp::Any CypherMainVisitor::visitFunctionName(MemgraphCypher::FunctionNameContext *ctx) {
-  auto function_name = ctx->getText();
-  // Dots are present only in user-defined functions, since modules are case-sensitive, so must be
-  // user-defined functions. Builtin functions should be case insensitive.
-  if (function_name.find('.') != std::string::npos) {
-    return function_name;
-  }
-  return utils::ToUpperCase(function_name);
-}
+antlrcpp::Any CypherMainVisitor::visitFunctionName(MemgraphCypher::FunctionNameContext *ctx) { return ctx->getText(); }
 
 antlrcpp::Any CypherMainVisitor::visitDoubleLiteral(MemgraphCypher::DoubleLiteralContext *ctx) {
   return ParseDoubleLiteral(ctx->getText());

@@ -31,6 +31,8 @@ enum class Marker : uint8_t {
   TYPE_TEMPORAL_DATA = 0x18,
   TYPE_ZONED_TEMPORAL_DATA = 0x19,
   TYPE_ENUM = 0x1a,
+  TYPE_POINT_2D = 0x1b,
+  TYPE_POINT_3D = 0x1c,
 
   SECTION_VERTEX = 0x20,
   SECTION_EDGE = 0x21,
@@ -94,6 +96,8 @@ static const Marker kMarkersAll[] = {
     Marker::TYPE_ZONED_TEMPORAL_DATA,
     Marker::TYPE_PROPERTY_VALUE,
     Marker::TYPE_ENUM,
+    Marker::TYPE_POINT_2D,
+    Marker::TYPE_POINT_3D,
     Marker::SECTION_VERTEX,
     Marker::SECTION_EDGE,
     Marker::SECTION_MAPPER,
