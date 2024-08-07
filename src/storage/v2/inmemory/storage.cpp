@@ -992,7 +992,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // TODO is this the correct place for this
           mem_storage->schema_info_.ProcessTransaction(transaction_,
                                                        mem_storage->config_.salient.items.properties_on_edges);
-          //  mem_storage->schema_info_.CleanUp();
+          mem_storage->schema_info_.CleanUp();
           mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
