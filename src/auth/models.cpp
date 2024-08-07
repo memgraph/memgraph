@@ -604,10 +604,11 @@ User::User(const std::string &username, std::optional<HashedPassword> password_h
 #endif
 
 bool User::CheckPassword(const std::string &password) {
-  if (!password_hash_) {
-    return password.empty();
-  }
   return password_hash_ ? password_hash_->VerifyPassword(password) : true;
+}
+
+bool User::CheckPasswordExplicit(const std::string &password) {
+  return password_hash_ ? password_hash_->VerifyPassword(password) : password.empty();
 }
 
 void User::UpdatePassword(const std::optional<std::string> &password,
@@ -618,6 +619,8 @@ void User::UpdatePassword(const std::optional<std::string> &password,
   }
   password_hash_ = HashPassword(*password, algo_override);
 }
+
+void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
 void User::SetRole(const Role &role) { role_.emplace(role); }
 

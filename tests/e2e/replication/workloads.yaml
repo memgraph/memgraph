@@ -155,3 +155,7 @@ workloads:
   - name: "Replication with property compression used"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/replication_with_property_compression_used.py"]
+    
+  - name: "TTL replication"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/ttl.py"]

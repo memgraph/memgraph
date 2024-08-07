@@ -1,0 +1,18 @@
+ttl_setup: &ttl_setup
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          "7687",
+          "--log-level=TRACE",
+        ]
+      log_file: "time_to_live.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "TTL multitenancy"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["time_to_live/multitenancy.py"]
+    <<: *ttl_setup

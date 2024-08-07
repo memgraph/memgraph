@@ -230,6 +230,12 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_commit_timestamp_.load());
   });
 
+  // STEP 4) Resume TTL
+  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    auto &ttl = db_acc->ttl();
+    ttl.Resume();
+  });
+
   return true;
 };
 

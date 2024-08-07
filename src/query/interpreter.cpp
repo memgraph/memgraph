@@ -82,6 +82,7 @@
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
+#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
@@ -3083,6 +3084,119 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+#ifdef MG_ENTERPRISE
+PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                              std::vector<Notification> *notifications, CurrentDB &current_db,
+                              InterpreterContext *interpreter_context) {
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+
+  if (in_explicit_transaction) {
+    throw TtlInMulticommandTxException();
+  }
+
+  auto *ttl_query = utils::Downcast<TtlQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
+  auto db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel("TTL");
+  auto prop = storage->NameToProperty("ttl");
+
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  Notification notification(SeverityLevel::INFO);
+  switch (ttl_query->type_) {
+    case TtlQuery::Type::ENABLE: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      try {
+        std::string info;
+        std::string period;
+        if (ttl_query->period_) {
+          period = ttl_query->period_->Accept(evaluator).ValueString();
+        }
+        std::string start_time;
+        if (ttl_query->specific_time_) {
+          start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
+        }
+        auto ttl_info = ttl::TtlInfo{period, start_time};
+        if (interpreter_context->repl_state->IsReplica()) {
+          // Special case for REPLICA
+          info = "TTL configured. Background job will not run, since instance is REPLICA.";
+        } else {
+          // TTL could already be configured; use the present config if no user-defined config
+          info = "Starting time-to-live worker. Will be executed";
+          if (ttl_info)
+            info += ttl_info.ToString();
+          else if (db_acc->ttl().Config())
+            info += db_acc->ttl().Config().ToString();
+        }
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
+                   invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+          auto &ttl = db_acc->ttl();
+
+          if (!ttl.Enabled()) {
+            (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            ttl.Enable();
+            std::invoke(invalidate_plan_cache);
+          }
+          if (ttl_info) ttl.Configure(ttl_info);
+          ttl.Setup(std::move(db_acc), interpreter_context);
+
+          notification.code = NotificationCode::ENABLE_TTL;
+          notification.title = info;
+        };
+      } catch (const ttl::TtlException &e) {
+        throw utils::BasicException(e.what());
+      }
+      break;
+    }
+    case TtlQuery::Type::DISABLE: {
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [db_acc = std::move(db_acc), dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+        (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
+        const utils::OnScopeExit invalidator(invalidate_plan_cache);
+        db_acc->ttl().Disable();
+        notification.code = NotificationCode::DISABLE_TTL;
+        notification.title = fmt::format("Disabled time-to-live feature.");
+      };
+      break;
+    }
+    case TtlQuery::Type::STOP: {
+      handler = [db_acc = std::move(db_acc)](Notification &notification) mutable {
+        db_acc->ttl().Stop();
+        notification.code = NotificationCode::STOP_TTL;
+        notification.title = fmt::format("Stopped time-to-live worker.");
+      };
+      break;
+    }
+    default: {
+      DMG_ASSERT(false, "Unknown ttl query type");
+    }
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), notifications, notification = std::move(notification)](
+                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                         handler(notification);
+                         notifications->push_back(notification);
+                         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+                       },
+                       RWType::NONE};
+}
+#endif
+
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
@@ -3617,6 +3731,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
     auto *streams = db->streams();
     streams->DropAll();
+
+    auto &ttl = db->ttl();
+    ttl.Stop();
 
     return std::vector<std::vector<TypedValue>>();
   };
@@ -4930,7 +5047,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
         utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
         unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
@@ -4988,6 +5105,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
+#ifdef MG_ENTERPRISE
+      prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
+                                       &query_execution->notifications, current_db_, interpreter_context_);
+#else
+      throw QueryException("Query not supported.");
+#endif  // MG_ENTERPRISE
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
@@ -5121,15 +5245,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (write_query) {
       if (interpreter_context_->repl_state->IsReplica()) {
         query_execution = nullptr;
-        throw QueryException("Write query forbidden on the replica!");
+        throw WriteQueryOnReplicaException();
       }
 #ifdef MG_ENTERPRISE
       if (interpreter_context_->coordinator_state_.has_value() &&
           interpreter_context_->coordinator_state_->get().IsDataInstance() &&
           !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
-        throw QueryException(
-            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
+        throw WriteQueryOnMainException();
       }
 #endif
     }

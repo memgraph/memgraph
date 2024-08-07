@@ -367,6 +367,7 @@ class User final {
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
+  bool CheckPasswordExplicit(const std::string &password);
 
   bool UpgradeHash(const std::string password) {
     if (!password_hash_) return false;
@@ -380,6 +381,8 @@ class User final {
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
+
+  void UpdateHash(HashedPassword hashed_password);
 
   void SetRole(const Role &role);
 
