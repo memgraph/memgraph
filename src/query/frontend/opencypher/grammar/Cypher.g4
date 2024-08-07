@@ -44,6 +44,8 @@ constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )
 
 storageInfo : STORAGE INFO ;
 
+activeUsersInfo : ACTIVE USERS INFO ;
+
 indexInfo : INDEX INFO ;
 
 constraintInfo : CONSTRAINT INFO ;
@@ -58,7 +60,7 @@ buildInfo : BUILD INFO ;
 
 databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
 
-systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 

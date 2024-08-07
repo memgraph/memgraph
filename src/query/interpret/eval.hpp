@@ -661,10 +661,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &ldt = expression_result_ptr->ValueLocalDateTime();
-        if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
+        if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
           return std::move(*date_field);
         }
-        if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
+        if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
           return TypedValue(*lt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
@@ -747,8 +747,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &ldt = expression_result.ValueLocalDateTime();
-        const auto &date = ldt.date;
-        const auto &lt = ldt.local_time;
+        const auto &date = ldt.date();
+        const auto &lt = ldt.local_time();
         result.emplace("year", TypedValue(date.year, ctx_->memory));
         result.emplace("month", TypedValue(date.month, ctx_->memory));
         result.emplace("day", TypedValue(date.day, ctx_->memory));
@@ -1273,11 +1273,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
+int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
+
+/// A helper function for evaluating an expression that's an uint.
+///
+/// @param what - Name of what's getting evaluated. Used for user feedback (via
+///               exception) when the evaluated value is not an uint.
+/// @throw QueryRuntimeException if expression doesn't evaluate to an uint.
+std::optional<int64_t> EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
 
 std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateDeleteBufferSize(ExpressionVisitor<TypedValue> &eval, Expression *expr);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
-
 }  // namespace memgraph::query

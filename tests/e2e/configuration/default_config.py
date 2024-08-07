@@ -149,6 +149,16 @@ startup_config_dict = {
         "false",
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
     ),
+    "storage_property_store_compression_enabled": (
+        "false",
+        "false",
+        "Controls whether the properties should be compressed in the storage.",
+    ),
+    "storage_property_store_compression_level": (
+        "mid",
+        "mid",
+        "Compression level for storing properties. Allowed values: low, mid, high.",
+    ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
     "query_execution_timeout_sec": (
@@ -217,6 +227,11 @@ startup_config_dict = {
         "false",
         "false",
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
+    ),
+    "timezone": (
+        "UTC",
+        "UTC",
+        "Define instance's timezone (IANA format).",
     ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),

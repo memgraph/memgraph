@@ -607,6 +607,10 @@ bool User::CheckPassword(const std::string &password) {
   return password_hash_ ? password_hash_->VerifyPassword(password) : true;
 }
 
+bool User::CheckPasswordExplicit(const std::string &password) {
+  return password_hash_ ? password_hash_->VerifyPassword(password) : password.empty();
+}
+
 void User::UpdatePassword(const std::optional<std::string> &password,
                           std::optional<PasswordHashAlgorithm> algo_override) {
   if (!password) {

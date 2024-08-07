@@ -225,6 +225,7 @@ class BaseEncoder {
   }
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
+    // Bolt defines local date time without timezone (as if UTC)
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
     WriteInt(local_date_time.SecondsSinceEpoch());

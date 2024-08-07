@@ -67,6 +67,7 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_TRUE(auth->HasUsers());
 
   ASSERT_TRUE(auth->Authenticate("test", "123"));
+  ASSERT_TRUE(auth->Authenticate("test", ""));
 
   user->UpdatePassword("123");
   auth->SaveUser(*user);
@@ -341,7 +342,7 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     auto user = auth->AddUser("test");
     ASSERT_TRUE(user);
     ASSERT_TRUE(auth->Authenticate("test", "123"));
-    ASSERT_TRUE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(auth->Authenticate("test", ""));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
