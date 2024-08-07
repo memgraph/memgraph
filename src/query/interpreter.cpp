@@ -3038,10 +3038,8 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
 
   switch (index_query->action_) {
     case PointIndexQuery::Action::CREATE: {
-      handler = [label_name, prop_name, dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache)
-                /*, label_id, label_name = index_query->edge_type_.name,
-                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)*/]() {
+      handler = [label_name = std::move(label_name), prop_name = std::move(prop_name), dba, storage,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
         index_notification.title = fmt::format("Created point index on label {}, property {}.", label_name, prop_name);
@@ -3062,10 +3060,8 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
       break;
     }
     case PointIndexQuery::Action::DROP: {
-      handler = [label_name, prop_name, dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache)
-        /*dba, label_id, label_name = index_query->edge_type_.name,
-                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)*/]() {
+      handler = [label_name = std::move(label_name), prop_name = std::move(prop_name), dba, storage,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::DROP_INDEX;
         index_notification.title = fmt::format("Dropped point index on label {}, property {}.", label_name, prop_name);
