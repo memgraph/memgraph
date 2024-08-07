@@ -359,6 +359,8 @@ antlrcpp::Any CypherMainVisitor::visitCreatePointIndex(MemgraphCypher::CreatePoi
 antlrcpp::Any CypherMainVisitor::visitDropPointIndex(MemgraphCypher::DropPointIndexContext *ctx) {
   auto *index_query = storage_->Create<PointIndexQuery>();
   index_query->action_ = PointIndexQuery::Action::DROP;
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   return index_query;
 }
 
