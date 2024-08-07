@@ -640,6 +640,11 @@ class DbAccessor final {
     return accessor_->Commit(std::move(reparg), std::move(db_acc));
   }
 
+  utils::BasicResult<storage::StorageManipulationError, void> PeriodicCommit(
+      storage::CommitReplArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
+    return accessor_->PeriodicCommit(std::move(reparg), std::move(db_acc));
+  }
+
   void Abort() { accessor_->Abort(); }
 
   storage::StorageMode GetStorageMode() const noexcept { return accessor_->GetCreationStorageMode(); }

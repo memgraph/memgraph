@@ -51,6 +51,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "OnceOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "OptionalOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "OrderByOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "PeriodicCommitOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "PeriodicSubqueryOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ProduceOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "RemoveLabelsOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "RemovePropertyOperator", "type": "Operator", "metric type": "Counter"},

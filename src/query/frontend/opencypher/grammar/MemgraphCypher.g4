@@ -106,9 +106,12 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | OF_TOKEN
+                      | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
+                      | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -124,6 +127,8 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROWS
+                      | QUOTE
                       | SCHEMA
                       | SERVER
                       | SERVICE_URL
@@ -211,7 +216,7 @@ query : cypherQuery
       | ttlQuery
       ;
 
-cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -283,9 +288,9 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-usingStatementItem: hopsLimit | indexHints ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -293,7 +298,11 @@ indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
