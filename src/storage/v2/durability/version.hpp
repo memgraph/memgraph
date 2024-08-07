@@ -20,7 +20,7 @@ namespace memgraph::storage::durability {
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
-const uint64_t kVersion{18};
+const uint64_t kVersion{19};
 
 const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};

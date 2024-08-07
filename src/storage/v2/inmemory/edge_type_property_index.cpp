@@ -48,16 +48,16 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
           auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
           MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
-          break;
         }
+        break;
       }
       case Delta::Action::ADD_OUT_EDGE: {
         if (edge == delta.vertex_edge.edge.ptr) {
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
           auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
           MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-          break;
         }
+        break;
       }
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:

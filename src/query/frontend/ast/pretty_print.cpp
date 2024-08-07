@@ -15,6 +15,7 @@
 
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/string_helpers.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -114,6 +115,12 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::containe
 
 void PrintObject(std::ostream *out, EnumValueAccess op);
 
+void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value);
+
+void PrintObject(std::ostream *out, storage::Point2d const &value);
+
+void PrintObject(std::ostream *out, storage::Point3d const &value);
+
 template <typename T>
 void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
   static_assert(!std::is_convertible_v<T, Expression *>,
@@ -162,6 +169,10 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value) 
   }
 }
 
+void PrintObject(std::ostream *out, storage::Point2d const &value) { *out << query::CypherConstructionFor(value); }
+
+void PrintObject(std::ostream *out, storage::Point3d const &value) { *out << query::CypherConstructionFor(value); }
+
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
@@ -201,6 +212,12 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       break;
     case storage::PropertyValue::Type::Enum:
       PrintObject(out, dba, value.ValueEnum());
+      break;
+    case storage::PropertyValue::Type::Point2d:
+      PrintObject(out, value.ValuePoint2d());
+      break;
+    case storage::PropertyValue::Type::Point3d:
+      PrintObject(out, value.ValuePoint3d());
   }
 }
 

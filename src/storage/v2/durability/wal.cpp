@@ -187,6 +187,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_ZONED_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::TYPE_ENUM:
+    case Marker::TYPE_POINT_2D:
+    case Marker::TYPE_POINT_3D:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
     case Marker::SECTION_MAPPER:

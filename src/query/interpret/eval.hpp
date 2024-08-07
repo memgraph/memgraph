@@ -32,6 +32,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
@@ -576,6 +577,61 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
+    auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
+      auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
+      if (prop_name == "x") {
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_2d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
+    auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
+      auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
+      if (prop_name == "x") {
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "z") {
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "height") {
+        if (!is_wgs) throw QueryRuntimeException("Use z instead of height for cartesian point types");
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_3d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
     auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "nodes") {
         utils::pmr::vector<TypedValue> vertices(ctx_->memory);
@@ -677,6 +733,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
       }
+      case TypedValue::Type::Point2d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_2d = expression_result_ptr->ValuePoint2d();
+        if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
+          return TypedValue(*point_2d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
+      }
+      case TypedValue::Type::Point3d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_3d = expression_result_ptr->ValuePoint3d();
+        if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
+          return TypedValue(*point_3d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
+      }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &graph = expression_result_ptr->ValueGraph();
@@ -762,6 +834,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::ZonedDateTime: {
         throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
       }
+      case TypedValue::Type::Point2d: {
+        auto const &point_2d = expression_result.ValuePoint2d();
+        result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_2d.y(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Point3d: {
+        auto const &point_3d = expression_result.ValuePoint3d();
+        result.emplace("x", TypedValue(point_3d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_3d.y(), ctx_->memory));
+        result.emplace("z", TypedValue(point_3d.z(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
       case TypedValue::Type::Graph: {
         const auto &graph = expression_result.ValueGraph();
 
@@ -783,7 +870,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       default:
         throw QueryRuntimeException(
-            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+            "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
     }
   }
 
