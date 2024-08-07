@@ -484,6 +484,27 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | true   |
 
+    Scenario: distance with nulls:
+        When executing query:
+            """
+            RETURN point.distance(null, null) AS result;
+            """
+        Then the result should be:
+            | result |
+            | null   |
+
+    Scenario: distance with different crs:
+        When executing query:
+            """
+            RETURN point.distance(
+                point({longitude: 12.78, latitude: 56.7,   height: 100}),
+                point({longitude: 12.79, latitude: 56.71})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | null   |
+
     Scenario: Point2d-WGS48 withinbbox inside:
         When executing query:
             """
@@ -809,7 +830,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | true  |
 
-    Scenario: Point3d-Cartesian inside:
+    Scenario: Point3d-Cartesian withinbbox inside:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -822,7 +843,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | true  |
 
-    Scenario: Point3d-Cartesian x under:
+    Scenario: Point3d-Cartesian withinbbox x under:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -835,7 +856,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | false  |
 
-    Scenario: Point3d-Cartesian x over:
+    Scenario: Point3d-Cartesian withinbbox x over:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -848,7 +869,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | false  |
 
-    Scenario: Point3d-Cartesian y under:
+    Scenario: Point3d-Cartesian withinbbox y under:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -861,7 +882,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | false  |
 
-    Scenario: Point3d-Cartesian y over:
+    Scenario: Point3d-Cartesian withinbbox y over:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -874,7 +895,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | false  |
 
-    Scenario: Point3d-Cartesian z under:
+    Scenario: Point3d-Cartesian withinbbox z under:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -887,7 +908,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             | result |
             | false  |
 
-    Scenario: Point3d-Cartesian z over:
+    Scenario: Point3d-Cartesian withinbbox z over:
         When executing query:
             """
             RETURN point.withinbbox(
@@ -899,3 +920,25 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | result |
             | false  |
+
+    Scenario: withinbbox with nulls:
+        When executing query:
+            """
+            RETURN point.withinbbox(null, null, null) AS result;
+            """
+        Then the result should be:
+            | result |
+            | null   |
+
+    Scenario: withinbbox with different crs:
+        When executing query:
+            """
+            RETURN point.withinbbox(
+                point({longitude: 12.78, latitude: 56.7,   height: 100}),
+                point({longitude: 12.79, latitude: 56.71}),
+                point({longitude: 12.79, latitude: 56.71})
+            ) AS result;
+            """
+        Then the result should be:
+            | result |
+            | null   |
