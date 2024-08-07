@@ -147,6 +147,7 @@ STREAM                  : S T R E A M ;
 STREAMS                 : S T R E A M S ;
 SYNC                    : S Y N C ;
 TERMINATE               : T E R M I N A T E ;
+TEXT                    : T E X T ;
 TIMEOUT                 : T I M E O U T ;
 TO                      : T O ;
 TOPICS                  : T O P I C S;

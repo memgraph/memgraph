@@ -548,22 +548,22 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) override;
 
   /**
-   * @return PointIndexQuery*
+   * @return CreatePointIndexQuery*
    */
   antlrcpp::Any visitCreatePointIndex(MemgraphCypher::CreatePointIndexContext *ctx) override;
 
   /**
-   * @return PointIndexQuery*
+   * @return DropPointIndexQuery*
    */
   antlrcpp::Any visitDropPointIndex(MemgraphCypher::DropPointIndexContext *ctx) override;
 
   /**
-   * @return TextIndexQuery*
+   * @return CreateTextIndexQuery*
    */
   antlrcpp::Any visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) override;
 
   /**
-   * @return TextIndexQuery*
+   * @return DropTextIndexQuery*
    */
   antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
 
