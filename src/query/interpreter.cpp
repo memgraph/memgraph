@@ -3038,47 +3038,48 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
 
   switch (index_query->action_) {
     case PointIndexQuery::Action::CREATE: {
-      handler = [label_name, prop_name, dba, storage/*, label_id, label_name = index_query->edge_type_.name,
+      handler = [label_name, prop_name, dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache)
+                /*, label_id, label_name = index_query->edge_type_.name,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)*/]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
-
         index_notification.title = fmt::format("Created point index on label {}, property {}.", label_name, prop_name);
-
 
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
 
-        auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(label_id) : dba->CreateIndex(label_id, properties[0]);
+        auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
-              fmt::format("Index on edge-type {} on properties {} already exists.", label_name, properties_stringified);
+              fmt::format("Point index on label {} and property {} already exists.", label_name, prop_name);
         }
         return index_notification;
       };
       break;
     }
     case PointIndexQuery::Action::DROP: {
-      handler = [/*dba, label_id, label_name = index_query->edge_type_.name,
+      handler = [label_name, prop_name, dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache)
+        /*dba, label_id, label_name = index_query->edge_type_.name,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)*/]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::DROP_INDEX;
-        index_notification.title = fmt::format("Dropped point index on label {}, property {}.", label_name, index_query->property_.name);
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label_id) : dba->DropIndex(label_id, properties[0]);
+        index_notification.title = fmt::format("Dropped point index on label {}, property {}.", label_name, prop_name);
+
+        auto label_id = storage->NameToLabel(label_name);
+        auto prop_id = storage->NameToProperty(prop_name);
+
+        auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
-              fmt::format("Index on edge-type {} on {} doesn't exist.", label_name, properties_stringified);
+              fmt::format("Point index on label {} and property {} doesn't exist.", label_name, prop_name);
         }
         return index_notification;
       };

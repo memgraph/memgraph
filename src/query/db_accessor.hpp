@@ -772,6 +772,18 @@ class DbAccessor final {
     return accessor_->DropIndex(edge_type, property);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
+                                                                                  storage::PropertyId property) {
+    // TODO: Implement
+    return {};
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
+                                                                                storage::PropertyId property) {
+    // TODO: Implement
+    return {};
+  }
+
   void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
     accessor_->CreateTextIndex(index_name, label, this);
   }
