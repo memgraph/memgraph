@@ -15,6 +15,7 @@ import typing
 import mgclient
 import pytest
 from common import execute_and_fetch_all, has_n_result_row
+from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture(scope="function")
@@ -28,7 +29,7 @@ def multi_db(request, connection):
     yield connection
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_return_argument(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -44,7 +45,7 @@ def test_return_argument(multi_db, function_type):
     assert vertex.properties == {"id": 1}
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_return_optional_argument(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -58,7 +59,7 @@ def test_return_optional_argument(multi_db, function_type):
     assert result == 42
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_return_optional_argument_no_arg(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -72,7 +73,7 @@ def test_return_optional_argument_no_arg(multi_db, function_type):
     assert result == 42
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_add_two_numbers(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -86,7 +87,7 @@ def test_add_two_numbers(multi_db, function_type):
     assert result_sum == 6
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_return_null(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -99,7 +100,7 @@ def test_return_null(multi_db, function_type):
     assert result_null is None
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_too_many_arguments(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -112,7 +113,7 @@ def test_too_many_arguments(multi_db, function_type):
         )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_try_to_write(multi_db, function_type):
     cursor = multi_db.cursor()
@@ -126,7 +127,7 @@ def test_try_to_write(multi_db, function_type):
         )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize("function_type", ["py", "c"])
 def test_case_sensitivity(multi_db, function_type):
     cursor = multi_db.cursor()

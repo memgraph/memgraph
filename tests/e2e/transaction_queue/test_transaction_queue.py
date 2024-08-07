@@ -17,7 +17,8 @@ from typing import List
 
 import mgclient
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, enterprise_only, execute_and_fetch_all
+from mg_utils import mg_is_enterprise
 
 # Utility functions
 # -------------------------
@@ -55,7 +56,7 @@ def test_self_transaction():
     assert len(results) == 1
 
 
-def test_multitenant_transactions():
+def test_multitenant_transactions(enterprise_only):
     """Tests that show transactions work on another database"""
     test_cursor = connect().cursor()
     execute_and_fetch_all(test_cursor, "CREATE DATABASE testing")
@@ -75,8 +76,9 @@ def test_admin_has_one_transaction(request):
     # a_cursor is used for creating admin user, simulates main thread
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
@@ -93,10 +95,11 @@ def test_user_can_see_its_transaction(request):
     """Tests that user without privileges can see its own transaction"""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
-    execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT ALL PRIVILEGES TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+        execute_and_fetch_all(superadmin_cursor, "REVOKE ALL PRIVILEGES FROM user")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
@@ -114,8 +117,9 @@ def test_user_can_see_its_transaction(request):
 def test_explicit_transaction_output(request):
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
@@ -145,11 +149,12 @@ def test_superadmin_cannot_see_admin_can_see_admin(request):
     """Tests that superadmin cannot see the transaction created by admin but two admins can see and kill each other's transactions."""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT  TO admin2")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
@@ -191,8 +196,9 @@ def test_admin_sees_superadmin(request):
     superadmin_connection = connect()
     superadmin_cursor = superadmin_connection.cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
         execute_and_fetch_all(admin_cursor, "DROP USER admin")
@@ -227,9 +233,10 @@ def test_admin_can_see_user_transaction(request):
     """Tests that admin can see user's transaction and kill it."""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
     execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin")
@@ -265,17 +272,17 @@ def test_admin_can_see_user_transaction(request):
     user_connection.close()
 
 
-def test_user_cannot_see_admin_transaction(request):
+def test_user_cannot_see_admin_transaction(request, enterprise_only):
     """User cannot see admin's transaction but other admin can and he can kill it."""
     # Superadmin creates two admins and one user
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin1")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin1")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin1")
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin2")
     execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin2")
-    execute_and_fetch_all(superadmin_cursor, "CREATE USER user")
 
     def on_exit():
         execute_and_fetch_all(superadmin_cursor, "DROP USER admin1")
@@ -339,8 +346,9 @@ def test_admin_killing_multiple_non_existing_transactions(request):
     # Starting, superadmin admin
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
-    execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
+    if mg_is_enterprise():
+        execute_and_fetch_all(superadmin_cursor, "GRANT TRANSACTION_MANAGEMENT TO admin")
+        execute_and_fetch_all(superadmin_cursor, "GRANT DATABASE * TO admin")
 
     def on_exit():
         execute_and_fetch_all(admin_cursor, "DROP USER admin")
@@ -357,7 +365,7 @@ def test_admin_killing_multiple_non_existing_transactions(request):
         assert results[i][1] == False  # not killed
 
 
-def test_user_killing_some_transactions():
+def test_user_killing_some_transactions(enterprise_only):
     """Tests what happens when user can kill only some of the transactions given."""
     superadmin_cursor = connect().cursor()
     execute_and_fetch_all(superadmin_cursor, "CREATE USER admin")

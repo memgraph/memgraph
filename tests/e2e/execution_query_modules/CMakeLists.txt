@@ -9,3 +9,4 @@ copy_execution_query_modules_e2e_python_files(verify_behaviour.py)
 add_subdirectory(procedures)
 
 copy_e2e_files(execution_query_modules workloads.yaml)
+copy_e2e_python_files_from_parent_folder(execution_query_modules ".." mg_utils.py)

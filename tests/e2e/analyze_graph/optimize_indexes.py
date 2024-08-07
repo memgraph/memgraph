@@ -13,6 +13,7 @@ import sys
 
 import pytest
 from common import connect, execute_and_fetch_all, memgraph
+from mg_utils import mg_is_enterprise
 
 QUERY_PLAN = "QUERY PLAN"
 
@@ -32,7 +33,7 @@ def multi_db(request, connect):
     yield connect
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize(
     "delete_query",
     [
@@ -74,7 +75,7 @@ def test_analyze_graph_delete_statistics(delete_query, multi_db):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 @pytest.mark.parametrize(
     "analyze_query",
     [
@@ -134,7 +135,7 @@ def test_analyze_full_graph(analyze_query, multi_db):
 # -----------------------------
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     """Tests index optimization with indices both having uniform distribution but one has smaller avg. group size."""
     cursor = multi_db.cursor()
@@ -165,7 +166,7 @@ def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db):
     """Tests index choosing where both indices have uniform key distribution with same avg. group size but one has less vertices."""
     cursor = multi_db.cursor()
@@ -196,7 +197,7 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_large_diff_in_num_vertices_v1(multi_db):
     """Tests that when one index has > 10x vertices than the other one, it should be chosen no matter avg group size and uniform distribution."""
     cursor = multi_db.cursor()
@@ -227,7 +228,7 @@ def test_large_diff_in_num_vertices_v1(multi_db):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_large_diff_in_num_vertices_v2(multi_db):
     """Tests that when one index has > 10x vertices than the other one, it should be chosen no matter avg group size and uniform distribution."""
     cursor = multi_db.cursor()
@@ -258,7 +259,7 @@ def test_large_diff_in_num_vertices_v2(multi_db):
     execute_and_fetch_all(cursor, "DROP INDEX ON :Label(id2);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_same_avg_group_size_diff_distribution(multi_db):
     """Tests index choice decision based on key distribution."""
     cursor = multi_db.cursor()

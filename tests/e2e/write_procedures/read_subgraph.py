@@ -15,6 +15,7 @@ import typing
 import mgclient
 import pytest
 from common import execute_and_fetch_all, has_n_result_row
+from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture(scope="function")
@@ -53,7 +54,7 @@ def create_smaller_subgraph(cursor):
     execute_and_fetch_all(cursor, "MATCH (p:Person {id: 2}) MATCH (t:Team {id:6}) CREATE (p)-[:SUPPORTS]->(t);")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_is_callable(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -72,7 +73,7 @@ def test_is_callable(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_incorrect_graph_argument_placement(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -93,7 +94,7 @@ def test_incorrect_graph_argument_placement(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_get_vertices(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -112,7 +113,7 @@ def test_get_vertices(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_get_out_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -131,7 +132,7 @@ def test_get_out_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_get_in_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -150,7 +151,7 @@ def test_get_in_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_get_2_hop_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -168,7 +169,7 @@ def test_get_2_hop_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_get_out_edges_vertex_id(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -187,7 +188,7 @@ def test_get_out_edges_vertex_id(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_get_path_vertices(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -205,7 +206,7 @@ def test_subgraph_get_path_vertices(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_get_path_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -223,7 +224,7 @@ def test_subgraph_get_path_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_get_path_vertices_in_subgraph(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -240,7 +241,7 @@ def test_subgraph_get_path_vertices_in_subgraph(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_insert_vertex_get_vertices(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -257,7 +258,7 @@ def test_subgraph_insert_vertex_get_vertices(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_insert_edge_get_vertex_out_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -274,7 +275,7 @@ def test_subgraph_insert_edge_get_vertex_out_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_create_edge_both_vertices_not_in_projected_graph_error(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -292,7 +293,7 @@ def test_subgraph_create_edge_both_vertices_not_in_projected_graph_error(multi_d
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_remove_edge_get_vertex_out_edges(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -309,7 +310,7 @@ def test_subgraph_remove_edge_get_vertex_out_edges(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_remove_edge_not_in_subgraph_error(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
@@ -326,7 +327,7 @@ def test_subgraph_remove_edge_not_in_subgraph_error(multi_db):
     )
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_subgraph_remove_vertex_and_out_edges_get_vertices(multi_db):
     cursor = multi_db.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")

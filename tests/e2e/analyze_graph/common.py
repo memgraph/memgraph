@@ -14,6 +14,7 @@ import typing
 import mgclient
 import pytest
 from gqlalchemy import Memgraph
+from mg_utils import mg_is_enterprise
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -26,11 +27,12 @@ def connect(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
     cursor = connection.cursor()
-    execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-    try:
-        execute_and_fetch_all(cursor, "DROP DATABASE clean")
-    except:
-        pass
+    if mg_is_enterprise():
+        execute_and_fetch_all(cursor, "USE DATABASE memgraph")
+        try:
+            execute_and_fetch_all(cursor, "DROP DATABASE clean")
+        except:
+            pass
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     yield connection
 

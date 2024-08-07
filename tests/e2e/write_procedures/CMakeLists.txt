@@ -10,3 +10,4 @@ copy_write_procedures_e2e_python_files(read_subgraph.py)
 add_subdirectory(procedures)
 
 copy_e2e_files(write_procedures workloads.yaml)
+copy_e2e_python_files_from_parent_folder(write_procedures ".." mg_utils.py)

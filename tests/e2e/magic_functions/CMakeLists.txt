@@ -10,3 +10,4 @@ copy_magic_functions_e2e_python_files(function_example.py)
 add_subdirectory(functions)
 
 copy_e2e_files(functions workloads.yaml)
+copy_e2e_python_files_from_parent_folder(functions ".." mg_utils.py)

@@ -7,7 +7,7 @@ index_hints_cluster: &index_hints_cluster
       validation_queries: []
 
 workloads:
-  - name: "Analyze graph for better indexing"
+  - name: "Analyze graph for better indexing with hints"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["index_hints/index_hints.py"]
     <<: *index_hints_cluster

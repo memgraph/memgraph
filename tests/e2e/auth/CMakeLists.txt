@@ -6,3 +6,4 @@ copy_auth_e2e_python_files(common.py)
 copy_auth_e2e_python_files(auth_queries.py)
 
 copy_e2e_files(auth workloads.yaml)
+copy_e2e_python_files_from_parent_folder(auth ".." mg_utils.py)

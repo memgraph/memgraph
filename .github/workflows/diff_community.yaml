@@ -27,7 +27,6 @@ on:
 env:
   ARCH: ${{ inputs.arch }}
   BUILD_TYPE: 'RelWithDebInfo'
-  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
@@ -37,7 +36,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 100
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -67,13 +66,21 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph --community
 
+      - name: Run e2e tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph e2e
+
       - name: Run unit tests
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph unit
 

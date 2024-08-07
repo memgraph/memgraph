@@ -22,7 +22,11 @@ import interactive_mg_runner
 import mgclient
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
+from mg_utils import (
+    mg_is_enterprise,
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_collection,
+)
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -105,14 +109,14 @@ def test_enum_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
         ),
     ]
@@ -139,14 +143,14 @@ def test_enum_replication(connection):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 4}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "async",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 4}},
         ),
     ]
@@ -173,14 +177,14 @@ def test_enum_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 6}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 6}},
         ),
     ]
@@ -207,14 +211,14 @@ def test_enum_replication(connection):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 8}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"behind": None, "status": "ready", "ts": 0},
+            {"behind": None, "status": "ready", "ts": 0} if mg_is_enterprise() else None,
             {"memgraph": {"behind": 0, "status": "ready", "ts": 8}},
         ),
     ]

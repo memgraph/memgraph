@@ -26,3 +26,9 @@ add_subdirectory(e2e)
 
 # mgbench benchmark test binaries
 add_subdirectory(mgbench)
+
+# Easy way to allow run-time check if built was with enterprise on
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/enterprise_check.sh.in ${CMAKE_CURRENT_BINARY_DIR}/enterprise_check.sh @ONLY)
+add_custom_target(memgraph__tests__enterprise_check ALL
+    DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/enterprise_check.sh
+)

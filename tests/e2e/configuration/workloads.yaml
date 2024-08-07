@@ -25,6 +25,7 @@ workloads:
   - name: "Configuration check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
+    type: "enterprise"
     <<: *in_memory_cluster
 
   - name: "SHOW STORAGE INFO check"
@@ -35,4 +36,5 @@ workloads:
   - name: "Disk configuration check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
+    type: "enterprise"
     <<: *disk_cluster

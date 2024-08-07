@@ -156,12 +156,15 @@ void SessionHL::TryDefaultDB() {
     // Failed to get default db, connect without db
     interpreter_.ResetDB();
   }
-#endif
   auto db = GetCurrentDB();
   if (db.empty())
     implicit_db_.reset();
   else
     implicit_db_.emplace(std::move(db));
+#else
+  // Community has to connect to the default database
+  interpreter_.SetCurrentDB();
+#endif
 }
 
 // This is called on connection establishment

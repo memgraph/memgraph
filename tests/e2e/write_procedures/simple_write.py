@@ -15,6 +15,7 @@ import typing
 import mgclient
 import pytest
 from common import execute_and_fetch_all, has_n_result_row, has_one_result_row
+from mg_utils import mg_is_enterprise
 
 
 @pytest.fixture(scope="function")
@@ -28,7 +29,7 @@ def multi_db(request, connection):
     yield connection
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_is_write(multi_db):
     is_write = 2
     result_order = "name, signature, is_write"
@@ -54,7 +55,7 @@ def test_is_write(multi_db):
     assert cursor.description[2].name == "is_write"
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_single_vertex(multi_db):
     cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
@@ -107,7 +108,7 @@ def test_single_vertex(multi_db):
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_single_edge(multi_db):
     cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
@@ -149,7 +150,7 @@ def test_single_edge(multi_db):
     assert has_n_result_row(cursor, "MATCH ()-[e]->() RETURN e", 0)
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_detach_delete_vertex(multi_db):
     cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
@@ -172,7 +173,7 @@ def test_detach_delete_vertex(multi_db):
     assert has_one_result_row(cursor, f"MATCH (n) WHERE id(n) = {v2_id} RETURN n")
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_graph_mutability(multi_db):
     cursor = multi_db.cursor()
     assert has_n_result_row(cursor, "MATCH (n) RETURN n", 0)
@@ -210,7 +211,7 @@ def test_graph_mutability(multi_db):
     test_mutability(False)
 
 
-@pytest.mark.parametrize("multi_db", [False, True], indirect=True)
+@pytest.mark.parametrize("multi_db", [False, True] if mg_is_enterprise() else [False], indirect=True)
 def test_log_message(multi_db):
     cursor = multi_db.cursor()
     success = execute_and_fetch_all(cursor, f"CALL read.log_message('message') YIELD success RETURN success")[0][0]

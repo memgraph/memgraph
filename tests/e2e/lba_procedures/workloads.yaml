@@ -93,34 +93,40 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/read_query_modules.py"]
+    type: "enterprise"
     <<: *read_query_modules_in_memory_cluster
 
   - name: "update-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_query_modules.py"]
+    type: "enterprise"
     <<: *update_query_modules_in_memory_cluster
 
   - name: "create-delete-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/create_delete_query_modules.py"]
+    type: "enterprise"
     <<: *create_delete_query_modules_in_memory_cluster
 
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
+    type: "enterprise"
     <<: *show_privileges_in_memory_cluster
 
   - name: "read-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/read_permission_queries.py"]
+    type: "enterprise"
     <<: *read_permission_in_memory_queries
 
   - name: "update-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_permission_queries.py"]
+    type: "enterprise"
     <<: *update_permission_queries_in_memory_cluster

@@ -68,6 +68,7 @@ workloads:
   - name: "Triggers privilege check"
     binary: "tests/e2e/triggers/memgraph__e2e__triggers__privileges"
     args: ["--bolt-port", *bolt_port]
+    type: "enterprise"
     <<: *storage_properties_edges_true_in_memory_cluster
 
   - name: "ON DELETE Triggers Storage Properties On Edges False"

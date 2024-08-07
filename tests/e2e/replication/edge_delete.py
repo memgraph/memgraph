@@ -14,7 +14,7 @@ import time
 
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert_collection
+from mg_utils import mg_is_enterprise, mg_sleep_and_assert_collection
 
 
 # BUGFIX: for issue https://github.com/memgraph/memgraph/issues/1515
@@ -35,14 +35,14 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -57,14 +57,14 @@ def test_replication_handles_delete_when_multiple_edges_of_same_type(connection)
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             "127.0.0.1:10002",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "ready"} if mg_is_enterprise() else None,
             {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
         ),
     ]
