@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "mgp.hpp"
 #include "storage/v2/delta.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/small_vector.hpp"
@@ -68,6 +70,18 @@ struct SchemaInfo {
       callback(*delta);
       // Move to the next delta.
       delta = delta->next.load(std::memory_order_acquire);
+    }
+  }
+
+  template <typename TCallback>
+  inline void ApplyDeltasForRead2(const Delta *delta, uint64_t current_commit_timestamp, const TCallback &callback) {
+    while (true) {
+      // This delta must be applied, call the callback.
+      callback(*delta);
+      // Move to the next delta in this transaction.
+      auto *older = delta->next.load(std::memory_order_acquire);
+      if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+      delta = older;
     }
   }
 
@@ -313,6 +327,285 @@ struct SchemaInfo {
         // These actions are already encoded in the *_OUT_EDGE actions. This
         // function should never be called for this type of deltas.
         LOG_FATAL("Invalid delta action!");
+    }
+  }
+
+  void ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
+    std::unordered_set<Vertex *> apply_v;
+
+    std::unordered_set<Tracking::EdgeType, Tracking::EdgeType::hasher> remove_edge;
+    std::unordered_set<Tracking::EdgeType, Tracking::EdgeType::hasher> add_edge;
+
+    std::unordered_set<Gid> handled_edges;
+
+    for (const auto &delta : transaction.deltas) {
+      auto prev = delta.prev.Get();
+      DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      if (prev.type != PreviousPtr::Type::VERTEX) continue;
+
+      const auto &vertex = *prev.vertex;
+      // We are at the head
+      // Calculate the difference
+      // pre labels <- easy
+      // post labels <- easy
+      // pre properties <- easy
+      // post properties <- easy
+
+      // pre edges <- easy
+      // pre edges other vertex <- don't need global order
+      // post edges <- easy
+      // post edges other vertex <- don't need global order
+
+      // -+ for each label property change <- easy
+      // -+ for each pre edge label change
+
+      // Changed out edges
+      // Changed in edges
+
+      auto guard = std::shared_lock{vertex.lock};
+
+      auto pre_labels = vertex.labels;
+      const auto post_labels = vertex.labels;
+      auto pre_properties = vertex.properties.Properties();
+      const auto post_properties = vertex.properties.Properties();
+
+      auto pre_in_edges = vertex.in_edges;
+      const auto post_in_edges = vertex.in_edges;
+      auto pre_out_edges = vertex.out_edges;
+      const auto post_out_edges = vertex.out_edges;
+
+      ApplyDeltasForRead2(&delta, transaction.commit_timestamp->load(std::memory_order_acquire),
+                          [&pre_labels, &pre_properties, &pre_in_edges, &pre_out_edges](const Delta &delta) {
+                            // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Properties_ActionMethod(pre_properties),
+            Labels_ActionMethod(pre_labels),
+            Edges_ActionMethod<EdgeDirection::OUT>(pre_out_edges, {/* all edge types */}, {/* all destinations */}),
+            Edges_ActionMethod<EdgeDirection::IN>(pre_in_edges, {/* all edge types */}, {/* all destinations */}),
+          });
+                            // clang-format on
+                          });
+
+      // DELETE_DESERIALIZED_OBJECT: <
+      // DELETE_OBJECT:   <- (adds) add vertex as defined at commit
+      // RECREATE_OBJECT: <- (removes) remove vertex as defined at start
+      // SET_PROPERTY:    <- (both adds and removes) remove property-label at start add property-label at commit
+      // ADD_LABEL:       <
+      // REMOVE_LABEL:    <- update v labels and (if any edges at start) also edges
+      // ADD_OUT_EDGE:    <- (removes) remove edge as defined at start
+      // REMOVE_OUT_EDGE: <- (adds)  add edges as defined at commit
+
+      bool label_update = false;
+      bool label_edge_update = false;
+
+      std::unordered_map<PropertyId, PropertyValue> remove_property;
+      std::unordered_map<PropertyId, PropertyValue> add_property;
+      bool vertex_added = false;
+      struct EdgeInfo {
+        Vertex *from;
+        Vertex *to;
+        EdgeTypeId type;
+
+        struct hasher {
+          size_t operator()(const EdgeInfo &et) const {
+            size_t combined_hash = 0;
+            auto element_hash = [&combined_hash](const auto &elem) {
+              size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
+              combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
+            };
+
+            element_hash(et.type);
+            element_hash(et.from);
+            element_hash(et.to);
+            return combined_hash;
+          }
+        };
+
+        bool operator==(const EdgeInfo &other) const {
+          return type == other.type && from == other.from && to == other.to;
+        }
+      };
+
+      // std::unordered_set<EdgeInfo, EdgeInfo::hasher> remove_edge;
+      // std::unordered_set<EdgeInfo, EdgeInfo::hasher> add_edge;
+
+      auto *current_delta = &delta;
+      auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+
+      bool remove_labels = false;
+      bool add_labels = false;
+
+      while (true) {
+        switch (current_delta->action) {
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            // This is an empty object without any labels or properties
+            label_update = true;
+            vertex_added = true;
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            // This is an empty object without any labels or properties
+            label_update = true;
+            break;
+          }
+          case Delta::Action::SET_PROPERTY: {
+            if (pre_properties.contains(current_delta->property.key)) {  // already present value
+              remove_property.try_emplace(current_delta->property.key, *current_delta->property.value);
+            }
+            if (vertex.properties.HasProperty(current_delta->property.key)) {
+              add_property.try_emplace(current_delta->property.key,
+                                       vertex.properties.GetProperty(current_delta->property.key));
+            }
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL: {
+            label_update = true;
+            label_edge_update |= !pre_in_edges.empty() || !pre_out_edges.empty();
+            break;
+          }
+          case Delta::Action::ADD_OUT_EDGE: {
+            // This delta covers both vertices; we can update count in place
+            if (std::find(pre_out_edges.begin(), pre_out_edges.end(),
+                          std::tuple<EdgeTypeId, Vertex *, EdgeRef>{
+                              current_delta->vertex_edge.edge_type, current_delta->vertex_edge.vertex,
+                              current_delta->vertex_edge.edge}) != pre_out_edges.end()) {
+              // Removed an already existing edge
+              // remove_edge.emplace(current_delta->vertex_edge.edge_type, vertex, current_delta->vertex_edge.vertex);
+              const auto *other_vertex = current_delta->vertex_edge.vertex;
+              auto pre_other_labels = other_vertex->labels;
+              if (other_vertex->delta) {
+                ApplyDeltasForRead2(&delta, transaction.commit_timestamp->load(std::memory_order_acquire),
+                                    [&pre_other_labels](const Delta &delta) {
+                                      // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Labels_ActionMethod(pre_other_labels)
+          });
+                                      // clang-format on
+                                    });
+              }
+              --tracking_[Tracking::EdgeType{current_delta->vertex_edge.edge_type, pre_labels, pre_other_labels}].n;
+            } else {
+              // Remove from temporary edges
+              --tracking_[{current_delta->vertex_edge.edge_type, post_labels,
+                           current_delta->vertex_edge.vertex->labels}]
+                    .n;
+            }
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            // This delta covers both vertices; we can update count in place
+            // New edge; add to the final labels
+            ++tracking_[{current_delta->vertex_edge.edge_type, post_labels, current_delta->vertex_edge.vertex->labels}]
+                  .n;
+            break;
+          }
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+            // These actions are already encoded in the *_OUT_EDGE actions. This
+            // function should never be called for this type of deltas.
+            // LOG_FATAL("Invalid delta action!");
+        }
+
+        // Advance along the chain
+        auto *older = current_delta->next.load(std::memory_order_acquire);
+        if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
+        current_delta = older;
+      }
+
+      if (label_update) {
+        // Move all info as is at the start
+        // Other deltas will take care of updating the end result
+        if (!vertex_added) {
+          --tracking_[pre_labels].n;
+          remove_property.insert(pre_properties.begin(), pre_properties.end());
+        }
+        if (!vertex.deleted) {
+          ++tracking_[post_labels].n;
+          add_property.insert(post_properties.begin(), post_properties.end());
+        }
+      }
+
+      if (label_edge_update) {
+        // There could be multiple label changes or changes from both ends; so make a list of unique edges to update
+        // Move edges to the new labels
+        for (const auto &out_edge : pre_out_edges) {
+          // Label deltas could move edges multiple times, from both ends
+          // We are only interested in the start and end state
+          // That means we only need to move the edge once, irrelevant of how many deltas could influence it
+          // Labels can only move, creation or deletion is handled via other deltas
+          Gid edge_gid;
+          if (properties_on_edges) {
+            edge_gid = delta.vertex_edge.edge.ptr->gid;
+          } else {
+            edge_gid = delta.vertex_edge.edge.gid;
+          }
+
+          const auto [_, emplaced] = handled_edges.emplace(edge_gid);
+          if (emplaced) continue;
+
+          const auto *other_vertex = std::get<1>(out_edge);
+          auto pre_other_labels = other_vertex->labels;
+          const auto post_other_labels = other_vertex->labels;
+          if (other_vertex->delta) {
+            ApplyDeltasForRead2(&delta, transaction.commit_timestamp->load(std::memory_order_acquire),
+                                [&pre_other_labels](const Delta &delta) {
+                                  // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Labels_ActionMethod(pre_other_labels)
+          });
+                                  // clang-format on
+                                });
+          }
+
+          --tracking_[{std::get<0>(out_edge), pre_labels, pre_other_labels}].n;
+          ++tracking_[{std::get<0>(out_edge), post_labels, post_other_labels}].n;
+        }
+        for (const auto &in_edge : pre_in_edges) {
+          // Label deltas could move edges multiple times, from both ends
+          // We are only interested in the start and end state
+          // That means we only need to move the edge once, irrelevant of how many deltas could influence it
+          // Labels can only move, creation or deletion is handled via other deltas
+          Gid edge_gid;
+          if (properties_on_edges) {
+            edge_gid = delta.vertex_edge.edge.ptr->gid;
+          } else {
+            edge_gid = delta.vertex_edge.edge.gid;
+          }
+
+          const auto [_, emplaced] = handled_edges.emplace(edge_gid);
+          if (emplaced) continue;
+
+          const auto *other_vertex = std::get<1>(in_edge);
+          auto pre_other_labels = other_vertex->labels;
+          const auto post_other_labels = other_vertex->labels;
+          if (other_vertex->delta) {
+            ApplyDeltasForRead2(&delta, transaction.commit_timestamp->load(std::memory_order_acquire),
+                                [&pre_other_labels](const Delta &delta) {
+                                  // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Labels_ActionMethod(pre_other_labels)
+          });
+                                  // clang-format on
+                                });
+          }
+
+          --tracking_[{std::get<0>(in_edge), pre_other_labels, pre_labels}].n;
+          ++tracking_[{std::get<0>(in_edge), post_other_labels, post_labels}].n;
+        }
+      }
+
+      // We are only removing properties that have existed before transaction
+      for (const auto &[id, val] : remove_property) {
+        --tracking_[pre_labels].properties[id].n;
+        --tracking_[pre_labels].properties[id].types[val.type()];
+      }
+      // Add the new (or updated) properties
+      for (const auto &[id, val] : add_property) {
+        ++tracking_[post_labels].properties[id].n;
+        ++tracking_[post_labels].properties[id].types[val.type()];
+      }
     }
   }
 

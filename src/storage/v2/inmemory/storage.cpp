@@ -989,6 +989,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
+          // TODO is this the correct place for this
+          mem_storage->schema_info_.ProcessTransaction(transaction_,
+                                                       mem_storage->config_.salient.items.properties_on_edges);
+          //  mem_storage->schema_info_.CleanUp();
+          mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
+
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
@@ -2476,8 +2482,6 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     // 1. Process all Vertex deltas and store all operations that create vertices
     // and modify vertex data.
     for (const auto &delta : transaction.deltas) {
-      // TODO: This is a hack to get global ordering
-      schema_info_.delta_tracking_.ProcessDelta(&delta);
       auto prev = delta.prev.Get();
       MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
@@ -2594,13 +2598,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
       wal_file_->AppendDelta(delta, parent, timestamp);
       repl_storage_state_.AppendDelta(streams, delta, parent, timestamp);
-      schema_info_.ProcessDelta(delta, parent, *name_id_mapper_, timestamp);
     });
   }
-
-  // There might be some leftover empty elements after deltas have been processed
-  schema_info_.CleanUp();
-  schema_info_.Print(*name_id_mapper_);
 
   // Add a delta that indicates that the transaction is fully written to the WAL
   // TODO: (andi) I think this should happen in reverse order because it could happen that we fsync on replica
