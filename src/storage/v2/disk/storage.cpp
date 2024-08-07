@@ -1757,6 +1757,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
           break;
         }
+        case MetadataDelta::Action::POINT_INDEX_CREATE:
+        case MetadataDelta::Action::POINT_INDEX_DROP:
+          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage.");
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -2066,6 +2069,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
                                                                                            PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreatePointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropPointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>

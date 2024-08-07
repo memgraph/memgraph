@@ -105,6 +105,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(TEXT_INDEX_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
   }
 #undef add_case
 }
@@ -175,6 +177,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     add_case(VERTEX_DELETE);
     add_case(VERTEX_REMOVE_LABEL);
     add_case(VERTEX_SET_PROPERTY);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
 
     case Marker::TYPE_NULL:
     case Marker::TYPE_BOOL:
@@ -323,6 +327,8 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
     } break;
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::POINT_INDEX_CREATE:
+    case WalDeltaData::Type::POINT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
@@ -617,6 +623,8 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
 
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
+    case WalDeltaData::Type::POINT_INDEX_CREATE:
+    case WalDeltaData::Type::POINT_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
       return a.operation_label_property.label == b.operation_label_property.label &&
@@ -1018,6 +1026,20 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property, {label_id, property_id},
+                                         "The label property index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::POINT_INDEX_CREATE: {
+          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+          AddRecoveredIndexConstraint(&indices_constraints->indices.point_label_property, {label_id, property_id},
+                                      "The label property index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::POINT_INDEX_DROP: {
+          auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.label));
+          auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.point_label_property, {label_id, property_id},
                                          "The label property index doesn't exist!");
           break;
         }

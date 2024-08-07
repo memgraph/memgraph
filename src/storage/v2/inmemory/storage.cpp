@@ -74,6 +74,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
   }
 #undef add_case
 }
@@ -1555,6 +1557,36 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  if (!mem_label_property_index->CreatePointIndex(label, property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropPointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping point index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_index =
+      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  if (!mem_label_property_index->DropPointIndex(label, property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  return {};
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating existence requires a unique access to the storage!");
@@ -2317,6 +2349,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
                                 md_delta.enum_alter_update_info.old_value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::POINT_INDEX_CREATE:
+      case MetadataDelta::Action::POINT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
+                              md_delta.label_property.property);
         });
         break;
       }

@@ -43,6 +43,8 @@ struct MetadataDelta {
     ENUM_CREATE,
     ENUM_ALTER_ADD,
     ENUM_ALTER_UPDATE,
+    POINT_INDEX_CREATE,
+    POINT_INDEX_DROP,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -55,6 +57,10 @@ struct MetadataDelta {
   } label_index_stats_clear;
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
+  static constexpr struct PointIndexCreate {
+  } point_index_create;
+  static constexpr struct PointIndexDrop {
+  } point_index_drop;
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
   static constexpr struct LabelPropertyIndexStatsSet {
@@ -127,6 +133,12 @@ struct MetadataDelta {
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
       : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name), label} {}
 
+  MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
+      : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
+
+  MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
+      : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
+
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
@@ -172,6 +184,8 @@ struct MetadataDelta {
       case ENUM_CREATE:
       case ENUM_ALTER_ADD:
       case ENUM_ALTER_UPDATE:
+      case POINT_INDEX_CREATE:
+      case POINT_INDEX_DROP:
         break;
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {

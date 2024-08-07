@@ -154,6 +154,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             const std::optional<std::filesystem::path> &storage_dir) {
+  // TODO: indices_metadata.point_label_property
+
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
