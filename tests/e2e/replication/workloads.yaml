@@ -147,6 +147,10 @@ workloads:
     args: ["replication/replicate_periodic_commit.py"]
     <<: *template_simple_cluster
 
+  - name: "Replicate Point"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_point.py" ]
+
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/edge_delete.py"]

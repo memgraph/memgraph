@@ -5389,6 +5389,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
                   spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
                                trigger.Name(), label_name, property_name);
+                  break;
                 }
                 case storage::ConstraintViolation::Type::UNIQUE: {
                   const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
@@ -5398,6 +5399,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
                   spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
                                trigger.Name(), label_name, property_names_stream.str());
+                  break;
                 }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
