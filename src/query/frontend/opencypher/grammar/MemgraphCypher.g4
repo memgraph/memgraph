@@ -175,6 +175,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | edgeIndexQuery
+      | pointIndexQuery
       | textIndexQuery
       | explainQuery
       | profileQuery
@@ -604,6 +605,12 @@ createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
+
+createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
+
+dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+pointIndexQuery : createPointIndex | dropPointIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 
