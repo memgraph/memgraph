@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include <atomic>
+#include <chrono>
 #include "utils/scheduler.hpp"
 
 /**
@@ -39,4 +39,59 @@ TEST(Scheduler, TestFunctionExecuting) {
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
   scheduler.Stop();
   EXPECT_EQ(x, 3);
+}
+
+/**
+ * Test scheduler's start time feature.
+ */
+TEST(Scheduler, StartTime) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(4);
+  const auto timeout2 = now + std::chrono::seconds(8);
+
+  // start_time in the past
+  scheduler.Run("Test", std::chrono::seconds(3), func, now + std::chrono::seconds(3));
+
+  // Should execute only after start time
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 1);
+
+  // Second execution after period
+  while (x == 1 && std::chrono::system_clock::now() < timeout2) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 2);
+}
+
+/**
+ * Test scheduler's start time feature.
+ */
+TEST(Scheduler, StartTimeRestart) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(1);
+  const auto timeout2 = now + std::chrono::seconds(4);
+
+  // start_time in the past
+  scheduler.Run("Test", std::chrono::seconds(6), func, now - std::chrono::seconds(3));
+
+  // Should execute immediately and then exactly 6s from the start time
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 1);
+
+  while (x == 1 && std::chrono::system_clock::now() < timeout2) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 2);
 }

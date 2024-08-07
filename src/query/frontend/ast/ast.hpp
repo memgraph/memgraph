@@ -4061,4 +4061,29 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class TtlQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  TtlQuery() = default;
+
+  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  Expression *period_{};
+  Expression *specific_time_{};
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  TtlQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<TtlQuery>();
+    object->type_ = type_;
+    object->period_ = period_ ? period_->Clone(storage) : nullptr;
+    object->specific_time_ = specific_time_ ? specific_time_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 }  // namespace memgraph::query

@@ -293,6 +293,13 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #endif
                                                }},
                    repl_state_.ReplicationData());
+
+    // Pause TTL
+    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+      auto &ttl = db_acc->ttl();
+      ttl.Pause();
+    });
+
     // TODO Handle error (restore to main?)
     return success;
   }

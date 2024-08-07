@@ -10,16 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+
 #include <support/Any.h>
 #include <tree/ParseTreeVisitor.h>
 
 #include <algorithm>
 #include <any>
-#include <climits>
-#include <codecvt>
 #include <cstring>
 #include <iterator>
-#include <limits>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -37,7 +35,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
-#include "query/stream/common.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -3243,6 +3240,37 @@ antlrcpp::Any CypherMainVisitor::visitShowSchemaInfoQuery(MemgraphCypher::ShowSc
   auto *show_schema_info_query = storage_->Create<ShowSchemaInfoQuery>();
   query_ = show_schema_info_query;
   return show_schema_info_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) {
+  auto *ttl_query = storage_->Create<TtlQuery>();
+  if (auto *manip = ctx->stopTtlQuery()) {
+    if (manip->DISABLE()) {
+      ttl_query->type_ = TtlQuery::Type::DISABLE;
+    } else if (manip->STOP()) {
+      ttl_query->type_ = TtlQuery::Type::STOP;
+    } else {
+      DMG_ASSERT(false, "Unknown TTL command");
+    }
+  } else if (auto *execute = ctx->startTtlQuery()) {
+    ttl_query->type_ = TtlQuery::Type::ENABLE;
+    if (execute->AT()) {
+      if (!execute->time || !execute->time->StringLiteral()) {
+        throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");
+      }
+      ttl_query->specific_time_ = std::any_cast<Expression *>(execute->time->accept(this));
+    }
+    if (execute->EVERY()) {
+      if (!execute->period || !execute->period->StringLiteral()) {
+        throw SemanticException("Period has to be defined using a string literal. Ex: '3m5s'");
+      }
+      ttl_query->period_ = std::any_cast<Expression *>(execute->period->accept(this));
+    }
+  } else {
+    DMG_ASSERT(false, "Unknown ttl query type");
+  }
+  query_ = ttl_query;
+  return ttl_query;
 }
 
 }  // namespace memgraph::query::frontend

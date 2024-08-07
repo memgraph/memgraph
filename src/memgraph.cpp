@@ -615,22 +615,17 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
   }
 
+  // Triggers can execute query procedures, so we need to reload the modules first and then the triggers.
+  // Stream transformations use modules, so we need to restored streams after the query modules have been loaded.
+  if (db_config.durability.recover_on_startup) {
+    dbms_handler.RestoreTriggers(&interpreter_context_);
+    dbms_handler.RestoreStreams(&interpreter_context_);
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
 #ifdef MG_ENTERPRISE
-  dbms_handler.RestoreTriggers(&interpreter_context_);
-  dbms_handler.RestoreStreams(&interpreter_context_);
-#else
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = db_acc->Access();
-    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                             interpreter_context_.auth_checker);
-  }
-
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+      dbms_handler.RestoreTTL(&interpreter_context_);
 #endif
+    }
+  }
 
   ServerContext context;
   std::string service_name = "Bolt";
