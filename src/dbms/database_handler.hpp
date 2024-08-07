@@ -44,6 +44,12 @@ class DatabaseHandler : public Handler<Database> {
  public:
   using HandlerT = Handler<Database>;
 
+  ~DatabaseHandler() override {
+    for (auto &db : *this) {
+      db.second.access().value()->StopAllBackgroundTasks();
+    }
+  }
+
   /**
    * @brief Generate new storage associated with the passed name.
    *
