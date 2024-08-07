@@ -1840,6 +1840,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   return {};
 }
 
+// NOLINTNEXTLINE(google-default-arguments)
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
+    CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
+  throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode.");
+};
+
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
 

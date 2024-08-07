@@ -38,6 +38,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
   using typename HierarchicalTreeVisitor::ReturnType;
 
+  // CypherQuery
+  bool PreVisit(CypherQuery &) override;
+
   // Query
   bool PreVisit(SingleQuery &) override;
 
@@ -72,6 +75,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(SetLabels & /*set_labels*/) override;
   bool PreVisit(RemoveLabels &) override;
   bool PostVisit(RemoveLabels & /*remove_labels*/) override;
+  bool PreVisit(Delete & /*delete*/) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -156,6 +160,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     int num_if_operators{0};
     std::unordered_set<std::string> prev_return_names{};
     std::unordered_set<std::string> curr_return_names{};
+    bool has_periodic_commit{false};
+    bool has_delete{false};
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
@@ -187,6 +193,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
+  Scope global_scope_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
@@ -275,10 +282,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identifier *> &predefined_identifiers = {}) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(&symbol_table, predefined_identifiers);
-  query->single_query_->Accept(symbol_generator);
-  for (auto *cypher_union : query->cypher_unions_) {
-    cypher_union->Accept(symbol_generator);
-  }
+  query->Accept(symbol_generator);
   return symbol_table;
 }
 

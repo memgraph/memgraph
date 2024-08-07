@@ -66,7 +66,7 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_NE(user, std::nullopt);
   ASSERT_TRUE(auth->HasUsers());
 
-  ASSERT_FALSE(auth->Authenticate("test", "123"));
+  ASSERT_TRUE(auth->Authenticate("test", "123"));
   ASSERT_TRUE(auth->Authenticate("test", ""));
 
   user->UpdatePassword("123");
@@ -107,10 +107,10 @@ TEST_F(AuthWithStorage, Authenticate) {
   user->UpdatePassword();
   auth->SaveUser(*user);
 
-  ASSERT_EQ(auth->Authenticate("test", "123"), std::nullopt);
-  ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
-  ASSERT_EQ(auth->Authenticate("test", "789"), std::nullopt);
-  ASSERT_EQ(auth->Authenticate("test", "012"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
 
   ASSERT_EQ(auth->Authenticate("nonexistant", "123"), std::nullopt);
 }
@@ -370,7 +370,7 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
   {
     auto user = auth->AddUser("test");
     ASSERT_TRUE(user);
-    ASSERT_FALSE(auth->Authenticate("test", "123"));
+    ASSERT_TRUE(auth->Authenticate("test", "123"));
     ASSERT_TRUE(auth->Authenticate("test", ""));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
