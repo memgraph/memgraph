@@ -382,6 +382,8 @@ class User final {
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
 
+  void UpdateHash(HashedPassword hashed_password);
+
   void SetRole(const Role &role);
 
   void ClearRole();
