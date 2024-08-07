@@ -20,6 +20,7 @@
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -36,6 +37,7 @@ struct SalientConfig {
   std::string name;
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+  utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
   struct Items {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
@@ -71,8 +73,12 @@ inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
 }
 
 inline void to_json(nlohmann::json &data, SalientConfig const &config) {
-  data = nlohmann::json{
-      {"items", config.items}, {"name", config.name}, {"uuid", config.uuid}, {"storage_mode", config.storage_mode}};
+  data = nlohmann::json{{"items", config.items},
+                        {"name", config.name},
+                        {"uuid", config.uuid},
+                        {"storage_mode", config.storage_mode},
+                        "property_store_compression_level",
+                        config.property_store_compression_level};
 }
 
 inline void from_json(const nlohmann::json &data, SalientConfig &config) {
@@ -80,6 +86,7 @@ inline void from_json(const nlohmann::json &data, SalientConfig &config) {
   data.at("name").get_to(config.name);
   data.at("uuid").get_to(config.uuid);
   data.at("storage_mode").get_to(config.storage_mode);
+  data.at("property_store_compression_level").get_to(config.property_store_compression_level);
 }
 
 /// Pass this class to the \ref Storage constructor to change the behavior of

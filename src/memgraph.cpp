@@ -386,7 +386,8 @@ int main(int argc, char **argv) {
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
                         .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
                         .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
-      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+      .salient.storage_mode = memgraph::flags::ParseStorageMode(),
+      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel()};
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "

@@ -45,13 +45,39 @@ bool ValidStoragePropertyStoreCompressionLevel(std::string_view value) {
   return true;
 }
 
-int StoragePropertyStoreCompressionLevelToInt(std::string_view value) {
-  return memgraph::utils::StringToEnum<int>(value, compression_level_mappings).value();
+utils::CompressionLevel ParseCompressionLevel() {
+  return memgraph::utils::StringToEnum<utils::CompressionLevel>(FLAGS_storage_property_store_compression_level,
+                                                                compression_level_mappings)
+      .value();
 }
 
 }  // namespace memgraph::flags
 
 namespace memgraph::utils {
+
+int CompressionLevelToZlibCompressionLevel(CompressionLevel level) {
+  switch (level) {
+    case CompressionLevel::LOW:
+      return Z_BEST_SPEED;
+    case CompressionLevel::MID:
+      return Z_DEFAULT_COMPRESSION;
+    case CompressionLevel::HIGH:
+      return Z_BEST_COMPRESSION;
+  }
+  return Z_DEFAULT_COMPRESSION;
+}
+
+std::string CompressionLevelToString(CompressionLevel level) {
+  switch (level) {
+    case CompressionLevel::LOW:
+      return "low";
+    case CompressionLevel::MID:
+      return "mid";
+    case CompressionLevel::HIGH:
+      return "high";
+  }
+  return "mid";
+}
 
 auto ZlibCompressor::Compress(std::span<uint8_t const> uncompressed_data) const -> std::optional<CompressedBuffer> {
   if (uncompressed_data.empty()) {
@@ -71,7 +97,7 @@ auto ZlibCompressor::Compress(std::span<uint8_t const> uncompressed_data) const 
   auto compressed_data = std::make_unique<uint8_t[]>(buffer_size);
 
   auto compression_level =
-      memgraph::flags::StoragePropertyStoreCompressionLevelToInt(FLAGS_storage_property_store_compression_level);
+      CompressionLevelToZlibCompressionLevel(static_cast<CompressionLevel>(memgraph::flags::ParseCompressionLevel()));
 
   auto actual_size = compress_bound;
   const int result =

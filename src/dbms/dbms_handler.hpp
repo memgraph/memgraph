@@ -65,7 +65,8 @@ struct Statistics {
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
   uint64_t wal_enabled;          //!< Number of databases with WAL enabled
-  uint64_t property_store_compression_enabled;  //!< Number of databases with property store compression enabled
+  uint64_t property_store_compression_enabled;   //!< Number of databases with property store compression enabled
+  uint64_t property_store_compression_level[3];  //!< Number of databases with each compression level [LOW, MID, HIGH]
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -87,6 +88,10 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                              {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
   res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
   res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
+  res["property_store_compression_level"] = {
+      {utils::CompressionLevelToString((utils::CompressionLevel)0), stats.property_store_compression_level[0]},
+      {utils::CompressionLevelToString((utils::CompressionLevel)1), stats.property_store_compression_level[1]},
+      {utils::CompressionLevelToString((utils::CompressionLevel)2), stats.property_store_compression_level[2]}};
 
   return res;
 }
@@ -320,6 +325,7 @@ class DbmsHandler {
         stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
         stats.wal_enabled += storage_info.durability_wal_enabled;
         stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
+        ++stats.property_store_compression_level[(int)storage_info.property_store_compression_level];
       }
     }
     return stats;

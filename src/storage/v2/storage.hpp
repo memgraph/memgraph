@@ -42,6 +42,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
+#include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
@@ -94,6 +95,7 @@ struct StorageInfo {
   bool durability_snapshot_enabled;
   bool durability_wal_enabled;
   bool property_store_compression_enabled;
+  utils::CompressionLevel property_store_compression_level;
 };
 
 struct EventInfo {

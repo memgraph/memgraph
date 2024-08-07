@@ -2150,6 +2150,7 @@ StorageInfo InMemoryStorage::GetInfo() {
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
+  info.property_store_compression_level = config_.salient.property_store_compression_level;
   return info;
 }
 
