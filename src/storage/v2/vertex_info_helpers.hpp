@@ -10,15 +10,17 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/edge_direction.hpp"
-#include "storage/v2/vertex_info_cache.hpp"
-#include "utils/variant_helpers.hpp"
-
 #include <algorithm>
 #include <tuple>
 #include <vector>
+
+#include "storage/v2/delta.hpp"
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/result.hpp"
+#include "storage/v2/vertex_info_cache.hpp"
 #include "utils/small_vector.hpp"
+#include "utils/variant_helpers.hpp"
+
 namespace memgraph::storage {
 
 template <Delta::Action>

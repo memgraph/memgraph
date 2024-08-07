@@ -987,6 +987,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
+          // TODO is this the correct place for this
+          mem_storage->schema_info_.ProcessTransaction(transaction_,
+                                                       mem_storage->config_.salient.items.properties_on_edges);
+          mem_storage->schema_info_.CleanUp();
+          mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
+
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
