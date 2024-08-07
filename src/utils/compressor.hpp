@@ -21,10 +21,10 @@
 #include "utils/enum.hpp"
 
 namespace memgraph::utils {
-enum class CompressionLevel { LOW = 0, MID = 1, HIGH = 2 };
+enum class CompressionLevel : uint8_t { LOW, MID, HIGH };
 
 int CompressionLevelToZlibCompressionLevel(CompressionLevel level);
-std::string CompressionLevelToString(CompressionLevel level);
+std::string_view CompressionLevelToString(CompressionLevel level);
 }  // namespace memgraph::utils
 
 namespace memgraph::flags {

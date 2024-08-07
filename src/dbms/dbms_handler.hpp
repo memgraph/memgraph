@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -89,9 +90,9 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
   res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
   res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
   res["property_store_compression_level"] = {
-      {utils::CompressionLevelToString((utils::CompressionLevel)0), stats.property_store_compression_level[0]},
-      {utils::CompressionLevelToString((utils::CompressionLevel)1), stats.property_store_compression_level[1]},
-      {utils::CompressionLevelToString((utils::CompressionLevel)2), stats.property_store_compression_level[2]}};
+      {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
 
   return res;
 }
@@ -325,7 +326,10 @@ class DbmsHandler {
         stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
         stats.wal_enabled += storage_info.durability_wal_enabled;
         stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
-        ++stats.property_store_compression_level[(int)storage_info.property_store_compression_level];
+
+        using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
+        ++stats.property_store_compression_level[static_cast<underlying_type>(
+            storage_info.property_store_compression_level)];
       }
     }
     return stats;

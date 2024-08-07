@@ -67,7 +67,7 @@ int CompressionLevelToZlibCompressionLevel(CompressionLevel level) {
   return Z_DEFAULT_COMPRESSION;
 }
 
-std::string CompressionLevelToString(CompressionLevel level) {
+std::string_view CompressionLevelToString(CompressionLevel level) {
   switch (level) {
     case CompressionLevel::LOW:
       return "low";
