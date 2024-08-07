@@ -139,7 +139,7 @@ def authenticate(response: str, scheme: str):
         tokens = _parse_response(response)
         return process_tokens(decode_tokens(scheme, config, tokens), config, scheme)
     except Exception as e:
-        return {"valid": False, "errors": f"Error: {' '.join(e.args)}"}
+        return {"authenticated": False, "errors": f"Error: {' '.join(e.args)}"}
 
 
 if __name__ == "__main__":
