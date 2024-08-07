@@ -977,6 +977,30 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         }
         break;
       }
+      case WalDeltaData::Type::POINT_INDEX_CREATE: {
+        auto const &[label, property] = delta.operation_label_property;
+        spdlog::trace("       Create point index on :{}({})", label, property);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto labelId = storage->NameToLabel(label);
+        auto propId = storage->NameToProperty(property);
+        auto res = transaction->CreatePointIndex(labelId, propId);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case WalDeltaData::Type::POINT_INDEX_DROP: {
+        auto const &[label, property] = delta.operation_label_property;
+        spdlog::trace("       Drop point index on :{}({})", label, property);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto labelId = storage->NameToLabel(label);
+        auto propId = storage->NameToProperty(property);
+        auto res = transaction->DropPointIndex(labelId, propId);
+        if (res.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
     }
     applied_deltas++;
   }

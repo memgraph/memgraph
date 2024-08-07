@@ -36,6 +36,8 @@ enum class StorageMetadataOperation {
   ENUM_CREATE,
   ENUM_ALTER_ADD,
   ENUM_ALTER_UPDATE,
+  POINT_INDEX_CREATE,
+  POINT_INDEX_DROP,
 };
 
 }  // namespace memgraph::storage::durability

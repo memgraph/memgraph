@@ -355,6 +355,12 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
+                                                                           storage::PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
+                                                                         storage::PropertyId property) override;
+
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.

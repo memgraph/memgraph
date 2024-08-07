@@ -192,6 +192,12 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
+        storage::LabelId label, storage::PropertyId property) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
+        storage::LabelId label, storage::PropertyId property) override;
+
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
 

@@ -92,6 +92,17 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
   return create_index_seq(label, property, vertices, it);
 }
 
+bool InMemoryLabelPropertyIndex::CreatePointIndex(LabelId label, PropertyId property,
+                                                  utils::SkipList<Vertex>::Accessor vertices) {
+  // TODO
+  return false;
+}
+
+bool InMemoryLabelPropertyIndex::DropPointIndex(LabelId label, PropertyId property) {
+  // TODO
+  return false;
+}
+
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
   for (auto &[label_prop, storage] : index_) {
