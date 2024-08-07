@@ -1537,18 +1537,22 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 }
 
 TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Point2d, Point3d>, Or<Point2d, Point3d>>("distance", args, nargs);
+  FType<Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>>("distance", args, nargs);
+
+  if (args[0].IsNull() || args[1].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
 
   auto type1 = args[0].type();
   auto type2 = args[1].type();
 
   if (type1 != type2) {
-    throw QueryRuntimeException("Points must use the same CRS to calculate the distance between them.");
+    return TypedValue(ctx.memory);
   }
 
   auto distance_func = [&]<typename T>(T const &point1, T const &point2) {
     if (point1.crs() != point2.crs()) {
-      throw QueryRuntimeException("Points must use the same CRS to calculate the distance between them.");
+      return TypedValue(ctx.memory);
     }
     return TypedValue{storage::Distance(point1, point2), ctx.memory};
   };
@@ -1559,7 +1563,11 @@ TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext
 }
 
 TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Or<Point2d, Point3d>, Or<Point2d, Point3d>, Or<Point2d, Point3d>>("withinbbox", args, nargs);
+  FType<Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>>("withinbbox", args, nargs);
+
+  if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
 
   auto type1 = args[0].type();
   auto type2 = args[1].type();
