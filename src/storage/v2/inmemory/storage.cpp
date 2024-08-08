@@ -990,8 +990,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           // TODO is this the correct place for this
-          mem_storage->schema_info_.ProcessTransaction(transaction_,
-                                                       mem_storage->config_.salient.items.properties_on_edges);
+          mem_storage->schema_info_.ProcessTransaction(
+              transaction_, mem_storage->config_.salient.items.properties_on_edges,
+              [this](Gid gid, View view) mutable { return FindEdge(gid, view); });
           mem_storage->schema_info_.CleanUp();
           mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
 

@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -33,6 +35,12 @@ inline void ApplyDeltasForRead(const memgraph::storage::Delta *delta, uint64_t c
     if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
     delta = older;
   }
+}
+
+memgraph::storage::Delta *NextDelta(const memgraph::storage::Delta *delta, uint64_t commit_timestamp) {
+  auto *older = delta->next.load(std::memory_order_acquire);
+  if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != commit_timestamp) return {};
+  return older;
 }
 }  // namespace
 
@@ -110,7 +118,7 @@ void Tracking::Print(NameIdMapper &name_id_mapper) {
   std::cout << "\n\n";
 }
 
-utils::small_vector<LabelId> EdgeHandler::GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp) const {
+utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp) {
   auto pre_labels = vertex.labels;
   if (vertex.delta) {
     ApplyDeltasForRead(vertex.delta, commit_timestamp, [&pre_labels](const Delta &delta) {
@@ -124,7 +132,7 @@ utils::small_vector<LabelId> EdgeHandler::GetPreLabels(const Vertex &vertex, uin
   return pre_labels;
 }
 
-Gid EdgeHandler::GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges) {
+Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges) {
   if (properties_on_edges) {
     return edge_ref.ptr->gid;
   }
@@ -153,7 +161,9 @@ void VertexHandler::PreProcess() {
   });
 }
 
-void VertexHandler::PostProcess(EdgeHandler &edge_handler) {
+Delta *VertexHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
+
+void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
   if (label_update_) {
     // Move all info as is at the start
     // Other deltas will take care of updating the end result
@@ -171,10 +181,14 @@ void VertexHandler::PostProcess(EdgeHandler &edge_handler) {
     // There could be multiple label changes or changes from both ends; so make a list of unique edges to update
     // Move edges to the new labels
     for (const auto &out_edge : pre_out_edges_) {
-      edge_handler.UpdateExistingEdge<kOutEdge>(out_edge, PreLabels(), PostLabels());
+      if (!GetsDeleted<kOutEdge>(out_edge)) {
+        edge_handler.UpdateExistingEdge<kOutEdge>(out_edge, PreLabels(), PostLabels());
+      }
     }
     for (const auto &in_edge : pre_in_edges_) {
-      edge_handler.UpdateExistingEdge<kInEdge>(in_edge, PreLabels(), PostLabels());
+      if (!GetsDeleted<kInEdge>(in_edge)) {
+        edge_handler.UpdateExistingEdge<kInEdge>(in_edge, PreLabels(), PostLabels());
+      }
     }
   }
 
@@ -190,7 +204,7 @@ void VertexHandler::PostProcess(EdgeHandler &edge_handler) {
   }
 }
 
-void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, EdgeHandler &edge_handler) {
+void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHandler &tx_edge_handler) {
   vertex_handler.PreProcess();
 
   // Processing deltas from newest to oldest
@@ -233,18 +247,18 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, EdgeHandler &edge_
       }
       case Delta::Action::ADD_OUT_EDGE: {
         // This delta covers both vertices; we can update count in place
-        if (vertex_handler.ExistingEdge(delta->vertex_edge)) {
-          edge_handler.RemoveExistingEdge(delta, vertex_handler.PreLabels());
+        if (vertex_handler.ExistingOutEdge(delta->vertex_edge)) {
+          tx_edge_handler.RemoveExistingEdge(delta, vertex_handler.PreLabels());
         } else {
           // Remove from temporary edges
-          edge_handler.RemoveNewEdge(delta, vertex_handler.PostLabels());
+          tx_edge_handler.RemoveNewEdge(delta, vertex_handler.PostLabels());
         }
         break;
       }
       case Delta::Action::REMOVE_OUT_EDGE: {
         // This delta covers both vertices; we can update count in place
         // New edge; add to the final labels
-        edge_handler.AddNewEdge(delta, vertex_handler.PostLabels());
+        tx_edge_handler.AddNewEdge(delta, vertex_handler.PostLabels());
         break;
       }
       case Delta::Action::ADD_IN_EDGE:
@@ -260,7 +274,61 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, EdgeHandler &edge_
   }
 
   // Post process
-  vertex_handler.PostProcess(edge_handler);
+  vertex_handler.PostProcess(tx_edge_handler);
 }
+
+std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPreProperties(const EdgeRef &edge_ref) const {
+  std::map<PropertyId, PropertyValue> properties;
+  if (properties_on_edges_) {
+    const auto *edge = edge_ref.ptr;
+    properties = edge->properties.Properties();
+    if (edge->delta) {
+      ApplyDeltasForRead(edge->delta, commit_timestamp_, [&properties](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Properties_ActionMethod(properties)
+        });
+        // clang-format on
+      });
+    }
+  }
+  return properties;
+}
+
+std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPostProperties(const EdgeRef &edge_ref) const {
+  std::map<PropertyId, PropertyValue> properties;
+  if (properties_on_edges_) {
+    const auto *edge = edge_ref.ptr;
+    properties = edge->properties.Properties();
+  }
+  return properties;
+}
+
+void EdgeHandler::PostProcess() {
+  // We are only removing properties that have existed before transaction
+  for (const auto &[id, val] : remove_property_) {
+    --tracking_[edge_type_].properties[id].n;
+    --tracking_[edge_type_].properties[id].types[val.type()];
+  }
+  // Add the new (or updated) properties
+  for (const auto &[id, val] : add_property_) {
+    ++tracking_[edge_type_].properties[id].n;
+    ++tracking_[edge_type_].properties[id].types[val.type()];
+  }
+}
+
+void EdgeHandler::PreProcessProperties() {
+  pre_properties_ = edge_.properties.Properties();
+
+  ApplyDeltasForRead(edge_.delta, commit_timestamp_, [this](const Delta &delta) {
+    // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Properties_ActionMethod(pre_properties_),
+        });
+    // clang-format on
+  });
+}
+
+Delta *EdgeHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
 
 }  // namespace memgraph::storage
