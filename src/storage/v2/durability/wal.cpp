@@ -610,14 +610,13 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
       return a.operation_label_stats.label == b.operation_label_stats.label &&
              a.operation_label_stats.stats == b.operation_label_stats.stats;
 
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
-      return a.operation_text.index_name == b.operation_text.index_name &&
-             a.operation_text.label == b.operation_text.label;
     case WalDeltaData::Type::TEXT_INDEX_DROP:
       return a.operation_text.index_name == b.operation_text.index_name &&
              a.operation_text.label == b.operation_text.label;
+
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
       return a.operation_label_property.label == b.operation_label_property.label &&

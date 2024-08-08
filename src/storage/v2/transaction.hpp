@@ -31,7 +31,6 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
 #include <rocksdb/utilities/transaction.h>
