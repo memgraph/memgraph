@@ -51,6 +51,8 @@
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
 
+#include "yaml-cpp/yaml.h"
+
 namespace memgraph::coordination {
 
 using nuraft::ptr;
