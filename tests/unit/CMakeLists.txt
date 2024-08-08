@@ -517,3 +517,10 @@ add_unit_test(replication_instance_connector.cpp)
 target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test time to live
+if(MG_ENTERPRISE)
+add_unit_test(ttl.cpp)
+target_link_libraries(${test_prefix}ttl mg-query)
+target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()

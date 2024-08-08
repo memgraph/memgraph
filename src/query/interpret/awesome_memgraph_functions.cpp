@@ -12,7 +12,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -23,17 +22,21 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/point_functions.hpp"
+#include "utils/case_insensitve_set.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/uuid.hpp"
+
+#include "absl/container/flat_hash_map.h"
 
 namespace memgraph::query {
 namespace {
@@ -112,6 +115,8 @@ struct Duration {};
 struct ZonedDateTime {};
 struct Graph {};
 struct Enum {};
+struct Point2d {};
+struct Point3d {};
 
 template <class ArgType>
 bool ArgIsType(const TypedValue &arg) {
@@ -157,6 +162,10 @@ bool ArgIsType(const TypedValue &arg) {
     return arg.IsGraph();
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return arg.IsEnum();
+  } else if constexpr (std::is_same_v<ArgType, Point2d>) {
+    return arg.IsPoint2d();
+  } else if constexpr (std::is_same_v<ArgType, Point3d>) {
+    return arg.IsPoint3d();
   } else if constexpr (std::is_same_v<ArgType, void>) {
     return true;
   } else {
@@ -213,6 +222,8 @@ constexpr const char *ArgTypeName() {
     return "graph";
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return "Enum";
+  } else if constexpr (std::is_same_v<ArgType, Point2d> || std::is_same_v<ArgType, Point3d>) {
+    return "Point";
   } else {
     static_assert(std::is_same_v<ArgType, Null>, "Unknown ArgType");
   }
@@ -604,7 +615,7 @@ TypedValue Type(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 
 TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Bool, Integer, Double, String, List, Map, Vertex, Edge, Path, Date, LocalTime, LocalDateTime,
-           ZonedDateTime, Duration, Graph, Enum>>("type", args, nargs);
+           ZonedDateTime, Duration, Graph, Enum, Point2d, Point3d>>("type", args, nargs);
   // The type names returned should be standardized openCypher type names.
   // https://github.com/opencypher/openCypher/blob/master/docs/openCypher9.pdf
   switch (args[0].type()) {
@@ -638,6 +649,9 @@ TypedValue ValueType(const TypedValue *args, int64_t nargs, const FunctionContex
       return TypedValue("DURATION", ctx.memory);
     case TypedValue::Type::Enum:
       return TypedValue("ENUM", ctx.memory);
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+      return TypedValue("POINT", ctx.memory);
     case TypedValue::Type::ZonedDateTime:
       return TypedValue("ZONED_DATE_TIME", ctx.memory);
     case TypedValue::Type::Graph:
@@ -1383,6 +1397,292 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
 
+TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<String, Optional<String>>("toEnum", args, nargs);
+
+  auto const &s1 = args[0].ValueString();
+  if (nargs == 1) {
+    auto enum_val = ctx.db_accessor->GetEnumValue(s1);
+    if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}'", s1);
+    return TypedValue(*enum_val, ctx.memory);
+  }
+  auto const &s2 = args[1].ValueString();
+  auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
+  if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
+  return TypedValue(*enum_val, ctx.memory);
+}
+
+TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Map>("point", args, nargs);
+
+  auto const &input = args[0].ValueMap();
+
+  for (auto const &[k, v] : input) {
+    if (v.IsNull()) {
+      return TypedValue{ctx.memory};
+    }
+  }
+
+  auto numeric_as_double = [](TypedValue const &value, std::string_view arg_name) -> double {
+    if (value.IsDouble()) {
+      return value.ValueDouble();
+    }
+    if (value.IsInt()) {
+      return static_cast<double>(value.ValueInt());
+    }
+    throw QueryRuntimeException("Argument {} is not numeric.", arg_name);
+  };
+
+  auto [x, from_longitude] = std::invoke([&]() -> std::pair<double, bool> {
+    auto it_x = input.find("x");
+    if (it_x != input.end()) {
+      return {numeric_as_double(it_x->second, "longitude/x"), false};
+    }
+    auto it_longitude = input.find("longitude");
+    if (it_longitude != input.end()) {
+      return {numeric_as_double(it_longitude->second, "longitude/x"), true};
+    }
+    throw QueryRuntimeException("Argument longitude/x is missing.");
+  });
+
+  auto [y, from_latitude] = std::invoke([&]() -> std::pair<double, bool> {
+    auto it_y = input.find("y");
+    if (it_y != input.end()) {
+      return {numeric_as_double(it_y->second, "latitude/y"), false};
+    }
+    auto it_latitude = input.find("latitude");
+    if (it_latitude != input.end()) {
+      return {numeric_as_double(it_latitude->second, "latitude/y"), true};
+    }
+    throw QueryRuntimeException("Argument latitude/y is missing.");
+  });
+
+  using z_type = std::optional<std::pair<double, bool>>;
+  auto z_opt = std::invoke([&]() -> z_type {
+    auto it_z = input.find("z");
+    if (it_z != input.end()) {
+      return z_type{std::in_place, numeric_as_double(it_z->second, "height/z"), false};
+    }
+    auto it_height = input.find("height");
+    if (it_height != input.end()) {
+      return z_type{std::in_place, numeric_as_double(it_height->second, "height/z"), true};
+    }
+    return std::nullopt;
+  });
+
+  if (from_longitude != from_latitude) {
+    throw QueryRuntimeException("Use either x, y, z or longitude, latitude, height.");
+  }
+
+  auto crs = std::invoke([&]() -> std::optional<std::string_view> {
+    auto value = input.find("crs");
+    if (value == input.end() || !value->second.IsString()) {
+      return std::nullopt;
+    }
+    return value->second.ValueString();
+  });
+
+  auto srid = std::invoke([&]() -> std::optional<int> {
+    auto value = input.find("srid");
+    if (value == input.end() || !value->second.IsInt()) {
+      return std::nullopt;
+    }
+    return value->second.ValueInt();
+  });
+
+  if (crs.has_value() && srid.has_value()) {
+    throw QueryRuntimeException("Cannot specify both CRS and SRID.");
+  }
+
+  std::optional<storage::CoordinateReferenceSystem> mg_crs;
+  if (crs.has_value()) {
+    mg_crs = storage::StringToCrs(*crs);
+    if (!mg_crs.has_value()) {
+      throw QueryRuntimeException("Invalid CRS.");
+    }
+  } else if (srid.has_value()) {
+    mg_crs = storage::SridToCrs(static_cast<storage::Srid>(*srid));
+    if (!mg_crs.has_value()) {
+      throw QueryRuntimeException("Invalid SRID.");
+    }
+  }
+
+  auto inferred_as_wgs = (from_longitude || from_latitude);
+  if (mg_crs && storage::IsCartesian(*mg_crs) && inferred_as_wgs) {
+    throw QueryRuntimeException("Cartesian points must be constructed with x, y, z not longitude, latitude, height");
+  }
+
+  using enum storage::CoordinateReferenceSystem;
+  if (!mg_crs.has_value()) {
+    if (!z_opt.has_value()) {
+      mg_crs = inferred_as_wgs ? WGS84_2d : Cartesian_2d;
+    } else {
+      mg_crs = inferred_as_wgs ? WGS84_3d : Cartesian_3d;
+    }
+  }
+
+  auto check_point_ranges = [](auto const &x, auto const &y) {
+    return (x >= -180.0 && x <= 180.0 && y >= -90.0 && y <= 90.0);
+  };
+
+  if (storage::IsWGS(*mg_crs) && !check_point_ranges(x, y)) {
+    throw QueryRuntimeException(
+        "Longitude/x [-180, 180] and latitude/y [-90, 90] must be in the given range for WGS point types.");
+  }
+
+  if (!z_opt.has_value()) {
+    return TypedValue(storage::Point2d{*mg_crs, x, y}, ctx.memory);
+  }
+  return TypedValue(storage::Point3d{*mg_crs, x, y, z_opt->first}, ctx.memory);
+}
+
+TypedValue Distance(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>>("distance", args, nargs);
+
+  if (args[0].IsNull() || args[1].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+
+  auto type1 = args[0].type();
+  auto type2 = args[1].type();
+
+  if (type1 != type2) {
+    return TypedValue(ctx.memory);
+  }
+
+  auto distance_func = [&]<typename T>(T const &point1, T const &point2) {
+    if (point1.crs() != point2.crs()) {
+      return TypedValue(ctx.memory);
+    }
+    return TypedValue{storage::Distance(point1, point2), ctx.memory};
+  };
+
+  return (type1 == TypedValue::Type::Point2d)
+             ? std::invoke(distance_func, args[0].ValuePoint2d(), args[1].ValuePoint2d())
+             : std::invoke(distance_func, args[0].ValuePoint3d(), args[1].ValuePoint3d());
+}
+
+TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>, Or<Point2d, Point3d, Null>>("withinbbox", args, nargs);
+
+  if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
+    return TypedValue(ctx.memory);
+  }
+
+  auto type1 = args[0].type();
+  auto type2 = args[1].type();
+  auto type3 = args[2].type();
+
+  if (type1 != type2 || type1 != type3) {
+    return TypedValue(ctx.memory);
+  }
+
+  auto within_bbox_func = [&ctx]<typename T>(T const &point, T const &lower_left, T const &upper_right) {
+    if (point.crs() != lower_left.crs() || point.crs() != upper_right.crs()) {
+      return TypedValue(ctx.memory);
+    }
+
+    return TypedValue(storage::WithinBBox(point, lower_left, upper_right), ctx.memory);
+  };
+
+  return (type1 == TypedValue::Type::Point2d)
+             ? std::invoke(within_bbox_func, args[0].ValuePoint2d(), args[1].ValuePoint2d(), args[2].ValuePoint2d())
+             : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
+}
+
+auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+    // Scalar functions
+    {"DEGREE", Degree},
+    {"INDEGREE", InDegree},
+    {"OUTDEGREE", OutDegree},
+    {"ENDNODE", EndNode},
+    {"HEAD", Head},
+    {kId, Id},
+    {"LAST", Last},
+    {"PROPERTIES", Properties},
+    {"RANDOMUUID", RandomUuid},
+    {"SIZE", Size},
+    {"PROPERTYSIZE", PropertySize},
+    {"STARTNODE", StartNode},
+    {"TIMESTAMP", Timestamp},
+    {"TOBOOLEAN", ToBoolean},
+    {"TOFLOAT", ToFloat},
+    {"TOINTEGER", ToInteger},
+    {"TYPE", Type},
+    {"VALUETYPE", ValueType},
+
+    // List, map functions
+    {"KEYS", Keys},
+    {"LABELS", Labels},
+    {"NODES", Nodes},
+    {"RANGE", Range},
+    {"RELATIONSHIPS", Relationships},
+    {"TAIL", Tail},
+    {"UNIFORMSAMPLE", UniformSample},
+    {"VALUES", Values},
+
+    // Mathematical functions - numeric
+    {"ABS", Abs},
+    {"CEIL", Ceil},
+    {"FLOOR", Floor},
+    {"RAND", Rand},
+    {"ROUND", Round},
+    {"SIGN", Sign},
+
+    // Mathematical functions - logarithmic
+    {"E", E},
+    {"EXP", Exp},
+    {"LOG", Log},
+    {"LOG10", Log10},
+    {"SQRT", Sqrt},
+
+    // Mathematical functions - trigonometric
+    {"ACOS", Acos},
+    {"ASIN", Asin},
+    {"ATAN", Atan},
+    {"ATAN2", Atan2},
+    {"COS", Cos},
+    {"PI", Pi},
+    {"SIN", Sin},
+    {"TAN", Tan},
+
+    // String functions
+    {kContains, Contains},
+    {kEndsWith, EndsWith},
+    {"LEFT", Left},
+    {"LTRIM", LTrim},
+    {"REPLACE", Replace},
+    {"REVERSE", Reverse},
+    {"RIGHT", Right},
+    {"RTRIM", RTrim},
+    {"SPLIT", Split},
+    {kStartsWith, StartsWith},
+    {"SUBSTRING", Substring},
+    {"TOLOWER", ToLower},
+    {"TOSTRING", ToString},
+    {"TOUPPER", ToUpper},
+    {"TRIM", Trim},
+
+    // Memgraph specific functions
+    {"ASSERT", Assert},
+    {"COUNTER", Counter},
+    {"TOBYTESTRING", ToByteString},
+    {"FROMBYTESTRING", FromByteString},
+    {"DATE", Date},
+    {"LOCALTIME", LocalTime},
+    {"LOCALDATETIME", LocalDateTime},
+    {"DATETIME", DateTime},
+    {"DURATION", Duration},
+
+    // Functions for enum types
+    {"TOENUM", ToEnum},
+
+    // Functions for point types
+    {"POINT", Point},
+    {"POINT.DISTANCE", Distance},
+    {"POINT.WITHINBBOX", WithinBBox},
+};
+
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {
   return [func, fully_qualified_name](const TypedValue *args, int64_t nargs, const FunctionContext &ctx) -> TypedValue {
     // Lock on the module is already acquired in the AST construction
@@ -1411,121 +1711,33 @@ auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name)
   };
 }
 
-TypedValue ToEnum(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<String, Optional<String>>("toEnum", args, nargs);
-
-  auto const &s1 = args[0].ValueString();
-  if (nargs == 1) {
-    auto enum_val = ctx.db_accessor->GetEnumValue(s1);
-    if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}'", s1);
-    return TypedValue(*enum_val, ctx.memory);
-  }
-  auto const &s2 = args[1].ValueString();
-  auto enum_val = ctx.db_accessor->GetEnumValue(s1, s2);
-  if (enum_val.HasError()) throw QueryRuntimeException("Invalid enum '{}::{}'", s1, s2);
-  return TypedValue(*enum_val, ctx.memory);
-}
-
 }  // namespace
 
-auto NameToFunction(const std::string &function_name) -> std::variant<func_impl, user_func> {
-  // Scalar functions
-  if (function_name == "DEGREE") return Degree;
-  if (function_name == "INDEGREE") return InDegree;
-  if (function_name == "OUTDEGREE") return OutDegree;
-  if (function_name == "ENDNODE") return EndNode;
-  if (function_name == "HEAD") return Head;
-  if (function_name == kId) return Id;
-  if (function_name == "LAST") return Last;
-  if (function_name == "PROPERTIES") return Properties;
-  if (function_name == "RANDOMUUID") return RandomUuid;
-  if (function_name == "SIZE") return Size;
-  if (function_name == "PROPERTYSIZE") return PropertySize;
-  if (function_name == "STARTNODE") return StartNode;
-  if (function_name == "TIMESTAMP") return Timestamp;
-  if (function_name == "TOBOOLEAN") return ToBoolean;
-  if (function_name == "TOFLOAT") return ToFloat;
-  if (function_name == "TOINTEGER") return ToInteger;
-  if (function_name == "TYPE") return Type;
-  if (function_name == "VALUETYPE") return ValueType;
+// There are some builtin functions that look like modules but are not. To ensure user defined functions don't conflict
+// we maintain a list of reserved modules names.
+auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const & {
+  static auto const instance = memgraph::utils::CaseInsensitiveSet{"POINT"};
+  return instance;
+}
 
-  // List, map functions
-  if (function_name == "KEYS") return Keys;
-  if (function_name == "LABELS") return Labels;
-  if (function_name == "NODES") return Nodes;
-  if (function_name == "RANGE") return Range;
-  if (function_name == "RELATIONSHIPS") return Relationships;
-  if (function_name == "TAIL") return Tail;
-  if (function_name == "UNIFORMSAMPLE") return UniformSample;
-  if (function_name == "VALUES") return Values;
+auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func> {
+  // First lookup for built-in functions
+  auto upper_case = utils::ToUpperCase(function_name);
+  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
+  if (buildin_it != builtin_functions.cend()) {
+    return buildin_it->second;
+  }
 
-  // Mathematical functions - numeric
-  if (function_name == "ABS") return Abs;
-  if (function_name == "CEIL") return Ceil;
-  if (function_name == "FLOOR") return Floor;
-  if (function_name == "RAND") return Rand;
-  if (function_name == "ROUND") return Round;
-  if (function_name == "SIGN") return Sign;
-
-  // Mathematical functions - logarithmic
-  if (function_name == "E") return E;
-  if (function_name == "EXP") return Exp;
-  if (function_name == "LOG") return Log;
-  if (function_name == "LOG10") return Log10;
-  if (function_name == "SQRT") return Sqrt;
-
-  // Mathematical functions - trigonometric
-  if (function_name == "ACOS") return Acos;
-  if (function_name == "ASIN") return Asin;
-  if (function_name == "ATAN") return Atan;
-  if (function_name == "ATAN2") return Atan2;
-  if (function_name == "COS") return Cos;
-  if (function_name == "PI") return Pi;
-  if (function_name == "SIN") return Sin;
-  if (function_name == "TAN") return Tan;
-
-  // String functions
-  if (function_name == kContains) return Contains;
-  if (function_name == kEndsWith) return EndsWith;
-  if (function_name == "LEFT") return Left;
-  if (function_name == "LTRIM") return LTrim;
-  if (function_name == "REPLACE") return Replace;
-  if (function_name == "REVERSE") return Reverse;
-  if (function_name == "RIGHT") return Right;
-  if (function_name == "RTRIM") return RTrim;
-  if (function_name == "SPLIT") return Split;
-  if (function_name == kStartsWith) return StartsWith;
-  if (function_name == "SUBSTRING") return Substring;
-  if (function_name == "TOLOWER") return ToLower;
-  if (function_name == "TOSTRING") return ToString;
-  if (function_name == "TOUPPER") return ToUpper;
-  if (function_name == "TRIM") return Trim;
-
-  // Memgraph specific functions
-  if (function_name == "ASSERT") return Assert;
-  if (function_name == "COUNTER") return Counter;
-  if (function_name == "TOBYTESTRING") return ToByteString;
-  if (function_name == "FROMBYTESTRING") return FromByteString;
-
-  // Functions for temporal types
-  if (function_name == "DATE") return Date;
-  if (function_name == "LOCALTIME") return LocalTime;
-  if (function_name == "LOCALDATETIME") return LocalDateTime;
-  if (function_name == "DATETIME") return DateTime;
-  if (function_name == "DURATION") return Duration;
-
-  // Functions for enum types
-  if (function_name == "TOENUM") return ToEnum;
-
+  // Next lookip for user-defined function from a module
   auto maybe_found = procedure::FindFunction(procedure::gModuleRegistry, function_name);
-
   if (maybe_found) {
     auto module_ptr = std::move((*maybe_found).first);
     const auto *func = (*maybe_found).second;
     return std::make_pair(UserFunction(*func, function_name), std::move(module_ptr));
   }
 
-  return nullptr;
+  // Does not exist
+  return std::monostate{};
 }
 
 }  // namespace memgraph::query

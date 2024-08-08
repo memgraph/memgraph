@@ -22,6 +22,7 @@
 using testing::UnorderedElementsAre;
 
 using namespace memgraph::storage;
+using enum CoordinateReferenceSystem;
 
 ZonedTemporalData GetSampleZonedTemporal() {
   const auto common_duration =
@@ -58,7 +59,11 @@ const PropertyValue kSampleValues[] = {
         {"test", PropertyValue(33)}, {"map", PropertyValue(std::string("sample"))}, {"item", PropertyValue(-33.33)}}),
     PropertyValue(TemporalData(TemporalType::Date, 23)),
     PropertyValue(GetSampleZonedTemporal()),
-    PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}}
+    PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}},
+    PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
+    PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
+    PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+    PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
 
 };
 
@@ -299,10 +304,19 @@ TEST(PropertyStore, FullSet) {
   const auto zoned_temporal = GetSampleZonedTemporal();
 
   std::map<PropertyId, PropertyValue> data{
-      {PropertyId::FromInt(1), PropertyValue(true)},     {PropertyId::FromInt(2), PropertyValue(123)},
-      {PropertyId::FromInt(3), PropertyValue(123.5)},    {PropertyId::FromInt(4), PropertyValue("nandare")},
-      {PropertyId::FromInt(5), PropertyValue(vec)},      {PropertyId::FromInt(6), PropertyValue(map)},
-      {PropertyId::FromInt(7), PropertyValue(temporal)}, {PropertyId::FromInt(8), PropertyValue(zoned_temporal)},
+      {PropertyId::FromInt(1), PropertyValue(true)},
+      {PropertyId::FromInt(2), PropertyValue(123)},
+      {PropertyId::FromInt(3), PropertyValue(123.5)},
+      {PropertyId::FromInt(4), PropertyValue("nandare")},
+      {PropertyId::FromInt(5), PropertyValue(vec)},
+      {PropertyId::FromInt(6), PropertyValue(map)},
+      {PropertyId::FromInt(7), PropertyValue(temporal)},
+      {PropertyId::FromInt(8), PropertyValue(zoned_temporal)},
+      {PropertyId::FromInt(9), PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
+      {PropertyId::FromInt(10), PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {PropertyId::FromInt(11), PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}}},
+      {PropertyId::FromInt(12), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      {PropertyId::FromInt(13), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
 
   std::vector<PropertyValue> alt{PropertyValue(),
@@ -712,23 +726,40 @@ TEST(PropertyStore, HasAllProperties) {
       {PropertyId::FromInt(3), PropertyValue("three")},
       {PropertyId::FromInt(5), PropertyValue("0.0")},
       {PropertyId::FromInt(6), PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
+      {PropertyId::FromInt(7), PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {PropertyId::FromInt(8), PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}}},
+      {PropertyId::FromInt(9), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
   };
 
   PropertyStore store;
   EXPECT_TRUE(store.InitProperties(data));
-  EXPECT_TRUE(store.HasAllProperties(
-      {PropertyId::FromInt(1), PropertyId::FromInt(2), PropertyId::FromInt(3), PropertyId::FromInt(6)}));
+  EXPECT_TRUE(store.HasAllProperties({PropertyId::FromInt(1), PropertyId::FromInt(2), PropertyId::FromInt(3),
+                                      PropertyId::FromInt(6), PropertyId::FromInt(9)}));
 }
 
 TEST(PropertyStore, HasAllPropertyValues) {
-  const std::vector<std::pair<PropertyId, PropertyValue>> data{{PropertyId::FromInt(1), PropertyValue(true)},
-                                                               {PropertyId::FromInt(2), PropertyValue(123)},
-                                                               {PropertyId::FromInt(3), PropertyValue("three")},
-                                                               {PropertyId::FromInt(5), PropertyValue(0.0)}};
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {PropertyId::FromInt(1), PropertyValue(true)},
+      {PropertyId::FromInt(2), PropertyValue(123)},
+      {PropertyId::FromInt(3), PropertyValue("three")},
+      {PropertyId::FromInt(5), PropertyValue(0.0)},
+      {PropertyId::FromInt(6), PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
+      {PropertyId::FromInt(7), PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {PropertyId::FromInt(8), PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}}},
+      {PropertyId::FromInt(9), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
+  };
 
   PropertyStore store;
   EXPECT_TRUE(store.InitProperties(data));
-  EXPECT_TRUE(store.HasAllPropertyValues({PropertyValue(0.0), PropertyValue(123), PropertyValue("three")}));
+  EXPECT_TRUE(store.HasAllPropertyValues({
+      PropertyValue(0.0),
+      PropertyValue(123),
+      PropertyValue("three"),
+      PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}}),
+      PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
+  }));
 }
 
 TEST(PropertyStore, HasAnyProperties) {

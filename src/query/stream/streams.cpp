@@ -568,6 +568,11 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         }
         ++i;
         std::this_thread::sleep_for(retry_interval);
+      } catch (const DatabaseContextRequiredException &e) {
+        // No database; we are shutting down
+        interpreter->Abort();
+        spdlog::trace("No database associated with stream '{}'; shuting down...", stream_name);
+        break;
       }
     }
   };
@@ -758,6 +763,19 @@ void Streams::StopAll() {
             locked_stream_source->Stop();
             Persist(
                 CreateStatus(stream_name, stream_data.transformation_name, stream_data.owner, *locked_stream_source));
+          }
+        },
+        stream_data);
+  }
+}
+
+void Streams::Shutdown() {
+  for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
+    std::visit(
+        [](const auto &stream_data) {
+          auto locked_stream_source = stream_data.stream_source->Lock();
+          if (locked_stream_source->IsRunning()) {
+            locked_stream_source->Stop();
           }
         },
         stream_data);

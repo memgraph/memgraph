@@ -27,15 +27,19 @@ extern "C" {
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/py_module.hpp"
+#include "utils/case_insensitve_set.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
-#include "utils/pmr/vector.hpp"
 #include "utils/string.hpp"
 
 #include <mutex>
 #include <shared_mutex>
+
+namespace memgraph::query {
+auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const &;
+}  // namespace memgraph::query
 
 namespace memgraph::query::procedure {
 
@@ -1180,6 +1184,10 @@ bool ModuleRegistry::TryEraseAllModules() {
 bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
+  if (ReservedBuiltInModuleNames().contains(name)) {
+    spdlog::error(utils::MessageWithLink("Unable to overwrite a builtin module {}.", name, "https://memgr.ph/modules"));
+    return false;
+  }
   if (modules_.find(name) != modules_.end()) {
     spdlog::error(
         utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));

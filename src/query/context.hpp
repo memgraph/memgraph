@@ -99,6 +99,7 @@ struct ExecutionContext {
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
+  DatabaseAccessProtector db_acc;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

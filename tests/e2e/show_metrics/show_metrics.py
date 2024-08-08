@@ -91,6 +91,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "SnapshotRecoveryLatency_us_99p", "type": "Snapshot", "metric type": "Histogram"},
         {"name": "MessagesConsumed", "type": "Stream", "metric type": "Counter"},
         {"name": "StreamsCreated", "type": "Stream", "metric type": "Counter"},
+        {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},
+        {"name": "DeletedNodes", "type": "TTL", "metric type": "Counter"},
         {"name": "ActiveTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "CommitedTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
