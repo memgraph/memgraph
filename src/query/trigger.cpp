@@ -190,9 +190,9 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
   return trigger_plan_;
 }
 
-void Trigger::Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, const double max_execution_time_sec,
-                      std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
-                      const TriggerContext &context) const {
+void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+                      const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
@@ -214,6 +214,7 @@ void Trigger::Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, 
   ctx.transaction_status = transaction_status;
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;
+  ctx.db_acc = std::move(db_acc);
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};

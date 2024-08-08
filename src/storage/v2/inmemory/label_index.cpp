@@ -151,6 +151,11 @@ void InMemoryLabelIndex::Iterable::Iterator::AdvanceUntilValid() {
     if (index_iterator_->vertex == current_vertex_) {
       continue;
     }
+
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
+    }
+
     auto accessor = VertexAccessor{index_iterator_->vertex, self_->storage_, self_->transaction_};
     auto res = accessor.HasLabel(self_->label_, self_->view_);
     if (!res.HasError() and res.GetValue()) {

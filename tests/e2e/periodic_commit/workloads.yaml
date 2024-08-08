@@ -1,0 +1,14 @@
+periodic_commit_cluster: &periodic_commit_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "show_metrics.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Periodic commit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["periodic_commit/periodic_commit.py"]
+    <<: *periodic_commit_cluster

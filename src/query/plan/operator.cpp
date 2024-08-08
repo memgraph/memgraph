@@ -6027,11 +6027,11 @@ class PeriodicCommitCursor : public Cursor {
     pulled_++;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
     }
 
     return pull_value;
@@ -6112,7 +6112,7 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
           }
           return false;
         }
@@ -6126,7 +6126,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit();
+        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
         pulled_ = 0;
       }
 
