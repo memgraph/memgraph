@@ -1039,8 +1039,28 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
-    CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
-  throw utils::NotYetImplemented("Periodic commit is not yet implemented on in-memory modes.");
+    CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
+  auto result = Commit(reparg, db_acc);
+
+  if (result.HasError()) {
+    return result;
+  }
+
+  FinalizeTransaction();
+
+  auto original_start_timestamp = transaction_.original_start_timestamp.value_or(transaction_.start_timestamp);
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
+  transaction_.start_timestamp = new_transaction.start_timestamp;
+  transaction_.transaction_id = new_transaction.transaction_id;
+  transaction_.commit_timestamp.reset();
+  transaction_.original_start_timestamp = original_start_timestamp;
+
+  is_transaction_active_ = true;
+
+  return result;
 }
 
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
@@ -2149,6 +2169,8 @@ StorageInfo InMemoryStorage::GetInfo() {
       config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
+  info.property_store_compression_level = config_.salient.property_store_compression_level;
   return info;
 }
 

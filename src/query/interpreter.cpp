@@ -82,6 +82,7 @@
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
 #include "query/stream/streams.hpp"
+#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
@@ -1972,7 +1973,7 @@ struct PullPlan {
   explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
                     DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                     std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
-                    std::shared_ptr<utils::AsyncTimer> tx_timer,
+                    std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
                     std::optional<int64_t> hops_limit = {});
@@ -2005,9 +2006,9 @@ struct PullPlan {
 PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, const bool is_profile_query,
                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
                    std::shared_ptr<QueryUserOrRole> user_or_role, std::atomic<TransactionStatus> *transaction_status,
-                   std::shared_ptr<utils::AsyncTimer> tx_timer, TriggerContextCollector *trigger_context_collector,
-                   const std::optional<size_t> memory_limit, FrameChangeCollector *frame_change_collector,
-                   const std::optional<int64_t> hops_limit)
+                   std::shared_ptr<utils::AsyncTimer> tx_timer, DatabaseAccessProtector db_acc,
+                   TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
+                   FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit)
     : plan_(plan),
       cursor_(plan->plan().MakeCursor(execution_memory)),
       frame_(plan->symbol_table().max_position(), execution_memory),
@@ -2040,6 +2041,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.trigger_context_collector = trigger_context_collector;
   ctx_.frame_change_collector = frame_change_collector;
   ctx_.evaluation_context.memory = execution_memory;
+  ctx_.db_acc = std::move(db_acc);
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2329,7 +2331,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, false, dba, interpreter_context, execution_memory, std::move(user_or_role),
-      transaction_status, std::move(tx_timer), trigger_context_collector, memory_limit,
+      transaction_status, std::move(tx_timer), current_db.db_acc_, trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -2479,13 +2481,13 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer),
+       tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_,
        hops_limit](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-                       transaction_status, std::move(tx_timer), nullptr, memory_limit,
+                       transaction_status, std::move(tx_timer), db_acc, nullptr, memory_limit,
                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
@@ -3082,6 +3084,119 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+#ifdef MG_ENTERPRISE
+PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                              std::vector<Notification> *notifications, CurrentDB &current_db,
+                              InterpreterContext *interpreter_context) {
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+
+  if (in_explicit_transaction) {
+    throw TtlInMulticommandTxException();
+  }
+
+  auto *ttl_query = utils::Downcast<TtlQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Time to live query expects a current DB");
+  auto db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *storage = db_acc->storage();
+  auto label = storage->NameToLabel("TTL");
+  auto prop = storage->NameToProperty("ttl");
+
+  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  Notification notification(SeverityLevel::INFO);
+  switch (ttl_query->type_) {
+    case TtlQuery::Type::ENABLE: {
+      auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+      try {
+        std::string info;
+        std::string period;
+        if (ttl_query->period_) {
+          period = ttl_query->period_->Accept(evaluator).ValueString();
+        }
+        std::string start_time;
+        if (ttl_query->specific_time_) {
+          start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
+        }
+        auto ttl_info = ttl::TtlInfo{period, start_time};
+        if (interpreter_context->repl_state->IsReplica()) {
+          // Special case for REPLICA
+          info = "TTL configured. Background job will not run, since instance is REPLICA.";
+        } else {
+          // TTL could already be configured; use the present config if no user-defined config
+          info = "Starting time-to-live worker. Will be executed";
+          if (ttl_info)
+            info += ttl_info.ToString();
+          else if (db_acc->ttl().Config())
+            info += db_acc->ttl().Config().ToString();
+        }
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
+                   invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+          auto &ttl = db_acc->ttl();
+
+          if (!ttl.Enabled()) {
+            (void)dba->CreateIndex(label, prop);  // Only way to fail is to try to create an already existant index
+            ttl.Enable();
+            std::invoke(invalidate_plan_cache);
+          }
+          if (ttl_info) ttl.Configure(ttl_info);
+          ttl.Setup(std::move(db_acc), interpreter_context);
+
+          notification.code = NotificationCode::ENABLE_TTL;
+          notification.title = info;
+        };
+      } catch (const ttl::TtlException &e) {
+        throw utils::BasicException(e.what());
+      }
+      break;
+    }
+    case TtlQuery::Type::DISABLE: {
+      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      handler = [db_acc = std::move(db_acc), dba, label, prop,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+        (void)dba->DropIndex(label, prop);  // Only way to fail is to try to drop a non-existant index
+        const utils::OnScopeExit invalidator(invalidate_plan_cache);
+        db_acc->ttl().Disable();
+        notification.code = NotificationCode::DISABLE_TTL;
+        notification.title = fmt::format("Disabled time-to-live feature.");
+      };
+      break;
+    }
+    case TtlQuery::Type::STOP: {
+      handler = [db_acc = std::move(db_acc)](Notification &notification) mutable {
+        db_acc->ttl().Stop();
+        notification.code = NotificationCode::STOP_TTL;
+        notification.title = fmt::format("Stopped time-to-live worker.");
+      };
+      break;
+    }
+    default: {
+      DMG_ASSERT(false, "Unknown ttl query type");
+    }
+  }
+
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), notifications, notification = std::move(notification)](
+                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                         handler(notification);
+                         notifications->push_back(notification);
+                         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+                       },
+                       RWType::NONE};
+}
+#endif
+
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                InterpreterContext *interpreter_context, Interpreter &interpreter) {
   if (in_explicit_transaction) {
@@ -3616,6 +3731,9 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
 
     auto *streams = db->streams();
     streams->DropAll();
+
+    auto &ttl = db->ttl();
+    ttl.Stop();
 
     return std::vector<std::vector<TypedValue>>();
   };
@@ -4929,7 +5047,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
         utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query);
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
         unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
@@ -4987,6 +5105,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
+#ifdef MG_ENTERPRISE
+      prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
+                                       &query_execution->notifications, current_db_, interpreter_context_);
+#else
+      throw QueryException("Query not supported.");
+#endif  // MG_ENTERPRISE
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
@@ -5120,15 +5245,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (write_query) {
       if (interpreter_context_->repl_state->IsReplica()) {
         query_execution = nullptr;
-        throw QueryException("Write query forbidden on the replica!");
+        throw WriteQueryOnReplicaException();
       }
 #ifdef MG_ENTERPRISE
       if (interpreter_context_->coordinator_state_.has_value() &&
           interpreter_context_->coordinator_state_->get().IsDataInstance() &&
           !interpreter_context_->repl_state->IsMainWriteable()) {
         query_execution = nullptr;
-        throw QueryException(
-            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.");
+        throw WriteQueryOnMainException();
       }
 #endif
     }
@@ -5236,7 +5360,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     auto trigger_context = original_trigger_context;
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
-      trigger.Execute(&db_accessor, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
+      trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
                       &interpreter_context->is_shutting_down, transaction_status, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
@@ -5265,6 +5389,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
                   spdlog::warn("Trigger '{}' failed to commit due to existence constraint violation on: {}({}) ",
                                trigger.Name(), label_name, property_name);
+                  break;
                 }
                 case storage::ConstraintViolation::Type::UNIQUE: {
                   const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
@@ -5274,6 +5399,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                       [&](auto &stream, const auto &prop) { stream << db_accessor.PropertyToName(prop); });
                   spdlog::warn("Trigger '{}' failed to commit due to unique constraint violation on :{}({})",
                                trigger.Name(), label_name, property_names_stream.str());
+                  break;
                 }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
@@ -5393,7 +5519,7 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, execution_memory.resource(),
+        trigger.Execute(&*current_db_.execution_db_accessor_, current_db_.db_acc_, execution_memory.resource(),
                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
                         &transaction_status_, *trigger_context);
       } catch (const utils::BasicException &e) {

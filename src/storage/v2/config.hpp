@@ -20,6 +20,7 @@
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -36,6 +37,7 @@ struct SalientConfig {
   std::string name;
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+  utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
   struct Items {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
@@ -43,6 +45,7 @@ struct SalientConfig {
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
     bool delta_on_identical_property_update{true};
+    bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
@@ -56,6 +59,7 @@ inline void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
       {"enable_edges_metadata", items.enable_edges_metadata},
       {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
       {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
+      {"property_store_compression_enabled", items.property_store_compression_enabled},
   };
 }
 
@@ -65,11 +69,16 @@ inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
   data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
   data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
   data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
+  data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);
 }
 
 inline void to_json(nlohmann::json &data, SalientConfig const &config) {
-  data = nlohmann::json{
-      {"items", config.items}, {"name", config.name}, {"uuid", config.uuid}, {"storage_mode", config.storage_mode}};
+  data = nlohmann::json{{"items", config.items},
+                        {"name", config.name},
+                        {"uuid", config.uuid},
+                        {"storage_mode", config.storage_mode},
+                        "property_store_compression_level",
+                        config.property_store_compression_level};
 }
 
 inline void from_json(const nlohmann::json &data, SalientConfig &config) {
@@ -77,6 +86,7 @@ inline void from_json(const nlohmann::json &data, SalientConfig &config) {
   data.at("name").get_to(config.name);
   data.at("uuid").get_to(config.uuid);
   data.at("storage_mode").get_to(config.storage_mode);
+  data.at("property_store_compression_level").get_to(config.property_store_compression_level);
 }
 
 /// Pass this class to the \ref Storage constructor to change the behavior of

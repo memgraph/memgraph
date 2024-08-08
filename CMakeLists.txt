@@ -203,6 +203,7 @@ add_compile_options(
         -Werror=return-stack-address
         -Wno-c99-designator
         -Wmissing-field-initializers
+        -Werror=implicit-fallthrough
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 

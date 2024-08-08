@@ -105,7 +105,7 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
-uint32_t SizeToByteSize(Size size) {
+constexpr uint32_t SizeToByteSize(Size size) {
   switch (size) {
     case Size::INT8:
       return 1;
@@ -134,6 +134,8 @@ enum class Type : uint8_t {
   ZONED_TEMPORAL_DATA = 0x90,
   OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
   ENUM = 0xB0,
+  POINT_2D = 0xC0,
+  POINT_3D = 0xD0,
 };
 
 const uint8_t kMaskType = 0xf0;
@@ -297,6 +299,7 @@ class Writer {
   }
 
   std::optional<Size> WriteDouble(double value) { return WriteUint(utils::MemcpyCast<uint64_t>(value)); }
+  bool WriteDoubleForceInt64(double value) { return InternalWriteInt<uint64_t>(utils::MemcpyCast<uint64_t>(value)); }
 
   bool WriteTimezoneOffset(int64_t offset) { return InternalWriteInt<tz_offset_int>(offset); }
 
@@ -443,6 +446,12 @@ class Reader {
     return utils::MemcpyCast<double>(*value);
   }
 
+  std::optional<double> ReadDoubleForce64() {
+    auto value = InternalReadInt<uint64_t>();
+    if (!value) return std::nullopt;
+    return utils::MemcpyCast<double>(*value);
+  }
+
   std::optional<utils::Timezone> ReadTimezone(auto type) {
     if (type == Type::ZONED_TEMPORAL_DATA) {
       auto tz_str_length = ReadUint(TZ_NAME_LENGTH_SIZE);
@@ -503,6 +512,36 @@ class Reader {
   uint32_t size_ = 0;
   uint32_t pos_ = 0;
 };
+
+auto CrsToSize(CoordinateReferenceSystem value) -> Size {
+  switch (value) {
+    using enum Size;
+    using enum CoordinateReferenceSystem;
+    case WGS84_2d:
+      return INT8;
+    case WGS84_3d:
+      return INT16;
+    case Cartesian_2d:
+      return INT32;
+    case Cartesian_3d:
+      return INT64;
+  }
+}
+
+auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
+  switch (value) {
+    using enum Size;
+    using enum CoordinateReferenceSystem;
+    case INT8:
+      return WGS84_2d;
+    case INT16:
+      return WGS84_3d;
+    case INT32:
+      return Cartesian_2d;
+    case INT64:
+      return Cartesian_3d;
+  }
+}
 
 // Function used to encode a PropertyValue into a byte stream.
 std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const PropertyValue &value) {
@@ -632,6 +671,19 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       }
 
       return {{Type::ENUM, *size}};
+    }
+    case PropertyValue::Type::Point2d: {
+      auto const &point = value.ValuePoint2d();
+      if (!writer->WriteDoubleForceInt64(point.x())) return std::nullopt;
+      if (!writer->WriteDoubleForceInt64(point.y())) return std::nullopt;
+      return {{Type::POINT_2D, CrsToSize(point.crs())}};
+    }
+    case PropertyValue::Type::Point3d: {
+      auto const &point = value.ValuePoint3d();
+      if (!writer->WriteDoubleForceInt64(point.x())) return std::nullopt;
+      if (!writer->WriteDoubleForceInt64(point.y())) return std::nullopt;
+      if (!writer->WriteDoubleForceInt64(point.z())) return std::nullopt;
+      return {{Type::POINT_3D, CrsToSize(point.crs())}};
     }
   }
 }
@@ -821,6 +873,28 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       value = PropertyValue(Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}});
       return true;
     }
+    case Type::POINT_2D: {
+      auto crs = SizeToCrs(payload_size);
+      if (!valid2d(crs)) return false;
+      auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!x_opt) return false;
+      auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!y_opt) return false;
+      value = PropertyValue(Point2d{crs, *x_opt, *y_opt});
+      return true;
+    }
+    case Type::POINT_3D: {
+      auto crs = SizeToCrs(payload_size);
+      if (!valid3d(crs)) return false;
+      auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!x_opt) return false;
+      auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!y_opt) return false;
+      auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!z_opt) return false;
+      value = PropertyValue(Point3d{crs, *x_opt, *y_opt, *z_opt});
+      return true;
+    }
   }
 }
 
@@ -914,7 +988,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += *maybe_zoned_temporal_data_size;
       return true;
     }
-    case Type::ENUM:
+    case Type::ENUM: {
       // double payload
       // - first for enum type
       // - second for enum value
@@ -922,6 +996,19 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!reader->SkipBytes(bytes)) return false;
       property_size += bytes;
       return true;
+    }
+    case Type::POINT_2D: {
+      auto bytes_size = 2 * SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(bytes_size)) return false;
+      property_size += bytes_size;
+      return true;
+    }
+    case Type::POINT_3D: {
+      auto bytes_size = 3 * SizeToByteSize(Size::INT64);
+      if (!reader->SkipBytes(bytes_size)) return false;
+      property_size += bytes_size;
+      return true;
+    }
   }
 }
 
@@ -981,14 +1068,18 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::OFFSET_ZONED_TEMPORAL_DATA: {
       return DecodeZonedTemporalData(*reader).has_value();
     }
-    case Type::ENUM:
-      // double payload
-      // - first for enum type
-      // - second for enum value
-      if (!reader->ReadInt(payload_size)) return false;
-      // NOLINTNEXTLINE(readability-simplify-boolean-expr)
-      if (!reader->ReadInt(payload_size)) return false;
-      return true;
+    case Type::ENUM: {
+      auto bytes_to_skip = 2 * SizeToByteSize(payload_size);
+      return reader->SkipBytes(bytes_to_skip);
+    }
+    case Type::POINT_2D: {
+      auto bytes_to_skip = 2 * SizeToByteSize(Size::INT64);
+      return reader->SkipBytes(bytes_to_skip);
+    }
+    case Type::POINT_3D: {
+      auto bytes_to_skip = 3 * SizeToByteSize(Size::INT64);
+      return reader->SkipBytes(bytes_to_skip);
+    }
   }
 }
 
@@ -1100,13 +1191,36 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
       return *maybe_zoned_temporal_data == value.ValueZonedTemporalData();
     }
-    case Type::ENUM:
+    case Type::ENUM: {
       if (!value.IsEnum()) return false;
       auto e_type = reader->ReadUint(payload_size);
       if (!e_type) return false;
       auto e_value = reader->ReadUint(payload_size);
       if (!e_value) return false;
       return value.ValueEnum() == Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}};
+    }
+    case Type::POINT_2D: {
+      if (!value.IsPoint2d()) return false;
+
+      const auto x = reader->ReadDoubleForce64();
+      if (!x) return false;
+      const auto y = reader->ReadDoubleForce64();
+      if (!y) return false;
+
+      return value.ValuePoint2d() == Point2d{SizeToCrs(payload_size), *x, *y};
+    }
+    case Type::POINT_3D: {
+      if (!value.IsPoint3d()) return false;
+
+      const auto x = reader->ReadDoubleForce64();
+      if (!x) return false;
+      const auto y = reader->ReadDoubleForce64();
+      if (!y) return false;
+      const auto z = reader->ReadDoubleForce64();
+      if (!z) return false;
+
+      return value.ValuePoint3d() == Point3d{SizeToCrs(payload_size), *x, *y, *z};
+    }
   }
 }
 

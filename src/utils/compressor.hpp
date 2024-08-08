@@ -20,21 +20,27 @@
 #include <string_view>
 #include "utils/enum.hpp"
 
+namespace memgraph::utils {
+enum class CompressionLevel : uint8_t { LOW, MID, HIGH };
+
+int CompressionLevelToZlibCompressionLevel(CompressionLevel level);
+std::string_view CompressionLevelToString(CompressionLevel level);
+}  // namespace memgraph::utils
+
 namespace memgraph::flags {
 
 using namespace std::string_view_literals;
 
-inline constexpr std::array compression_level_mappings{std::pair{"low"sv, Z_BEST_SPEED},
-                                                       std::pair{"mid"sv, Z_DEFAULT_COMPRESSION},
-                                                       std::pair{"high"sv, Z_BEST_COMPRESSION}};
+inline constexpr std::array compression_level_mappings{std::pair{"low"sv, utils::CompressionLevel::LOW},
+                                                       std::pair{"mid"sv, utils::CompressionLevel::MID},
+                                                       std::pair{"high"sv, utils::CompressionLevel::HIGH}};
 
 inline const std::string storage_property_store_compression_level_help_string =
     fmt::format("Compression level for storing properties. Allowed values: {}.",
                 memgraph::utils::GetAllowedEnumValuesString(compression_level_mappings));
 
 bool ValidStoragePropertyStoreCompressionLevel(std::string_view value);
-int StoragePropertyStoreCompressionLevelToInt(std::string_view value);
-
+utils::CompressionLevel ParseCompressionLevel();
 }  // namespace memgraph::flags
 
 namespace memgraph::utils {

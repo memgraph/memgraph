@@ -109,7 +109,17 @@ TypedValue::TypedValue(const storage::PropertyValue &value, utils::MemoryResourc
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      enum_v = value.ValueEnum();
+      new (&enum_v) storage::Enum(value.ValueEnum());
+      return;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      type_ = Type::Point2d;
+      new (&point_2d_v) storage::Point2d(value.ValuePoint2d());
+      return;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      type_ = Type::Point3d;
+      new (&point_3d_v) storage::Point3d(value.ValuePoint3d());
       return;
     }
   }
@@ -193,7 +203,17 @@ TypedValue::TypedValue(storage::PropertyValue &&other, utils::MemoryResource *me
     }
     case storage::PropertyValue::Type::Enum: {
       type_ = Type::Enum;
-      enum_v = other.ValueEnum();
+      new (&enum_v) storage::Enum(other.ValueEnum());
+      break;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      type_ = Type::Point2d;
+      new (&point_2d_v) storage::Point2d(other.ValuePoint2d());
+      break;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      type_ = Type::Point3d;
+      new (&point_3d_v) storage::Point3d(other.ValuePoint3d());
       break;
     }
   }
@@ -254,6 +274,12 @@ TypedValue::TypedValue(const TypedValue &other, utils::MemoryResource *memory) :
       return;
     case Type::Enum:
       new (&enum_v) storage::Enum(other.enum_v);
+      return;
+    case Type::Point2d:
+      new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      return;
+    case Type::Point3d:
+      new (&point_3d_v) storage::Point3d(other.point_3d_v);
       return;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
@@ -317,6 +343,12 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case Type::Enum:
       new (&enum_v) storage::Enum(other.enum_v);
       break;
+    case Type::Point2d:
+      new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      break;
+    case Type::Point3d:
+      new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      break;
     case Type::Function:
       new (&function_v) std::function<void(TypedValue *)>(other.function_v);
       break;
@@ -368,6 +400,10 @@ TypedValue::operator storage::PropertyValue() const {
       return storage::PropertyValue(storage::TemporalData{storage::TemporalType::Duration, duration_v.microseconds});
     case TypedValue::Type::Enum:
       return storage::PropertyValue(enum_v);
+    case TypedValue::Type::Point2d:
+      return storage::PropertyValue(point_2d_v);
+    case TypedValue::Type::Point3d:
+      return storage::PropertyValue(point_3d_v);
     case Type::Vertex:
     case Type::Edge:
     case Type::Path:
@@ -419,6 +455,8 @@ DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_ti
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
+DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
 
@@ -439,6 +477,8 @@ bool TypedValue::ContainsDeleted() const {
     case Type::ZonedDateTime:
     case Type::Duration:
     case Type::Enum:
+    case Type::Point2d:
+    case Type::Point3d:
       return false;
     // Reference types
     case Type::List:
@@ -477,6 +517,8 @@ bool TypedValue::IsPropertyValue() const {
     case Type::ZonedDateTime:
     case Type::Duration:
     case Type::Enum:
+    case Type::Point2d:
+    case Type::Point3d:
       return true;
     case Type::Vertex:
     case Type::Edge:
@@ -521,6 +563,9 @@ std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type) {
       return os << "duration";
     case TypedValue::Type::Enum:
       return os << "enum";
+    case TypedValue::Type::Point2d:
+    case TypedValue::Type::Point3d:
+      return os << "point";
     case TypedValue::Type::Graph:
       return os << "graph";
     case TypedValue::Type::Function:
@@ -685,6 +730,12 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
       case Type::Enum:
         new (&enum_v) storage::Enum(other.enum_v);
         return *this;
+      case Type::Point2d:
+        new (&point_2d_v) storage::Point2d(other.point_2d_v);
+        return *this;
+      case Type::Point3d:
+        new (&point_3d_v) storage::Point3d(other.point_3d_v);
+        return *this;
       case Type::Function:
         new (&function_v) std::function<void(TypedValue *)>(other.function_v);
         return *this;
@@ -753,6 +804,12 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
       case Type::Enum:
         new (&enum_v) storage::Enum(other.enum_v);
         break;
+      case Type::Point2d:
+        new (&point_2d_v) storage::Point2d(other.point_2d_v);
+        break;
+      case Type::Point3d:
+        new (&point_3d_v) storage::Point3d(other.point_3d_v);
+        break;
       case Type::Function:
         new (&function_v) std::function<void(TypedValue *)>{other.function_v};
         break;
@@ -804,6 +861,8 @@ void TypedValue::DestroyValue() {
     case Type::LocalDateTime:
     case Type::Duration:
     case Type::Enum:
+    case Type::Point2d:
+    case Type::Point3d:
     case Type::ZonedDateTime:
       // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
       break;
@@ -876,6 +935,8 @@ TypedValue operator<(const TypedValue &a, const TypedValue &b) {
       case TypedValue::Type::Graph:
       case TypedValue::Type::Function:
       case TypedValue::Type::Enum:
+      case TypedValue::Type::Point2d:
+      case TypedValue::Type::Point3d:
         return false;
     }
   };
@@ -998,6 +1059,10 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
       return TypedValue(a.ValueDuration() == b.ValueDuration(), a.GetMemoryResource());
     case TypedValue::Type::Enum:
       return TypedValue(a.ValueEnum() == b.ValueEnum(), a.GetMemoryResource());
+    case TypedValue::Type::Point2d:
+      return TypedValue(a.ValuePoint2d() == b.ValuePoint2d(), a.GetMemoryResource());
+    case TypedValue::Type::Point3d:
+      return TypedValue(a.ValuePoint3d() == b.ValuePoint3d(), a.GetMemoryResource());
     case TypedValue::Type::Graph:
       throw TypedValueException("Unsupported comparison operator");
     case TypedValue::Type::Function:
@@ -1328,6 +1393,10 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
       return utils::DurationHash{}(value.ValueDuration());
     case TypedValue::Type::Enum:
       return std::hash<storage::Enum>{}(value.ValueEnum());
+    case TypedValue::Type::Point2d:
+      return std::hash<storage::Point2d>{}(value.ValuePoint2d());
+    case TypedValue::Type::Point3d:
+      return std::hash<storage::Point3d>{}(value.ValuePoint3d());
     case TypedValue::Type::Function:
       throw TypedValueException("Unsupported hash function for Function");
     case TypedValue::Type::Graph:

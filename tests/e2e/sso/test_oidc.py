@@ -11,24 +11,24 @@ def test_invalid_tokens(scheme):
 
     access_token = {
         "token": {"username": "username"},
-        "errors": "error in access token",
+        "errors": "error_access",
     }
     id_token = {
         "token": {
             "sub": "sub-field",
         },
-        "errors": "error in id token",
+        "errors": "error_id",
     }
 
     assert process_tokens((access_token, id_token), config, scheme) == {
         "authenticated": False,
-        "errors": "error in access token",
+        "errors": "Error while decoding access token: error_access",
     }
 
     del access_token["errors"]
     assert process_tokens((access_token, id_token), config, scheme) == {
         "authenticated": False,
-        "errors": "error in id token",
+        "errors": "Error while decoding id token: error_id",
     }
 
     del id_token["errors"]

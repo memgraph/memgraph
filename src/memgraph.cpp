@@ -384,8 +384,10 @@ int main(int argc, char **argv) {
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
-                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update},
-      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
+                        .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
+      .salient.storage_mode = memgraph::flags::ParseStorageMode(),
+      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel()};
   if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
     LOG_FATAL(
         "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
@@ -615,22 +617,17 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
   }
 
+  // Triggers can execute query procedures, so we need to reload the modules first and then the triggers.
+  // Stream transformations use modules, so we need to restored streams after the query modules have been loaded.
+  if (db_config.durability.recover_on_startup) {
+    dbms_handler.RestoreTriggers(&interpreter_context_);
+    dbms_handler.RestoreStreams(&interpreter_context_);
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
 #ifdef MG_ENTERPRISE
-  dbms_handler.RestoreTriggers(&interpreter_context_);
-  dbms_handler.RestoreStreams(&interpreter_context_);
-#else
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = db_acc->Access();
-    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                             interpreter_context_.auth_checker);
-  }
-
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+      dbms_handler.RestoreTTL(&interpreter_context_);
 #endif
+    }
+  }
 
   ServerContext context;
   std::string service_name = "Bolt";
