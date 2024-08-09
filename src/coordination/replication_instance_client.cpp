@@ -98,6 +98,7 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
       spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
       return false;
     }
+    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
