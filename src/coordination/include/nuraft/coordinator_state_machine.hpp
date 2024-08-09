@@ -99,6 +99,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
 
+  void UpdateStateMachineFromSnapshotDurability();
+
   // Getters
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
@@ -112,7 +114,7 @@ class CoordinatorStateMachine : public state_machine {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:
-  bool HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+  bool HandleMigration(LogStoreVersion stored_version);
 
   auto CreateSnapshotInternal(ptr<snapshot> const &snapshot) -> void;
 

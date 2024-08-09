@@ -79,50 +79,68 @@ CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
 
   logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
 
-  bool const successful_migration =
-      HandleMigration(log_store_durability->stored_log_store_version_, log_store_durability->active_log_store_version_);
+  bool const successful_migration = HandleMigration(log_store_durability->stored_log_store_version_);
 
   MG_ASSERT(successful_migration, "Couldn't handle migration of log store version.");
 }
 
-bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version, LogStoreVersion active_version) {
-  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
-    auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
-    for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix});
-         kv_store_snapshot_it != end_iter; ++kv_store_snapshot_it) {
-      auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
-      try {
-        auto parsed_snapshot_id =
-            std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-        last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
+void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
+  auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
+  for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix}); kv_store_snapshot_it != end_iter;
+       ++kv_store_snapshot_it) {
+    auto const &[snapshot_key_id, snapshot_key_value] = *kv_store_snapshot_it;
+    try {
+      auto parsed_snapshot_id =
+          std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
+      last_committed_idx_ = std::max(last_committed_idx_.load(), parsed_snapshot_id);
 
-        auto snapshot_ctx_str = durability_->Get(snapshot_key_id);
+      auto snapshot_ctx_str = durability_->Get(snapshot_key_id);
 
-        if (!snapshot_ctx_str.has_value()) {
-          throw std::runtime_error("Failed to retrieve snapshot context from disk");
-        }
-
-        // NOLINTNEXTLINE (misc-const-correctness)
-        auto snapshot_ctx = cs_new<SnapshotCtx>();
-        from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
-        snapshots_[parsed_snapshot_id] = snapshot_ctx;
-      } catch (std::exception &e) {
-        LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+      if (!snapshot_ctx_str.has_value()) {
+        throw std::runtime_error("Failed to retrieve snapshot context from disk");
       }
-      logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
-    }
 
-    if (last_committed_idx_ == 0) {
-      logger_.Log(nuraft_log_level::TRACE, "Last committed index is 0");
+      // NOLINTNEXTLINE (misc-const-correctness)
+      auto snapshot_ctx = cs_new<SnapshotCtx>();
+      from_json(nlohmann::json::parse(snapshot_ctx_str.value()), *snapshot_ctx);
+      snapshots_[parsed_snapshot_id] = snapshot_ctx;
+    } catch (std::exception &e) {
+      LOG_FATAL("Failed to deserialize snapshot with id: {}. Error: {}", snapshot_key_id, e.what());
+    }
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Deserialized snapshot with id: {}", snapshot_key_id));
+  }
+
+  if (last_committed_idx_ == 0) {
+    logger_.Log(nuraft_log_level::TRACE, "Last committed index from snapshots is 0");
+    return;
+  }
+  cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+  logger_.Log(nuraft_log_level::TRACE,
+              fmt::format("Restored cluster state from snapshot with id: {}", last_committed_idx_));
+}
+
+bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
+  UpdateStateMachineFromSnapshotDurability();
+  if (kActiveVersion == LogStoreVersion::kV2 && stored_version == LogStoreVersion::kV1) {
+    durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+    return true;
+  } else if (kActiveVersion == LogStoreVersion::kV2 && stored_version == LogStoreVersion::kV2) {
+    auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
+    if (!maybe_last_commited_idx.has_value()) {
+      durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
+      logger_.Log(
+          nuraft_log_level::ERROR,
+          fmt::format("Failed to retrieve last committed index from disk, using last committed index from snapshot {}.",
+                      last_committed_idx_.load()));
       return true;
     }
-    cluster_state_ = snapshots_[last_committed_idx_]->cluster_state_;
+    last_committed_idx_ = std::stoul(maybe_last_commited_idx.value());
     logger_.Log(nuraft_log_level::TRACE,
-                fmt::format("Restored last committed index from snapshot: {}", last_committed_idx_));
+                fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
     return true;
   }
 
-  return false;  // fill up afterwards
+  return false;
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
@@ -215,6 +233,9 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   auto const &[parsed_data, log_action] = DecodeLog(data);
   cluster_state_.DoAction(parsed_data, log_action);
+  if (durability_) {
+    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
+  }
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
@@ -225,6 +246,9 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
+  if (durability_) {
+    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
+  }
   last_committed_idx_ = log_idx;
 }
 

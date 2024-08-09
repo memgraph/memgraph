@@ -69,7 +69,6 @@ struct CoordinatorInstanceInitConfig {
 
 struct LogStoreDurability {
   std::shared_ptr<kvstore::KVStore> durability_store_{nullptr};
-  LogStoreVersion active_log_store_version_{kActiveVersion};
   LogStoreVersion stored_log_store_version_{kActiveVersion};
 };
 

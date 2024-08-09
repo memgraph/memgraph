@@ -15,12 +15,15 @@ namespace memgraph::coordination {
 
 enum class LogStoreVersion : int {
   kV1 = 1,  // current version
-  // kV2 = 2, new version bump when needed
+  kV2 = 2,  // added last_committed_idx_
+  // kv3 = 3,  // when new version is added
 };
 
-constexpr LogStoreVersion kActiveVersion = LogStoreVersion::kV1;
+constexpr LogStoreVersion kActiveVersion = LogStoreVersion::kV2;
 
 constexpr std::string_view kLogStoreVersion = "log_store_version";  // top level
+
+constexpr std::string_view kLastCommitedIdx = "last_committed_idx_";  // top level
 
 // snapshots
 constexpr std::string_view kSnapshotIdPrefix = "snapshot_id_";  // top level
