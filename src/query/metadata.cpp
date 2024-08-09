@@ -76,7 +76,7 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:
       return "DemoteInstanceToReplica"sv;
     case NotificationCode::FORCE_RESET_CLUSTER_STATE:
-      return "ForceResetClusterState"sv;
+      return "ReconcileClusterState"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;

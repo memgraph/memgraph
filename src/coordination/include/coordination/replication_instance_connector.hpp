@@ -82,8 +82,8 @@ class ReplicationInstanceConnector {
 
   auto EnableWritingOnMain() -> bool;
 
-  auto GetSuccessCallback() -> HealthCheckInstanceCallback;
-  auto GetFailCallback() -> HealthCheckInstanceCallback;
+  auto GetSuccessCallback() const -> HealthCheckInstanceCallback;
+  auto GetFailCallback() const -> HealthCheckInstanceCallback;
 
   void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
 

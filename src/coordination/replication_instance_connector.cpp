@@ -100,8 +100,8 @@ auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordinat
   return client_->GetReplicationClientInfo();
 }
 
-auto ReplicationInstanceConnector::GetSuccessCallback() -> HealthCheckInstanceCallback { return succ_cb_; }
-auto ReplicationInstanceConnector::GetFailCallback() -> HealthCheckInstanceCallback { return fail_cb_; }
+auto ReplicationInstanceConnector::GetSuccessCallback() const -> HealthCheckInstanceCallback { return succ_cb_; }
+auto ReplicationInstanceConnector::GetFailCallback() const -> HealthCheckInstanceCallback { return fail_cb_; }
 
 auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return *client_; }
 

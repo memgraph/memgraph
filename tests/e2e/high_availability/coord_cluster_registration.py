@@ -1144,7 +1144,7 @@ def test_add_coord_instance_fails():
     interactive_mg_runner.stop_all()
     safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description_all = get_instances_description(test_name="test_add_coord_instance_fails")
-    interactive_mg_runner.start_all(memgraph_instances_description_all)
+    interactive_mg_runner.start_all(memgraph_instances_description_all, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 

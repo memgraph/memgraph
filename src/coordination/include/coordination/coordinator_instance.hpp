@@ -83,9 +83,9 @@ class CoordinatorInstance {
 
   auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  auto TryForceResetClusterState() -> ForceResetClusterStateStatus;
+  auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
-  auto ForceResetClusterState() -> ForceResetClusterStateStatus;
+  auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   auto IsLeader() const -> bool;
 
@@ -95,6 +95,10 @@ class CoordinatorInstance {
 
   auto GetRaftState() -> RaftState &;
   auto GetRaftState() const -> RaftState const &;
+
+  static auto GetSuccessCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
+
+  static auto GetFailCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
 
  private:
   template <ranges::forward_range R>
@@ -152,7 +156,7 @@ class CoordinatorInstance {
 
   void DemoteFailCallback(std::string_view repl_instance_name);
 
-  auto ForceResetCluster_() -> ForceResetClusterStateStatus;
+  auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
 
   auto GetBecomeLeaderCallback() -> std::function<void()>;
   auto GetBecomeFollowerCallback() -> std::function<void()>;
@@ -161,7 +165,7 @@ class CoordinatorInstance {
 
   HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
-  // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
+  // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
   // accept queries.
   std::atomic<bool> is_leader_ready_{false};
   std::atomic<bool> is_shutting_down_{false};
@@ -171,7 +175,7 @@ class CoordinatorInstance {
 
   std::unique_ptr<RaftState> raft_state_;
 
-  // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
+  // Thread pool must be destructed first, because there is a possibility we are doing reconcile cluster state in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
 
