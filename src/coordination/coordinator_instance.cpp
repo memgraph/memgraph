@@ -825,6 +825,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
 
   if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
                                &CoordinatorInstance::MainFailCallback)) {
+    spdlog::trace("Promoting instance {} failed", new_main->InstanceName());
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
