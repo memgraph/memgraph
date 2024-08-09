@@ -5148,6 +5148,8 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
+  utils::MonotonicBufferResource monotonic_memory_{1024UL * 1024UL};
+  utils::MemoryResource *memory_resource_ = &monotonic_memory_;
   UniqueCursorPtr input_cursor_;
   mgp_result *result_;
   decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
@@ -5163,8 +5165,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(utils::Allocator<mgp_result>(self_->memory_resource)
-                    .new_object<mgp_result>(nullptr, self_->memory_resource)) {
+        result_(utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_)) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -5228,9 +5229,8 @@ class CallProcedureCursor : public Cursor {
       }
       // Unpluging memory without calling destruct on each object since everything was allocated with this memory
       // resource
-      self_->monotonic_memory.Release();
-      result_ =
-          utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+      monotonic_memory_.Release();
+      result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
 
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -5242,7 +5242,7 @@ class CallProcedureCursor : public Cursor {
       // Use special memory as invoking procedure is complex
       // TODO: This will probably need to be changed when we add support for
       // generator like procedures which yield a new result on new query calls.
-      auto *memory = self_->memory_resource;
+      auto *memory = memory_resource_;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
@@ -5302,16 +5302,15 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    self_->monotonic_memory.Release();
-    result_ =
-        utils::Allocator<mgp_result>(self_->memory_resource).new_object<mgp_result>(nullptr, self_->memory_resource);
+    monotonic_memory_.Release();
+    result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
     if (cleanup_) {
       cleanup_.value()();
     }
   }
 
   void Shutdown() override {
-    self_->monotonic_memory.Release();
+    monotonic_memory_.Release();
     if (cleanup_) {
       cleanup_.value()();
     }

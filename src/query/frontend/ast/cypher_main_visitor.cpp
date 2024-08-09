@@ -2893,7 +2893,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   // repeativly finding the function at call time, this means user-defined functions have there lifetime
   // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
   // query module that is not currently being used.
-  query_info_.is_cacheable = !function_expr->IsUserDefined();
+  query_info_.is_cacheable &= !function_expr->IsUserDefined();
 
   return static_cast<Expression *>(function_expr);
 }
