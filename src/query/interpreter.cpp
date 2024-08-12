@@ -2332,10 +2332,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
     std::vector<std::vector<TypedValue>> printed_plan_rows;
-    interpreter.TryQueryLogging("Explain plan");
-    for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
-      interpreter.TryQueryLogging(row);
-    }
+    interpreter.TryQueryLogging(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
   TryCaching(plan->ast_storage(), frame_change_collector);
@@ -2417,12 +2414,11 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
+  interpreter.TryQueryLogging("Explain plan: \n{}" : printed_plan.str());
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
-  interpreter.TryQueryLogging("Explain plan");
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
-    interpreter.TryQueryLogging(row);
   }
 
   return PreparedQuery{{"QUERY PLAN"},
@@ -4960,7 +4956,7 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
     std::vector<std::vector<TypedValue>> results;
     if (enabled) {
       interpreter->query_logger_.emplace(
-          fmt::format("{}/{}", FLAGS_query_log_directory, interpreter->session_info_.uuid));
+          fmt::format("{}/{}.log", FLAGS_query_log_directory, interpreter->session_info_.uuid));
       interpreter->query_logger_->SetUser(interpreter->session_info_.username);
       interpreter->query_logger_->SetSessionId(interpreter->session_info_.uuid);
       interpreter->TryQueryLogging("Session initialized!");
