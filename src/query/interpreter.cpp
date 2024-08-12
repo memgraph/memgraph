@@ -2510,57 +2510,39 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   rw_type_checker.InferRWType(const_cast<plan::LogicalOperator &>(cypher_query_plan->plan()));
 
-  return PreparedQuery {
-    {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"}, std::move(parsed_query.required_privileges),
-        [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
-         interpreter_context, execution_memory, memory_limit, user_or_role = std::move(user_or_role),
-         // We want to execute the query we are profiling lazily, so we delay
-         // the construction of the corresponding context.
-         stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
-         pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-<<<<<<< HEAD
-<<<<<<< HEAD
-         tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
-         query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](
-            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-=======
-         tx_timer = std::move(tx_timer), hops_limit,
-         query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
-            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
->>>>>>> c5969f7cd (Add profile to normal queries)
-=======
-         tx_timer = std::move(tx_timer), hops_limit,
-         query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
-            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
->>>>>>> a9be1c9208b7738679b1cbfce0d46e926c2d4dae
-          // No output symbols are given so that nothing is streamed.
-          if (!stats_and_total_time) {
-            stats_and_total_time =
-                PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-<<<<<<< HEAD
-                         transaction_status, std::move(tx_timer), db_acc, nullptr, memory_limit,
-                         frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
-                         query_logger)
-=======
-                         transaction_status, std::move(tx_timer), nullptr, memory_limit,
-                         frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
-                         query_logger)
->>>>>>> a9be1c9208b7738679b1cbfce0d46e926c2d4dae
-                    .Pull(stream, {}, {}, summary);
-            pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
-          }
+  return PreparedQuery{
+      {"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"},
+      std::move(parsed_query.required_privileges),
+      [plan = std::move(cypher_query_plan), parameters = std::move(parsed_inner_query.parameters), summary, dba,
+       interpreter_context, execution_memory, memory_limit, user_or_role = std::move(user_or_role),
+       // We want to execute the query we are profiling lazily, so we delay
+       // the construction of the corresponding context.
+       stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
+       pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
+       tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
+       query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        // No output symbols are given so that nothing is streamed.
+        if (!stats_and_total_time) {
+          stats_and_total_time =
+              PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
+                       transaction_status, std::move(tx_timer), db_acc, nullptr, memory_limit,
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+                       query_logger)
+                  .Pull(stream, {}, {}, summary);
+          pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
+        }
 
-          MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
+        MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-          if (pull_plan->Pull(stream, n)) {
-            summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
-            return QueryHandlerResult::ABORT;
-          }
+        if (pull_plan->Pull(stream, n)) {
+          summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
+          return QueryHandlerResult::ABORT;
+        }
 
-          return std::nullopt;
-        },
-        rw_type_checker.type
-  };
+        return std::nullopt;
+      },
+      rw_type_checker.type};
 }
 
 PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -4973,23 +4955,38 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
   auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
   MG_ASSERT(session_trace_query);
 
-  std::function<void()> callback;
-  if (session_trace_query->enabled_) {
-    callback = [interpreter] {
-      interpreter->query_logger_.emplace(FLAGS_query_log_file);
-      interpreter->query_logger_->SetUser(interpreter->user_or_role_->key());
+  std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
+  handler = [interpreter, enabled = session_trace_query->enabled_] {
+    std::vector<std::vector<TypedValue>> results;
+    if (enabled) {
+      interpreter->query_logger_.emplace(
+          fmt::format("{}/{}", FLAGS_query_log_directory, interpreter->session_info_.uuid));
+      interpreter->query_logger_->SetUser(interpreter->session_info_.username);
+      interpreter->query_logger_->SetSessionId(interpreter->session_info_.uuid);
       interpreter->TryQueryLogging("Session initialized!");
-    };
-  } else {
-    callback = [interpreter] { interpreter->query_logger_.reset(); };
-  }
+    } else {
+      interpreter->query_logger_.reset();
+    }
 
-  return PreparedQuery{{},
+    results.push_back({TypedValue(interpreter->session_info_.uuid)});
+    return std::pair{results, QueryHandlerResult::NOTHING};
+  };
+
+  return PreparedQuery{{"session_uuid"},
                        std::move(parsed_query.required_privileges),
-                       [callback = std::move(callback)](AnyStream * /*stream*/,
-                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-                         callback();
-                         return QueryHandlerResult::COMMIT;
+                       [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto [results, action_on_complete] = handler();
+                           action = action_on_complete;
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return action;
+                         }
+                         return std::nullopt;
                        },
                        RWType::NONE};
 }
@@ -5786,6 +5783,9 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
+  if (query_logger_) {
+    query_logger_->SetSessionId(uuid);
+  }
 }
 
 bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
