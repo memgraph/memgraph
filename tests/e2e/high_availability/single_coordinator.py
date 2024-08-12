@@ -1041,14 +1041,14 @@ def test_replication_works_on_failover_simple():
             "localhost:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 1, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_3",
             "localhost:10003",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 1, "behind": 0, "status": "ready"}},
         ),
     ]
     mg_sleep_and_assert(expected_data_on_new_main, retrieve_data_show_replicas)
@@ -1156,7 +1156,7 @@ def test_replication_works_on_replica_instance_restart():
             "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 1, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_2",
@@ -1192,14 +1192,14 @@ def test_replication_works_on_replica_instance_restart():
             "localhost:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 1, "behind": 0, "status": "ready"}},
         ),
         (
             "instance_2",
             "localhost:10002",
             "sync",
             {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+            {"memgraph": {"ts": 1, "behind": 0, "status": "ready"}},
         ),
     ]
     mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)

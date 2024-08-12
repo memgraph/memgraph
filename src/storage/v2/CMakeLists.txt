@@ -44,6 +44,7 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/replication_storage_state.cpp
         inmemory/replication/recovery.cpp
+        point_functions.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -54,6 +55,8 @@ target_sources(mg-storage-v2
         vertex_info_cache_fwd.hpp
         vertex_info_cache.hpp
         delta_container.hpp
+        point.hpp
+        point_functions.hpp
 )
 
 find_package(gflags REQUIRED)

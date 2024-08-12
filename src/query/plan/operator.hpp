@@ -2495,8 +2495,6 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   bool is_write_;
   int64_t procedure_id_;
   bool void_procedure_;
-  mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
-  utils::MemoryResource *memory_resource = &monotonic_memory;
 
   std::string ToString() const override {
     return fmt::format("CallProcedure<{0}> {{{1}}}", procedure_name_,

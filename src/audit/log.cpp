@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "communication/bolt/v1/mg_types.hpp"
+#include "query/string_helpers.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
@@ -95,6 +96,18 @@ inline nlohmann::json BoltValueToJson(const communication::bolt::Value &value) {
       const auto &temp_value = value.ValueZonedDateTime();
       std::stringstream ss;
       ss << utils::ZonedDateTime(temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone());
+      ret = ss.str();
+      break;
+    }
+    case Point2d: {
+      std::stringstream ss;
+      ss << query::CypherConstructionFor(value.ValuePoint2d());
+      ret = ss.str();
+      break;
+    }
+    case Point3d: {
+      std::stringstream ss;
+      ss << query::CypherConstructionFor(value.ValuePoint3d());
       ret = ss.str();
       break;
     }

@@ -8,9 +8,7 @@
 
 #include "auth/auth.hpp"
 
-#include <iosfwd>
 #include <optional>
-#include <ranges>
 #include <utility>
 
 #include <fmt/format.h>
@@ -435,6 +433,19 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
+  // Check if user passed in an already hashed string
+  if (password) {
+    const auto already_hashed = UserDefinedHash(*password);
+    if (already_hashed) {
+      // TODO: Do this?
+      // if (config_.custom_password_regex || config_.password_permit_null) {
+      //   throw AuthException("Passing in a hash is not allowed when password format restrictions are defined.");
+      // }
+      user.UpdateHash(*already_hashed);
+      return;
+    }
+  }
+
   // Check if null
   if (!password) {
     if (!config_.password_permit_null) {

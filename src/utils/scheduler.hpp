@@ -41,13 +41,29 @@ class Scheduler {
    */
   template <typename TRep, typename TPeriod>
   void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
-           const std::function<void()> &f) {
+           const std::function<void()> &f, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
     DMG_ASSERT(is_working_ == false, "Thread already running.");
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
 
     is_working_ = true;
-    thread_ = std::thread([this, pause, f, service_name]() {
-      auto start_time = std::chrono::system_clock::now();
+    thread_ = std::thread([this, pause, f, service_name, start_time]() mutable {
+      auto find_first_execution = [&]() {
+        if (start_time) {              // Custom start time; execute as soon as possible
+          return *start_time - pause;  // -= simplifies the logic later on
+        }
+        return std::chrono::system_clock::now();
+      };
+
+      auto find_next_execution = [&](auto now) {
+        if (start_time) {                                  // Custom start time
+          while (*start_time < now) *start_time += pause;  // Find first start in the future
+          *start_time -= pause;                            // -= simplifies the logic later on
+          return *start_time;
+        }
+        return now;
+      };
+
+      auto next_execution = find_first_execution();
 
       utils::ThreadSetName(service_name);
 
@@ -61,11 +77,11 @@ class Scheduler {
         // Check for pause also.
         auto lk = std::unique_lock{mutex_};
         auto now = std::chrono::system_clock::now();
-        start_time += pause;
-        if (start_time > now) {
-          condition_variable_.wait_until(lk, start_time, [&] { return !is_working_.load(); });
+        next_execution += pause;
+        if (next_execution > now) {
+          condition_variable_.wait_until(lk, next_execution, [&] { return !is_working_.load(); });
         } else {
-          start_time = now;
+          next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
 
         pause_cv_.wait(lk, [&] { return !is_paused_.load(); });

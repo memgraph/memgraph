@@ -27,6 +27,7 @@ using namespace std::literals;
 constexpr auto kHashAlgo = "hash_algo";
 constexpr auto kPasswordHash = "password_hash";
 
+// Needs to be stable user queries depend on this
 inline constexpr std::array password_hash_mappings{
     std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
     std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
@@ -258,7 +259,33 @@ PasswordHashAlgorithm &InternalCurrentHashAlgorithm() {
   std::call_once(flag, [] { current = InternalParseHashAlgorithm(FLAGS_password_encryption_algorithm); });
   return current;
 }
+
+std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
+  // header = algo name + :
+  const auto header = std::string{AsString(algo)} + ":";
+  const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
+  if (str.size() == header.size() + hash_size) {
+    int i = 0;
+    if (std::all_of(header.begin(), header.end(), [&](const auto ch) { return tolower(ch) == str[i++]; })) {
+      return str.substr(header.size());
+    }
+  }
+  return {};
+}
 }  // namespace
+
+std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
+  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::BCRYPT)) {
+    return HashedPassword{PasswordHashAlgorithm::BCRYPT, std::string{*hash}};
+  }
+  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::SHA256)) {
+    return HashedPassword{PasswordHashAlgorithm::SHA256, std::string{*hash}};
+  }
+  if (const auto hash = UsesAlgo(password, PasswordHashAlgorithm::SHA256_MULTIPLE)) {
+    return HashedPassword{PasswordHashAlgorithm::SHA256_MULTIPLE, std::string{*hash}};
+  }
+  return {};
+}
 
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm { return InternalCurrentHashAlgorithm(); }
 
@@ -269,6 +296,16 @@ void SetHashAlgorithm(std::string_view algo) {
 
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
   return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
+}
+
+auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      return {60, 60};  // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return {SHA::SHA_LENGTH, SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
+  }
 }
 
 bool HashedPassword::VerifyPassword(const std::string &password) {

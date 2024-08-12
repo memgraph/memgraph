@@ -1371,23 +1371,26 @@ class Function : public memgraph::query::Expression {
     return object;
   }
 
+  bool IsBuiltin() const { return not bool(module_); }
+
+  bool IsUserDefined() const { return bool(module_); }
+
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
       : arguments_(arguments), function_name_(function_name) {
     auto func_result = NameToFunction(function_name_);
 
-    std::visit(utils::Overloaded{[this](func_impl function) {
-                                   function_ = function;
-                                   module_.reset();
-                                 },
-                                 [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
-                                   function_ = function.first;
-                                   module_ = std::move(function.second);
-                                 }},
+    std::visit(utils::Overloaded{
+                   [this](func_impl function) {
+                     function_ = function;
+                     module_.reset();
+                   },
+                   [this](std::pair<func_impl, std::shared_ptr<procedure::Module>> &function) {
+                     function_ = function.first;
+                     module_ = std::move(function.second);
+                   },
+                   [&](std::monostate) { throw SemanticException("Function '{}' doesn't exist.", function_name); }},
                func_result);
-    if (!function_) {
-      throw SemanticException("Function '{}' doesn't exist.", function_name);
-    }
   }
 
  private:
@@ -4054,6 +4057,31 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
 
   ShowSchemaInfoQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSchemaInfoQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class TtlQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  TtlQuery() = default;
+
+  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  Expression *period_{};
+  Expression *specific_time_{};
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  TtlQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<TtlQuery>();
+    object->type_ = type_;
+    object->period_ = period_ ? period_->Clone(storage) : nullptr;
+    object->specific_time_ = specific_time_ ? specific_time_->Clone(storage) : nullptr;
     return object;
   }
 
