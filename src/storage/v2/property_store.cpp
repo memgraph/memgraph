@@ -2093,12 +2093,13 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   uint32_t size = 0;
   uint8_t *data = nullptr;
   size = buffer.size();
-  if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
+  if (buffer.size() <= sizeof(buffer_) - 1) {  // use local buffer
     buffer_[0] = kUseLocalBuffer;
     data = &buffer_[1];
   } else {
-    data = new uint8_t[size];
-    SetSizeData(buffer_, size, data);
+    auto buffer_size = ToMultipleOf8(size);
+    data = new uint8_t[buffer_size];
+    SetSizeData(buffer_, buffer_size, data);
   }
 
   for (uint i = 0; i < size; ++i) {
