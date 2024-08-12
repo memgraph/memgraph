@@ -2407,7 +2407,7 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
 
   std::stringstream printed_plan;
   plan::PrettyPrint(*dba, &cypher_query_plan->plan(), &printed_plan);
-  interpreter.TryQueryLogging("Explain plan: \n{}" : printed_plan.str());
+  interpreter.TryQueryLogging(fmt::format("Explain plan:\n{}", printed_plan.str()));
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
