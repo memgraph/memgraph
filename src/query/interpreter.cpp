@@ -4946,23 +4946,38 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
   auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
   MG_ASSERT(session_trace_query);
 
-  std::function<void()> callback;
-  if (session_trace_query->enabled_) {
-    callback = [interpreter] {
-      interpreter->query_logger_.emplace(FLAGS_query_log_file);
-      interpreter->query_logger_->SetUser(interpreter->user_or_role_->key());
+  std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
+  handler = [interpreter, enabled = session_trace_query->enabled_] {
+    std::vector<std::vector<TypedValue>> results;
+    if (enabled) {
+      interpreter->query_logger_.emplace(
+          fmt::format("{}/{}", FLAGS_query_log_directory, interpreter->session_info_.uuid));
+      interpreter->query_logger_->SetUser(interpreter->session_info_.username);
+      interpreter->query_logger_->SetSessionId(interpreter->session_info_.uuid);
       interpreter->TryQueryLogging("Session initialized!");
-    };
-  } else {
-    callback = [interpreter] { interpreter->query_logger_.reset(); };
-  }
+    } else {
+      interpreter->query_logger_.reset();
+    }
 
-  return PreparedQuery{{},
+    results.push_back({TypedValue(interpreter->session_info_.uuid)});
+    return std::pair{results, QueryHandlerResult::NOTHING};
+  };
+
+  return PreparedQuery{{"session_uuid"},
                        std::move(parsed_query.required_privileges),
-                       [callback = std::move(callback)](AnyStream * /*stream*/,
-                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-                         callback();
-                         return QueryHandlerResult::COMMIT;
+                       [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
+                        pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto [results, action_on_complete] = handler();
+                           action = action_on_complete;
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return action;
+                         }
+                         return std::nullopt;
                        },
                        RWType::NONE};
 }

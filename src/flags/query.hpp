@@ -15,4 +15,4 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 // DECLARE_bool(cartesian_product_enabled);  Moved to run_time_configurable
 
-DECLARE_string(query_log_file);
+DECLARE_string(query_log_directory);
