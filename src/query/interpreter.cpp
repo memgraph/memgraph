@@ -2417,10 +2417,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   interpreter.TryQueryLogging(fmt::format("Explain plan:\n{}", printed_plan.str()));
 
   std::vector<std::vector<TypedValue>> printed_plan_rows;
-  interpreter.TryQueryLogging("Explain plan");
   for (const auto &row : utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
     printed_plan_rows.push_back(std::vector<TypedValue>{TypedValue(row)});
-    interpreter.TryQueryLogging(row);
   }
 
   return PreparedQuery{{"QUERY PLAN"},
