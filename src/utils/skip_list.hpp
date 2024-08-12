@@ -135,6 +135,11 @@ constexpr size_t MaxSkipListNodeSize() {
   return sizeof(SkipListNode<TObj>) + kSkipListMaxHeight * sizeof(std::atomic<SkipListNode<TObj> *>);
 }
 
+template <typename TObj>
+constexpr size_t SkipListNodeAlign() {
+  return std::max(alignof(SkipListNode<TObj>), alignof(std::atomic<SkipListNode<TObj> *>));
+}
+
 /// Get the size in bytes of the given SkipListNode instance.
 template <typename TObj>
 size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
@@ -360,7 +365,7 @@ class SkipListGc final {
       if (item->first < last_dead) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->Deallocate(item->second, bytes);
+        memory_->Deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
       } else {
         leftover.Push(*item);
       }
@@ -388,7 +393,7 @@ class SkipListGc final {
       while ((item = deleted_.Pop())) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->Deallocate(item->second, bytes);
+        memory_->Deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
       }
     }
 
@@ -906,7 +911,7 @@ class SkipList final : detail::SkipListNode_base {
 
   explicit SkipList(MemoryResource *memory = NewDeleteResource()) : gc_(memory) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
-    void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>());
+    void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
     // Here we don't call the `SkipListNode` constructor so that the `TObj`
@@ -932,7 +937,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*head);
       head->~TNode();
-      GetMemoryResource()->Deallocate(head, bytes);
+      GetMemoryResource()->Deallocate(head, bytes, SkipListNodeAlign<TObj>());
       head = succ;
     }
     head_ = other.head_;
@@ -953,7 +958,7 @@ class SkipList final : detail::SkipListNode_base {
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
       head_->lock.~SpinLock();
-      GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_));
+      GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
     }
   }
 
@@ -977,7 +982,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
-      GetMemoryResource()->Deallocate(curr, bytes);
+      GetMemoryResource()->Deallocate(curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1054,7 +1059,7 @@ class SkipList final : detail::SkipListNode_base {
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
 
         MemoryResource *memoryResource = GetMemoryResource();
-        void *ptr = memoryResource->Allocate(node_bytes);
+        void *ptr = memoryResource->Allocate(node_bytes, SkipListNodeAlign<TObj>());
         // `calloc` would be faster, but the API has no such call.
         memset(ptr, 0, node_bytes);
         new_node = static_cast<TNode *>(ptr);
