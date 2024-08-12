@@ -108,7 +108,6 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
     const auto alloc_size = RoundUint64ToMultiple(bytes_for_buffer + size, alloc_align);
     if (!alloc_size) throw BadAlloc("Allocation size overflow");
-    if (*alloc_size < size) throw BadAlloc("Allocation size overflow");
     void *ptr = memory_->Allocate(*alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.
     current_buffer_ = new (ptr) Buffer{current_buffer_, *alloc_size - bytes_for_buffer, alloc_align};
