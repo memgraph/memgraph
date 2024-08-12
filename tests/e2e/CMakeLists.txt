@@ -92,6 +92,7 @@ add_subdirectory(show_metrics)
 add_subdirectory(time_to_live)
 add_subdirectory(show_active_users_info)
 add_subdirectory(periodic_commit)
+add_subdirectory(query_log)
 
 add_subdirectory(replication_experimental)
 add_subdirectory(durability)

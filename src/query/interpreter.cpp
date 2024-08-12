@@ -4963,7 +4963,7 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
     return std::pair{results, QueryHandlerResult::NOTHING};
   };
 
-  return PreparedQuery{{"session_uuid"},
+  return PreparedQuery{{"session uuid"},
                        std::move(parsed_query.required_privileges),
                        [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
