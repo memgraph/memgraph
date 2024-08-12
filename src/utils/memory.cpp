@@ -101,14 +101,16 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     static_assert(IsPow2(alignof(Buffer)),
                   "Buffer should not be a packed struct in order to be placed "
                   "at the start of an allocation request");
+    // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
     const auto maybe_bytes_for_buffer = RoundUint64ToMultiple(sizeof(Buffer), alloc_align);
     if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
     const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
-    const size_t alloc_size = bytes_for_buffer + size;
-    if (alloc_size < size) throw BadAlloc("Allocation size overflow");
-    void *ptr = memory_->Allocate(alloc_size, alloc_align);
+    // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
+    const auto alloc_size = RoundUint64ToMultiple(bytes_for_buffer + size, alloc_align);
+    if (!alloc_size) throw BadAlloc("Allocation size overflow");
+    void *ptr = memory_->Allocate(*alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.
-    current_buffer_ = new (ptr) Buffer{current_buffer_, alloc_size - bytes_for_buffer, alloc_align};
+    current_buffer_ = new (ptr) Buffer{current_buffer_, *alloc_size - bytes_for_buffer, alloc_align};
     allocated_ = 0;
   };
 

@@ -44,6 +44,21 @@ def extract_bolt_port(args):
     return 7687
 
 
+def extract_management_port(args):
+    for arg_index, arg in enumerate(args):
+        if arg.startswith("--management-port="):
+            maybe_port = arg.split("=")[1]
+            if not maybe_port.isdigit():
+                raise Exception("Unable to read management port after --management-port=.")
+            return int(maybe_port)
+        elif arg == "--management-port":
+            maybe_port = args[arg_index + 1]
+            if not maybe_port.isdigit():
+                raise Exception("Unable to read management port after --management-port.")
+            return int(maybe_port)
+    return None
+
+
 def replace_paths(path):
     return path.replace("$PROJECT_DIR", PROJECT_DIR).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
 
