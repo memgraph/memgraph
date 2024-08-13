@@ -5715,7 +5715,7 @@ void Interpreter::Commit() {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
 
-  if (query_logger_.has_value()) {
+  if (IsQueryLoggingActive()) {
     query_logger_.value().trace("Commit successfully finished!");
   }
 }
