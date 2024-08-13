@@ -609,8 +609,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server,
-                              std::string_view management_server) -> void override {
+                              std::string_view coordinator_server, std::string_view management_server)
+      -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
@@ -802,14 +802,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2181,8 +2188,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -2355,9 +2362,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   auto *trigger_context_collector =
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
-      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory, std::move(user_or_role),
-      transaction_status, std::move(tx_timer), current_db.db_acc_, trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+      plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
+      std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, trigger_context_collector,
+      memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
       interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr);
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
@@ -2508,14 +2515,16 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        // the construction of the corresponding context.
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
-       tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_,
-       hops_limit, query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+       tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
+       query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), db_acc, nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit, query_logger)
+                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
+                       query_logger)
                   .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
@@ -2770,11 +2779,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
