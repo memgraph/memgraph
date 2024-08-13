@@ -5762,10 +5762,34 @@ void Interpreter::SetNextTransactionIsolationLevel(const storage::IsolationLevel
 void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolation_level) {
   interpreter_isolation_level.emplace(isolation_level);
 }
-void Interpreter::ResetUser() { user_or_role_.reset(); }
-void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) { user_or_role_ = std::move(user_or_role); }
+
+void Interpreter::ResetUser() {
+  user_or_role_.reset();
+  if (query_logger_) {
+    query_logger_->ResetUser();
+  }
+}
+
+void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
+  user_or_role_ = std::move(user_or_role);
+  if (query_logger_) {
+    query_logger_->SetUser(user_or_role_->key());
+  }
+}
+
 void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
   session_info_ = {.uuid = uuid, .username = username, .login_timestamp = login_timestamp};
+  if (query_logger_) {
+    query_logger_->SetSessionId(uuid);
+  }
+}
+
+bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
+
+void Interpreter::TryQueryLogging(std::string message) {
+  if (query_logger_.has_value()) {
+    (*query_logger_).trace(message);
+  }
 }
 void Interpreter::ResetUser() {
   user_or_role_.reset();
