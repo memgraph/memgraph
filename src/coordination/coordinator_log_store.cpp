@@ -151,7 +151,7 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   uint64_t next_slot = GetNextSlot();
 
   if (durability_) {
-    bool const is_entry_with_biggest_id = next_slot == GetNextSlot();
+    bool const is_entry_with_biggest_id = true;
     StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
   }
 

@@ -93,7 +93,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   auto const last_committed_index_state_machine_{state_machine_->last_commit_index()};
   spdlog::trace("Last commited index from snapshot: {}, last commited index in state machine: {}",
                 last_commit_index_snapshot, last_committed_index_state_machine_);
-  auto coordinator_log_store = static_cast<CoordinatorLogStore *>(log_store.get());
+  auto *coordinator_log_store = static_cast<CoordinatorLogStore *>(log_store.get());
   auto log_entries =
       coordinator_log_store->GetAllEntriesRange(last_commit_index_snapshot, last_committed_index_state_machine_ + 1);
 
@@ -106,9 +106,9 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
       auto cluster_config = state_manager_->load_config();
       state_machine_->commit_config(entry.first, cluster_config);
-      continue;
+    } else {
+      state_machine_->commit(entry.first, entry.second->get_buf());
     }
-    state_machine_->commit(entry.first, entry.second->get_buf());
   }
 
   if (log_store_durability.stored_log_store_version_ != kActiveVersion) {

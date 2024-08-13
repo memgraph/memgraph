@@ -88,7 +88,7 @@ class CoordinatorLogStore : public log_store {
 
  private:
   /*
-   * Returns next slot, without taking lock
+   * Returns next slot, without taking lock. Should be called under the lock
    */
   auto GetNextSlot() const -> ulong;
 
