@@ -16,34 +16,32 @@ import pytest
 
 from common import cursor, connect
 
-import time
-
 SWITCH_TO_ANALYTICAL = "STORAGE MODE IN_MEMORY_ANALYTICAL;"
 
 
 def modify_graph(query):
     subprocess_cursor = connect()
-
-    time.sleep(0.5)  # Time for the parallel transaction to call a query procedure
-
     subprocess_cursor.execute(query)
+
+
+def execute_test(cursor, deleter_query, cursor_query):
+    deleter = Process(
+        target=modify_graph,
+        args=(deleter_query),
+    )
+    deleter.start()
+    cursor.execute(cursor_query)
+    deleter.join()
+    return cursor.fetchall()
 
 
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_result(cursor, api):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (m:Component {id: 'A7422'})-[e:PART_OF]->(n:Component {id: '7X8X0'}) DELETE e;",),
-    )
-    deleter.start()
-
-    cursor.execute(f"MATCH (m)-[e]->(n) RETURN {api}_api.pass_relationship(e);")
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (m:Component {id: 'A7422'})-[e:PART_OF]->(n:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = f"MATCH (m)-[e]->(n) RETURN {api}_api.pass_relationship(e);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0].type == "DEPENDS_ON"
 
@@ -51,20 +49,11 @@ def test_function_delete_result(cursor, api):
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_function_delete_only_result(cursor, api):
     cursor.execute(SWITCH_TO_ANALYTICAL)
-
     cursor.execute("MATCH (m:Component {id: '7X8X0'})-[e:DEPENDS_ON]->(n:Component {id: 'A7422'}) DELETE e;")
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (m:Component {id: 'A7422'})-[e:PART_OF]->(n:Component {id: '7X8X0'}) DELETE e;",),
-    )
-    deleter.start()
-
-    cursor.execute(f"MATCH (m)-[e]->(n) RETURN {api}_api.pass_relationship(e);")
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (m:Component {id: 'A7422'})-[e:PART_OF]->(n:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = f"MATCH (m)-[e]->(n) RETURN {api}_api.pass_relationship(e);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -73,22 +62,12 @@ def test_function_delete_only_result(cursor, api):
 def test_procedure_delete_result(cursor, api):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (n {id: 'A7422'}) DETACH DELETE n;",),
-    )
-    deleter.start()
-
-    cursor.execute(
-        f"""MATCH (n)
+    deleter_query = "MATCH (n {id: 'A7422'}) DETACH DELETE n;"
+    cursor_query = f"""MATCH (n)
         CALL {api}_api.pass_node_with_id(n)
         YIELD node, id
         RETURN node, id;"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 2 and result[0][0].properties["id"] == "7X8X0"
 
@@ -96,25 +75,11 @@ def test_procedure_delete_result(cursor, api):
 @pytest.mark.parametrize("api", ["c", "cpp", "python"])
 def test_procedure_delete_only_result(cursor, api):
     cursor.execute(SWITCH_TO_ANALYTICAL)
-
     cursor.execute("MATCH (n {id: '7X8X0'}) DETACH DELETE n;")
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (n {id: 'A7422'}) DETACH DELETE n;",),
-    )
-    deleter.start()
-
-    cursor.execute(
-        f"""MATCH (n)
-        CALL {api}_api.pass_node_with_id(n)
-        YIELD node, id
-        RETURN node, id;"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (n {id: 'A7422'}) DETACH DELETE n;"
+    cursor_query = f"MATCH (n) CALL {api}_api.pass_node_with_id(n) YIELD node, id RETURN node, id;"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 0
 
@@ -122,17 +87,9 @@ def test_procedure_delete_only_result(cursor, api):
 def test_deleted_node(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(target=modify_graph, args=("MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;",))
-    deleter.start()
-
-    cursor.execute(
-        """MATCH (n: Component {id: 'A7422'})
-        RETURN python_api.pass_node(n);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;"
+    cursor_query = "MATCH (n: Component {id: 'A7422'}) RETURN python_api.pass_node(n);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -140,20 +97,9 @@ def test_deleted_node(cursor):
 def test_deleted_relationship(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;",),
-    )
-    deleter.start()
-
-    cursor.execute(
-        """MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'})
-        RETURN python_api.pass_relationship(e);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) RETURN python_api.pass_relationship(e);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -161,17 +107,9 @@ def test_deleted_relationship(cursor):
 def test_deleted_node_in_path(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(target=modify_graph, args=("MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;",))
-    deleter.start()
-
-    cursor.execute(
-        """MATCH path=(n {id: 'A7422'})-[e]->(m)
-        RETURN python_api.pass_path(path);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (n:Component {id: 'A7422'}) DETACH DELETE n;"
+    cursor_query = "MATCH path=(n {id: 'A7422'})-[e]->(m) RETURN python_api.pass_path(path);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -179,20 +117,9 @@ def test_deleted_node_in_path(cursor):
 def test_deleted_relationship_in_path(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;",),
-    )
-    deleter.start()
-
-    cursor.execute(
-        """MATCH path=(n {id: 'A7422'})-[e]->(m)
-        RETURN python_api.pass_path(path);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = "MATCH path=(n {id: 'A7422'})-[e]->(m) RETURN python_api.pass_path(path);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -200,21 +127,9 @@ def test_deleted_relationship_in_path(cursor):
 def test_deleted_value_in_list(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;",),
-    )
-    deleter.start()
-
-    cursor.execute(
-        """MATCH (n)-[e]->()
-        WITH collect(n) + collect(e) as list
-        RETURN python_api.pass_list(list);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    deleter_query = "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = "MATCH (n)-[e]->() WITH collect(n) + collect(e) as list RETURN python_api.pass_list(list);"
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 
@@ -222,21 +137,11 @@ def test_deleted_value_in_list(cursor):
 def test_deleted_value_in_map(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
-    deleter = Process(
-        target=modify_graph,
-        args=("MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;",),
+    deleter_query = "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) DELETE e;"
+    cursor_query = (
+        "MATCH (n {id: 'A7422'})-[e]->() WITH {node: n, relationship: e} AS map RETURN python_api.pass_map(map);"
     )
-    deleter.start()
-
-    cursor.execute(
-        """MATCH (n {id: 'A7422'})-[e]->()
-        WITH {node: n, relationship: e} AS map
-        RETURN python_api.pass_map(map);"""
-    )
-
-    deleter.join()
-
-    result = cursor.fetchall()
+    result = execute_test(cursor, deleter_query, cursor_query)
 
     assert len(result) == 1 and len(result[0]) == 1 and result[0][0] is None
 

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,15 +24,8 @@ constexpr std::string_view kPassNodeWithIdArg = "node";
 constexpr std::string_view kPassNodeWithIdFieldNode = "node";
 constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
-// While the query procedure/function sleeps for this amount of time, a parallel transaction will erase a graph element
-// (node or relationship) contained in the return value. Any operation in the parallel transaction should take far less
-// time than this value.
-const int64_t kSleep = 1;
-
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
   auto *relationship = mgp::list_at(args, 0);
-
-  std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
   mgp::func_result_set_value(res, relationship, memory);
 }
@@ -40,8 +33,6 @@ void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
 void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   auto *node = mgp::value_get_vertex(mgp::list_at(args, 0));
   auto node_id = mgp::vertex_get_id(node).as_int;
-
-  std::this_thread::sleep_for(std::chrono::seconds(kSleep));
 
   auto *result_record = mgp::result_new_record(result);
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldNode.data(), mgp::value_make_vertex(node));
