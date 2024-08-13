@@ -5763,13 +5763,6 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
   interpreter_isolation_level.emplace(isolation_level);
 }
 
-void Interpreter::ResetUser() {
-  user_or_role_.reset();
-  if (query_logger_) {
-    query_logger_->ResetUser();
-  }
-}
-
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
@@ -5784,23 +5777,10 @@ void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::st
   }
 }
 
-bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
-
-void Interpreter::TryQueryLogging(std::string message) {
-  if (query_logger_.has_value()) {
-    (*query_logger_).trace(message);
-  }
-}
 void Interpreter::ResetUser() {
   user_or_role_.reset();
   if (query_logger_) {
     query_logger_->ResetUser();
-  }
-}
-void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
-  user_or_role_ = std::move(user_or_role);
-  if (query_logger_) {
-    query_logger_->SetUser(user_or_role_->key());
   }
 }
 
