@@ -41,16 +41,16 @@ class QueryLogger : public utils::Logger {
 
   void err(const std::string &log_line) override;
 
-  void SetTransactionId(std::string t_id);
-  void SetSessionId(std::string s_id);
-  void SetUser(std::string u);
+  void SetTransactionId(const std::string &t_id);
+  void SetSessionId(const std::string &s_id);
+  void SetUser(const std::string &u);
   void ResetUser();
   void ResetTransactionId();
 
  private:
-  std::string session_id{""};
-  std::string user_or_role{""};
-  std::string transaction_id{""};
+  std::string session_id;
+  std::string user_or_role;
+  std::string transaction_id;
 
   std::string GetMessage(const std::string &log_line);
 };

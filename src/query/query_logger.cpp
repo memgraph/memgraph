@@ -31,9 +31,9 @@ void QueryLogger::info(const std::string &log_line) { logger_->log(spdlog::level
 void QueryLogger::warn(const std::string &log_line) { logger_->log(spdlog::level::warn, GetMessage(log_line)); }
 void QueryLogger::err(const std::string &log_line) { logger_->log(spdlog::level::err, GetMessage(log_line)); }
 
-void QueryLogger::SetTransactionId(std::string t_id) { transaction_id = t_id; }
-void QueryLogger::SetSessionId(std::string s_id) { session_id = s_id; }
-void QueryLogger::SetUser(std::string u) { user_or_role = u; }
+void QueryLogger::SetTransactionId(const std::string &t_id) { transaction_id = t_id; }
+void QueryLogger::SetSessionId(const std::string &s_id) { session_id = s_id; }
+void QueryLogger::SetUser(const std::string &u) { user_or_role = u; }
 void QueryLogger::ResetUser() { user_or_role = ""; }
 void QueryLogger::ResetTransactionId() { transaction_id = ""; }
 
