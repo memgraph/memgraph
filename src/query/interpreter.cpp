@@ -2516,7 +2516,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
-       query_logger = interpreter.query_logger_.has_value() ? &*interpreter.query_logger_ : nullptr](
+       query_logger = interpreter.IsQueryLoggingActive() ? &*interpreter.query_logger_ : nullptr](
           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
@@ -5724,7 +5724,7 @@ void Interpreter::Commit() {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
   }
 
-  if (query_logger_.has_value()) {
+  if (IsQueryLoggingActive()) {
     query_logger_.value().trace("Commit successfully finished!");
   }
 }
