@@ -4089,7 +4089,6 @@ class TtlQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
-
 class SessionTraceQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
